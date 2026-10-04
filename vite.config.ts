@@ -12,4 +12,11 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
+  build: {
+    // Kept at the default on purpose: the real budget is scripts/check-bundles.mjs (`bun run perf`), which fails
+    // CI on gzip growth. A vendor manualChunks split was tried and skipped: it reshuffles bytes between files but
+    // the entry plus vendor still load together, so initial load does not shrink. The pdf chunk already splits
+    // itself through dynamic import() in src/lib/cv-file.ts.
+    chunkSizeWarningLimit: 500,
+  },
 })

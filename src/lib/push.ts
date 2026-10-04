@@ -204,14 +204,16 @@ export function useInstallGuide(): boolean {
   )
 }
 
-/** How many of the person's devices get the morning message; null until known. Checks again every `everyMs` when given. */
-export function usePhoneCount(session: Session | null, everyMs?: number): number | null {
-  const [count, setCount] = useState<number | null>(null)
+/**
+ * How many of the person's devices get the morning message (`now`), and how many there were at the first count
+ * (`first`); both null until known. Checks again every `everyMs` when given.
+ */
+export function usePhoneCounts(session: Session | null, everyMs?: number): { now: number | null; first: number | null } {
+  const [counts, setCounts] = useState<{ now: number | null; first: number | null }>({ now: null, first: null })
   const userId = session?.user.id
 
   useEffect(() => {
     if (!userId) {
-      setCount(null)
       return
     }
     let live = true
@@ -221,7 +223,7 @@ export function usePhoneCount(session: Session | null, everyMs?: number): number
         .select("id", { count: "exact", head: true })
         .eq("user_id", userId)
         .then(({ count: n, error }) => {
-          if (live && !error) setCount(n ?? 0)
+          if (live && !error) setCounts((c) => ({ now: n ?? 0, first: c.first ?? n ?? 0 }))
         })
     }
     check()
@@ -233,7 +235,12 @@ export function usePhoneCount(session: Session | null, everyMs?: number): number
     }
   }, [userId, everyMs])
 
-  return count
+  return userId ? counts : { now: null, first: null }
+}
+
+/** How many of the person's devices get the morning message; null until known. */
+export function usePhoneCount(session: Session | null, everyMs?: number): number | null {
+  return usePhoneCounts(session, everyMs).now
 }
 
 /** Whether any of the person's devices already gets the morning message. */

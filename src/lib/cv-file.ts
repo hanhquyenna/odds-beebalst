@@ -6,9 +6,9 @@
  *   - an old .doc, or any type we do not read: save it as .docx or PDF
  *   - a PDF with no text (a scan or a photo): paste the text instead
  *   - a file over 8 MB
+ *
+ * Nothing heavy loads with the page: fflate loads only when a Word file is chosen, pdf.js only when a PDF is.
  */
-import { strFromU8, unzipSync } from "fflate"
-
 export const MAX_CV_BYTES = 8 * 1024 * 1024
 export const MAX_CV_CHARS = 20_000
 
@@ -71,7 +71,9 @@ export function docxXmlToText(xml: string): string {
   ).replace(/ \| \n/g, "\n")
 }
 
-export function docxToText(buf: Uint8Array): string {
+export async function docxToText(buf: Uint8Array): Promise<string> {
+  // Imported here so fflate stays out of the page until a Word file is chosen.
+  const { strFromU8, unzipSync } = await import("fflate")
   let files: Record<string, Uint8Array>
   try {
     files = unzipSync(buf, { filter: (f) => f.name === "word/document.xml" })
@@ -155,7 +157,7 @@ export async function readCvFile(file: File, pdf: () => Promise<PdfJs> = browser
   if (e === "txt" || e === "md" || e === "text" || file.type === "text/plain") {
     raw = await file.text()
   } else if (e === "docx") {
-    raw = docxToText(new Uint8Array(await file.arrayBuffer()))
+    raw = await docxToText(new Uint8Array(await file.arrayBuffer()))
   } else if (e === "pdf" || file.type === "application/pdf") {
     raw = await pdfToText(new Uint8Array(await file.arrayBuffer()), pdf)
   } else if (e === "doc") {

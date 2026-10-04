@@ -3,7 +3,7 @@ import { toast } from "sonner"
 import { Landing } from "@/components/Landing"
 import { SeekerQuestions } from "@/components/SeekerQuestions"
 import { Button } from "@/components/ui/button"
-import { signUp } from "@/lib/auth"
+import { beginShooSignIn, rememberShooNext } from "@/lib/shoo"
 import { describeChanges } from "@/lib/changes"
 import { useData } from "@/lib/data"
 import { saveDraft } from "@/lib/draft"
@@ -49,8 +49,6 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
   const existing = data.profile.onboarded ? data.profile : null
   const [step, setStep] = useState<Step>(() => (atIntro && !existing ? "intro" : atWelcome && !existing ? "welcome" : firstStep(existing)))
   const [form, setForm] = useState<FormState>(() => toFormState(data.profile))
-  const [email, setEmail] = useState<string>("")
-  const [password, setPassword] = useState<string>("")
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState<boolean>(false)
   const [link, setLink] = useState<string>("")
@@ -153,32 +151,23 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
       return
     }
 
-    // The account step: an email and a password make one; leaving it empty skips it.
-    if (!email.trim() && !password) {
-      finish()
+    // The account step: SSO makes one; leaving it empty skips it.
+    finish()
 
-      return
-    }
-    if (password.length < 8) {
-      setError("Use at least 8 characters for the password.")
+    return
+  }
 
-      return
-    }
+  // Google instead of a password: the answers ride along in the profile, and
+  // the way back knows this trip started at sign-up.
+  async function googleSignup(): Promise<void> {
     setSaving(true)
+    setError(null)
     try {
-      // The profile first, so the account takes it the moment it exists.
       data.setProfile(toProfile(form, data.profile))
-      const session = await signUp(email.trim(), password)
-      if (session) {
-        data.setSession(session)
-      } else {
-        toast("Check your email to confirm the address, then sign in. Your answers are kept on this device.", { duration: 8000 })
-      }
-      clearDraft()
-      onSaved()
+      rememberShooNext("jobs")
+      await beginShooSignIn()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not make the account.")
-    } finally {
       setSaving(false)
     }
   }
@@ -300,7 +289,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
           review={review}
           step={step}
           onChange={setForm}
-          account={{ email, password, onEmail: setEmail, onPassword: setPassword }}
+          account={step === "contact" ? { onGoogle: googleSignup, disabled: saving } : null}
         />
       </div>
 
@@ -310,7 +299,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
             &larr; Back
           </Button>
           <Button type="submit" size="lg" disabled={saving} className="flex-1 cursor-pointer disabled:cursor-not-allowed">
-            {saving ? "Saving" : step === "contact" && !email.trim() && !password ? "Finish without an account" : nextLabel(step, form)}
+            {saving ? "Saving" : step === "contact" ? "Finish without an account" : nextLabel(step, form)}
           </Button>
         </div>
         <SignInLink onSignIn={onSignIn} />

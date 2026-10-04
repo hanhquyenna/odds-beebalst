@@ -9,7 +9,7 @@
  */
 import { computeShares, standing, NO_WHAT_IF, type Standing } from "../src/lib/engine"
 import { fetchPostings, fetchReference } from "../src/lib/jobs"
-import { DEFAULT_PROFILE, type Posting, type Profile } from "../src/lib/types"
+import { DEFAULT_PROFILE, type Profile } from "../src/lib/types"
 
 const pos = (Title: string, company: string, Location: string, from: string, to: string, Description: string) => ({ Title, "Company Name": company, Location, "Started On": from, "Finished On": to, Description })
 const edu = (school: string, degree: string) => ({ "School Name": school, "Degree Name": degree })

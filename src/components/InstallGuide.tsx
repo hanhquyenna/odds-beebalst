@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { encode } from "uqr"
 import { ChevronLeftIcon, ChevronRightIcon, CircleCheckIcon, XIcon } from "@/components/icons"
 import { AndroidPhone, IosPhone, type AndroidScreen, type IosScreen } from "@/components/PhoneMock"
 import { Button } from "@/components/ui/button"
 import { createPhoneLink, type Session } from "@/lib/auth"
 import { useHomeScreenCode } from "@/components/NotifyPrompt"
-import { iosOtherBrowser, platformOf, promptInstall, usePhoneCount, usePush } from "@/lib/push"
+import { iosOtherBrowser, platformOf, promptInstall, usePhoneCounts, usePush } from "@/lib/push"
 import { cn } from "cn"
 
 type Phone = "ios" | "android"
@@ -150,14 +150,10 @@ export function InstallGuide({ session, onClose }: { session: Session | null; on
   const platform = platformOf()
   const desktop = platform === "desktop"
   const push = usePush()
-  const phones = usePhoneCount(session, desktop ? 4000 : undefined)
+  const phones = usePhoneCounts(session, desktop ? 4000 : undefined)
   useHomeScreenCode(session)
   // Only a phone that turns notifications on while this is open counts as done; one set up before does not end the steps.
-  const before = useRef<number | null>(null)
-  if (before.current === null && phones !== null) {
-    before.current = phones
-  }
-  const done = desktop && phones !== null && before.current !== null && phones > before.current
+  const done = desktop && phones.now !== null && phones.first !== null && phones.now > phones.first
   const [phone, setPhone] = useState<Phone>(platform === "android" ? "android" : "ios")
   const [step, setStep] = useState<number>(0)
   const steps = phone === "ios" ? IOS : ANDROID

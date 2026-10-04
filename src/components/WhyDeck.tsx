@@ -44,11 +44,13 @@ function useDrawn(): boolean {
 /** A number that counts up to its value once its slide is on screen. */
 function Count({ to, decimals = 0, prefix = "", suffix = "" }: { to: number; decimals?: number; prefix?: string; suffix?: string }): React.JSX.Element {
   const [value, setValue] = useState<number>(reducedMotion() ? to : 0)
+  // Reduced motion starts at the value, so a later value still shows without an effect writing it.
+  if (reducedMotion() && value !== to) {
+    setValue(to)
+  }
 
   useEffect(() => {
     if (reducedMotion()) {
-      setValue(to)
-
       return
     }
     let frame = 0

@@ -142,13 +142,14 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
     setReferrals(remap)
   }, [alias])
   const [applications, setApplications] = useState<Application[]>(() => read<Application[]>(LOCAL_APPS_KEY, []))
-  const people = profile.people ?? []
+  const people: Array<Person> = profile.people ?? []
   // A person linked to a job as your referral is the same fact as ticking it by hand, so the two are one set.
-  const referrals = useMemo(() => new Set([...manualReferrals, ...people.filter((p) => p.status === "Referred" && p.jobId).map((p) => p.jobId as string)]), [manualReferrals, people])
+  const referrals = useMemo((): Set<string> => new Set([...manualReferrals, ...(profile.people ?? []).filter((p): boolean => p.status === "Referred" && Boolean(p.jobId)).map((p): string => p.jobId as string)]), [manualReferrals, profile.people])
   const timer = useRef<number | undefined>(undefined)
   const profileRef = useRef<Profile>(profile)
   profileRef.current = profile
   const facts = useProfileFacts(profile, session)
+  const refreshFacts: () => void = facts.refresh
   // Signing in, or the saved profile arriving, reads it once; every later save reads again (see setProfile).
   useEffect(() => {
     if (session && profileSaved) {
@@ -227,7 +228,7 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
     return () => {
       live = false
     }
-  }, [status])
+  }, [status, remote])
 
   const postings = useMemo(() => [...local, ...remote], [local, remote])
   // A job you saved or applied to can leave the open pool (it closed). It is fetched on its own, once, so it stays in your list.
@@ -321,12 +322,12 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
           .then(() => {
             setProfileSaved(true)
             // The saved profile is what gets read, so read it once it is saved.
-            facts.refresh()
+            refreshFacts()
           })
           .catch(() => setProfileSaved(false))
       }, 800)
     },
-    [session, facts.refresh],
+    [session, refreshFacts],
   )
 
   const toggleSaved = useCallback((id: string): void => {
