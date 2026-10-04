@@ -9,7 +9,19 @@ describe("fitOf", () => {
     expect(fit.parts.map((p) => p.key)).toEqual(["skills", "role", "level"])
     expect(fit.parts[0].value).toBeCloseTo((1 + FIT_AVERAGE * SKILL_PRIOR) / (2 + SKILL_PRIOR), 10)
     expect(fit.parts[1].value).toBe(1)
-    expect(fit.parts[2].value).toBe(1)
+  })
+  test("the right level is no achievement: it earns an average applicant's score, and only a mismatch counts against", () => {
+    const level = (job: string, years: number): number => fitOf({ ...base, level: job, years })!.parts.find((p) => p.key === "level")!.value
+    expect(level("Entry", 1)).toBe(FIT_AVERAGE)
+    expect(level("Mid", 1)).toBe(FIT_AVERAGE / 2)
+    expect(level("Senior", 1)).toBe(0)
+  })
+  test("a title word found in every line of work counts for little, one found in a single line counts for more", () => {
+    const specificity = (w: string): number => (w === "equiti" || w === "equity" ? 1 : 0.1)
+    const only = (text: string): number => fitOf({ ...base, title: "Growth Equity", text, specificity, wanted: [] })!.parts.find((p) => p.key === "role")!.value
+    expect(only("growth marketing lead")).toBeCloseTo(0.1 / 1.1, 5)
+    expect(only("private equity associate")).toBeCloseTo(1 / 1.1, 5)
+    expect(only("growth equity")).toBe(1)
   })
   test("missing a must-have costs more than missing a nice-to-have", () => {
     const wanted = (tier: "must" | "nice") => [{ name: "excel", tier: "must" as const }, { name: "sql", tier }]
@@ -69,6 +81,19 @@ describe("field", () => {
   test("without a field the fit is the three parts as before", () => {
     expect(fitOf({ ...base, field: null })!.parts.map((p) => p.key)).toEqual(["skills", "role", "level"])
     expect(fitOf({ ...base, field: 0.5 })!.parts.map((p) => p.key)).toEqual(["skills", "field", "role", "level"])
+  })
+  test("consistency is judged next to the field, and a scattered history scores lower than a focused one on the same field match", () => {
+    expect(fitOf({ ...base, field: 0.5, consistency: 0.4 })!.parts.map((p) => p.key)).toEqual(["skills", "field", "role", "consistency", "level"])
+    const focused = fitOf({ ...base, field: 0.5, consistency: 0.8 })!.score
+    const scattered = fitOf({ ...base, field: 0.5, consistency: 0.1 })!.score
+    expect(focused).toBeGreaterThan(scattered)
+    expect(fitOf({ ...base, field: null, consistency: 0.8 })!.parts.map((p) => p.key)).not.toContain("consistency")
+  })
+  test("the consistency part says in words how focused the history is", () => {
+    const say = (c: number): string => fitOf({ ...base, field: 0.5, consistency: c })!.parts.find((p) => p.key === "consistency")!.detail
+    expect(say(0.7)).toContain("focused")
+    expect(say(0.3)).toContain("part of your history")
+    expect(say(0.05)).toContain("spread over other lines")
   })
   test("the field part says in words how far the job is from the CV", () => {
     expect(fitOf({ ...base, field: 0.8 })!.parts[1].detail).toContain("point to this line of work")

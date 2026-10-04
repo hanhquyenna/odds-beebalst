@@ -294,7 +294,7 @@ function Minute(): React.JSX.Element {
         <div className="flex flex-col gap-1.5">
           <p className={`text-sm ${TONE.black.muted}`}>and you get</p>
           <div className="grid grid-cols-[1fr_auto_1fr] items-stretch gap-2">
-            <p className="flex items-center justify-center rounded-xl border border-background/40 px-3 py-2.5 text-center text-sm font-semibold leading-tight @3xl:text-base">job insights</p>
+            <p className="flex items-center justify-center rounded-xl border-[1.5px] border-background/40 px-3 py-2.5 text-center text-sm font-semibold leading-tight @3xl:text-base">job insights</p>
             <span className={`flex items-center text-sm ${TONE.black.muted}`}>or</span>
             <p className="flex items-center justify-center rounded-xl bg-brand px-3 py-2.5 text-center text-sm font-semibold leading-tight text-foreground @3xl:text-base">a referral</p>
           </div>
@@ -317,7 +317,7 @@ function Model(): React.JSX.Element {
       <Half tone="black">
         <ul className="flex flex-col">
           {MENTAL_MODEL.map((m) => (
-            <li key={m.title} className="flex flex-col gap-0.5 border-t border-background/25 py-2.5 last:border-b @3xl:py-4">
+            <li key={m.title} className="flex flex-col gap-0.5 border-t-[1.5px] border-background/25 py-2.5 last:border-b-[1.5px] @3xl:py-4">
               <p className="text-base font-semibold leading-snug @3xl:text-lg">
                 <Stress text={m.title} word={m.stress} />
               </p>
@@ -374,19 +374,19 @@ export function WhyDeck(): React.JSX.Element {
           {slide === "title" ? <Title /> : slide === "hired" ? <Hired /> : slide === "screen" ? <Screen /> : slide === "abroad" ? <Abroad /> : slide === "minute" ? <Minute /> : <Model />}
         </div>
       </div>
-      <div className="flex items-center justify-between border-t px-2 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
+      <div className="flex items-center justify-between border-t-[1.5px] px-2 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
         <div className="flex items-center" role="tablist" aria-label="Slides">
           {SLIDES.map((s, i) => (
-            <button key={s.id} type="button" role="tab" aria-selected={i === at} aria-label={`Slide ${i + 1}`} onClick={() => go(i)} className="group flex h-11 min-w-8 cursor-pointer items-center justify-center px-1.5">
+            <button key={s.id} type="button" role="tab" aria-selected={i === at} aria-label={`Slide ${i + 1}`} onClick={() => go(i)} className="group flex h-11 min-w-6 cursor-pointer items-center justify-center px-1 sm:min-w-8 sm:px-1.5">
               <span className={`h-2 rounded-full transition-all duration-300 ${i === at ? "w-7 bg-brand" : "w-2 bg-border group-hover:bg-muted-foreground"}`} />
             </button>
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" aria-label="Previous slide" disabled={at === 0} onClick={() => go(at - 1)} className="flex size-11 cursor-pointer items-center justify-center rounded-full border text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground disabled:cursor-default disabled:opacity-30">
+          <button type="button" aria-label="Previous slide" disabled={at === 0} onClick={() => go(at - 1)} className="flex size-11 cursor-pointer items-center justify-center rounded-full border-[1.5px] text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground disabled:cursor-default disabled:opacity-30">
             <ChevronLeftIcon className="size-4" aria-hidden="true" />
           </button>
-          <button type="button" aria-label="Next slide" disabled={at === last} onClick={() => go(at + 1)} className="flex size-11 cursor-pointer items-center justify-center rounded-full border bg-foreground text-background transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-30">
+          <button type="button" aria-label="Next slide" disabled={at === last} onClick={() => go(at + 1)} className="flex size-11 cursor-pointer items-center justify-center rounded-full border-[1.5px] bg-foreground text-background transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-30">
             <ChevronRightIcon className="size-4" aria-hidden="true" />
           </button>
         </div>

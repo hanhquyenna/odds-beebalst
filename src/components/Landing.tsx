@@ -99,7 +99,7 @@ export function Landing({ onStart, onOpenPage }: LandingProps): React.JSX.Elemen
               selected={open}
               onSelect={setOpen}
               empty={
-                <div className="flex flex-col items-start gap-3 rounded-xl border bg-card p-6 text-foreground">
+                <div className="flex flex-col items-start gap-3 rounded-xl border-[1.5px] bg-card p-6 text-foreground">
                   <p className="text-lg font-semibold tracking-tight">Nothing fits all of that yet.</p>
                   <p className="text-sm text-muted-foreground">Loosen one filter, or tell us about you and we will show you what turns up.</p>
                   <div className="flex gap-2">

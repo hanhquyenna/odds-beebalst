@@ -1,118 +1,102 @@
 import { ChevronDownIcon } from "@/components/icons"
 import { useData } from "@/lib/data"
-import { derive, FACTORS, pct, point, type Standing } from "@/lib/engine"
-import { FIT_AVERAGE } from "@/lib/fit"
+import { confidenceOf } from "@/lib/confidence"
+import type { Standing } from "@/lib/engine"
 import { openResearch } from "@/lib/research-link"
-import { JOB_PER_INTERVIEW } from "@/lib/odds-kind"
 import type { Posting } from "@/lib/types"
 
 /** The little arrow beside a number that opens its explanation. */
-/** The parts a fit was judged on, in words, so the sentence says what was really compared. */
-function fitNames(parts: ReadonlyArray<{ key: string }>): string {
-  const word: Record<string, string> = { skills: "skills", field: "line of work", role: "role", level: "level", strength: "track record" }
-  const names = parts.map((p) => word[p.key] ?? p.key)
-
-  return names.length <= 1 ? (names[0] ?? "profile") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
-}
-
 export function Caret({ open }: { open: boolean }): React.JSX.Element {
   return <ChevronDownIcon aria-hidden="true" className={`size-4 shrink-0 text-muted-foreground transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
-}
-
-function Row({ name, effect, children }: { name: string; effect: string; children: React.ReactNode }): React.JSX.Element {
-  return (
-    <li className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-0.5 py-2.5">
-      <span className="font-medium">{name}</span>
-      <span className="text-right font-medium tabular-nums">{effect}</span>
-      <span className="col-span-2 text-[0.8125rem] leading-snug text-muted-foreground">{children}</span>
-    </li>
-  )
 }
 
 function SeeHow({ slug = "interview-odds-base-rates" }: { slug?: string }): React.JSX.Element {
   return (
     <button type="button" onClick={() => openResearch(slug)} className="mt-3 inline-flex cursor-pointer items-center gap-2 text-sm font-medium">
-      <span className="underline underline-offset-4">See how it works</span> <span aria-hidden="true">→</span>
+      <span className="underline underline-offset-4">See the research</span> <span aria-hidden="true">→</span>
     </button>
   )
 }
 
+/** A figure in the explanation, picked out so the numbers are what the eye finds first. */
+function Num({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return <mark className="rounded-sm bg-brand px-1.5 py-0.5 font-bold text-white tabular-nums">{children}</mark>
+}
+
+/** One bullet: the question in bold, the answer after it. */
+function Point({ q, children }: { q: string; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <li>
+      <b className="text-foreground">{q}</b> {children}
+    </li>
+  )
+}
+
 /**
- * Under the interview chance on a job: where the number comes from, step by step, in plain words, with this job's
- * own figures, and a link to the research report that explains the method.
+ * Under the interview chance on a job: the same general explanation for everyone, as bullet answers, with the confidence for this job in
+ * one line and a link to the long version. Nothing here depends on the profile.
  */
 export function ChancePanel({ post, st }: { post: Posting; st: Standing }): React.JSX.Element {
   const data = useData()
-  const base = FACTORS.base[post.cat] ?? FACTORS.base.other
-  const profile = data.profile
-  const d = derive(profile)
-  const referral = data.referrals.has(post.id)
-  const r = st.rate
+  const confidence = confidenceOf(st, post, data.profile)
 
   return (
     <div className="rounded-xl bg-secondary/70 p-4 text-sm sm:p-5">
-      <p className="font-semibold">Our interview chance, from research</p>
-      <p className="mt-1 text-muted-foreground">
-        It is the share of applications like yours that lead to an interview. We start from what published hiring studies measure, then move it for who you are and how well you fit this job.
-      </p>
-
-      {st.needsProfile ? (
-        <p className="mt-3 rounded-lg bg-background p-3">
-          It reads 0% for now because there is nothing of yours to compare with this job. Connect LinkedIn or add your CV on your profile, and it works out yours.
-        </p>
-      ) : (
-        <ol className="mt-3 divide-y">
-          <Row name="Where it starts" effect={`${pct(base.low.value, 1)} to ${pct(base.high.value, 1)}`}>
-            Of applications to jobs like this, about this many lead to an interview (Ashby 2026, SmartRecruiters 2025).
-          </Row>
-          {profile.origin !== "dutch" ? (
-            <Row name="Applying from abroad" effect="Lower">
-              Dutch tests with matched CVs found applicants with a foreign background were called back less often (Thijssen et al. 2019, SCP 2010).
-            </Row>
-          ) : null}
-          {d.internship ? (
-            <Row name="An internship on your profile" effect="Higher">
-              Belgian graduates with an internship were invited more often (Baert et al. 2021).
-            </Row>
-          ) : null}
-          {referral ? (
-            <Row name="A referral here" effect="Higher">
-              Referred candidates are interviewed about one and a half times as often (Ashby 2026).
-            </Row>
-          ) : null}
-          {st.fit ? (
-            <Row name="How you fit this job" effect={`${Math.round(st.fit.score * 100)}%`}>
-              Your {fitNames(st.fit.parts)} against what this posting asks, with must-haves counting most. The average applicant is {Math.round(FIT_AVERAGE * 100)}%. {st.fit.score >= FIT_AVERAGE ? "You are above it, which raises your chance." : "You are below it, which lowers your chance."}
-              {st.fit.parts.find((p) => p.key === "strength") ? ` Your track record is counted too: ${st.fit.parts.find((p) => p.key === "strength")!.detail}. How much it counts is our scale, not a measured effect.` : ""}
-            </Row>
-          ) : null}
-          {r ? (
-            <Row name="Your chance" effect={`${point(r.low)} to ${point(r.high)}`}>
-              A range, because the studies it rests on differ. It describes people like you, not a promise about you.
-            </Row>
-          ) : null}
-        </ol>
-      )}
+      <ul className="list-disc space-y-2.5 pl-5 text-[0.8125rem] leading-snug text-muted-foreground marker:text-foreground/60">
+        <Point q="What is the interview chance?">The share of people applying to a job like this who are invited to an interview. It is not the chance of getting the job.</Point>
+        <Point q="How do we judge it?">
+          We start from how often applications to jobs like this lead to an interview. Then we move that number up or down for the things employers have been shown to react to: your background, your experience, and how well your CV matches the posting.
+        </Point>
+        <Point q="What do we look at?">
+          Your skills and tools, your line of work, role and level, your track record (employers, schools, prizes, grades), your background, internships, and a referral or a tailored application if you tick them. On the job side: what the posting asks for, and how much it insists on each thing.
+        </Point>
+        <Point q="Where do the sources come from?">
+          Hiring data from the recruiting software employers use (Ashby 2026, SmartRecruiters 2025). Field experiments where researchers sent matched CVs to real Dutch vacancies (Thijssen et al. 2019 and 2021, SCP 2010). Other controlled studies on internships, employer prestige, CV quality and tailoring (Baert 2021, Kessler et al. 2019, Bertrand and Mullainathan 2004, ResumeGo 2020).
+        </Point>
+        <Point q="How much research is behind it?">
+          <Num>9</Num> research reports in this app, citing <Num>32</Num> sources. Ashby&apos;s hiring data alone covers <Num>109 million</Num> applications, and the Dutch matched-CV experiment behind the background gap sent <Num>4,211</Num> applications.
+        </Point>
+        <Point q="How sure are we?">
+          {confidence ? (
+            <>
+              <b className="text-foreground">{confidence.level}, {confidence.score} out of 100</b> for this job. That score counts how much we had to go on (enough similar jobs, how much of your profile could be read, how many skills the posting lists, how closely the studies agree). It is an estimate from research and has not been compared with real outcomes yet.
+            </>
+          ) : (
+            <>It is an estimate from research and has not been compared with real outcomes yet.</>
+          )}
+        </Point>
+        <Point q="What could make it more scientific?">
+          <ul className="mt-1 list-[circle] space-y-1 pl-5">
+            <li>Compare you with people who were actually hired into similar roles.</li>
+            <li>Fit how much each part of a CV counts to real recruiter decisions, with a regression.</li>
+            <li>Train on real applications and their outcomes, and publish how well it is calibrated (for example the Brier score).</li>
+            <li>Show a proper confidence interval instead of a range between studies.</li>
+            <li>Combine the studies with a meta-analysis, and check the result for bias across groups.</li>
+          </ul>
+        </Point>
+      </ul>
       <SeeHow />
     </div>
   )
 }
 
-/** Under the odds on the dashboard and on a job: how the two odds are made from the jobs marked Applied. */
+/** Under the odds on the dashboard: what the two numbers are and where they come from, in four short lines. The same for everyone. */
 export function OddsPanel(): React.JSX.Element {
+  const line = "px-5 py-4 text-base leading-snug text-foreground"
+
   return (
-    <div className="rounded-xl bg-secondary/70 p-4 text-sm sm:p-5">
-      <p className="font-semibold">Our odds, from research</p>
-      <ul className="mt-2 flex flex-col gap-2 text-muted-foreground">
-        <li>
-          <b className="text-foreground">Interview odds</b> is the chance of at least one interview from the jobs you have marked Applied. Each one adds its own chance, taken from published hiring studies and moved by your profile and fit. Jobs you do not yet meet the requirements for add nothing.
-        </li>
-        <li>
-          <b className="text-foreground">Job odds</b> is the same, times about one in four ({JOB_PER_INTERVIEW.toFixed(2)}): 3.25 interviews per offer and 81% of offers accepted (SmartRecruiters 2025). That share is an average, not yours.
-        </li>
-        <li>It counts each application on its own, so it is an upper bound. With nothing marked Applied it reads 0%.</li>
-      </ul>
-      <SeeHow />
+    <div className="overflow-hidden rounded-2xl border-2 border-foreground/70 bg-card">
+      <p className={line}>
+        The first number is your chance of at least one interview from the jobs you marked Applied. The second is your chance of an offer: about <Num>1 in 4</Num> interviews ends in one.
+      </p>
+      <p className={`${line} border-t-[1.5px] border-line`}>Each job starts from how often jobs like it lead to an interview, then moves up or down for your CV.</p>
+      <p className={`${line} border-t-[1.5px] border-line`}>
+        Built on <Num>109 million</Num> real applications, <Num>4,211</Num> CVs sent to real Dutch vacancies, and <Num>9</Num> reports citing <Num>32</Num> sources.
+      </p>
+      <p className={`${line} border-t-[1.5px] border-line`}>It&apos;s an estimate. We haven&apos;t checked it against real outcomes yet.</p>
+      <div className="border-t-[1.5px] border-line px-5 pb-4">
+        <SeeHow />
+      </div>
     </div>
   )
 }

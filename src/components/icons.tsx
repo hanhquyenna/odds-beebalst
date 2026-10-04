@@ -10,6 +10,11 @@ import {
   Camera,
   CaretCircleDown,
   CaretDown,
+  Rows,
+  PencilSimple,
+  Envelope,
+  ListChecks,
+  Phone,
   CaretLeft,
   CaretRight,
   CaretUp,
@@ -87,6 +92,11 @@ export const XIcon = bold(X)
 export const ShieldCheckIcon = bold(ShieldCheck)
 export const BoardIcon = bold(Kanban)
 export const TableIcon = bold(Table)
+export const RowsIcon = bold(Rows)
+export const PencilIcon = bold(PencilSimple)
+export const EnvelopeIcon = bold(Envelope)
+export const ListChecksIcon = bold(ListChecks)
+export const PhoneIcon = bold(Phone)
 export const PeopleIcon = bold(UsersThree)
 export const TrashIcon = bold(Trash)
 export const SortIcon = bold(SortAscending)

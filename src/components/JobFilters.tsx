@@ -21,6 +21,12 @@ interface JobFiltersProps {
   sponsorable?: boolean
   /** Sits at the end of the row of filters, where the sort goes. */
   trailing?: React.ReactNode
+  /** When false the row of filters is folded away (the page has a Filter toggle for it); left out, it is always shown. */
+  open?: boolean
+  /** False leaves out the search bar (your own list needs none). */
+  search?: boolean
+  /** More filters in the same row, after the others: the ones on your own search (status and so on). */
+  extra?: React.ReactNode
 }
 
 const POSTED_ITEMS = [
@@ -41,7 +47,7 @@ const PAY_ITEMS = [
  * text-foreground is for the dark band, where the section's light text would
  * otherwise run into the paper backgrounds of the controls.
  */
-export function JobFilters({ filters, onChange, sponsorable = true, trailing }: JobFiltersProps): React.JSX.Element {
+export function JobFilters({ filters, onChange, sponsorable = true, trailing, extra, open, search = true }: JobFiltersProps): React.JSX.Element {
   const active = activeCount(filters)
 
   const [added, setAdded] = useState<string[]>([])
@@ -56,6 +62,7 @@ export function JobFilters({ filters, onChange, sponsorable = true, trailing }: 
 
   return (
     <div role="group" aria-label="Search and filter the jobs" className="flex w-full min-w-0 flex-col gap-3 text-foreground">
+      {search ? (
       <div className="relative">
         <SearchIcon className="pointer-events-none absolute top-1/2 left-3.5 size-5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
         <input
@@ -64,7 +71,7 @@ export function JobFilters({ filters, onChange, sponsorable = true, trailing }: 
           onChange={(e) => onChange({ ...filters, query: e.target.value })}
           placeholder="Search jobs, companies or places"
           aria-label="Search jobs, companies or places"
-          className="h-12 w-full rounded-xl border bg-background pr-10 pl-11 text-base text-foreground transition-colors duration-150 placeholder:text-muted-foreground focus:border-ring focus:outline-none [&::-webkit-search-cancel-button]:hidden"
+          className="h-12 w-full rounded-xl border-[1.5px] bg-background pr-10 pl-11 text-base text-foreground transition-colors duration-150 placeholder:text-muted-foreground focus:border-ring focus:outline-none [&::-webkit-search-cancel-button]:hidden"
         />
         {filters.query ? (
           <button type="button" aria-label="Clear the search" onClick={() => onChange({ ...filters, query: "" })} className="absolute top-1/2 right-2.5 flex size-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground">
@@ -72,8 +79,9 @@ export function JobFilters({ filters, onChange, sponsorable = true, trailing }: 
           </button>
         ) : null}
       </div>
+      ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className={`flex flex-wrap items-center gap-2 ${open === false ? "hidden" : ""}`}>
         {defs.filter((d) => d.always || shown(d)).map((d) => (
           <span key={d.key} className="flex items-center gap-1">
             {d.node}
@@ -84,6 +92,7 @@ export function JobFilters({ filters, onChange, sponsorable = true, trailing }: 
             ) : null}
           </span>
         ))}
+        {extra}
         {rest.length > 0 ? (
           <Popover open={menu} onOpenChange={setMenu}>
             <PopoverTrigger className={cn(buttonVariants({ variant: "outline" }), "h-10 cursor-pointer gap-1.5 border-dashed px-3 font-medium")}>
@@ -109,7 +118,7 @@ export function JobFilters({ filters, onChange, sponsorable = true, trailing }: 
         ) : null}
         {active > 0 ? (
           <Button type="button" variant="ghost" onClick={() => { onChange(DEFAULT_FILTERS); setAdded([]) }} className="h-10 cursor-pointer text-inherit hover:bg-transparent hover:opacity-70">
-            Clear all
+            Clear filters
           </Button>
         ) : null}
         {trailing ? <span className="sm:ml-auto">{trailing}</span> : null}
@@ -254,7 +263,7 @@ interface MultiPickProps {
  * Several values at once, drawn as the same outline button as the single selects. Pressing a value ticks it and the
  * list stays open, so more can be chosen. Nothing ticked means any.
  */
-function MultiPick({ label, any, items, value, onChange, rest = [], restLabel }: MultiPickProps): React.JSX.Element {
+export function MultiPick({ label, any, items, value, onChange, rest = [], restLabel }: MultiPickProps): React.JSX.Element {
   const [open, setOpen] = useState<boolean>(false)
   const atRest = value.length === rest.length && value.every((v) => rest.includes(v))
   const names = value.map((v) => items.find((i) => i.value === v)?.label ?? v)
@@ -283,17 +292,27 @@ function MultiPick({ label, any, items, value, onChange, rest = [], restLabel }:
               onClick={() => toggle(item.value)}
               className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors duration-150 hover:bg-accent"
             >
-              <span className={cn("flex size-4 shrink-0 items-center justify-center rounded border", on ? "border-brand bg-brand text-background" : "border-border")}>{on ? <CheckIcon className="size-3" aria-hidden="true" /> : null}</span>
+              <span className={cn("flex size-4 shrink-0 items-center justify-center rounded border-[1.5px]", on ? "border-brand bg-brand text-background" : "border-border")}>{on ? <CheckIcon className="size-3" aria-hidden="true" /> : null}</span>
               <span className="truncate">{item.label}</span>
             </button>
           )
         })}
         {value.length > 0 ? (
-          <button type="button" onClick={() => onChange([])} className="mt-1 cursor-pointer rounded-md border-t px-3 py-2 text-left text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
+          <button type="button" onClick={() => onChange([])} className="mt-1 cursor-pointer rounded-md border-t-[1.5px] px-3 py-2 text-left text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
             Clear
           </button>
         ) : null}
       </PopoverContent>
     </Popover>
+  )
+}
+
+/** The underlined "Filter" that folds the row of filters away and brings it back, with how many are set. It sits in the bar with the layout and sort buttons. */
+export function FilterToggle({ open, onToggle, count }: { open: boolean; onToggle: () => void; count: number }): React.JSX.Element {
+  return (
+    <button type="button" aria-expanded={open} onClick={onToggle} className="flex cursor-pointer items-center gap-1 text-sm underline underline-offset-4 hover:text-foreground">
+      Filter{count > 0 ? ` (${count})` : ""}
+      <ChevronDownIcon className={`size-3.5 transition-transform duration-150 ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+    </button>
   )
 }

@@ -36,6 +36,18 @@ for (const [name, source] of Object.entries(REMOTE)) {
 }
 
 /**
+ * Logos kept in the database for employers that are not in the lists above (a job pasted in from a new employer), loaded once with the jobs.
+ * Looked up the same way as the lists: by the name as written, then by the loosened name.
+ */
+const DYNAMIC = new Map<string, string>()
+export function registerLogos(rows: ReadonlyArray<{ employer: string; logo: string }>): void {
+  for (const { employer, logo } of rows) {
+    DYNAMIC.set(employer.toLowerCase(), logo)
+    DYNAMIC.set(nameKey(employer), logo)
+  }
+}
+
+/**
  * The employer's logo with its background cut out, so it can float on the page
  * without a square behind it. Cut out once, ahead of time, by scripts/make_logos.py,
  * and served from /logos. An employer whose picture could not be cut out keeps the
@@ -46,6 +58,10 @@ export function logoFor(employer: string, url?: string | null): string | null {
   const known = LOCAL[employer] ?? REMOTE[employer] ?? BY_LOWER.get(employer.toLowerCase()) ?? (key ? BY_KEY.get(key) : undefined)
   if (known) {
     return known
+  }
+  const stored = DYNAMIC.get(employer.toLowerCase()) ?? (key ? DYNAMIC.get(key) : undefined)
+  if (stored) {
+    return stored
   }
   const domain = url ? siteDomain(url) : null
 

@@ -90,7 +90,7 @@ export function HowItWorksPage({ onBack, onOpenPage }: Props): React.JSX.Element
     <Shell onBack={onBack} title="From a long list to the jobs that fit.">
       <ol className="grid gap-4 sm:grid-cols-2">
         {steps.map(([title, text], at) => (
-          <li key={title} className="rounded-xl border bg-card p-6">
+          <li key={title} className="rounded-xl border-[1.5px] bg-card p-6">
             <span className="text-sm font-semibold text-brand">Step {at + 1}</span>
             <h2 className="mt-1 text-xl font-semibold tracking-tight">{title}</h2>
             <p className="mt-2 text-muted-foreground">{text}</p>
@@ -177,10 +177,10 @@ export function TechnologyPage({ onBack, onOpenPage }: Props): React.JSX.Element
           starting rate multiplied by effects that researchers measured, and every line of it is shown on the job page.
         </p>
       </Block>
-      <div className="overflow-x-auto rounded-xl border bg-card">
+      <div className="overflow-x-auto rounded-xl border-[1.5px] bg-card">
         <table className="w-full min-w-[40rem] text-left text-sm">
           <thead>
-            <tr className="border-b text-sm font-medium text-muted-foreground">
+            <tr className="border-b-[1.5px] text-sm font-medium text-muted-foreground">
               <th className="p-4">Step</th>
               <th className="p-4">Value</th>
               <th className="p-4">Where it comes from</th>
@@ -189,7 +189,7 @@ export function TechnologyPage({ onBack, onOpenPage }: Props): React.JSX.Element
           </thead>
           <tbody>
             {rows.map(([step, value, source, strength]) => (
-              <tr key={step} className="border-b align-top last:border-b-0">
+              <tr key={step} className="border-b-[1.5px] align-top last:border-b-0">
                 <td className="p-4 font-medium">{step}</td>
                 <td className="p-4 tabular-nums">{value}</td>
                 <td className="p-4 text-muted-foreground">{source}</td>
@@ -231,10 +231,10 @@ export function SourcesPage({ onBack }: Props): React.JSX.Element {
 
   return (
     <Shell onBack={onBack} title="Where every number comes from.">
-      <div className="overflow-x-auto rounded-xl border bg-card">
+      <div className="overflow-x-auto rounded-xl border-[1.5px] bg-card">
         <table className="w-full min-w-[40rem] text-left text-sm">
           <thead>
-            <tr className="border-b text-sm font-medium text-muted-foreground">
+            <tr className="border-b-[1.5px] text-sm font-medium text-muted-foreground">
               <th className="p-4">Source</th>
               <th className="p-4">What it is</th>
               <th className="p-4">Used for</th>
@@ -242,7 +242,7 @@ export function SourcesPage({ onBack }: Props): React.JSX.Element {
           </thead>
           <tbody>
             {sourcesList(collected).map(([source, what, used]) => (
-              <tr key={source} className="border-b align-top last:border-b-0">
+              <tr key={source} className="border-b-[1.5px] align-top last:border-b-0">
                 <td className="p-4 font-medium">{source}</td>
                 <td className="p-4 text-muted-foreground">{what}</td>
                 <td className="p-4 text-muted-foreground">{used}</td>

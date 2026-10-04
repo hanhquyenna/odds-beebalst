@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useData } from "@/lib/data"
 import { standing } from "@/lib/engine"
+import { DEFAULT_FILTERS, activeCount, applyFilters, normalizeFilters } from "@/lib/filters"
 import { loadSeenRooms } from "@/lib/seen"
 
 /** Anything past this is shown as a plus, so the badge stays a badge. */
@@ -35,19 +36,24 @@ export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.El
       return []
     }
 
-    return data.postings
+    // Only jobs the list itself would show: the person's saved preferences when they are on, otherwise the list's opening filters
+    // (internship, traineeship and entry, English). A new senior job or a job that needs Dutch is not news for them.
+    const prefs = data.profile.prefs ? normalizeFilters(data.profile.prefs) : null
+    const filters = data.profile.prefsOn && prefs && activeCount(prefs) > 0 ? prefs : DEFAULT_FILTERS
+
+    return applyFilters(data.postings, filters, { signals: data.signals, reference: data.reference })
       .filter((post) => !seen.has(post.id) && !data.passed.has(post.id) && !data.saved.has(post.id))
       .filter((post) => standing(post, data.profile, data.reference!, data.shares!, undefined, data.referrals.has(post.id)).failing === 0)
     // refresh is a trigger: a visit to the jobs marks them seen, and the count must be taken again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.postings, data.passed, data.saved, data.profile, data.reference, data.shares, data.referrals, refresh])
+  }, [data.postings, data.passed, data.saved, data.profile, data.reference, data.shares, data.referrals, data.signals, refresh])
 
   const count = fresh.length
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger aria-label={count > 0 ? `${count} new jobs that fit` : "No new jobs"} className="relative flex size-11 cursor-pointer items-center justify-center rounded-full border bg-background text-primary">
-        <BellIcon className="size-5" aria-hidden="true" />
+      <PopoverTrigger aria-label={count > 0 ? `${count} new jobs that fit` : "No new jobs"} className="relative flex size-11 cursor-pointer items-center justify-center rounded-full text-brand transition-colors duration-150 hover:bg-brand/10">
+        <BellIcon weight="fill" className="size-8" aria-hidden="true" />
         {count > 0 ? (
           <span className="absolute -top-1 -right-1 rounded-full bg-brand px-1.5 text-[11px] font-semibold text-primary-foreground tabular-nums">{count > MOST_SHOWN ? `${MOST_SHOWN}+` : count}</span>
         ) : null}
@@ -56,6 +62,7 @@ export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.El
         {count > 0 ? (
           <>
             <p className="text-sm font-medium">{count === 1 ? "1 new job fits you" : `${count} new jobs fit you`}</p>
+            <p className="text-xs text-muted-foreground">Added since you last opened the jobs, inside your filters, and meeting your requirements.</p>
             <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
               {fresh.slice(0, 4).map((post) => (
                 <li key={post.id} className="truncate">
@@ -75,7 +82,7 @@ export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.El
             </Button>
           </>
         ) : (
-          <p className="text-sm text-muted-foreground">Nothing new since you last looked. We keep looking.</p>
+          <p className="text-sm text-muted-foreground">Nothing new since you last looked, inside your filters. We keep looking.</p>
         )}
       </PopoverContent>
     </Popover>

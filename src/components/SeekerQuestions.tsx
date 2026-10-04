@@ -232,7 +232,7 @@ function ImportQuestion({ review, space, wide }: { review: boolean; space: strin
         <div>
           <FieldLabel htmlFor="linkedin-files">LinkedIn data export (Positions, Education, Skills, Languages as .csv)</FieldLabel>
           <input id="linkedin-files" type="file" multiple accept=".csv" onChange={(event) => upload(event.target.files)} className="sr-only" />
-          <label htmlFor="linkedin-files" className="mt-1 inline-flex h-9 cursor-pointer items-center rounded-lg border px-3 text-sm font-medium transition-colors hover:bg-accent focus-within:ring-3">
+          <label htmlFor="linkedin-files" className="mt-1 inline-flex h-9 cursor-pointer items-center rounded-lg border-[1.5px] px-3 text-sm font-medium transition-colors hover:bg-accent focus-within:ring-3">
             {names.length ? "Choose other files" : "Choose files"}
           </label>
           <p className="mt-1 text-xs text-muted-foreground">

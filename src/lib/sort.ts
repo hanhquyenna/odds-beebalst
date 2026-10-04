@@ -61,6 +61,13 @@ export function sortJobs<T extends Posting>(posts: ReadonlyArray<T>, key: string
         return LEVELS.length - LEVELS.indexOf(levelOf(post))
       case "industry":
         return industryOf(post) ?? null
+      case "open":
+        // Open first, then closed; among the open, the longest since a check last.
+        return post.closed_at ? 1 : 0
+      case "added":
+        return post.fetched_at ?? null
+      case "applicants":
+        return post.applicants ?? null
       case "language":
         return post.dutch_required ? 1 : 0
       case "sponsor":

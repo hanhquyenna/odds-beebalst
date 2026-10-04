@@ -9,7 +9,7 @@
  * and shown on the job page, not hidden.
  */
 export interface FitPart {
-  key: "skills" | "level" | "role" | "field" | "strength"
+  key: "skills" | "level" | "role" | "field" | "consistency" | "strength"
   label: string
   /** 0 to 1 */
   value: number
@@ -29,7 +29,7 @@ export const FIT_WEIGHTS = { skills: 0.4, role: 0.4, level: 0.2 } as const
  * The weights once the job's line of work is known and the CV points to one (field.ts). Whether the job is in the CV's
  * line of work is the biggest single thing apart from skills, so it takes the larger share of what "role" was.
  */
-export const FIT_WEIGHTS_FIELD = { skills: 0.35, field: 0.3, role: 0.15, level: 0.2 } as const
+export const FIT_WEIGHTS_FIELD = { skills: 0.35, field: 0.25, consistency: 0.15, role: 0.15, level: 0.1 } as const
 
 /**
  * A posting that lists one skill and a CV that has it is not a perfect match: there is too little to go on. The skills score
@@ -91,6 +91,10 @@ export interface FitInput {
   text: string
   /** 0 to 1: how well the job's line of work matches the CV's (field.ts). Absent when either side is unknown. */
   field?: number | null
+  /** 0 to 1: how focused the whole history is on the job's line of work (field.ts consistencyWith). Absent when unknown. */
+  consistency?: number | null
+  /** How much a title word (stemmed) says about the kind of work, 0 to 1 (field.ts wordSpecificity). Absent: every word counts the same. */
+  specificity?: (stem: string) => number
   /** The track record for this job, read by Jev (strength.ts). Absent when it has not been read: the fit is then the three parts as before. */
   strength?: { value: number; detail: string } | null
 }
@@ -119,15 +123,24 @@ export function fitOf(input: FitInput): Fit | null {
   const titleWords = [...new Set(words(input.title).map(stem))]
   if (titleWords.length > 0 && input.text.trim()) {
     const mine = new Set(words(input.text).map(stem))
+    // A word found in every line of work ("growth", "business") is no evidence, so each title word counts for how much it says about the kind of work.
+    const weight = (w: string): number => input.specificity?.(w) ?? 1
     const hit = titleWords.filter((w) => mine.has(w))
-    parts.push({ key: "role", label: "Role", value: hit.length / titleWords.length, detail: hit.length > 0 ? `${hit.join(", ")} on your profile` : "nothing from the title on your profile" })
+    const total = titleWords.reduce((sum, w) => sum + weight(w), 0)
+    parts.push({ key: "role", label: "Role", value: total > 0 ? hit.reduce((sum, w) => sum + weight(w), 0) / total : 0, detail: hit.length > 0 ? `${hit.join(", ")} on your profile` : "nothing from the title on your profile" })
+  }
+
+  if (input.consistency != null && input.field != null) {
+    const pct = Math.round(input.consistency * 100)
+    parts.push({ key: "consistency", label: "Consistency", value: input.consistency, detail: input.consistency >= 0.5 ? `your history is focused on this line of work (${pct}%)` : input.consistency >= 0.25 ? `part of your history is in this line of work (${pct}%)` : `your history is spread over other lines of work (${pct}%)` })
   }
 
   const rank = LEVEL_RANK[input.level]
   if (rank != null) {
     const mine = levelFromYears(input.years)
     const gap = Math.abs(rank - mine)
-    parts.push({ key: "level", label: "Level", value: gap === 0 ? 1 : gap === 1 ? 0.5 : 0, detail: gap === 0 ? "the level your years point to" : gap === 1 ? "one step from your years" : "two or more steps from your years" })
+    // Being the right level is not an achievement: it earns no credit above an average applicant's (FIT_AVERAGE), and only a mismatch counts against.
+    parts.push({ key: "level", label: "Level", value: gap === 0 ? FIT_AVERAGE : gap === 1 ? FIT_AVERAGE / 2 : 0, detail: gap === 0 ? "the level your years point to" : gap === 1 ? "one step from your years" : "two or more steps from your years" })
   }
 
   if (parts.length === 0) {

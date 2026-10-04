@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { STANDARD_PROPERTIES, STANDARD_SORTS } from "@/lib/properties"
+import { HIDDEN_AT_START, STANDARD_PROPERTIES, STANDARD_SORTS } from "@/lib/properties"
 import { CheckIcon, EyeIcon, EyeSlashIcon, SortIcon } from "@/components/icons"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useViewConfig } from "@/lib/views"
@@ -31,7 +31,7 @@ export function directionLabels(key: string): { asc: string; desc: string } {
     return { asc: "None first", desc: "Sponsors first" }
   }
   if (key === "status") {
-    return { asc: "Earliest first", desc: "Latest first" }
+    return { asc: "Just saved first", desc: "Furthest along first" }
   }
 
   return { asc: "A to Z", desc: "Z to A" }
@@ -43,14 +43,15 @@ export function directionLabels(key: string): { asc: string; desc: string } {
  * Hiding a property only hides it here; nothing is deleted.
  */
 export function ViewControls({ view, properties, sorts, sortDefault }: { view: ViewName; properties: ReadonlyArray<Choice>; sorts: ReadonlyArray<Choice>; sortDefault?: string }): React.JSX.Element {
-  const { config, show, update, reset } = useViewConfig(view)
+  const { config, show, toggle, update, reset } = useViewConfig(view)
   const [sortOpen, setSortOpen] = useState<boolean>(false)
   const [propsOpen, setPropsOpen] = useState<boolean>(false)
   const key = config.sortKey || sortDefault || ""
   const active = sorts.find((s) => s.key === key)
   const labels = directionLabels(key)
-  const hiddenCount = properties.filter((p) => !show(p.key)).length
-  const button = "flex h-10 cursor-pointer items-center gap-2 rounded-lg border bg-card px-3.5 text-sm font-medium transition-colors duration-150 hover:bg-accent"
+  // Properties that start hidden do not count as something changed until they are turned on.
+  const hiddenCount = properties.filter((p) => !show(p.key) && !HIDDEN_AT_START.has(p.key)).length + (config.shown?.length ?? 0)
+  const button = "flex h-10 cursor-pointer items-center gap-2 rounded-lg border-[1.5px] bg-card px-3.5 text-sm font-medium transition-colors duration-150 hover:bg-accent"
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -93,7 +94,7 @@ export function ViewControls({ view, properties, sorts, sortDefault }: { view: V
                 update({ sortKey: "", sortDir: "desc" })
                 setSortOpen(false)
               }}
-              className="mt-1 cursor-pointer rounded-md border-t px-2.5 pt-3 pb-1.5 text-left text-sm text-muted-foreground transition-colors duration-150 hover:text-foreground"
+              className="mt-1 cursor-pointer rounded-md border-t-[1.5px] px-2.5 pt-3 pb-1.5 text-left text-sm text-muted-foreground transition-colors duration-150 hover:text-foreground"
             >
               Remove sort
             </button>
@@ -116,7 +117,7 @@ export function ViewControls({ view, properties, sorts, sortDefault }: { view: V
               key={p.key}
               type="button"
               aria-pressed={show(p.key)}
-              onClick={() => update({ hidden: show(p.key) ? [...config.hidden, p.key] : config.hidden.filter((k) => k !== p.key) })}
+              onClick={() => toggle(p.key)}
               className="flex cursor-pointer items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors duration-150 hover:bg-accent"
             >
               <span className={show(p.key) ? "" : "text-muted-foreground"}>{p.label}</span>
@@ -140,8 +141,30 @@ export function ViewControls({ view, properties, sorts, sortDefault }: { view: V
  * same ones, plus your own; the board leaves out Status because its steps are
  * the status. People have their own few.
  */
+/** The properties and sorts of the people table, and of the list and board over the same people, plus the ones you added to them. */
+export function peopleChoices(columns: ReadonlyArray<string>): { properties: Choice[]; sorts: Choice[]; sortDefault?: string } {
+  const custom = columns.map((c) => ({ key: `p:${c}`, label: c }))
+  const own: Choice[] = [
+    { key: "status", label: "Stage" },
+    { key: "company", label: "Company" },
+    { key: "job", label: "Linked job" },
+    { key: "role", label: "Current job" },
+    { key: "update", label: "Last update" },
+    { key: "nudge", label: "Nudge" },
+    { key: "contact", label: "Link" },
+    { key: "place", label: "Place" },
+    { key: "messages", label: "Messages" },
+    { key: "notes", label: "Notes" },
+  ]
+
+  return { properties: [...own, ...custom], sorts: [{ key: "name", label: "Name" }, ...own, ...custom], sortDefault: "company" }
+}
+
 export function choicesFor(view: ViewName, columns: ReadonlyArray<string>): { properties: Choice[]; sorts: Choice[]; sortDefault?: string } {
   const custom = columns.map((c) => ({ key: `p:${c}`, label: c }))
+  if (view.startsWith("pv:")) {
+    return peopleChoices(columns)
+  }
   if (view === "peopleBoard") {
     return {
       properties: [

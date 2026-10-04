@@ -6,17 +6,34 @@ import { useData } from "@/lib/data"
 import { sortJobs } from "@/lib/sort"
 import { useViewConfig } from "@/lib/views"
 import { formatAge, formatPlace } from "@/lib/format"
-import type { Application, Posting } from "@/lib/types"
+import type { Application, Posting, ViewName } from "@/lib/types"
 
 /** The steps a job goes through, left to right. "Saved" is a job you kept but have not applied to. */
 export type Step = "saved" | Application["stage"]
+
+/**
+ * Every status a job can have, in the order of a search. The board groups the three ways a job ends (turned down, never answered, you pulled out) in one column;
+ * here they are separate, because "no reply" and "turned down" are different outcomes and both count as an application that did not reach an interview.
+ */
+export const STEPS: ReadonlyArray<{ step: Step; title: string }> = [
+  { step: "saved", title: "Saved" },
+  { step: "applied", title: "Applied" },
+  { step: "interview", title: "Interview" },
+  { step: "offer", title: "Offer" },
+  { step: "rejected", title: "Rejected" },
+  { step: "no_reply", title: "No reply" },
+  { step: "withdrawn", title: "Withdrew" },
+]
+
+/** The steps where the search for this job has ended without an offer. */
+export const ENDED: ReadonlySet<Step> = new Set<Step>(["rejected", "no_reply", "withdrawn"])
 
 const COLUMNS: ReadonlyArray<{ step: Step; title: string; hint: string }> = [
   { step: "saved", title: "Saved", hint: "Kept, not applied yet" },
   { step: "applied", title: "Applied", hint: "Waiting to hear" },
   { step: "interview", title: "Interview", hint: "They want to talk" },
   { step: "offer", title: "Offer", hint: "An offer or a hire" },
-  { step: "rejected", title: "Closed", hint: "Turned down or withdrawn" },
+  { step: "rejected", title: "Closed", hint: "Turned down, no reply, or withdrawn" },
 ]
 
 interface Card {
@@ -32,7 +49,7 @@ type Data = ReturnType<typeof useData>
 export function stepOf(data: Data, post: Posting): Step {
   const app = data.applications.find((a) => a.posting_id === post.id)
 
-  return app ? columnOf(app.stage) : "saved"
+  return app ? (app.stage === "hired" ? "offer" : app.stage) : "saved"
 }
 
 /**
@@ -42,7 +59,7 @@ export function stepOf(data: Data, post: Posting): Step {
  */
 export async function moveJob(data: Data, post: Posting, to: Step, fit: string, confirmed = false): Promise<void> {
   const app = data.applications.find((a) => a.posting_id === post.id)
-  if ((app ? columnOf(app.stage) : "saved") === to) {
+  if ((app ? (app.stage === "hired" ? "offer" : app.stage) : "saved") === to) {
     return
   }
   if (to === "offer" && !confirmed) {
@@ -66,10 +83,9 @@ export async function moveJob(data: Data, post: Posting, to: Step, fit: string, 
   await data.logApplication(post, fit, to)
 }
 
-export const STEPS = COLUMNS
 
 /** Which column an application sits in. A hire is an offer that was taken. */
-const columnOf = (step: Step): Step => (step === "hired" ? "offer" : step)
+const columnOf = (step: Step): Step => (step === "hired" ? "offer" : ENDED.has(step) ? "rejected" : step)
 
 /**
  * The tracker as a board, the way job-search tools lay it out: a column per
@@ -77,15 +93,15 @@ const columnOf = (step: Step): Step => (step === "hired" ? "offer" : step)
  * a saved job to any step after Saved logs an application; moving it back to
  * Saved takes the application away.
  */
-export function PipelineBoard({ onOpen }: { onOpen: (post: Posting) => void }): React.JSX.Element {
+export function PipelineBoard({ onOpen, viewName = "board", include }: { onOpen: (post: Posting) => void; viewName?: ViewName; include?: (post: Posting) => boolean }): React.JSX.Element {
   const data = useData()
-  const view = useViewConfig("board")
+  const view = useViewConfig(viewName)
   const [over, setOver] = useState<Step | null>(null)
   const [phone, setPhone] = useState<Step>("saved")
 
   const appliedIds = new Set(data.applications.map((a) => a.posting_id))
-  const cards: Card[] = [
-    ...data.postings.filter((p) => data.saved.has(p.id) && !appliedIds.has(p.id)).map((post): Card => ({ id: post.id, post, step: "saved" })),
+  const all: Card[] = [
+    ...[...data.postings, ...data.keptExtra].filter((p) => data.saved.has(p.id) && !appliedIds.has(p.id)).map((post): Card => ({ id: post.id, post, step: "saved" })),
     ...data.applications.flatMap((a): Card[] => {
       const post = data.byId.get(a.posting_id)
 
@@ -93,7 +109,11 @@ export function PipelineBoard({ onOpen }: { onOpen: (post: Posting) => void }): 
     }),
   ]
 
-  const move = (card: Card, to: Step, fit: string): Promise<void> => moveJob(data, card.post, to, fit)
+  // Dropping a card in the column it is already in changes nothing (a job that got no reply stays "No reply", it does not become "Rejected").
+  // The open view may keep only some of the jobs.
+  const cards = include ? all.filter((c) => include(c.post)) : all
+
+  const move = (card: Card, to: Step, fit: string): Promise<void> => (columnOf(card.step) === to ? Promise.resolve() : moveJob(data, card.post, to, fit))
 
   // Within a column, cards follow the sort chosen in Customize.
   if (view.config.sortKey) {
@@ -119,7 +139,7 @@ export function PipelineBoard({ onOpen }: { onOpen: (post: Posting) => void }): 
             role="tab"
             aria-selected={phone === column.step}
             onClick={() => setPhone(column.step)}
-            className={`flex shrink-0 cursor-pointer items-center gap-2 rounded-lg border px-3.5 py-2 text-sm font-medium transition-colors duration-150 ${phone === column.step ? "border-primary bg-primary text-primary-foreground" : "bg-card text-foreground"}`}
+            className={`flex shrink-0 cursor-pointer items-center gap-2 rounded-lg border-[1.5px] px-3.5 py-2 text-sm font-medium transition-colors duration-150 ${phone === column.step ? "border-primary bg-primary text-primary-foreground" : "bg-card text-foreground"}`}
           >
             {column.title}
             <span className={`rounded-full px-1.5 text-xs tabular-nums ${phone === column.step ? "bg-primary-foreground/20" : "bg-secondary text-muted-foreground"}`}>{countOf(column.step)}</span>
@@ -149,7 +169,7 @@ export function PipelineBoard({ onOpen }: { onOpen: (post: Posting) => void }): 
                   move(card, column.step, "moved on the board").catch(() => undefined)
                 }
               }}
-              className={`min-h-32 flex-col gap-3 rounded-xl lg:flex lg:min-h-48 lg:p-3 ${phone === column.step ? "flex" : "hidden"} ${over === column.step ? "bg-accent ring-2 ring-primary/30" : "lg:bg-secondary/40"}`}
+              className={`min-h-32 flex-col gap-3 rounded-xl lg:flex lg:min-h-48 lg:border-[1.5px] lg:border-line lg:p-3 ${phone === column.step ? "flex" : "hidden"} ${over === column.step ? "bg-accent ring-2 ring-primary/30" : "lg:bg-secondary/40"}`}
             >
               <header className="hidden items-baseline justify-between gap-2 px-1 lg:flex">
                 <div>
@@ -159,7 +179,7 @@ export function PipelineBoard({ onOpen }: { onOpen: (post: Posting) => void }): 
                 <span className="rounded-full bg-card px-2.5 py-0.5 text-sm font-medium tabular-nums">{here.length}</span>
               </header>
               <p className="text-sm text-muted-foreground lg:hidden">{column.hint}</p>
-              {here.length === 0 ? <p className="rounded-xl border border-dashed px-3 py-8 text-center text-sm text-muted-foreground">Nothing here</p> : null}
+              {here.length === 0 ? <p className="rounded-xl border-[1.5px] border-dashed px-3 py-8 text-center text-sm text-muted-foreground">Nothing here</p> : null}
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-1">
                 {here.map((card) => (
                   <JobCard key={card.id} card={card} onOpen={() => onOpen(card.post)} onMove={(to, fit) => move(card, to, fit)} />
@@ -177,13 +197,13 @@ function JobCard({ card, onOpen, onMove }: { card: Card; onOpen: () => void; onM
   const { post } = card
   const st = useFit(post)
   const fit = st ? (st.failing === 0 ? "met every requirement" : st.failing === 1 ? "missing one requirement" : "missing several requirements") : ""
-  const closed = card.step === "rejected"
+  const closed = ENDED.has(card.step)
 
   return (
     <article
       draggable
       onDragStart={(e) => e.dataTransfer.setData("text/plain", card.id)}
-      className={`flex cursor-grab flex-col gap-3 rounded-lg border bg-card p-4 active:cursor-grabbing ${closed ? "opacity-60" : ""}`}
+      className={`flex cursor-grab flex-col gap-3 rounded-lg border-[1.5px] border-line bg-card p-4 active:cursor-grabbing ${closed ? "opacity-60" : ""}`}
     >
       <button type="button" onClick={onOpen} className="flex cursor-pointer items-start gap-3 text-left">
         <span className="flex h-9 w-10 shrink-0 items-center justify-center">
@@ -194,13 +214,14 @@ function JobCard({ card, onOpen, onMove }: { card: Card; onOpen: () => void; onM
           <span className="block text-[0.95rem]">{post.employer_display}</span>
           <span className="block text-sm text-muted-foreground">{formatPlace(post.region)}</span>
           {post.local ? null : <span className={`block text-sm ${formatAge(post) === "Date not shown" ? "text-muted-foreground" : "font-medium text-good-foreground"}`}>{formatAge(post)}</span>}
+          {closed && card.step !== "rejected" ? <span className="block text-sm text-muted-foreground">{STEPS.find((c) => c.step === card.step)?.title}</span> : null}
         </span>
       </button>
       <select
         aria-label={`Move ${post.title}`}
         value={columnOf(card.step)}
         onChange={(e) => onMove(e.target.value as Step, fit).catch(() => undefined)}
-        className="h-9 w-full cursor-pointer rounded-md border bg-background px-2 text-sm text-foreground"
+        className="h-9 w-full cursor-pointer rounded-md border-[1.5px] bg-background px-2 text-sm text-foreground"
       >
         {COLUMNS.map((c) => (
           <option key={c.step} value={c.step}>
@@ -216,7 +237,7 @@ function JobCard({ card, onOpen, onMove }: { card: Card; onOpen: () => void; onM
 export function PipelineSummary(): React.JSX.Element {
   const data = useData()
   const applied = new Set(data.applications.map((a) => a.posting_id))
-  const saved = data.postings.filter((p) => data.saved.has(p.id) && !applied.has(p.id)).length
+  const saved = [...data.postings, ...data.keptExtra].filter((p) => data.saved.has(p.id) && !applied.has(p.id)).length
   const count = (...stages: Array<Application["stage"]>): number => data.applications.filter((a) => stages.includes(a.stage)).length
   const parts = [
     [saved, "saved"],

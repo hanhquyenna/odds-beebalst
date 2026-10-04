@@ -95,15 +95,62 @@ export interface FilterEnv {
   reference?: Reference | null
 }
 
-export function applyFilters<T extends Posting>(posts: ReadonlyArray<T>, filters: JobFilters, env: FilterEnv = {}): ReadonlyArray<T> {
-  const words = filters.query.toLowerCase().split(/\s+/).filter(Boolean)
+/** Lower case, accents off, so "Nestlé" is found by "nestle". */
+const plain = (text: string): string => text.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+/** Only letters and digits (and the signs that make a name: c++, c#), no spaces, so "ecommerce" is found in "e-commerce" and "dataengineer" in "Data Engineer". */
+const squashed = (text: string): string => text.replace(/[^a-z0-9+#]/g, "")
+/** Whether `short` starts any word of `text`. */
+function startsAWord(text: string, short: string): boolean {
+  const at = (from: number): number => text.indexOf(short, from)
+  for (let i = at(0); i !== -1; i = at(i + 1)) {
+    if (i === 0 || /[^a-z0-9]/.test(text[i - 1])) {
+      return true
+    }
+  }
 
+  return false
+}
+/** The fewest letters a word needs before it may match run together with its neighbours. */
+const RUN_TOGETHER_FROM = 6
+
+/** The words a search looks in for one job, written both ways. Kept per posting, because every keystroke looks through all of them. */
+const searchable = new WeakMap<object, { text: string; squashed: string }>()
+function searchTextOf(post: Posting): { text: string; squashed: string } {
+  const hit = searchable.get(post)
+  if (hit) {
+    return hit
+  }
+  const text = plain(`${post.title} ${post.employer_display} ${post.region ?? ""} ${fieldOf(post) ?? ""} ${industryOf(post) ?? ""} ${levelOf(post)}`)
+  const made = { text, squashed: squashed(text) }
+  searchable.set(post, made)
+
+  return made
+}
+
+/** Every word typed is found in the job: as written, run together ("ecommerce"), or as a plural ("interns"). */
+export function matchesQuery(post: Posting, query: string): boolean {
+  const words = plain(query).split(/\s+/).filter(Boolean)
+  if (words.length === 0) {
+    return true
+  }
+  const { text, squashed: run } = searchTextOf(post)
+
+  return words.every((w) => {
+    const forms = w.length > 3 && w.endsWith("s") ? [w, w.slice(0, -1)] : [w]
+    // A word of up to three letters ("ai", "hr", "ing") is found only where a word starts, not inside others ("retail", "maintenance").
+    if (w.length <= 3) {
+      return startsAWord(text, w)
+    }
+
+    // Running words together ("ecommerce" in "e-commerce") only for a longer word: a short one would match across the join of two words ("ai" inside "data intern").
+    return forms.some((f) => text.includes(f) || (squashed(f).length >= RUN_TOGETHER_FROM && run.includes(squashed(f))))
+  })
+}
+
+export function applyFilters<T extends Posting>(posts: ReadonlyArray<T>, filters: JobFilters, env: FilterEnv = {}): ReadonlyArray<T> {
   return posts.filter((post) => {
-    if (words.length > 0) {
-      const hay = `${post.title} ${post.employer_display} ${post.region ?? ""} ${fieldOf(post) ?? ""} ${industryOf(post) ?? ""} ${levelOf(post)}`.toLowerCase()
-      if (!words.every((w) => hay.includes(w))) {
-        return false
-      }
+    if (!matchesQuery(post, filters.query)) {
+      return false
     }
     if (filters.field.length > 0 && !filters.field.includes(fieldOf(post) ?? "")) {
       return false

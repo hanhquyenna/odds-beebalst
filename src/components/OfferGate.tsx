@@ -108,7 +108,7 @@ export function OfferGate(): React.JSX.Element | null {
 
   return (
     <div role="dialog" aria-modal="true" aria-label={done ? "Congratulations" : "Confirm your offer"} className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 p-4 sm:items-center" onClick={close}>
-      <div className="w-full max-w-md rounded-2xl border bg-card p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-md rounded-2xl border-[1.5px] bg-card p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
         {!done ? (
           <>
             <h2 className="font-heading text-xl font-medium tracking-tight">Did you get an offer?</h2>

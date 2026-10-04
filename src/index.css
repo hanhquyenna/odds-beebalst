@@ -34,6 +34,7 @@
     --color-ring: var(--ring);
     --color-input: var(--input);
     --color-border: var(--border);
+    --color-line: var(--line);
     --color-destructive: var(--destructive);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
@@ -92,8 +93,9 @@
     --accent: oklch(0.93 0.05 66);
     --accent-foreground: oklch(0.17 0.004 60);
     --destructive: oklch(0.52 0.16 28);
-    --border: oklch(0.91 0.01 70);
-    --input: oklch(0.85 0.022 70);
+    --border: oklch(0.66 0.014 70);
+    --line: oklch(0.66 0.014 70);
+    --input: oklch(0.66 0.014 70);
     --ring: oklch(0.7 0.18 52);
     --good: oklch(0.958 0.035 150);
     --good-foreground: oklch(0.4 0.09 150);
@@ -283,7 +285,7 @@
     right: 0 !important;
     transform: translate(35%, -35%) !important;
     background: var(--card);
-    border: 1px solid var(--border);
+    border: 1.5px solid var(--border);
     color: var(--foreground);
 }
 
@@ -346,4 +348,51 @@
 .board-turn { animation: board-fade 400ms ease-out both; }
 @media (prefers-reduced-motion: no-preference) {
   .board-turn { animation: board-turn 650ms cubic-bezier(.2,.8,.2,1) both; }
+}
+
+/* A number that moved flashes once, then settles: the colour behind it fades out. */
+@keyframes moved-flash {
+  from {
+    background-color: var(--flash);
+    transform: scale(1.08);
+  }
+  to {
+    background-color: transparent;
+    transform: scale(1);
+  }
+}
+.moved-flash {
+  animation: moved-flash 900ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .moved-flash {
+    animation: none;
+  }
+}
+
+/* A job that moves between your list and the jobs that fit you jumps one way and fades; one you dismiss slides off to the side. */
+@keyframes row-fly {
+  to {
+    opacity: 0;
+    transform: translate(var(--fly-x, 0), var(--fly-y, 0));
+  }
+}
+.row-fly-up {
+  --fly-y: -28px;
+  animation: row-fly 380ms ease-in forwards;
+}
+.row-fly-down {
+  --fly-y: 28px;
+  animation: row-fly 380ms ease-in forwards;
+}
+.row-fly-away {
+  --fly-x: 48px;
+  animation: row-fly 380ms ease-in forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-fly-up,
+  .row-fly-down,
+  .row-fly-away {
+    animation-duration: 1ms;
+  }
 }

@@ -252,3 +252,131 @@ export async function fetchSignals(): Promise<Record<string, Signals>> {
 
   return out
 }
+
+/** What an employer says it is: its own paragraph from one of its postings, or a short description written by odds. Null when there is none. */
+export async function fetchEmployerAbout(employer: string): Promise<{ about: string; source: "posting" | "odds" } | null> {
+  const { data, error } = await supabase.from("employer_about").select("about,source").eq("employer", employer).maybeSingle()
+  if (error || !data) {
+    return null
+  }
+  const row = data as { about: string; source: string }
+
+  return { about: row.about, source: row.source === "odds" ? "odds" : "posting" }
+}
+
+export interface EmployerFacts {
+  name: string | null
+  description: string | null
+  website: string | null
+  founded_year: number | null
+  employees: number | null
+  employee_range: string | null
+  company_type: string | null
+  headquarters: string | null
+  top_schools: Array<{ title: string; count: number }> | null
+  top_functions: Array<{ title: string; count: number }> | null
+  top_locations: Array<{ title: string; count: number }> | null
+  linkedin_url: string | null
+  fetched_at: string
+  /** The headcount readings kept so far, oldest first. Growth is only shown from two of them. */
+  headcount: Array<{ read_on: string; employees: number }>
+}
+
+/** Facts read from the employer's LinkedIn page, and the headcount readings kept for it. Null when the employer has not been read. */
+export async function fetchEmployerFacts(employer: string): Promise<EmployerFacts | null> {
+  const [facts, counts] = await Promise.all([
+    supabase.from("employer_facts").select("name,description,website,founded_year,employees,employee_range,company_type,headquarters,top_schools,top_functions,top_locations,linkedin_url,fetched_at").eq("employer", employer).maybeSingle(),
+    supabase.from("employer_headcount").select("read_on,employees").eq("employer", employer).order("read_on"),
+  ])
+  if (facts.error || !facts.data) {
+    return null
+  }
+
+  return { ...(facts.data as Omit<EmployerFacts, "headcount">), headcount: (counts.data ?? []) as EmployerFacts["headcount"] }
+}
+
+/** The logos kept in the database (employer_facts.logo), for employers the app's own logo lists do not have. Empty when there are none. */
+export async function fetchStoredLogos(): Promise<Array<{ employer: string; logo: string }>> {
+  const { data, error } = await supabase.from("employer_facts").select("employer,logo").not("logo", "is", null)
+  if (error || !data) {
+    return []
+  }
+
+  return (data as Array<{ employer: string; logo: string | null }>).filter((r): r is { employer: string; logo: string } => Boolean(r.logo))
+}
+
+/**
+ * The jobs a person kept (saved or applied to) that are no longer in the open pool: closed since, or left out of it (a posting too old). They are read straight from the
+ * table, closed ones included, so a kept job never disappears from the list; its "Still open" says it has closed. A few hundred ids at a time.
+ */
+export async function fetchKeptPostings(ids: ReadonlyArray<string>): Promise<Posting[]> {
+  const out: Posting[] = []
+  for (let i = 0; i < ids.length; i += 150) {
+    const part = ids.slice(i, i + 150)
+    const { data, error } = await supabase.from("postings").select(COLUMNS + CHECK_COLUMNS).in("id", part)
+    if (error) {
+      // The check columns may not be there on an older database: ask again without them.
+      const retry = await supabase.from("postings").select(COLUMNS).in("id", part)
+      if (!retry.error) out.push(...((retry.data ?? []) as unknown as Posting[]))
+      continue
+    }
+    out.push(...((data ?? []) as unknown as Posting[]))
+  }
+
+  return out.map((p) => withSkillTiers(p))
+}
+
+export interface EmployerInsights {
+  culture: { heading: string; about: string } | null
+  teams: Array<{ family: string; heading: string | null; about: string | null; tasks: string[] }>
+  money: Array<{ kind: "revenue" | "net_profit" | "market_value" | "total_assets"; amount: number; currency: string; year: number }>
+}
+
+/** What an employer says about its culture and what its teams do (from its own postings), and the money figures it has published (from Wikidata). Each part is empty when there is none. */
+export async function fetchEmployerInsights(employer: string): Promise<EmployerInsights> {
+  const [culture, teams, money] = await Promise.all([
+    supabase.from("employer_culture").select("heading,about").eq("employer", employer).maybeSingle(),
+    supabase.from("employer_teams").select("family,heading,about,tasks").eq("employer", employer),
+    supabase.from("employer_money").select("kind,amount,currency,year").eq("employer", employer),
+  ])
+  const rows = (teams.data ?? []) as Array<{ family: string; heading: string | null; about: string | null; tasks: string[] | null }>
+
+  return {
+    culture: culture.error || !culture.data ? null : (culture.data as { heading: string; about: string }),
+    teams: rows.map((t) => ({ ...t, tasks: t.tasks ?? [] })),
+    money: money.error ? [] : ((money.data ?? []) as EmployerInsights["money"]),
+  }
+}
+
+export interface EmployerHiring {
+  open_jobs: number
+  first_jobs: number
+  no_dutch_jobs: number
+  visa_mentions: number
+  avg_applicants: number | null
+  pay_stated: number
+  cities: Array<{ name: string; n: number }>
+  fields: Array<{ name: string; n: number }>
+  skills: Array<{ name: string; n: number }>
+}
+
+/** What this employer's open jobs say about hiring there, worked out live in the database (the view employer_hiring). */
+export async function fetchEmployerHiring(employer: string): Promise<EmployerHiring | null> {
+  const { data, error } = await supabase.from("employer_hiring").select("open_jobs,first_jobs,no_dutch_jobs,visa_mentions,avg_applicants,pay_stated,cities,fields,skills").eq("employer", employer).maybeSingle()
+
+  return error || !data ? null : (data as EmployerHiring)
+}
+
+export interface EmployerNewsItem {
+  title: string
+  url: string
+  site: string | null
+  published: string | null
+}
+
+/** The latest headlines that name the employer (GDELT), newest first. Empty when there are none. */
+export async function fetchEmployerNews(employer: string): Promise<EmployerNewsItem[]> {
+  const { data, error } = await supabase.from("employer_news").select("title,url,site,published").eq("employer", employer).order("published", { ascending: false, nullsFirst: false }).limit(3)
+
+  return error ? [] : ((data ?? []) as EmployerNewsItem[])
+}

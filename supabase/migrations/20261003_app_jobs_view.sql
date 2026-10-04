@@ -98,3 +98,9 @@ create or replace view public.active_internship_entry with (security_invoker = t
 select * from public.active_jobs where level in ('Internship', 'Entry');
 
 grant select on public.app_jobs, public.active_jobs, public.active_internship_entry to anon, authenticated;
+
+-- What the app opens with: first jobs that do not need Dutch (the app's default filters are level = internship/entry and language = English).
+-- active_internship_entry above keeps the Dutch-required ones too, so it is the bigger number.
+create or replace view public.active_internship_entry_english with (security_invoker = true) as
+select * from public.active_internship_entry where not dutch_required;
+grant select on public.active_internship_entry_english to anon, authenticated;

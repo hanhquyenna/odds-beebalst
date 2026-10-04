@@ -3,9 +3,11 @@ import { CompanyLogo } from "@/components/CompanyMark"
 import { Caret, OddsPanel } from "@/components/OddsExplain"
 import { Section } from "@/components/JobPersonal"
 import { stepOf } from "@/components/PipelineBoard"
+import { openStatusColors } from "@/components/StatusPicker"
 import { useData } from "@/lib/data"
 import { NO_WHAT_IF, point, standing, type Standing } from "@/lib/engine"
 import { JOB_PER_INTERVIEW } from "@/lib/odds-kind"
+import { statusColors, type StatusKey } from "@/lib/status-colors"
 import type { Posting } from "@/lib/types"
 
 /** The chance of at least one interview from several applications, each counted on its own terms. */
@@ -62,7 +64,7 @@ const SEGMENTS = 10
  * up to the high figure lighter. Milestones at a quarter, a half and three
  * quarters are marked underneath.
  */
-export function OddsBar({ low, high, label, tone = "brand" }: { low: number; high: number; label: string; tone?: "brand" | "ink" }): React.JSX.Element {
+export function OddsBar({ low, high, label, tone = "brand", color }: { low: number; high: number; label: string; tone?: "brand" | "ink"; /** The bar in this colour (the status colour it stands for), instead of the tone. */ color?: string }): React.JSX.Element {
   const solid = tone === "ink" ? "bg-foreground" : "bg-brand"
   const soft = tone === "ink" ? "bg-foreground/25" : "bg-brand/30"
 
@@ -74,8 +76,8 @@ export function OddsBar({ low, high, label, tone = "brand" }: { low: number; hig
 
           return (
             <div key={i} className="relative h-3.5 overflow-hidden rounded-[3px] bg-secondary">
-              <div className={`absolute inset-y-0 left-0 ${soft} transition-[width] duration-700 ease-out`} style={{ width: `${at(high) * 100}%` }} />
-              <div className={`absolute inset-y-0 left-0 ${solid} transition-[width] duration-700 ease-out`} style={{ width: `${at(low) * 100}%` }} />
+              <div className={`absolute inset-y-0 left-0 ${color ? "" : soft} transition-[width] duration-700 ease-out`} style={{ width: `${at(high) * 100}%`, ...(color ? { backgroundColor: color, opacity: 0.3 } : {}) }} />
+              <div className={`absolute inset-y-0 left-0 ${color ? "" : solid} transition-[width] duration-700 ease-out`} style={{ width: `${at(low) * 100}%`, ...(color ? { backgroundColor: color } : {}) }} />
             </div>
           )
         })}
@@ -101,17 +103,20 @@ function Contributors({ items }: { items: Contribution[] }): React.JSX.Element |
   return (
     <ul aria-label="Jobs counted" className="flex items-center -space-x-1.5">
       {items.slice(0, 5).map((c) => (
-        <li key={c.post.id} title={`${c.post.employer_display}: ${point(c.mid)}`} className="flex size-7 items-center justify-center rounded-full border bg-card">
+        <li key={c.post.id} title={`${c.post.employer_display}: ${point(c.mid)}`} className="flex size-7 items-center justify-center rounded-full border-[1.5px] bg-card">
           <CompanyLogo employer={c.post.employer} name={c.post.employer_display} size={18} wide={1} url={c.post.url} />
         </li>
       ))}
-      {items.length > 5 ? <li className="flex size-7 items-center justify-center rounded-full border bg-secondary text-[0.6875rem] font-medium">+{items.length - 5}</li> : null}
+      {items.length > 5 ? <li className="flex size-7 items-center justify-center rounded-full border-[1.5px] bg-secondary text-[0.6875rem] font-medium">+{items.length - 5}</li> : null}
     </ul>
   )
 }
 
 /** One kind of odds: its name, the figure, the bar. */
 function OddsRow({ title, mid, tone = "brand", aside, note }: { title: string; mid: number; tone?: "brand" | "ink"; aside?: React.ReactNode; note?: React.ReactNode }): React.JSX.Element {
+  // The interview odds wear the Interview colour and the job odds the Offer colour, so the bars agree with the counts and the statuses.
+  const colors = statusColors(useData().profile.statusColors)
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between gap-3">
@@ -121,58 +126,77 @@ function OddsRow({ title, mid, tone = "brand", aside, note }: { title: string; m
         </p>
         <p className="text-lg font-semibold tabular-nums">{mid === 0 ? "0%" : point(mid)}</p>
       </div>
-      <OddsBar low={mid} high={mid} tone={tone} label={`${title} ${mid === 0 ? "0%" : point(mid)}`} />
+      <OddsBar low={mid} high={mid} tone={tone} color={tone === "ink" ? colors.offer : colors.interview} label={`${title} ${mid === 0 ? "0%" : point(mid)}`} />
       {note ? <p className="text-[0.8125rem] text-muted-foreground tabular-nums">{note}</p> : null}
     </div>
   )
 }
 
 /**
- * The top of the dashboard: where the search stands as four counts, and the two
- * odds that follow from the jobs marked Applied. Nothing to switch; both are shown.
+ * The top of the dashboard, as one picture. A funnel of the four counts (saved, applied, interviews, offers), each in the colour you gave its status, with what each step
+ * came to underneath. Then the two chances as coloured bars (the Interview colour and the Offer colour), and where the numbers come from in three short facts, with the research behind them.
  */
 export function SearchSummary(): React.JSX.Element {
   const data = useData()
-  const [open, setOpen] = useState<boolean>(false)
+  const [explain, setExplain] = useState<boolean>(false)
+  const [chances, setChances] = useState<boolean>(false)
   const interview = useMeter()
   const job = useMeter(undefined, "job")
   const applied = new Set(data.applications.map((a) => a.posting_id))
-  const saved = data.postings.filter((p) => data.saved.has(p.id) && !applied.has(p.id)).length
+  const saved = [...data.postings, ...data.keptExtra].filter((p) => data.saved.has(p.id) && !applied.has(p.id)).length
   const count = (...stages: string[]): number => data.applications.filter((a) => stages.includes(a.stage)).length
-  const stats: Array<[string, number]> = [
-    ["Saved", saved],
-    ["Applied", count("applied")],
-    ["Interviews", count("interview")],
-    ["Offers", count("offer", "hired")],
+  const total = data.applications.length
+  const interviews = count("interview")
+  const offers = count("offer", "hired")
+  // Each count wears the colour you gave its status (Edit colors, in the status menu), so the top of the page and the jobs below agree.
+  const colors = statusColors(data.profile.statusColors)
+  const stats: Array<{ label: string; n: number; key: StatusKey; under: string }> = [
+    { label: "Saved", n: saved, key: "saved", under: "kept, not applied yet" },
+    { label: "Applied", n: count("applied"), key: "applied", under: total > 0 ? `${total} sent in all` : "none sent yet" },
+    { label: "Interviews", n: interviews, key: "interview", under: total > 0 ? `${interviews} of ${total} ${total === 1 ? "application" : "applications"}` : "after you apply" },
+    { label: "Offers", n: offers, key: "offer", under: interviews > 0 ? `${offers} of ${interviews} interviews` : "about 1 in 4 interviews" },
   ]
 
   return (
-    <section aria-label="Your search" className="grid overflow-hidden rounded-xl border bg-secondary/30 lg:grid-cols-[1fr_1.15fr]">
-      <dl className="grid grid-cols-4 divide-x">
-        {stats.map(([label, n]) => (
-          <div key={label} className="flex flex-col justify-center gap-1 px-3 py-4 sm:px-5">
-            <dd className="text-3xl leading-none font-semibold tracking-tight tabular-nums">{n}</dd>
-            <dt className="text-sm text-muted-foreground">{label}</dt>
+    <div className="flex flex-col gap-3">
+    <section aria-label="Your search" className="overflow-hidden rounded-2xl border-2 border-line bg-card shadow-sm">
+      <dl className="grid grid-cols-2 divide-x-[1.5px] divide-line sm:grid-cols-4">
+        {stats.map(({ label, n, key, under }, i) => (
+          <div key={label} className={`group relative flex flex-col gap-1 px-4 pt-5 pb-3 sm:px-5 ${i === 2 ? "max-sm:border-t-[1.5px] max-sm:border-line" : i === 3 ? "max-sm:border-t-[1.5px] max-sm:border-line" : ""}`}>
+            <span aria-hidden="true" style={{ backgroundColor: colors[key] }} className="absolute inset-x-0 top-0 h-1.5" />
+            <dd style={{ color: colors[key] }} className="text-4xl leading-none font-bold tracking-tight tabular-nums">
+              {n}
+            </dd>
+            <dt className="text-sm font-semibold">{label}</dt>
+            <p className="text-xs text-muted-foreground">{under}</p>
+            <button type="button" onClick={openStatusColors} className="absolute top-3 right-2 hidden cursor-pointer rounded-md bg-card px-1.5 py-0.5 text-xs font-medium underline underline-offset-4 shadow-sm group-hover:block focus:block">
+              Edit colors
+            </button>
           </div>
         ))}
       </dl>
-      <div className="flex flex-col gap-4 border-t bg-card p-4 sm:p-5 lg:border-t-0 lg:border-l">
-        <div className="flex items-center justify-between gap-3">
-          <button type="button" aria-expanded={open} aria-controls="odds-explained" onClick={() => setOpen(!open)} className="flex cursor-pointer items-center gap-1.5 text-sm font-semibold">
-            <span className="underline decoration-dotted underline-offset-4">Your odds</span>
-            <Caret open={open} />
-          </button>
-          <Contributors items={interview.contributions} />
-        </div>
-        {open ? (
-          <div id="odds-explained">
-            <OddsPanel />
-          </div>
-        ) : null}
-        <OddsRow title="Interview odds" mid={interview.mid} />
-        <OddsRow title="Job odds" mid={job.mid} tone="ink" />
+
+      <button type="button" aria-expanded={chances} aria-label={chances ? "Hide your chances" : "Show your chances"} onClick={() => setChances(!chances)} className="flex w-full cursor-pointer items-center justify-center border-t-[1.5px] border-line py-1.5 transition-colors duration-150 hover:bg-accent/50">
+        <Caret open={chances} />
+      </button>
+      {chances ? (
+      <div className="grid gap-6 border-t-[1.5px] border-line p-5 lg:grid-cols-2">
+        <OddsRow title={total > 0 ? `At least one interview from your ${total} ${total === 1 ? "application" : "applications"}` : "At least one interview"} mid={interview.mid} aside={<Contributors items={interview.contributions} />} />
+        <OddsRow title={total > 0 ? `At least one job offer from your ${total} ${total === 1 ? "application" : "applications"}` : "At least one job offer"} mid={job.mid} tone="ink" />
       </div>
+      ) : null}
     </section>
+    <div>
+      <button type="button" aria-expanded={explain} aria-controls="odds-explained" onClick={() => setExplain(!explain)} className="cursor-pointer text-sm underline underline-offset-4 hover:text-foreground">
+        How does it work
+      </button>
+      {explain ? (
+        <div id="odds-explained" className="mt-3">
+          <OddsPanel />
+        </div>
+      ) : null}
+    </div>
+    </div>
   )
 }
 

@@ -39,7 +39,7 @@ export function Footer({ onOpenPage }: FooterProps): React.JSX.Element {
         </nav>
       </div>
 
-      <div className="mt-12 flex flex-col gap-6 border-t pt-6 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mt-12 flex flex-col gap-6 border-t-[1.5px] pt-6 sm:flex-row sm:items-end sm:justify-between">
         <p className="max-w-2xl text-xs leading-5 text-muted-foreground">
           Figures come from CBS, the Belastingdienst, the IND and employers&apos; own career sites. Postings were collected on {collected}. Estimates are for orientation and are not
           immigration, tax or employment advice.

@@ -22,6 +22,44 @@ const POOL: Posting[] = [
 ]
 const ids = (filters: Parameters<typeof applyFilters>[1]): string[] => applyFilters(POOL, filters).map((p) => p.id)
 
+describe("search words", () => {
+  const one = job({ id: "s", employer: "bol", employer_display: "Bol.com", title: "Marketing Interns Wanted", region: "Utrecht, NL", industry: "Retail & e-commerce" })
+  const found = (q: string): boolean => applyFilters([one], { ...NO_FILTERS, query: q }).length === 1
+  test("finds a word as written, run together, or as a plural", () => {
+    expect(found("e-commerce")).toBe(true)
+    expect(found("ecommerce")).toBe(true)
+    expect(found("e commerce")).toBe(true)
+    expect(found("intern")).toBe(true)
+    expect(found("interns")).toBe(true)
+    expect(found("Bol.com utrecht")).toBe(true)
+  })
+  test("a short word never matches across the join of two words", () => {
+    const data = job({ id: "d", employer_display: "Acme", title: "Pizza Intern", region: "Utrecht, NL" })
+    const has = (q: string): boolean => applyFilters([data], { ...NO_FILTERS, query: q }).length === 1
+    expect(has("ai")).toBe(false)
+    expect(has("tai")).toBe(false)
+    expect(has("pizza")).toBe(true)
+    const rd = job({ id: "r", title: "R&D Engineer" })
+    expect(applyFilters([rd, data], { ...NO_FILTERS, query: "R&D" }).map((p) => p.id)).toEqual(["r"])
+    expect(applyFilters([data], { ...NO_FILTERS, query: "pizzaintern" })).toHaveLength(1)
+  })
+  test("a word of up to three letters matches only where a word starts", () => {
+    const ing = job({ id: "i", employer_display: "ING", title: "Analyst" })
+    const retail = job({ id: "t", employer_display: "Shop", title: "Retail Analyst" })
+    expect(applyFilters([ing, retail], { ...NO_FILTERS, query: "ing" }).map((p) => p.id)).toEqual(["i"])
+    expect(applyFilters([ing, retail], { ...NO_FILTERS, query: "ai" })).toHaveLength(0)
+    expect(applyFilters([retail], { ...NO_FILTERS, query: "ret" })).toHaveLength(1)
+  })
+  test("every word must be there", () => {
+    expect(found("marketing amsterdam")).toBe(false)
+    expect(found("zzz")).toBe(false)
+  })
+  test("accents and capitals do not matter", () => {
+    const nestle = job({ id: "n", employer_display: "Nestlé Nederland", title: "Trainee" })
+    expect(applyFilters([nestle], { ...NO_FILTERS, query: "NESTLE" })).toHaveLength(1)
+  })
+})
+
 describe("applyFilters", () => {
   test("no filters keeps everything", () => {
     expect(ids(NO_FILTERS)).toEqual(["1", "2", "3", "4"])
@@ -71,6 +109,9 @@ describe("payOf", () => {
   test("a yearly figure is shown per month", () => {
     expect(payOf(job({ pay_posted: "€ 61,200 – € 91,800" }), null).text).toBe("€5.100 – €7.650")
   })
+  test("one stated monthly figure is shown exactly", () => {
+    expect(payOf(job({ pay_posted: "€1016 per month" }), null).text).toBe("€1.016")
+  })
   test("a monthly figure is written the same way", () => {
     expect(payOf(job({ pay_posted: "€ 3.891 - € 5.188" }), null).text).toBe("€3.890 – €5.190")
   })
@@ -91,7 +132,7 @@ describe("search and the LinkedIn-style filters", () => {
 
   test("search needs every word, in the title or the company", () => {
     expect(ids({ ...NO_FILTERS, query: "analyst" })).toEqual(["3"])
-    expect(ids({ ...NO_FILTERS, query: "ing internship" })).toEqual(["1"])
+    expect(ids({ ...NO_FILTERS, query: "banking internship" })).toEqual(["1"])
     expect(ids({ ...NO_FILTERS, query: "nothing like this" })).toEqual([])
   })
   test("date posted keeps what is recent enough", () => {

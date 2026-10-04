@@ -101,9 +101,9 @@ function Index({ onBack, onOpen }: { onBack: () => void; onOpen: (slug: string) 
         </Select>
       </div>
 
-      <ol className="mt-6 border-t">
+      <ol className="mt-6 border-t-[1.5px]">
         {shown.map((r) => (
-          <li key={r.slug} className="border-b">
+          <li key={r.slug} className="border-b-[1.5px]">
             <button type="button" onClick={() => onOpen(r.slug)} className="group grid w-full cursor-pointer grid-cols-[2rem_1fr] items-baseline py-6 text-left md:grid-cols-[2.5rem_1fr] md:py-8">
               <span className="text-sm font-medium text-muted-foreground tabular-nums">{pad(r.order)}</span>
               <span className="flex min-w-0 flex-col gap-1.5">
@@ -177,7 +177,7 @@ function Paper({ report, onIndex, onOpen }: { report: Report; onIndex: () => voi
           </p>
         </header>
 
-        <section className="mt-8 border-y py-6">
+        <section className="mt-8 border-y-[1.5px] py-6">
           <h2 className="text-xs font-semibold tracking-[0.14em] uppercase">Abstract</h2>
           <p className={`mt-3 text-[1.0625rem] leading-8 text-foreground/90`}>
             <Inline text={report.abstract} />
@@ -223,19 +223,19 @@ function Paper({ report, onIndex, onOpen }: { report: Report; onIndex: () => voi
           </section>
         ))}
 
-        <section id="references" className="mt-14 scroll-mt-24 border-t pt-8">
+        <section id="references" className="mt-14 scroll-mt-24 border-t-[1.5px] pt-8">
           <h2 className="text-2xl font-semibold tracking-tight">References</h2>
           <ol className={`mt-5 flex flex-col gap-3 text-[0.9375rem] leading-6 text-foreground/85`}>
             {report.references.map((ref, i) => (
-              <li key={i} id={`ref-${i + 1}`} className="grid scroll-mt-24 grid-cols-[2.25rem_1fr]">
+              <li key={i} id={`ref-${i + 1}`} className="grid scroll-mt-24 grid-cols-[2.25rem_minmax(0,1fr)]">
                 <span className="text-muted-foreground tabular-nums">[{i + 1}]</span>
-                <span>{ref}</span>
+                <span className="[overflow-wrap:anywhere]">{ref}</span>
               </li>
             ))}
           </ol>
         </section>
 
-        <section className="mt-14 border-t pt-8">
+        <section className="mt-14 border-t-[1.5px] pt-8">
           <p className="text-sm text-muted-foreground">Next report</p>
           <button type="button" onClick={() => onOpen(next.slug)} className="mt-1 cursor-pointer text-left text-xl leading-snug font-semibold hover:underline hover:decoration-brand hover:underline-offset-4">
             {pad(next.order)}. {next.title}
@@ -324,7 +324,7 @@ function BlockView({ block, n }: { block: Block; n: number }): React.JSX.Element
           <div className="overflow-x-auto border-y-2 border-foreground/80">
             <table className="w-full min-w-[30rem] border-collapse text-left text-sm">
               <thead>
-                <tr className="border-b border-foreground/40">
+                <tr className="border-b-[1.5px] border-foreground/40">
                   {block.head.map((h) => (
                     <th key={h} className="px-2 py-2 font-semibold">
                       {h}
@@ -357,7 +357,7 @@ function BlockView({ block, n }: { block: Block; n: number }): React.JSX.Element
 
       return (
         <figure id={block.id ? `fig-${block.id}` : undefined} className="my-3 scroll-mt-24 font-sans">
-          <ul className="flex flex-col gap-5 border-y py-6">
+          <ul className="flex flex-col gap-5 border-y-[1.5px] py-6">
             {block.items.map((item) => (
               <li key={item.label} className="flex flex-col gap-2">
                 <span className="flex items-baseline justify-between gap-6">
@@ -380,7 +380,7 @@ function BlockView({ block, n }: { block: Block; n: number }): React.JSX.Element
     case "ranges":
       return (
         <figure id={block.id ? `fig-${block.id}` : undefined} className="my-3 scroll-mt-24 font-sans">
-          <div className="border-y py-6">
+          <div className="border-y-[1.5px] py-6">
             <ul className="flex flex-col gap-5">
               {block.items.map((item) => (
                 <li key={item.label} className="flex flex-col gap-2">
@@ -409,7 +409,7 @@ function BlockView({ block, n }: { block: Block; n: number }): React.JSX.Element
     case "art":
       return (
         <figure id={block.id ? `fig-${block.id}` : undefined} className="my-3 scroll-mt-24 font-sans">
-          <div className="border-y py-6 text-foreground">
+          <div className="border-y-[1.5px] py-6 text-foreground">
             <Art kind={block.kind} className="mx-auto h-44 w-full max-w-sm" />
           </div>
           <figcaption className={caption}>

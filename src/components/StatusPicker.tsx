@@ -1,7 +1,11 @@
+import { useState } from "react"
+import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { ChevronDownIcon } from "@/components/icons"
 import { STEPS, moveJob, stepOf, type Step } from "@/components/PipelineBoard"
 import { useFit } from "@/components/FitCells"
 import { useData } from "@/lib/data"
+import { removeFromList } from "@/lib/save"
+import { lookOf, statusColors } from "@/lib/status-colors"
 import type { Posting } from "@/lib/types"
 
 /**
@@ -14,18 +18,24 @@ export function StatusPicker({ post, fit, onLocked }: { post: Posting; fit: stri
   const app = data.applications.find((a) => a.posting_id === post.id)
   const tracked = data.saved.has(post.id) || Boolean(app)
   const value: Step | "none" = tracked ? stepOf(data, post) : "none"
+  const look = useStatusLook(value)
+  const [asking, setAsking] = useState<boolean>(false)
 
-  function change(next: Step | "none"): void {
+  function change(next: Step | "none" | typeof EDIT_COLORS): void {
+    // "Edit colors" is not a status: it opens the colour editor and the menu stays on the current status.
+    if (next === EDIT_COLORS) {
+      openStatusColors()
+
+      return
+    }
     if (onLocked) {
       onLocked()
 
       return
     }
     if (next === "none") {
-      data.setSaved(post.id, false)
-      if (app) {
-        data.removeApplication(app.id).catch(() => undefined)
-      }
+      // Taking a job off your list asks first.
+      setAsking(true)
 
       return
     }
@@ -33,33 +43,31 @@ export function StatusPicker({ post, fit, onLocked }: { post: Posting; fit: stri
   }
 
   return (
-    <label className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-      Status
+    // The button is as wide as its name, with the arrow right after it, like the other buttons on the page (List, Sort).
+    <label className="relative inline-flex items-center">
       <select
+        aria-label="Status"
         value={value}
-        onChange={(e) => change(e.target.value as Step | "none")}
-        className="h-10 cursor-pointer rounded-lg border bg-card px-3 text-sm font-medium text-foreground transition-colors duration-150 hover:bg-accent"
+        onChange={(e) => change(e.target.value as Step | "none" | typeof EDIT_COLORS)}
+        style={look.style}
+        className={`h-8 field-sizing-content cursor-pointer appearance-none rounded-lg border-[1.5px] pr-8 pl-3 text-sm font-medium transition-colors duration-150 hover:brightness-95 ${look.style ? "" : "bg-card text-foreground"}`}
       >
-        <option value="none">Not saved</option>
+        <option value="none" className="bg-card text-foreground">Not saved</option>
         {STEPS.map((c) => (
-          <option key={c.step} value={c.step}>
+          <option key={c.step} value={c.step} className="bg-card text-foreground">
             {c.title}
           </option>
         ))}
+        <option value={EDIT_COLORS} className="bg-card text-foreground">
+          Edit colors
+        </option>
       </select>
+      <ChevronDownIcon className="pointer-events-none absolute right-2.5 size-3.5 opacity-80" style={{ color: look.ink }} aria-hidden="true" />
+      {asking ? <ConfirmDialog title="Remove this job from your list?" confirm="Remove" onCancel={() => setAsking(false)} onConfirm={() => { setAsking(false); removeFromList(data, post) }} /> : null}
     </label>
   )
 }
 
-/** The dot beside a status: grey while only kept, black once applied, orange at an interview, green at an offer, faint once closed. */
-const DOT: Record<string, string> = {
-  none: "bg-border",
-  saved: "bg-muted-foreground",
-  applied: "bg-foreground",
-  interview: "bg-brand",
-  offer: "bg-good-foreground",
-  rejected: "bg-muted-foreground/40",
-}
 
 /** The same status, small enough for a row of your list, so you change it without opening the job. A pill showing the step; the real select sits invisibly on top so it stays a native, keyboard-friendly control. */
 export function RowStatus({ post }: { post: Posting }): React.JSX.Element {
@@ -70,20 +78,23 @@ export function RowStatus({ post }: { post: Posting }): React.JSX.Element {
   const tracked = data.saved.has(post.id) || Boolean(app)
   const value: Step | "none" = tracked ? stepOf(data, post) : "none"
   const label = value === "none" ? "Not saved" : (STEPS.find((c) => c.step === value)?.title ?? "Saved")
+  const look = useStatusLook(value)
+  const [asking, setAsking] = useState<boolean>(false)
 
   return (
-    <span className="relative z-10 inline-flex h-9 w-32 items-center gap-2 rounded-full border bg-card pr-8 pl-3 text-sm font-medium transition-colors duration-150 focus-within:ring-3 focus-within:ring-ring/50 hover:border-foreground/40 hover:bg-accent">
-      <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${DOT[value] ?? DOT.saved}`} />
+    <span style={look.style} className={`relative z-10 inline-flex h-8 w-32 items-center gap-2 rounded-lg border-[1.5px] pr-7 pl-3 text-sm font-medium transition-colors duration-150 focus-within:ring-3 focus-within:ring-ring/50 hover:brightness-95 ${look.style ? "" : "bg-card text-foreground"}`}>
+      <span aria-hidden="true" style={{ backgroundColor: look.ink ?? "var(--border)" }} className="size-2 shrink-0 rounded-full" />
       <span className="truncate">{label}</span>
-      <ChevronDownIcon className="pointer-events-none absolute right-3 size-3.5 text-muted-foreground" aria-hidden="true" />
+      <ChevronDownIcon className="pointer-events-none absolute right-2.5 size-3.5 opacity-80" aria-hidden="true" />
       <select
         aria-label={`Status of ${post.title}`}
         value={value}
         onChange={(e) => {
-          const next = e.target.value as Step | "none"
-          if (next === "none") {
-            data.setSaved(post.id, false)
-            if (app) data.removeApplication(app.id).catch(() => undefined)
+          const next = e.target.value as Step | "none" | typeof EDIT_COLORS
+          if (next === EDIT_COLORS) {
+            openStatusColors()
+          } else if (next === "none") {
+            setAsking(true)
           } else {
             moveJob(data, post, next, fit).catch(() => undefined)
           }
@@ -96,7 +107,23 @@ export function RowStatus({ post }: { post: Posting }): React.JSX.Element {
             {c.title}
           </option>
         ))}
+        <option value={EDIT_COLORS}>Edit colors</option>
       </select>
+      {asking ? <ConfirmDialog title="Remove this job from your list?" confirm="Remove" onCancel={() => setAsking(false)} onConfirm={() => { setAsking(false); removeFromList(data, post) }} /> : null}
     </span>
   )
+}
+
+/** Asks the colour editor (mounted once, in StatusColorsDialog) to open. The status menus call this from their last choice, "Edit colors". */
+export const EDIT_COLORS = "__edit_colors__"
+export const openStatusColors = (): void => {
+  window.dispatchEvent(new CustomEvent("odds:edit-status-colors"))
+}
+
+/** The look of a status for this person: their colour and the ink on it, or none for a job that is not saved. */
+export function useStatusLook(value: string): { style: React.CSSProperties | undefined; ink: string | undefined } {
+  const data = useData()
+  const look = lookOf(value, statusColors(data.profile.statusColors))
+
+  return look ? { style: { backgroundColor: look.background, color: look.ink, borderColor: "transparent" }, ink: look.ink } : { style: undefined, ink: undefined }
 }

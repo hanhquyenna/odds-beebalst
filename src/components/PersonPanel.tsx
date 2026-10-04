@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { createPortal } from "react-dom"
 import { ExternalLinkIcon, XIcon } from "@/components/icons"
+import { PersonAvatar } from "@/components/PersonAvatar"
 import { buttonVariants } from "@/components/ui/button"
 import type { PersonPosition } from "@/lib/suggest"
 
@@ -22,7 +23,7 @@ export interface PanelPerson {
 
 function Card({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
   return (
-    <section className="rounded-xl border bg-card p-5">
+    <section className="rounded-xl border-[1.5px] bg-card p-5">
       <h2 className="mb-3 font-heading text-lg font-medium tracking-tight">{title}</h2>
       {children}
     </section>
@@ -34,7 +35,6 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
  * in Settings: a banner, their picture, name and position, then About and Experience. `action` sits beside Connect (Add, for a search result).
  */
 export function PersonPanel({ person, action, editor, onClose }: { person: PanelPerson; action?: React.ReactNode; /** Fields to change what you hold about them, shown as an Edit card (your list only). */ editor?: React.ReactNode; onClose: () => void }): React.JSX.Element {
-  const [broken, setBroken] = useState<boolean>(false)
 
   useEffect(() => {
     const previous = document.body.style.overflow
@@ -50,8 +50,6 @@ export function PersonPanel({ person, action, editor, onClose }: { person: Panel
     }
   }, [onClose])
 
-  const parts = person.name.split(/\s+/).filter(Boolean)
-  const initials = (parts.length > 1 ? [parts[0], parts[parts.length - 1]] : parts).map((w) => w[0]?.toUpperCase() ?? "").join("")
   const line = [person.headline, person.company && person.headline ? `at ${person.company}` : person.company].filter(Boolean).join(" ")
   const facts = (person.facts ?? []).filter((f) => f.value.trim() !== "")
 
@@ -59,21 +57,19 @@ export function PersonPanel({ person, action, editor, onClose }: { person: Panel
     <div className="fixed inset-0 z-40 text-foreground">
       <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 cursor-default bg-[oklch(0.2_0.03_265_/_0.5)] animate-in fade-in duration-200" />
       <aside role="dialog" aria-modal="true" aria-label={`${person.name}'s profile`} className="absolute inset-y-0 right-0 flex w-full max-w-[40rem] flex-col overflow-y-auto bg-background shadow-2xl animate-in slide-in-from-right duration-300">
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-background px-4 py-3 sm:px-6">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b-[1.5px] bg-background px-4 py-3 sm:px-6">
           <span className="text-sm font-medium text-muted-foreground">Profile</span>
-          <button type="button" aria-label="Close" onClick={onClose} className="flex size-9 cursor-pointer items-center justify-center rounded-full border text-muted-foreground transition-colors hover:border-primary hover:text-foreground">
+          <button type="button" aria-label="Close" onClick={onClose} className="flex size-9 cursor-pointer items-center justify-center rounded-full border-[1.5px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground">
             <XIcon className="size-4" aria-hidden="true" />
           </button>
         </div>
 
         <div className="flex flex-col gap-4 p-4 sm:p-6">
-          <section className="overflow-hidden rounded-xl border bg-card">
+          <section className="overflow-hidden rounded-xl border-[1.5px] bg-card">
             <div className="h-24 bg-[oklch(0.17_0.004_60)] sm:h-28" style={{ backgroundImage: "radial-gradient(60% 120% at 85% 0%, oklch(0.7 0.18 52 / 0.6), transparent 70%)" }} />
             <div className="px-5 pb-6">
               <div className="-mt-12 flex items-end gap-4">
-                <span className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-4 border-card bg-accent text-3xl font-semibold text-primary">
-                  {person.photo && !broken ? <img src={person.photo} alt="" referrerPolicy="no-referrer" onError={() => setBroken(true)} className="size-full object-cover" /> : initials}
-                </span>
+                <PersonAvatar name={person.name} photo={person.photo} size="lg" />
               </div>
               <h1 className="mt-4 font-heading text-2xl font-medium tracking-tight">{person.name}</h1>
               {line ? <p className="mt-1 text-base">{line}</p> : null}

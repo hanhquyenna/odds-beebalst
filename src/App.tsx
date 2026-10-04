@@ -10,6 +10,7 @@ import { StaticPageView } from "@/components/StaticPages"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { OfferGate } from "@/components/OfferGate"
+import { StatusColorsDialog } from "@/components/StatusColorsDialog"
 import { Toaster } from "@/components/ui/sonner"
 import { useData } from "@/lib/data"
 import { pageFromPath, pathForPage, type StaticPage } from "@/lib/pages"
@@ -194,12 +195,13 @@ export default function App(): React.JSX.Element {
   return (
     <div className="flex min-h-svh flex-col bg-background text-foreground">
       <Toaster position="top-center" closeButton />
+      <StatusColorsDialog />
       <OfferGate />
 
       {/* Stays at the top. Clear over the front page's glow; once the page has
           scrolled a little it takes a translucent paper background and a rule,
           so the wordmark stays legible over whatever passes under it. */}
-      <header className={`sticky top-0 z-20 transition-colors duration-300 ${scrolled ? "border-b bg-background" : "border-b border-transparent"}`}>
+      <header className={`sticky top-0 z-20 transition-colors duration-300 ${scrolled ? "border-b-[1.5px] bg-background" : "border-b-[1.5px] border-transparent"}`}>
         <div className={`mx-auto flex w-full ${column} flex-wrap items-center justify-between gap-x-2 gap-y-1 px-5 py-3 sm:flex-nowrap sm:gap-2 sm:px-6 sm:py-4`}>
           {/* The wordmark is the way home: the account for someone with answers
               saved, the front page for everyone else. */}
@@ -210,7 +212,7 @@ export default function App(): React.JSX.Element {
           >
             <Wordmark />
           </button>
-          <nav aria-label="odds information" className="order-3 flex w-full basis-full items-center justify-center gap-4 border-t border-border/70 pt-1 text-xs sm:order-none sm:min-w-0 sm:flex-1 sm:basis-auto sm:justify-end sm:gap-4 sm:overflow-visible sm:border-t-0 sm:pl-4 sm:pt-0 sm:text-xs md:gap-5 md:pl-6 md:text-sm">
+          <nav aria-label="odds information" className="order-3 flex w-full basis-full items-center justify-center gap-4 border-t-[1.5px] border-border/70 pt-1 text-xs sm:order-none sm:min-w-0 sm:flex-1 sm:basis-auto sm:justify-end sm:gap-4 sm:overflow-visible sm:border-t-0 sm:pl-4 sm:pt-0 sm:text-xs md:gap-5 md:pl-6 md:text-sm">
             {(["how-it-works", "about", "research"] as const).map((nextPage) => (
               <button
                 key={nextPage}
@@ -326,11 +328,11 @@ function AccountMenu({ email, avatar, name, onDashboard, onAnswers, onSignIn, on
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger aria-label="Account menu" className="flex size-11 cursor-pointer items-center justify-center overflow-hidden rounded-full border bg-accent font-semibold text-primary">
+      <PopoverTrigger aria-label="Account menu" className="flex size-11 cursor-pointer items-center justify-center overflow-hidden rounded-full border-[1.5px] bg-accent font-semibold text-primary">
         {avatar ? <img src={avatar} alt="" className="size-full object-cover" /> : (name || email || "Me").trim().charAt(0).toUpperCase()}
       </PopoverTrigger>
       <PopoverContent align="end" className="flex w-60 flex-col p-0">
-        <div className="border-b px-4 py-3">
+        <div className="border-b-[1.5px] px-4 py-3">
           <div className="font-medium">{name || email || "Your profile"}</div>
           <div className="text-sm text-muted-foreground">{email ? "Saved to your account" : "Saved on this device only"}</div>
         </div>

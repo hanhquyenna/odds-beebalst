@@ -62,9 +62,9 @@ export function SourceCorner({ post }: { post: Posting }): React.JSX.Element | n
 }
 
 /**
- * The way into the job: one Apply button to the posting that leads to the application (the employer's own page where we have it,
- * since sources are ranked that way), and any other place the job was found as plain links beside it. The button names where it
- * leads, so nobody is surprised by landing on a job board.
+ * The way into the job: one Apply button to the posting that leads to the application (the employer's own page where we have it, since sources are ranked that way),
+ * with the logo of the place it leads to beside it, and the logos of any other place the job was found, each a link. The logos carry the names (hover, and for screen
+ * readers), so the line stays short and sits at the corner of the header, level with the status.
  */
 export function SourceLinks({ post }: { post: Posting }): React.JSX.Element | null {
   // One entry per platform: two postings of the same job on LinkedIn show as one LinkedIn link.
@@ -76,7 +76,7 @@ export function SourceLinks({ post }: { post: Posting }): React.JSX.Element | nu
   const others = sources.filter((s) => s !== main)
 
   return (
-    <p className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted-foreground">
+    <span className="flex items-center gap-3">
       {main ? (
         <>
           <a
@@ -84,32 +84,27 @@ export function SourceLinks({ post }: { post: Posting }): React.JSX.Element | nu
             target="_blank"
             rel="noopener noreferrer"
             aria-label={`Apply on ${main.name} (opens in a new tab)`}
-            className="inline-flex h-10 items-center rounded-lg bg-blue-600 px-6 text-sm font-semibold text-white transition-colors duration-150 outline-none hover:bg-blue-700 focus-visible:ring-3 focus-visible:ring-blue-600/40 active:translate-y-px"
+            title={`Apply on ${main.name}`}
+            className="inline-flex h-8 items-center rounded-lg bg-blue-600 px-5 text-sm font-semibold text-white transition-colors duration-150 outline-none hover:bg-blue-700 focus-visible:ring-3 focus-visible:ring-blue-600/40 active:translate-y-px"
           >
             Apply
           </a>
-          <span>on {main.name}</span>
+          <span title={main.name} className="flex" role="img" aria-label={`on ${main.name}`}>
+            <SourceLogo name={main.name} size={22} />
+          </span>
         </>
-      ) : (
-        <span>Found on {sources.map((s) => s.name).join(", ")}</span>
-      )}
-      {main && others.length > 0 ? (
-        <span>
-          also on{" "}
-          {others.map((s, i) => (
-            <span key={`${s.ats}-${i}`}>
-              {i > 0 ? ", " : ""}
-              {s.url ? (
-                <a href={s.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4 hover:text-foreground">
-                  {s.name}
-                </a>
-              ) : (
-                s.name
-              )}
-            </span>
-          ))}
-        </span>
       ) : null}
-    </p>
+      {others.map((s, i) =>
+        s.url ? (
+          <a key={`${s.ats}-${i}`} href={s.url} target="_blank" rel="noopener noreferrer" title={`Also on ${s.name}`} aria-label={`Also on ${s.name} (opens in a new tab)`} className="flex opacity-80 transition-opacity hover:opacity-100">
+            <SourceLogo name={s.name} size={20} />
+          </a>
+        ) : (
+          <span key={`${s.ats}-${i}`} title={`Found on ${s.name}`} role="img" aria-label={`Found on ${s.name}`} className="flex opacity-80">
+            <SourceLogo name={s.name} size={20} />
+          </span>
+        ),
+      )}
+    </span>
   )
 }

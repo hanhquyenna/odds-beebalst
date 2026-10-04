@@ -46,10 +46,10 @@ export interface NextStep {
 const DAY = 86_400_000
 
 /** What to do next for one person. `due` is only ever true where waiting is the move and the stage is a week old; no date, never due. */
-export function nextStep(person: Pick<Person, "status" | "statusAt">, now: Date = new Date()): NextStep {
+export function nextStep(person: Pick<Person, "status" | "statusAt">, now: Date = new Date(), days: number = NUDGE_AFTER_DAYS): NextStep {
   const info = STAGES[person.status] ?? STAGES["To contact"]
   const at = person.statusAt ? Date.parse(person.statusAt) : NaN
-  const due = info.waiting === true && Number.isFinite(at) && now.getTime() - at >= NUDGE_AFTER_DAYS * DAY
+  const due = info.waiting === true && Number.isFinite(at) && now.getTime() - at >= days * DAY
   if (due) {
     return { text: person.status === "Referral asked" ? "A week has passed. Send one polite nudge, then stop." : "A week has passed. Send one nudge, then someone else.", kind: "Follow-up", due: true }
   }

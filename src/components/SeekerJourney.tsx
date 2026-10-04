@@ -227,7 +227,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
         <div className="space-y-2">
           <input
             aria-label="Your LinkedIn link"
-            className="h-12 w-full rounded-lg border bg-background px-4 text-base focus:border-ring focus:outline-none focus:ring-3 focus:ring-ring/40"
+            className="h-12 w-full rounded-lg border-[1.5px] bg-background px-4 text-base focus:border-ring focus:outline-none focus:ring-3 focus:ring-ring/40"
             placeholder="https://www.linkedin.com/in/your-name"
             value={link}
             onChange={(event) => setLink(event.target.value)}
@@ -289,7 +289,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
       // On a phone the question fills the screen and the buttons sit under the
       // thumb. On a laptop it becomes one card, centred, with the buttons right
       // under the question.
-      className="mx-auto flex w-full max-w-sm flex-1 flex-col gap-8 md:my-auto md:max-w-lg md:flex-none md:border md:bg-card md:p-10"
+      className="mx-auto flex w-full max-w-sm flex-1 flex-col gap-8 md:my-auto md:max-w-lg md:flex-none md:border-[1.5px] md:bg-card md:p-10"
     >
       {step === "contact" ? null : <StepProgress current={stepIndex} total={COUNTED_STEPS.length} onSelect={(index) => setStep(COUNTED_STEPS[index])} />}
 
@@ -340,7 +340,7 @@ function SaveBar({ changes, onDiscard, saving }: SaveBarProps): React.JSX.Elemen
   const summary = changes.length === 1 ? `1 change · ${changes[0]}` : `${changes.length} changes`
 
   return (
-    <div className="sticky bottom-4 z-10 flex items-center justify-between gap-3 rounded-lg border bg-card px-4 py-3 shadow-md">
+    <div className="sticky bottom-4 z-10 flex items-center justify-between gap-3 rounded-lg border-[1.5px] bg-card px-4 py-3 shadow-md">
       <span className="truncate text-sm text-muted-foreground">{summary}</span>
       <div className="flex shrink-0 gap-2">
         <Button type="button" variant="ghost" onClick={onDiscard} className="cursor-pointer">

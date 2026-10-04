@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
 import { BookmarkIcon } from "@/components/icons"
-import { ageText, KeyFacts } from "@/components/Tag"
-import { MoreAtEmployer } from "@/components/CompanyInsights"
+import { KeyFacts } from "@/components/Tag"
+import { AboutCompany, MoreAtEmployer } from "@/components/CompanyInsights"
+import { PostingText } from "@/components/PostingText"
 import { SourceLinks } from "@/components/SourceChips"
 import { StatusPicker } from "@/components/StatusPicker"
 import { JobProperties } from "@/components/JobProperties"
 import { Hint } from "@/components/Hint"
-import { FitCard, LockedPersonal, PayCard, Recommendations, Section, UspStrip } from "@/components/JobPersonal"
+import { CareerLadder, FitCard, LockedPersonal, PayCard, Recommendations, Section, UspStrip } from "@/components/JobPersonal"
 import { useData } from "@/lib/data"
+import { saved as notifySaved } from "@/lib/saved"
 import { isWhatIfActive, NO_WHAT_IF, standing, type WhatIf } from "@/lib/engine"
-import { formatPlace, stripMarkup } from "@/lib/format"
-import { toggleSave } from "@/lib/save"
+import { stripMarkup } from "@/lib/format"
+import { ConfirmDialog } from "@/components/ConfirmDialog"
+import { removeFromList, toggleSave } from "@/lib/save"
 import { extractRequirements, fromJev, namedSkills, relaxedGates, tiersOf } from "@/lib/requirements"
 import { allowanceNote, payOf, TRAINEE_NOTE, type AllowanceSource } from "@/lib/spec"
 import { fetchBody, fetchJevRequirements } from "@/lib/jobs"
@@ -41,7 +44,17 @@ export function JobDetail({ note, onBack, onPick, onOpenJob, post, pane = false,
   useBackEntry(post.id, onBack, !pane)
   const data = useData()
   const [body, setBody] = useState<string | null>(post.body ?? null)
-  const [whatIf, setWhatIf] = useState<WhatIf>(NO_WHAT_IF)
+  // The ticks under Recommendations are kept per job, so they are there next time, and every change shows the same "Saved." notice.
+  const [whatIf, setWhatIfState] = useState<WhatIf>(() => ({ ...NO_WHAT_IF, ...(data.profile.ticks?.[post.id] ?? {}) }))
+  const setWhatIf = (next: WhatIf): void => {
+    setWhatIfState(next)
+    const rest = Object.fromEntries(Object.entries(data.profile.ticks ?? {}).filter(([id]) => id !== post.id))
+    const active = isWhatIfActive(next)
+    const ticks = active ? { ...rest, [post.id]: next } : rest
+    const keep = Object.fromEntries(Object.entries(ticks).slice(-200))
+    data.setProfile({ ...data.profile, ticks: keep })
+    notifySaved()
+  }
 
   useEffect(() => {
     if (post.body !== undefined) {
@@ -91,9 +104,9 @@ export function JobDetail({ note, onBack, onPick, onOpenJob, post, pane = false,
 
   const pay = payOf(post, data.reference)
   const saved = data.saved.has(post.id)
+  const [asking, setAsking] = useState<boolean>(false)
   const active = isWhatIfActive(whatIf)
   const fit = base ? (base.failing === 0 ? "met every requirement" : base.failing === 1 ? "missing one requirement" : "missing several requirements") : ""
-  const meta = [formatPlace(post.region), post.local ? "added by you" : ageText(post), post.applicants != null ? post.applicants_text : null].filter(Boolean).join(" · ")
 
   return (
     <div className={pane ? "flex w-full flex-col gap-8 px-5 py-6 sm:px-8 sm:py-8" : "mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8"}>
@@ -103,7 +116,7 @@ export function JobDetail({ note, onBack, onPick, onOpenJob, post, pane = false,
         </button>
       )}
 
-      <header className="flex flex-col gap-4 rounded-xl border bg-secondary/30 p-4 sm:p-5">
+      <header className="flex flex-col gap-4 rounded-xl border-[1.5px] bg-secondary/30 p-4 sm:p-5">
         <div className="flex items-start gap-4">
           <div className="flex h-14 w-16 shrink-0 items-center justify-center">
             <CompanyLogo employer={post.employer} name={post.employer_display} size={52} wide={1.4} url={post.url} />
@@ -111,19 +124,19 @@ export function JobDetail({ note, onBack, onPick, onOpenJob, post, pane = false,
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <h1 className="text-2xl leading-tight font-semibold tracking-tight sm:text-[1.75rem]">{post.title}</h1>
             <p className="text-base">{post.employer_display}</p>
-            <p className="text-sm text-muted-foreground">{meta}</p>
-            <SourceLinks post={post} />
-            {post.dutch_required ? <p className="mt-1 w-fit rounded-md border border-brand/60 bg-brand/10 px-3 py-1.5 text-sm font-medium">Dutch needed: the posting asks you to speak or write Dutch.</p> : null}
+            {post.local ? <p className="text-sm text-muted-foreground">Added by you</p> : null}
+            {post.dutch_required ? <p className="mt-1 w-fit rounded-md border-[1.5px] border-brand/60 bg-brand/10 px-3 py-1.5 text-sm font-medium">Dutch needed: the posting asks you to speak or write Dutch.</p> : null}
           </div>
           <button
             type="button"
             aria-label={saved ? "Remove from your saved jobs" : "Save this job"}
             aria-pressed={saved}
-            onClick={() => (locked ? locked.onUnlock() : toggleSave(data, post))}
-            className={`flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full border transition-colors duration-150 ${saved ? "border-brand bg-[oklch(0.96_0.03_45)] text-brand" : "text-muted-foreground hover:border-primary hover:text-foreground"}`}
+            onClick={() => (locked ? locked.onUnlock() : saved ? setAsking(true) : toggleSave(data, post))}
+            className={`flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full border-[1.5px] transition-colors duration-150 ${saved ? "border-brand bg-[oklch(0.96_0.03_45)] text-brand" : "text-muted-foreground hover:border-primary hover:text-foreground"}`}
           >
             <BookmarkIcon weight={saved ? "fill" : "bold"} className="size-5" aria-hidden="true" />
           </button>
+          {asking ? <ConfirmDialog title="Remove this job from your list?" body={`${post.title} goes back to the jobs that fit you.`} confirm="Remove" onCancel={() => setAsking(false)} onConfirm={() => { setAsking(false); removeFromList(data, post) }} /> : null}
         </div>
         {pay.text ? (
           <p className="flex items-center gap-2 text-lg tabular-nums">
@@ -132,7 +145,11 @@ export function JobDetail({ note, onBack, onPick, onOpenJob, post, pane = false,
             <Hint label="About this pay">{pay.basis === "Stated" ? "Stated by the employer, before tax." : pay.basis === "Allowance" && pay.source ? allowanceNote(pay.source as AllowanceSource) : pay.source === "Typical traineeship pay" ? TRAINEE_NOTE : "Typical for this kind of job across employers, before tax (CBS 2024). The employer does not state pay for this one."}</Hint>
           </p>
         ) : null}
-        <StatusPicker post={post} fit={fit} onLocked={locked?.onUnlock} />
+        {/* Status at the left, the way into the posting at the right, on one line. */}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+          <StatusPicker post={post} fit={fit} onLocked={locked?.onUnlock} />
+          <SourceLinks post={post} />
+        </div>
         {note ? <p className="text-sm text-muted-foreground">{note}</p> : null}
         {locked ? <KeyFacts post={post} onPick={onPick} /> : null}
       </header>
@@ -148,17 +165,15 @@ export function JobDetail({ note, onBack, onPick, onOpenJob, post, pane = false,
         </>
       )}
 
+      {body !== "" ? (
+        <Section title="About the job">{body ? <PostingText body={body} employer={post.employer_display} /> : <p className="text-sm text-muted-foreground">Loading the posting…</p>}</Section>
+      ) : null}
+
+      <AboutCompany post={post} />
+
       {st ? <PayCard post={post} st={st} onPick={onPick} /> : null}
 
-      <Section title="About the job">
-        {body ? (
-          <p className="text-[0.95rem] leading-relaxed whitespace-pre-line">{stripMarkup(body)}</p>
-        ) : body === null ? (
-          <p className="text-sm text-muted-foreground">Loading the posting…</p>
-        ) : (
-          <p className="text-sm text-muted-foreground">This posting has no description.</p>
-        )}
-      </Section>
+      {st ? <CareerLadder post={post} st={st} onPick={onPick} /> : null}
 
       <MoreAtEmployer post={post} onOpenJob={onOpenJob} />
     </div>

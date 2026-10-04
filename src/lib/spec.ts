@@ -77,11 +77,11 @@ export function allowanceNote(source: AllowanceSource): string {
  * What a traineeship pays when the posting names no amount. A traineeship is a paid first job, so CBS's pay for the occupation (all ages, all
  * levels) is the wrong yardstick and an internship allowance is too low. Two published figures bound it: a junior trainee's salary from the
  * Nationale Beroepengids (EUR 2,446 to 2,596 gross a month, 40 hours a week, holiday allowance included, updated 18 February 2025) up to what
- * the Dutch government pays a starting Rijkstrainee (EUR 3,496 gross a month, scale 10 step 0, werkenvoornederland.nl). Banks and consultancies often pay more.
+ * the Dutch government pays a starting Rijkstrainee (EUR 3,496 gross a month, scale 10 step 0, werkenvoornederland.nl). 
  */
 export const TRAINEE_PAY = { low: 2450, high: 3500 } as const
 export const TRAINEE_NOTE =
-  "No amount is named, so this is a range from two published figures: a junior trainee earns about €2,450 a month (Nationale Beroepengids, 2025) and the Dutch government pays a starting Rijkstrainee about €3,500 (Werken voor Nederland). Before tax. Banks and consultancies often pay more."
+  "No amount is named, so this is a range from two published figures: a junior trainee earns about €2,450 a month (Nationale Beroepengids, 2025) and the Dutch government pays a starting Rijkstrainee about €3,500 (Werken voor Nederland). Before tax."
 
 const euro = (n: number): string => `€${Math.round(n).toLocaleString("en-NL")}`
 const nearest = (n: number, step: number): number => Math.round(n / step) * step
@@ -104,8 +104,10 @@ export function payOf(post: Posting, reference: Reference | null): Pay {
   const stated = formatPosted(post.pay_posted)
   if (stated && stated.high <= stated.low * 3) {
     const divide = stated.unit === "year" ? 12 : 1
+    // One monthly figure is shown exactly as the employer wrote it (an allowance of 1,016 is not 1,020). A range, or a yearly figure divided by twelve, is rounded to ten.
+    const step = stated.unit === "month" && stated.low === stated.high ? 1 : 10
 
-    return { text: range(nearest(stated.low / divide, 10), nearest(stated.high / divide, 10)), source: "Stated by the employer", basis: "Stated" }
+    return { text: range(nearest(stated.low / divide, step), nearest(stated.high / divide, step)), source: "Stated by the employer", basis: "Stated" }
   }
   if (post.role_kind === "traineeship") {
     return { text: range(TRAINEE_PAY.low, TRAINEE_PAY.high), source: "Typical traineeship pay", basis: "Typical" }

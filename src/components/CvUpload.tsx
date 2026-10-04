@@ -8,6 +8,8 @@ interface CvUploadProps {
   text: string
   /** The file it was read from, when there is one. */
   name: string | undefined
+  /** Where the text came from when there is no file (for example the LinkedIn import), so it is never called a CV file it is not. */
+  source?: string
   /** `uploaded` is true when the text came from a chosen file, false when it was typed, corrected or removed. */
   onChange: (text: string, name: string | undefined, uploaded: boolean) => void
   /** A line under the file: what was filled in from it. */
@@ -21,7 +23,7 @@ const ACCEPT = ".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlforma
  * profile, where the skills, degrees, roles and track record are read from. The text can be seen and corrected, or typed in
  * instead, because a CV that reads wrongly would give a wrong chance and nobody should have to trust it blindly.
  */
-export function CvUpload({ text, name, onChange, note }: CvUploadProps): React.JSX.Element {
+export function CvUpload({ text, name, source, onChange, note }: CvUploadProps): React.JSX.Element {
   const input = useRef<HTMLInputElement>(null)
   const id = useId()
   const [busy, setBusy] = useState<boolean>(false)
@@ -58,10 +60,10 @@ export function CvUpload({ text, name, onChange, note }: CvUploadProps): React.J
       />
 
       {text.trim() !== "" ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border-[1.5px] px-4 py-3">
           <p className="flex min-w-0 items-center gap-2 text-sm">
             <CheckIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-            <span className="min-w-0 truncate font-medium">{name ?? "Your CV"}</span>
+            <span className="min-w-0 truncate font-medium">{name ?? source ?? "Your CV"}</span>
             <span className="shrink-0 text-muted-foreground">
               {words.toLocaleString()} {words === 1 ? "word" : "words"} read
             </span>
@@ -81,13 +83,15 @@ export function CvUpload({ text, name, onChange, note }: CvUploadProps): React.J
           onDragOver={(e) => { e.preventDefault(); setOver(true) }}
           onDragLeave={() => setOver(false)}
           onDrop={(e) => { e.preventDefault(); setOver(false); void take(e.dataTransfer.files?.[0]) }}
-          className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-8 text-center transition-colors duration-150 ${over ? "border-foreground bg-accent" : "hover:border-foreground/40 hover:bg-accent/50"}`}
+          className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border-[1.5px] border-dashed px-4 py-8 text-center transition-colors duration-150 ${over ? "border-foreground bg-accent" : "hover:border-foreground/40 hover:bg-accent/50"}`}
         >
           <UploadIcon className="size-6 text-muted-foreground" aria-hidden="true" />
           <span className="text-sm font-medium">{busy ? "Reading your CV…" : "Choose your CV, or drop it here"}</span>
           <span className="text-xs text-muted-foreground">PDF, Word (.docx) or text, up to 8 MB</span>
         </label>
       )}
+
+      {text.trim() !== "" && !open ? <p className="line-clamp-3 whitespace-pre-line rounded-md bg-secondary/60 px-3 py-2 text-sm text-muted-foreground">{text.trim()}</p> : null}
 
       {note && !problem ? <p className="text-sm text-muted-foreground">{note}</p> : null}
 
@@ -98,13 +102,17 @@ export function CvUpload({ text, name, onChange, note }: CvUploadProps): React.J
       ) : null}
 
       <div>
-        <button type="button" aria-expanded={open || text.trim() === "" ? true : false} onClick={() => setOpen(!open)} className="cursor-pointer text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
-          {text.trim() === "" ? "Or type or paste it" : open ? "Hide the text we read" : "See and correct the text we read"}
-        </button>
+        {text.trim() === "" ? (
+          <p className="text-sm font-medium text-muted-foreground">Or type or paste it</p>
+        ) : (
+          <Button type="button" variant="outline" size="sm" aria-expanded={open} onClick={() => setOpen(!open)} className="cursor-pointer">
+            {open ? "Hide the text" : "Read all the text we saved, and correct it"}
+          </Button>
+        )}
         {open || text.trim() === "" ? (
           <textarea
             aria-label="CV text"
-            className="mt-2 min-h-40 w-full rounded-md border bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none"
+            className="mt-2 min-h-40 w-full rounded-md border-[1.5px] bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none"
             value={text}
             onChange={(e) => onChange(e.target.value, name, false)}
           />

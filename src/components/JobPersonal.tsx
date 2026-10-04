@@ -1,6 +1,8 @@
 import { skillLabel } from "@/lib/skills"
-import { CircleHelpIcon } from "@/components/icons"
+import { CircleHelpIcon, InfoIcon } from "@/components/icons"
 import { useMemo, useState } from "react"
+import { useOriginalChance } from "@/components/FitCells"
+import { Moved } from "@/components/Moved"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/bits"
 import { Hint } from "@/components/Hint"
@@ -16,6 +18,8 @@ import { ladderStats, poolOf, rungOf } from "@/lib/ladder"
 import { derive, eur, isInternship, levelOf, type Level, payChoicesOf, netMonth, pct, point, standing, thresholdLines, type Standing, type WhatIf, NO_WHAT_IF } from "@/lib/engine"
 import { EXAMPLE_PROFILE } from "@/lib/example"
 import { DUTCH_OPTIONS } from "@/lib/journey"
+import { IMPORT_HINT, openLinkedInImport } from "@/lib/open-profile"
+import { saved } from "@/lib/saved"
 import { allowanceNote, allowanceOf, payMid, payOf, TRAINEE_NOTE, type AllowanceSource } from "@/lib/spec"
 import { useApplyFilter } from "@/lib/filter-bus"
 import { industryOf } from "@/lib/industries"
@@ -41,13 +45,14 @@ function Info({ label, children }: { label: string; children: React.ReactNode })
 // ---------------------------------------------------------------- the two numbers at the top
 
 /** What you keep each month after tax at this job's pay, with and without health insurance. Null when there is no pay to work from. */
-function keepOf(post: Posting, data: ReturnType<typeof useData>): { net: number; afterInsurance: number; basis: "Stated" | "Typical" } | null {
+function keepOf(post: Posting, data: ReturnType<typeof useData>, original = false): { net: number; afterInsurance: number; basis: "Stated" | "Typical" } | null {
   const ref = data.reference
   const mid = ref ? payMid(post, ref) : null
   if (!ref || !mid) {
     return null
   }
-  const c = payChoicesOf(data.profile)
+  // `original` is the same job with the pay settings as they start (before you changed the 30% ruling, the master's rule or the visa).
+  const c = payChoicesOf(original ? { ...data.profile, payChoices: undefined } : data.profile)
   const net = netMonth(mid.month * 12, c.ruling, c.masterFloor, ref.tax).net
 
   return { net, afterInsurance: net - ref.tax.health_insurance_2026.average_premium_month, basis: mid.basis }
@@ -58,30 +63,39 @@ function keepOf(post: Posting, data: ReturnType<typeof useData>): { net: number;
  * what you would keep each month. They lead every job, and they move when you
  * tick a recommendation below.
  */
-export function UspStrip({ post, st, base, active }: { post: Posting; st: Standing; base: Standing; active: boolean }): React.JSX.Element {
+export function UspStrip({ post, st }: { post: Posting; st: Standing; base?: Standing; active?: boolean }): React.JSX.Element {
   const data = useData()
   const [open, setOpen] = useState<boolean>(false)
   const keep = keepOf(post, data)
+  const keepWas = keepOf(post, data, true)?.net ?? null
+  const original = useOriginalChance(post)
   const r = st.rate
   const chance = r && !r.thin ? point(r.mid) : st.needsProfile ? "0%" : null
-  const was = active && base.rate && !base.rate.thin ? point(base.rate.mid) : null
+  // The number against what it was before anything you did (a referral, a ticked recommendation): green and up, or red and down, with the original in the hover.
+  const gain = r && !r.thin && original !== null ? (r.mid - original) * 100 : 0
   const missing = st.gates.filter((g) => g.status === "fail").map((g) => MISSING_WORDS[g.name])
   const studentGate = st.gates.find((g) => g.name === "Student")
 
   return (
     <div className="flex flex-col gap-2">
-      <section aria-label="Your numbers" className="grid overflow-hidden rounded-xl border sm:grid-cols-2">
+      <section aria-label="Your numbers" className="grid overflow-hidden rounded-xl border-[1.5px] sm:grid-cols-2">
         <div className="flex flex-col gap-1 p-4 sm:p-5">
           <p className="text-[0.8125rem] text-muted-foreground">Interview chance</p>
           {chance !== null ? (
             <>
-              <button type="button" aria-expanded={open} aria-controls="chance-explained" onClick={() => setOpen(!open)} className="group flex w-fit cursor-pointer items-center gap-2 text-left">
-                <span className="text-3xl leading-none font-semibold tracking-tight tabular-nums underline decoration-dotted decoration-1 underline-offset-[6px] group-hover:decoration-solid">{chance}</span>
-                <Caret open={open} />
-              </button>
-              <p className="text-sm text-muted-foreground">
-                {st.needsProfile ? "Add your CV or connect LinkedIn" : <>get an interview{was ? <span className="text-foreground"> · was {was}</span> : null}</>}
-              </p>
+              {st.needsProfile ? (
+                <button type="button" title={IMPORT_HINT} aria-label={`0%. ${IMPORT_HINT}`} onClick={openLinkedInImport} className="group flex w-fit cursor-pointer items-center gap-2 text-left">
+                  <span className="text-3xl leading-none font-semibold tracking-tight tabular-nums underline decoration-dotted decoration-1 underline-offset-[6px] group-hover:decoration-solid">{chance}</span>
+                </button>
+              ) : (
+                <button type="button" aria-expanded={open} aria-controls="chance-explained" onClick={() => setOpen(!open)} className="group flex w-fit cursor-pointer items-center gap-2 text-left">
+                  <Moved delta={gain} min={0.05} wasText={original === null ? "" : point(original)}>
+                    <span className="text-3xl leading-none font-semibold tracking-tight tabular-nums underline decoration-dotted decoration-1 underline-offset-[6px] group-hover:decoration-solid">{chance}</span>
+                  </Moved>
+                  <Caret open={open} />
+                </button>
+              )}
+              {st.needsProfile ? <p className="text-sm text-muted-foreground">Import LinkedIn to see yours</p> : null}
               {st.failing > 0 ? (
                 <p className="text-sm text-muted-foreground">
                   This job also asks for {missing.join(" and ")}.{studentGate?.status === "fail" ? ` ${studentGate.why.replace(/^the posting /, "It ")}.` : ""} Tick a recommendation below to count it.
@@ -92,11 +106,15 @@ export function UspStrip({ post, st, base, active }: { post: Posting; st: Standi
             <p className="text-sm text-muted-foreground">Too few similar jobs to give a range we would stand behind.</p>
           )}
         </div>
-        <div className="flex flex-col gap-1 border-t p-4 sm:border-t-0 sm:border-l sm:p-5">
+        <div className="flex flex-col gap-1 border-t-[1.5px] p-4 sm:border-t-0 sm:border-l-[1.5px] sm:p-5">
           <p className="text-[0.8125rem] text-muted-foreground">You keep</p>
           {keep ? (
             <>
-              <p className="text-3xl leading-none font-semibold tracking-tight tabular-nums">{eur(keep.net)}</p>
+              <p className="text-3xl leading-none font-semibold tracking-tight tabular-nums">
+                <Moved delta={keepWas === null ? 0 : keep.net - keepWas} min={10} wasText={keepWas === null ? "" : eur(keepWas)}>
+                  {eur(keep.net)}
+                </Moved>
+              </p>
               <p className="flex items-center gap-1 text-sm text-muted-foreground">
                 a month after tax
                 <Hint label="About what you keep">
@@ -131,10 +149,10 @@ interface FitProps {
 /** What each tier means, in the posting's own terms. */
 /** The more a posting insists, the more orange: a rail on the card, a tint on the chips. */
 const TIER_CHIP: Record<Tier, string> = {
-  must: "border border-brand/60 bg-brand/15 text-foreground",
-  strong: "border border-brand/35 bg-brand/[0.07] text-foreground",
-  optional: "border border-transparent bg-secondary text-foreground",
-  nice: "border border-dashed bg-transparent text-muted-foreground",
+  must: "border-[1.5px] border-brand/60 bg-brand/15 text-foreground",
+  strong: "border-[1.5px] border-brand/35 bg-brand/[0.07] text-foreground",
+  optional: "border-[1.5px] border-transparent bg-secondary text-foreground",
+  nice: "border-[1.5px] border-dashed bg-transparent text-muted-foreground",
 }
 const TIER_RAIL: Record<Tier, string> = { must: "border-l-brand", strong: "border-l-brand/50", optional: "border-l-muted-foreground/30", nice: "border-l-border" }
 
@@ -168,7 +186,7 @@ export function FitCard({ post, requirements }: FitProps): React.JSX.Element {
         </p>
 
         {tiers.map(({ tier, std, rows }) => (
-          <div key={tier} className={`rounded-xl border border-l-4 bg-card p-4 ${TIER_RAIL[tier]}`}>
+          <div key={tier} className={`rounded-xl border-[1.5px] border-l-4 bg-card p-4 ${TIER_RAIL[tier]}`}>
             <p className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
               <span className="text-base font-semibold">{TIER_LABEL[tier]}</span>
               <span className="text-xs text-muted-foreground">{TIER_NOTE[tier]}</span>
@@ -197,7 +215,7 @@ export function FitCard({ post, requirements }: FitProps): React.JSX.Element {
         {mentioned.length > 0 ? (
           <div className="flex flex-col">
             <p className="mb-2 text-sm font-medium">What it mentions</p>
-            <ul className="flex flex-wrap gap-2 border-y py-3">
+            <ul className="flex flex-wrap gap-2 border-y-[1.5px] py-3">
               {mentioned.map((t) => (
                 <li key={t} className="rounded-md bg-secondary px-2.5 py-1 text-sm font-medium">
                   {t}
@@ -222,6 +240,8 @@ interface Rec {
   source: string
   /** A few words on what ticking it does, shown beside the title. */
   badge: string
+  /** True when it settles a requirement but the number does not move until the others are met. */
+  gap?: boolean
   /** True when ticking it changes the percentage, false when it closes a gap only. */
   moves: boolean
   on: boolean
@@ -247,37 +267,39 @@ export function Recommendations({ post, base, whatIf, setWhatIf }: { post: Posti
   const failed = (name: string): boolean => base.gates.find((g) => g.name === name)?.status === "fail"
   const [open, setOpen] = useState<string | null>(null)
 
-  /** What one change is worth on its own, measured from where you stand now, in a few words. */
-  function worth(change: Partial<WhatIf>, asReferral = false): string {
+  /**
+   * What one change does to your interview chance, in the plainest words: "+1.3%" (percentage points more), "Needed" when it settles a requirement that must be met but the
+   * number only moves once the others are met too, and "No effect" when it does nothing. `gap` carries the "Needed" case so the reason can say why.
+   */
+  function worthOf(change: Partial<WhatIf>, asReferral = false): { badge: string; gap: boolean } {
     const alt = standing(post, data.profile, ref, shares, { ...NO_WHAT_IF, ...change }, asReferral || referral, data.strengthFor(post))
     if (base.rate && alt.rate && !base.rate.thin && !alt.rate.thin) {
-      const was = point(base.rate.mid)
-      const now = point(alt.rate.mid)
-      if (was !== now) {
-        return `→ ${now}`
+      const gain = (alt.rate.mid - base.rate.mid) * 100
+      if (Math.abs(gain) >= 0.05) {
+        return { badge: `${gain > 0 ? "↑" : "↓"} ${Math.abs(gain).toFixed(1)}%`, gap: false }
       }
     }
     if (alt.failing < base.failing) {
-      return "Closes a gap"
+      return { badge: "Needed", gap: true }
     }
 
-    return base.failing > 0 ? "Counts later" : "No change"
+    return { badge: "No effect", gap: false }
   }
 
 
   const recs: Rec[] = []
   if (failed("Dutch")) {
-    recs.push({ key: "dutch", title: "Learn Dutch", reason: `This job requires Dutch and yours is ${DUTCH_OPTIONS.find((o) => o.value === data.profile.dutch)?.label.replace(/ \(.*/, "").toLowerCase()}. Professional level meets it.`, source: "Posting and your profile", badge: worth({ dutch: true }), moves: true, on: whatIf.dutch, toggle: () => setWhatIf({ ...whatIf, dutch: !whatIf.dutch }) })
+    recs.push({ key: "dutch", title: "Learn Dutch", reason: `This job requires Dutch and yours is ${DUTCH_OPTIONS.find((o) => o.value === data.profile.dutch)?.label.replace(/ \(.*/, "").toLowerCase()}. Professional level meets it.`, source: "Posting and your profile", ...worthOf({ dutch: true }), moves: true, on: whatIf.dutch, toggle: () => setWhatIf({ ...whatIf, dutch: !whatIf.dutch }) })
   }
   if (failed("Degree")) {
-    recs.push({ key: "degree", title: post.degree_asked === "bachelor" ? "Finish a bachelor's" : post.degree_asked === "phd" ? "Get a PhD" : "Finish a master's", reason: `The posting asks for a ${post.degree_asked}'s degree and yours is ${d.degree === "unknown" ? "not on your profile" : d.degree}.`, source: "Posting and your profile", badge: worth({ degree: true }), moves: true, on: whatIf.degree, toggle: () => setWhatIf({ ...whatIf, degree: !whatIf.degree }) })
+    recs.push({ key: "degree", title: post.degree_asked === "bachelor" ? "Finish a bachelor's" : post.degree_asked === "phd" ? "Get a PhD" : "Finish a master's", reason: `The posting asks for a ${post.degree_asked}'s degree and yours is ${d.degree === "unknown" ? "not on your profile" : d.degree}.`, source: "Posting and your profile", ...worthOf({ degree: true }), moves: true, on: whatIf.degree, toggle: () => setWhatIf({ ...whatIf, degree: !whatIf.degree }) })
   }
   if (failed("Minimum years")) {
     const need = Math.max(1, Math.ceil((post.years_min ?? 1) - d.years))
-    recs.push({ key: "years", title: need === 1 ? "Add a year of experience" : `Add ${need} years of experience`, reason: `It asks for ${post.years_min}+ years and you have ${d.years.toFixed(1)}.`, source: "Posting and your profile", badge: worth({ years: need }), moves: true, on: whatIf.years > 0, toggle: () => setWhatIf({ ...whatIf, years: whatIf.years > 0 ? 0 : need }) })
+    recs.push({ key: "years", title: need === 1 ? "Add a year of experience" : `Add ${need} years of experience`, reason: `It asks for ${post.years_min}+ years and you have ${d.years.toFixed(1)}.`, source: "Posting and your profile", ...worthOf({ years: need }), moves: true, on: whatIf.years > 0, toggle: () => setWhatIf({ ...whatIf, years: whatIf.years > 0 ? 0 : need }) })
   }
   if (failed("Student")) {
-    recs.push({ key: "student", title: "I am a student", reason: "The posting asks for a current student and your profile says you are not studying (or has no current study). If you are enrolled now, tick this to see the job as it counts for you, then say so in your profile so every job knows.", source: "Posting and your profile", badge: worth({ student: true }), moves: true, on: whatIf.student, toggle: () => setWhatIf({ ...whatIf, student: !whatIf.student }) })
+    recs.push({ key: "student", title: "I am a student", reason: "The posting asks for a current student and your profile says you are not studying (or has no current study). If you are enrolled now, tick this to see the job as it counts for you, then say so in your profile so every job knows.", source: "Posting and your profile", ...worthOf({ student: true }), moves: true, on: whatIf.student, toggle: () => setWhatIf({ ...whatIf, student: !whatIf.student }) })
   }
   const person = data.people.find((p) => p.jobId === post.id && p.status === "Referred")
   recs.push({
@@ -285,15 +307,18 @@ export function Recommendations({ post, base, whatIf, setWhatIf }: { post: Posti
     title: "Get a referral",
     reason: person ? `${person.name} has referred you for this job. People who are referred get an interview about one and a half times as often.` : "People who are referred get an interview about one and a half times as often.",
     source: "Ashby 2026, all countries",
-    badge: person || referral ? "Counted" : worth({}, true),
+    ...(person || referral ? { badge: "Done", gap: false } : worthOf({}, true)),
     moves: true,
     on: referral,
     fixed: Boolean(person),
     extra: <ReferralLink post={post} />,
-    toggle: () => data.toggleReferral(post.id),
+    toggle: () => {
+      data.toggleReferral(post.id)
+      saved()
+    },
   })
   {
-    recs.push({ key: "tailor", title: "Tailor your CV", reason: "Tailored applications did better in a US test. It is the weakest evidence we use, so it only raises the top of the range.", source: "ResumeGo 2020", badge: worth({ tailor: true }), moves: true, on: whatIf.tailor === true, toggle: () => setWhatIf({ ...whatIf, tailor: whatIf.tailor === true ? null : true }) })
+    recs.push({ key: "tailor", title: "Tailor your CV", reason: "Tailored applications did better in a US test. It is the weakest evidence we use, so it only raises the top of the range.", source: "ResumeGo 2020", ...worthOf({ tailor: true }), moves: true, on: whatIf.tailor === true, toggle: () => setWhatIf({ ...whatIf, tailor: whatIf.tailor === true ? null : true }) })
   }
   const tierRank = (skill: string): number => { const t = post.tiers?.[skill]; const i = t ? TIERS.indexOf(t) : -1; return i < 0 ? TIERS.length : i }
   for (const m of base.checklist.filter((c) => !c.have).sort((a, b) => tierRank(a.skill) - tierRank(b.skill) || (b.share ?? 0) - (a.share ?? 0)).slice(0, 3)) {
@@ -303,7 +328,7 @@ export function Recommendations({ post, base, whatIf, setWhatIf }: { post: Posti
       title: `Learn ${skillLabel(m.skill)}`,
       reason: `${m.share != null ? `Mentioned in ${pct(m.share)} of similar postings. ` : ""}Having more of the skills a posting lists raises the estimate. The size is scaled from one US study and partly our assumption, so treat it as a guide.`,
       source: "Posting",
-      badge: worth({ skills: [m.skill] }),
+      ...worthOf({ skills: [m.skill] }),
       moves: true,
       on,
       toggle: () => setWhatIf({ ...whatIf, skills: on ? whatIf.skills.filter((s) => s !== m.skill) : [...whatIf.skills, m.skill] }),
@@ -325,7 +350,7 @@ export function Recommendations({ post, base, whatIf, setWhatIf }: { post: Posti
         )
       }
     >
-      <ul className="divide-y border-y">
+      <ul className="divide-y-[1.5px] border-y-[1.5px]">
         {recs.map((r) => (
           <li key={r.key}>
             <div className="flex items-center gap-3 py-3">
@@ -346,7 +371,7 @@ export function Recommendations({ post, base, whatIf, setWhatIf }: { post: Posti
             </div>
             {open === r.key ? (
               <p className="-mt-1 pb-3 pl-7 text-sm text-muted-foreground">
-                {r.reason} <span className="whitespace-nowrap">Source: {r.source}.</span>
+                {r.reason}{r.gap ? " It must be met, but your chance only moves once the other missing requirements are met too." : ""} <span className="whitespace-nowrap">Source: {r.source}.</span>
               </p>
             ) : null}
             {r.extra}
@@ -370,20 +395,21 @@ export function LockedPersonal({ onUnlock }: { onUnlock: () => void }): React.JS
 
   return (
     <div className="relative">
+      <section className="mb-6 grid overflow-hidden rounded-xl border-[1.5px] sm:grid-cols-2">
+        <div className="flex flex-col gap-1 p-5">
+          <p className="text-[0.8125rem] text-muted-foreground">Interview chance</p>
+          <button type="button" title={IMPORT_HINT} aria-label={`0%. ${IMPORT_HINT}`} onClick={onUnlock} className="w-fit cursor-pointer text-3xl font-semibold tabular-nums underline decoration-dotted decoration-1 underline-offset-[6px] hover:decoration-solid">
+            0%
+          </button>
+          <p className="text-sm text-muted-foreground">Import LinkedIn to see yours</p>
+        </div>
+        <div className="flex flex-col gap-1 border-t-[1.5px] p-5 sm:border-t-0 sm:border-l-[1.5px]">
+          <p className="text-[0.8125rem] text-muted-foreground">You keep</p>
+          <p className="text-sm text-muted-foreground">Shown once your profile is in</p>
+        </div>
+      </section>
       <div aria-hidden="true" className="pointer-events-none flex flex-col gap-8 opacity-70 blur-[7px] select-none">
-        <section className="grid overflow-hidden rounded-xl border sm:grid-cols-2">
-          <div className="flex flex-col gap-1 p-5">
-            <p className="text-[0.8125rem] text-muted-foreground">Interview chance</p>
-            <p className="text-3xl font-semibold tabular-nums">6%</p>
-            {bar("w-48")}
-          </div>
-          <div className="flex flex-col gap-1 border-t p-5 sm:border-t-0 sm:border-l">
-            <p className="text-[0.8125rem] text-muted-foreground">You keep</p>
-            <p className="text-3xl font-semibold tabular-nums">€4.212</p>
-            {bar("w-40")}
-          </div>
-        </section>
-        <section className="border-t pt-6">
+        <section className="border-t-[1.5px] pt-6">
           <h2 className="mb-4 text-lg font-semibold">Does it fit your CV?</h2>
           <div className="flex flex-col gap-4">
             {["w-64", "w-52", "w-72"].map((w) => (
@@ -397,12 +423,12 @@ export function LockedPersonal({ onUnlock }: { onUnlock: () => void }): React.JS
             ))}
           </div>
         </section>
-        <section className="border-t pt-6">
+        <section className="border-t-[1.5px] pt-6">
           <h2 className="mb-4 text-lg font-semibold">Recommendations</h2>
           <div className="flex flex-col gap-4">
             {["w-60", "w-72", "w-56"].map((w) => (
               <div key={w} className="flex items-start gap-3">
-                <span className="mt-1 size-4 shrink-0 rounded border" />
+                <span className="mt-1 size-4 shrink-0 rounded border-[1.5px]" />
                 <div className="flex flex-col gap-2">
                   {bar(w)}
                   {bar("w-64")}
@@ -412,12 +438,12 @@ export function LockedPersonal({ onUnlock }: { onUnlock: () => void }): React.JS
           </div>
         </section>
       </div>
-      <div className="absolute inset-x-0 top-6 flex justify-center px-4">
-        <div className="flex max-w-sm flex-col items-start gap-3 rounded-xl border bg-card p-5 shadow-lg">
-          <h2 className="text-lg font-semibold tracking-tight">Sign in to unlock your numbers</h2>
+      <div className="absolute inset-x-0 top-40 flex justify-center px-4">
+        <div className="flex max-w-sm flex-col items-start gap-3 rounded-xl border-[1.5px] bg-card p-5 shadow-lg">
+          <h2 className="text-lg font-semibold tracking-tight">Import LinkedIn to see your numbers</h2>
           <p className="text-sm text-muted-foreground">Your chance of an interview, what you keep after tax, how your CV fits, and what to do to improve it.</p>
           <Button onClick={onUnlock} className="cursor-pointer">
-            Sign in to unlock
+            Import LinkedIn
           </Button>
           <button type="button" onClick={() => {
               data.setProfile(EXAMPLE_PROFILE)
@@ -489,6 +515,7 @@ export function PayCard({ post, st, onPick }: { post: Posting; st: Standing; onP
             {allowanceNote(allowance.source as AllowanceSource)} Ask the employer what this one pays.
           </Hint>
         </p>
+        <p className="mt-3">An allowance is not taxed like a salary, so your settings do not change it. They change the pay after tax at the levels below.</p>
         <CareerPath post={post} st={st} onPick={onPick} />
       </Section>
     )
@@ -502,9 +529,9 @@ export function PayCard({ post, st, onPick }: { post: Posting; st: Standing; onP
     <Section title="Pay and career path">
       <p className="flex flex-wrap items-center gap-x-2 text-2xl leading-tight font-semibold tracking-tight tabular-nums">
         {eur(p25)} – {eur(p75)}
-        <span className="text-base font-normal text-muted-foreground">a month for this kind of job across employers (Statistics Netherlands, 2024), not this posting&apos;s own pay</span>
+        <span className="text-base font-normal text-muted-foreground">a month, estimated for this kind of job</span>
         <Hint label="About this pay">
-          Before tax, for this kind of job across employers (Statistics Netherlands, 2024). The middle of the range is {eur(p50)}.
+          Before tax. An estimate for this kind of job across employers (Statistics Netherlands, 2024), not what this employer pays. The middle of the range is {eur(p50)}.
         </Hint>
       </p>
 
@@ -530,9 +557,9 @@ export function PayCard({ post, st, onPick }: { post: Posting; st: Standing; onP
             <b>Sponsor</b> · {post.ind_sponsor ? `on the IND register as "${post.ind_sponsor_name}"` : "not on the IND register"}
           </li>
         </ul>
-        <ul className="mt-3 border-t">
+        <ul className="mt-3 border-t-[1.5px]">
           {thresholdLines(view, data.profile, ref).map((t) => (
-            <li key={t.label} className="flex items-center justify-between gap-3 border-b py-1.5 last:border-b-0">
+            <li key={t.label} className="flex items-center justify-between gap-3 border-b-[1.5px] py-1.5 last:border-b-0">
               <span>{t.yours ? <b>{t.label} (yours)</b> : t.label}</span>
               <Pill tone={t.clears ? "ok" : "bad"}>{t.clears ? "Clear" : "Short"} by {eur(Math.abs(t.gap))}</Pill>
             </li>
@@ -576,12 +603,93 @@ interface LevelPay {
   text?: string
 }
 
+/** One row of the "Count for me" list: what it is and what it does on the left, the switch on the right. `help` adds an (i) that opens an explanation under the row. */
+function ToggleRow({ title, hint, on, set, help, helpLabel }: { title: string; hint: string; on: boolean; set: (v: boolean) => void; help?: React.ReactNode; helpLabel?: string }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="py-3">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 font-medium">
+            {title}
+            {help ? (
+              <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="inline-flex cursor-pointer items-center gap-1 text-sm font-normal text-muted-foreground underline underline-offset-4 hover:text-foreground">
+                <InfoIcon className="size-4" aria-hidden="true" />
+                {helpLabel ?? "More"}
+              </button>
+            ) : null}
+          </p>
+          <p className="text-sm text-muted-foreground">{hint}</p>
+        </div>
+        <button type="button" role="switch" aria-checked={on} aria-label={title} onClick={() => set(!on)} className={`relative h-7 w-12 shrink-0 cursor-pointer rounded-full transition-colors ${on ? "bg-primary" : "bg-border"}`}>
+          <span className={`absolute top-0.5 left-0.5 size-6 rounded-full bg-background shadow transition-transform ${on ? "translate-x-5" : ""}`} />
+        </button>
+      </div>
+      {help && open ? <div className="mt-3 rounded-lg bg-secondary/50 p-3 text-sm leading-relaxed">{help}</div> : null}
+    </div>
+  )
+}
+
+/** What a person needs to know to tell whether the 30% ruling is theirs. Plain words; the rules are the Belastingdienst's, as in our gross-to-net report. */
+function RulingHelp({ floor, floorMaster, abroad, under30Master }: { floor: number; floorMaster: number; abroad: number; under30Master: boolean }): React.JSX.Element {
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="font-medium">The 30% ruling means you pay no tax on 30% of your pay. You get it only if all three are true:</p>
+      <ol className="flex list-decimal flex-col gap-2 pl-5">
+        <li>
+          <strong>A Dutch employer brought you here from abroad.</strong> In the 24 months before your first day of work here, you lived outside the Netherlands for at least 16 months. You also lived more than 150 km from the Dutch border. Living just across the border in Belgium or Germany does not count.
+        </li>
+        <li>
+          <strong>Your pay is high enough.</strong> Before tax, at least {eur(floor)} a year. If you are under 30 and have a master&apos;s degree, at least {eur(floorMaster)} a year. This lower amount stops the month you turn 30. Below that amount, the ruling gives you nothing.
+        </li>
+        <li>
+          <strong>Your employer asks for it with you.</strong> It is not automatic, and you cannot ask for it alone.
+        </li>
+      </ol>
+      <p className="font-medium">What this means for you</p>
+      <ul className="flex list-disc flex-col gap-2 pl-5">
+        <li>
+          <strong>You studied in the Netherlands, then got a job here.</strong> Usually no. The months you studied here count as living here, so you fall short of the 16 months. The exception is a job you started right after you first arrived.
+        </li>
+        <li>
+          <strong>You studied or worked abroad and a Dutch company hired you.</strong> Probably yes, if you were far enough from the border for 16 of the last 24 months.
+        </li>
+        <li>
+          <strong>You did a PhD in the Netherlands.</strong> The 24 months are counted from before your PhD started. Living here during and after the PhD is allowed.
+        </li>
+        <li>
+          <strong>Your first-job pay is low.</strong> Many first jobs sit below the minimum, so the ruling would change nothing. The switch above shows what it is worth at this job.
+        </li>
+        <li>
+          <strong>How long it lasts.</strong> Up to 5 years.
+        </li>
+        <li>
+          <strong>From 2027.</strong> For most people the tax-free part drops from 30% to 27%, and the minimum pay goes up to 50,436 a year (38,338 for under 30 with a master&apos;s). People who started before 2024 keep 30%. This tool still counts 30%, with this year&apos;s amounts.
+        </li>
+      </ul>
+      <p className="rounded-md bg-background p-2">
+        <strong>From your profile:</strong>{" "}
+        {abroad >= 16 ? `you lived outside the Netherlands for ${abroad} of the last 24 months, so you meet the 16-month test. Check that you lived more than 150 km from the border.` : `you lived outside the Netherlands for ${abroad} of the last 24 months, which is under the 16 needed. The ruling is probably not yours. If that number is wrong, change it in your profile.`}{" "}
+        {under30Master ? `You are under 30 with a master's degree, so the lower pay minimum applies.` : `The pay minimum that applies to you is ${eur(floor)} a year.`}
+      </p>
+      <p className="text-muted-foreground">Source: the Dutch tax office (Belastingdienst) and our gross-to-net research. This is not tax advice. Ask your employer&apos;s payroll team before you count on it.</p>
+    </div>
+  )
+}
+
 /** What a monthly pay becomes: tax, then health insurance, a month and a year. */
-function TakeHome({ month, typical, totals, premium, threshold, ruling }: { month: number; typical: boolean; totals: { gross: number; netM: number; free: number }; premium: number; threshold: number | null; ruling: boolean }): React.JSX.Element {
-  const row = (label: string, m: number, strong = false, minus = false): React.JSX.Element => (
+function TakeHome({ month, typical, totals, premium, threshold, ruling, range, startNet }: { range?: React.ReactNode; startNet?: number; month: number; typical: boolean; totals: { gross: number; netM: number; free: number }; premium: number; threshold: number | null; ruling: boolean }): React.JSX.Element {
+  // Numbers that follow your pay settings (what you get, what is left) show against what they are with the settings as they start.
+  const row = (label: string, m: number, strong = false, minus = false, was: number | null = null): React.JSX.Element => (
     <div className={`grid grid-cols-[minmax(0,1fr)_5.5rem_6rem] items-baseline gap-x-3 py-2 ${strong ? "font-semibold" : ""}`}>
       <dt className={strong ? "" : "text-muted-foreground"}>{label}</dt>
-      <dd className="text-right tabular-nums">{minus ? "−" : ""}{eur(Math.abs(m))}</dd>
+      <dd className="text-right tabular-nums">
+        <Moved delta={was === null ? 0 : minus ? was - m : m - was} min={10} wasText={was === null ? "" : `${minus ? "−" : ""}${eur(was)}`}>
+          {minus ? "−" : ""}
+          {eur(Math.abs(m))}
+        </Moved>
+      </dd>
       <dd className="text-right tabular-nums">{minus ? "−" : ""}{eur(Math.abs(m) * 12)}</dd>
     </div>
   )
@@ -590,20 +698,21 @@ function TakeHome({ month, typical, totals, premium, threshold, ruling }: { mont
 
   return (
     <div className="mt-3 min-w-0 rounded-lg bg-secondary/50 p-3 text-sm">
+      {range}
       <div className="grid grid-cols-[minmax(0,1fr)_5.5rem_6rem] gap-x-3 text-xs text-muted-foreground">
         <span />
         <span className="text-right">a month</span>
         <span className="text-right">a year</span>
       </div>
-      <dl className="divide-y">
+      <dl className="divide-y-[1.5px]">
         {row("Pay before tax", totals.gross)}
-        {row("Income tax", totals.gross - totals.netM, false, true)}
-        {row("What you get", totals.netM, true)}
+        {row("Income tax", totals.gross - totals.netM, false, true, startNet === undefined ? null : totals.gross - startNet)}
+        {row("What you get", totals.netM, true, false, startNet ?? null)}
         {row("Health insurance", premium, false, true)}
-        {row("What is left", totals.netM - premium, true)}
+        {row("What is left", totals.netM - premium, true, false, startNet === undefined ? null : startNet - premium)}
       </dl>
       {gap != null && threshold != null ? (
-        <p className="mt-2 flex flex-wrap items-center gap-2 border-t pt-2">
+        <p className="mt-2 flex flex-wrap items-center gap-2 border-t-[1.5px] pt-2">
           Your visa needs {eur(threshold)} a month
           <Pill tone={gap >= 0 ? "ok" : "bad"}>{gap >= 0 ? "This is enough" : "This is not enough"}</Pill>
         </p>
@@ -652,7 +761,7 @@ function NextMoves({ transition, postings, onPick }: { transition: Transition; p
   }, [sel, postings])
 
   return (
-    <div className="rounded-xl border bg-card p-4">
+    <div className="rounded-xl border-[1.5px] bg-card p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
         <h4 className="flex items-center gap-2 text-base font-semibold">
           Where people in this job went next
@@ -678,7 +787,7 @@ function NextMoves({ transition, postings, onPick }: { transition: Transition; p
       <p className="mt-3 text-xs text-muted-foreground">Same colour means about the same share. Press a role for more.</p>
 
       {sel && open ? (
-        <div className="mt-3 rounded-lg border bg-background p-4 text-sm">
+        <div className="mt-3 rounded-lg border-[1.5px] bg-background p-4 text-sm">
           <p className="text-base font-semibold">{cap(sel[0])}</p>
           <p className="mt-1">{share(sel[1])} of the people who left this job went on to this role.</p>
           {open.n > 0 ? (
@@ -700,7 +809,7 @@ function NextMoves({ transition, postings, onPick }: { transition: Transition; p
                 ) : null}
               </dl>
               {apply ? (
-                <button type="button" onClick={() => { apply({ query: sel[0] }); onPick?.() }} className="mt-3 cursor-pointer rounded-full border px-3 py-1 font-medium transition-colors hover:border-foreground">
+                <button type="button" onClick={() => { apply({ query: sel[0] }); onPick?.() }} className="mt-3 cursor-pointer rounded-full border-[1.5px] px-3 py-1 font-medium transition-colors hover:border-foreground">
                   See these jobs →
                 </button>
               ) : null}
@@ -714,84 +823,44 @@ function NextMoves({ transition, postings, onPick }: { transition: Transition; p
   )
 }
 
-/**
- * The ladder every job sits on, from entry to director, read from the postings
- * we hold: what each rung asks in years, what it states in pay, how many are open.
- * This job is the dark step; the orange ring is where the years you enter put you.
- */
-function CareerPath({ post, st, onPick }: { post: Posting; st: Standing; onPick?: () => void }): React.JSX.Element {
+/** The pay and visa settings every figure on the page is counted with: what you tick decides the numbers for every job, and is kept as you change it. */
+function CareerPath({ post: _post }: { post: Posting; st: Standing; onPick?: () => void }): React.JSX.Element {
   const data = useData()
-  const apply = useApplyFilter()
-  const industry = industryOf(post)
   const ref = data.reference!
-  const view = st.band
   const d = derive(data.profile)
-  const [openRow, setOpenRow] = useState<string | null>(null)
-  // What you tick decides the figures, for every job, and is kept as you change it. The profile only sets where each box starts.
   const choices = payChoicesOf(data.profile)
   const { ruling, masterFloor, route } = choices
-  const choose = (patch: Partial<PayChoices>): void => data.setProfile({ ...data.profile, payChoices: { ...choices, ...patch } })
-  const under30Master = masterFloor
-  const premium = ref.tax.health_insurance_2026.average_premium_month
+  const choose = (patch: Partial<PayChoices>): void => {
+    data.setProfile({ ...data.profile, payChoices: { ...choices, ...patch } })
+    saved()
+  }
   const routes = ref.tax.ind_hsm_thresholds_h2_2026_monthly_excl_holiday
   const threshold = route === "eu" ? null : route === "orientation_year" ? routes.reduced_orientation_year : route === "hsm_under_30" ? routes.under_30 : routes.age_30_plus
-  const stats = useMemo(() => ladderStats(data.postings, post), [data.postings, post])
-  const pool = useMemo(() => poolOf(data.postings, post), [data.postings, post])
-  const here = rungOf(levelOf(post))
-  const hereIdx = stats.findIndex((x) => x.level === here)
-  const now = payMid(post, ref)
-  const key = transitionKeyOf(post)
-  const transition = key ? ref.transitions[key] : undefined
-  const cagr = view ? Number(view.band.cagr_2019_2024 ?? 0) : 0
-  // Where this job can lead: the steps above it, each with the titles that sit there, how much longer it usually takes, and what it pays.
-  const steps = stats.filter((_, i) => i > hereIdx && stats[i].open > 0)
-    // Where postings state too little pay at a step, the occupation's own CBS spread stands in: its lower quarter for Entry, the middle for Mid, the upper quarter for Senior. The occupation is this job's, else the commonest one in postings like it.
-  const groups = new Map<string, number>()
-  for (const q of pool.posts) if (q.cbs_group) groups.set(q.cbs_group, (groups.get(q.cbs_group) ?? 0) + 1)
-  const group = post.cbs_group ?? [...groups.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? null
-  const spread = group ? ref.bands[group] : null
-  const monthly = (hourly: unknown): number => Math.round((Number(hourly) * 2080 * 1.08) / 12 / 50) * 50
-  const estimate = (level: string): number | null => (!spread ? null : level === "Entry" ? monthly(spread.p25_hourly) : level === "Mid" ? monthly(spread.p50_hourly) : level === "Senior" ? monthly(spread.p75_hourly) : null)
-  // An internship does not go on for years, so there is no "same job, staying put" pay to show.
-  const checkpoints = view && !isInternship(post)
-    ? [2, 5, 10].map((y) => {
-        const grow = (1 + cagr) ** y
-        const round = (n: number): number => Math.round((n * grow) / 10) * 10
-
-        return { y, low: round(view.grossMonth.p25), high: round(view.grossMonth.p75), kept: netMonth(round(view.grossMonth.p50) * 12, ruling, masterFloor && (d.age ?? 99) + y < 30, ref.tax).net }
-      })
-    : []
 
   return (
-    <div className="mt-6 flex flex-col gap-5 border-t pt-5">
+    <div className="mt-6 flex flex-col gap-5 border-t-[1.5px] pt-5">
       {(() => {
-        // Settings-list pattern: what it is and what it does on the left, the switch on the right, and a segmented control for the one-of-four choice.
-        const Row = ({ title, hint, on, set }: { title: string; hint: string; on: boolean; set: (v: boolean) => void }): React.JSX.Element => (
-          <div className="flex items-center justify-between gap-4 py-3">
-            <div className="min-w-0">
-              <p className="font-medium">{title}</p>
-              <p className="text-sm text-muted-foreground">{hint}</p>
-            </div>
-            <button type="button" role="switch" aria-checked={on} aria-label={title} onClick={() => set(!on)} className={`relative h-7 w-12 shrink-0 cursor-pointer rounded-full transition-colors ${on ? "bg-primary" : "bg-border"}`}>
-              <span className={`absolute top-0.5 left-0.5 size-6 rounded-full bg-background shadow transition-transform ${on ? "translate-x-5" : ""}`} />
-            </button>
-          </div>
-        )
-        const ROUTES: Array<[PermitRoute, string, string]> = [["eu", "EU/EEA", "no visa"], ["orientation_year", "Orientation", "year"], ["hsm_under_30", "Skilled worker", "under 30"], ["hsm_30_plus", "Skilled worker", "30 or older"]]
+        const ROUTES: Array<[PermitRoute, string, string]> = [["eu", "EU/EEA", "no visa"], ["orientation_year", "Orientation year", ""], ["hsm_under_30", "Skilled worker", "under 30"], ["hsm_30_plus", "Skilled worker", "30 or older"]]
 
         return (
-          <section aria-label="Count for me" className="rounded-xl border bg-card px-4 pt-3 pb-4">
+          <section aria-label="Count for me" className="rounded-xl border-[1.5px] bg-card px-4 pt-3 pb-4">
             <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Count for me</h4>
-            <div className="divide-y">
-              <Row title="30% ruling" hint={ruling ? "30% of your pay is tax-free" : "Tax on all of your pay"} on={ruling} set={(v) => choose({ ruling: v })} />
-              <Row title="Master's degree, under 30" hint="The ruling needs a lower salary" on={masterFloor} set={(v) => choose({ masterFloor: v })} />
+            <p className="mt-1 text-sm">Change these and the pay after tax, above and in every level below, changes with them.</p>
+            <div className="divide-y-[1.5px]">
+              <ToggleRow title="30% ruling" hint={ruling ? "30% of your pay is tax-free" : "Tax on all of your pay"} on={ruling} set={(v) => choose({ ruling: v })} helpLabel="Do I qualify?" help={<RulingHelp floor={ref.tax.ruling_30pct.min_salary} floorMaster={ref.tax.ruling_30pct.min_salary_under30_masters} abroad={data.profile.abroad} under30Master={masterFloor} />} />
+              <ToggleRow title="Master's degree, under 30" hint="The ruling needs a lower salary" on={masterFloor} set={(v) => choose({ masterFloor: v })} />
               <div className="py-3">
                 <p className="font-medium">Visa</p>
-                <div role="radiogroup" aria-label="My visa" className="mt-2 grid grid-cols-2 gap-1 rounded-xl bg-secondary p-1 sm:grid-cols-4">
+                <div role="radiogroup" aria-label="My visa" className="mt-2 grid gap-1 sm:grid-cols-2">
                   {ROUTES.map(([value, top, bottom]) => (
-                    <button key={value} type="button" role="radio" aria-checked={route === value} onClick={() => choose({ route: value })} className={`cursor-pointer rounded-lg px-2 py-2 text-center leading-tight transition-colors ${route === value ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-background hover:text-foreground"}`}>
-                      <span className="block text-sm font-semibold">{top}</span>
-                      <span className={`block text-xs ${route === value ? "opacity-80" : ""}`}>{bottom}</span>
+                    <button key={value} type="button" role="radio" aria-checked={route === value} onClick={() => choose({ route: value })} className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/60">
+                      <span aria-hidden="true" className={`flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${route === value ? "border-primary" : "border-muted-foreground/50"}`}>
+                        <span className={`size-2.5 rounded-full transition-transform ${route === value ? "scale-100 bg-primary" : "scale-0"}`} />
+                      </span>
+                      <span className="text-sm leading-tight font-medium">
+                        {top}
+                        {bottom ? <span className="font-normal text-muted-foreground"> · {bottom}</span> : null}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -802,131 +871,200 @@ function CareerPath({ post, st, onPick }: { post: Posting; st: Standing; onPick?
           </section>
         )
       })()}
+    </div>
+  )
+}
 
-      <h3 className="flex items-center gap-2 text-base font-semibold">
-        This line of work, level by level
-        <Hint label="Where this comes from">
-          Read from the {pool.posts.length.toLocaleString()} postings we hold in {pool.name}, the same line of work as this job: example titles at each level, the years those postings ask for, and the pay they state where six or more do. Where fewer state it, the figure marked &quot;typical&quot; is what people in this kind of work earn at that level, from Statistics Netherlands (CBS, 2024). It covers workers of every age, so it reads high for first jobs. Without a figure, too few postings or statistics were available. An internship allowance is not a salary, so it is not compared with these. This is what the market asks and pays at each level, not a path from this job: nothing here says this job leads to those.
-        </Hint>
-      </h3>
+/** The levels, in the words a person would use. */
+const LEVEL_WORDS: Record<string, string> = { Internship: "Internship", Entry: "Entry level", Mid: "Mid-level", Senior: "Senior", Manager: "Manager", Director: "Director" }
 
-      {/* One row per level in this line of work: what postings at that level ask and pay. Not a path: nothing here says this job leads to those. */}
-      {(() => {
-        const money = (level: string, stated: number | null): LevelPay | null => (stated !== null ? { v: stated, typical: false } : estimate(level) !== null ? { v: estimate(level)!, typical: true } : null)
-        const po = payOf(post, ref)
-        const here0: LevelPay | null =
-          po.perHour ? { v: 0, typical: false, hourly: po.text ?? "" } :
-          po.basis === "Allowance" ? (() => { const a = allowanceOf(post); return { v: (a.low + a.high) / 2, typical: false, allowance: { text: po.text ?? "", source: po.source as AllowanceSource } } })()
-          : now ? { v: Math.round(now.month / 10) * 10, typical: now.basis !== "Stated", text: po.basis === "Stated" || po.source === "Typical traineeship pay" ? po.text ?? undefined : undefined } : null
-        const rowsAll: Array<{ level: string; years: number | null; open: number; roles: string[]; pay: LevelPay | null; mine: boolean }> = [
-          { level: here ?? "This job", years: null, open: 0, roles: [], pay: here0, mine: true },
-          ...steps.map((r) => ({ level: r.level, years: r.years, open: r.open, roles: r.roles, pay: money(r.level, r.pay), mine: false })),
-        ]
-        const top = Math.max(1, ...rowsAll.map((r) => r.pay?.v ?? 0))
-        const taxTotals = (month: number): { gross: number; netM: number; free: number } => {
-          const n = netMonth(month * 12, ruling, under30Master, ref.tax)
+/**
+ * What comes next in this kind of work, laid out as steps: for each level above this job, what it usually asks, what it pays, some example jobs, and how many
+ * are open. It is read from the postings we hold in the same line of work. It is what the market asks and pays at each level, not a promise that this job
+ * leads there, and the section says so in one line.
+ */
+export function CareerLadder({ post, st, onPick }: { post: Posting; st?: Standing | null; onPick?: () => void }): React.JSX.Element | null {
+  const data = useData()
+  const apply = useApplyFilter()
+  const industry = industryOf(post)
+  const ref = data.reference
+  const [openRow, setOpenRow] = useState<string | null>(null)
+  const choices = payChoicesOf(data.profile)
+  const { ruling, masterFloor, route } = choices
+  const under30Master = masterFloor
+  const stats = useMemo(() => ladderStats(data.postings, post), [data.postings, post])
+  const pool = useMemo(() => poolOf(data.postings, post), [data.postings, post])
+  if (!ref) {
+    return null
+  }
+  const premium = ref.tax.health_insurance_2026.average_premium_month
+  const routes = ref.tax.ind_hsm_thresholds_h2_2026_monthly_excl_holiday
+  const threshold = route === "eu" ? null : route === "orientation_year" ? routes.reduced_orientation_year : route === "hsm_under_30" ? routes.under_30 : routes.age_30_plus
+  const here = rungOf(levelOf(post))
+  const hereIdx = stats.findIndex((x) => x.level === here)
+  const now = payMid(post, ref)
+  const key = transitionKeyOf(post)
+  const transition = key ? ref.transitions[key] : undefined
+  const steps = stats.filter((_, i) => i > hereIdx && stats[i].open > 0)
+  // Where postings state too little pay at a step, the occupation's own CBS spread stands in: its lower quarter for Entry, the middle for Mid, the upper quarter for Senior.
+  const groups = new Map<string, number>()
+  for (const q of pool.posts) if (q.cbs_group) groups.set(q.cbs_group, (groups.get(q.cbs_group) ?? 0) + 1)
+  const group = post.cbs_group ?? [...groups.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? null
+  const spread = group ? ref.bands[group] : null
+  const monthly = (hourly: unknown): number => Math.round((Number(hourly) * 2080 * 1.08) / 12 / 50) * 50
+  const estimate = (level: string): number | null => (!spread ? null : level === "Entry" ? monthly(spread.p25_hourly) : level === "Mid" ? monthly(spread.p50_hourly) : level === "Senior" ? monthly(spread.p75_hourly) : null)
+  if (steps.length === 0 && !transition) {
+    return null
+  }
 
-          return { gross: month, netM: n.net, free: n.freeShare }
-        }
+  const money = (level: string, stated: number | null): LevelPay | null => (stated !== null ? { v: stated, typical: false } : estimate(level) !== null ? { v: estimate(level)!, typical: true } : null)
+  const po = payOf(post, ref)
+  const here0: LevelPay | null =
+    po.perHour ? { v: 0, typical: false, hourly: po.text ?? "" } :
+    po.basis === "Allowance" ? (() => { const a = allowanceOf(post); return { v: (a.low + a.high) / 2, typical: false, allowance: { text: po.text ?? "", source: po.source as AllowanceSource } } })()
+    : now ? { v: Math.round(now.month / 10) * 10, typical: now.basis !== "Stated", text: po.basis === "Stated" || po.source === "Typical traineeship pay" ? po.text ?? undefined : undefined } : null
+  const rows: Array<{ level: string; years: number | null; open: number; roles: string[]; pay: LevelPay | null; mine: boolean }> = [
+    { level: here ?? "This job", years: null, open: 0, roles: [], pay: here0, mine: true },
+    ...steps.map((r) => ({ level: r.level, years: r.years, open: r.open, roles: r.roles, pay: money(r.level, r.pay), mine: false })),
+  ]
+  const band = st?.band ?? null
+  const r10 = (n: number): number => Math.round(n / 10) * 10
+  const pickBand = (on: boolean): { p25: number; p75: number } | null => (!band ? null : on ? (masterFloor ? band.netRulingUnder30 : band.netRuling) : band.netOff)
+  // The same range with the pay settings as they start, so a change you make shows against it.
+  const startChoices = payChoicesOf({ ...data.profile, payChoices: undefined })
+  const firstBand = band ? (startChoices.ruling ? (startChoices.masterFloor ? band.netRulingUnder30 : band.netRuling) : band.netOff) : null
+  const firstRange = firstBand ? { p25: r10(firstBand.p25), p75: r10(firstBand.p75) } : null
+  const startNet = (month: number): number => netMonth(month * 12, startChoices.ruling, startChoices.masterFloor, ref.tax).net
+  const mineRange = pickBand(ruling)
+  const otherRange = pickBand(!ruling)
+  const taxTotals = (month: number): { gross: number; netM: number; free: number } => {
+    const n = netMonth(month * 12, ruling, under30Master, ref.tax)
 
-        return (
-          <>
-          <ol className="flex flex-col gap-2">
-            {rowsAll.map((r) => {
-              const id = r.level + String(r.mine)
-              const isOpen = openRow === id
-              // The bold outline marks the level you are looking at: this job until you open another. The "this job" tag stays where it is.
-              const selected = openRow !== null ? isOpen : r.mine
-              const label = r.pay ? (r.pay.hourly ? `${r.pay.hourly} an hour` : r.pay.allowance ? `${r.pay.allowance.text} / month` : `${r.pay.typical ? "about " : ""}${r.pay.text ?? eur(r.pay.v)} / month`) : null
+    return { gross: month, netM: n.net, free: n.freeShare }
+  }
+  return (
+    <Section title="What comes next in this kind of work">
+      <p className="text-[0.95rem] text-muted-foreground">What each level usually asks and pays in {pool.name}, from the jobs we hold. The after-tax figures follow your settings. This is the road ahead in this field, not a promise that this job leads there.</p>
+      <ol className="mt-6 flex flex-col">
+        {rows.map((r, i) => {
+          const id = r.level + String(r.mine)
+          const isOpen = openRow === id
+          const salary = r.pay && !r.pay.hourly && !r.pay.allowance ? r.pay : null
 
-              return (
-                <li key={id} className={`rounded-xl border bg-card p-4 transition-colors ${selected ? "border-foreground/80" : ""}`}>
-                  <button type="button" disabled={!r.pay || Boolean(r.pay.hourly)} aria-expanded={isOpen} onClick={() => setOpenRow(isOpen ? null : id)} className={`block w-full text-left ${r.pay ? "cursor-pointer" : ""}`}>
-                    <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                      <span className="flex items-center gap-2 text-base font-semibold">
-                        {r.level}
-                        {r.mine ? <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">this job</span> : null}
-                      </span>
-                      {r.years !== null ? <span className="rounded-full bg-secondary px-2.5 py-0.5 text-xs">{Math.round(r.years)}+ years asked</span> : r.mine ? null : <span className="text-xs text-muted-foreground">years not stated</span>}
-                    </span>
-                    <span className="mt-3 flex items-center gap-3">
-                      <span className="h-2 flex-1 rounded-full bg-secondary" aria-hidden="true">
-                        {r.pay ? <span className="block h-full rounded-full bg-brand" style={{ width: `${Math.max(3, (r.pay.v / top) * 100)}%` }} /> : null}
-                      </span>
-                      <span className="shrink-0 whitespace-nowrap text-right text-sm tabular-nums">
-                        {label ? (
-                          <>
-                            <span className="font-semibold">{label}</span>
-                            {r.pay?.allowance ? <span className="text-muted-foreground"> · allowance</span> : r.pay?.typical ? <span className="text-muted-foreground"> · typical</span> : null}
-                          </>
-                        ) : (
-                          <span className="text-muted-foreground">No pay figure</span>
-                        )}
-                      </span>
-                    </span>
-                    {r.pay && !r.pay.hourly ? <span className="mt-2 block text-xs font-medium text-muted-foreground">{isOpen ? "Hide what you keep ▴" : "What you keep after tax ▾"}</span> : null}
-                  </button>
-
-                  {isOpen && r.pay ? (
-                    r.pay.allowance ? (
-                      <p className="mt-3 rounded-lg bg-secondary/60 p-3 text-sm text-muted-foreground">An allowance is not a salary, so there is no tax figure and no insurance figure to work out. {allowanceNote(r.pay.allowance.source)}</p>
-                    ) : (
-                      <TakeHome month={r.pay.v} typical={r.pay.typical} totals={taxTotals(r.pay.v)} premium={premium} threshold={r.level === "Internship" ? null : threshold} ruling={ruling} />
-                    )
+          return (
+            <li key={id} className="relative pb-9 pl-10 last:pb-0">
+              {i < rows.length - 1 ? <span className="absolute top-5 -bottom-1 left-[9px] w-px bg-border" aria-hidden="true" /> : null}
+              <span className={`absolute top-1.5 left-0 size-5 rounded-full border-2 ${r.mine ? "border-brand bg-brand" : "border-border bg-background"}`} aria-hidden="true" />
+              <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline gap-x-3">
+                    <h3 className="text-base font-semibold tracking-tight">{LEVEL_WORDS[r.level] ?? r.level}</h3>
+                  </div>
+                  {salary ? (
+                    <>
+                      <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2 text-sm">
+                        <span className="text-xl font-semibold tracking-tight tabular-nums">
+                          {salary.typical ? "about " : ""}
+                          {salary.text ?? eur(salary.v)}
+                        </span>
+                        <span>a month before tax</span>
+                      </p>
+                      {/* What it comes to after tax with your settings: it moves when a setting does. */}
+                      <p className="mt-1 flex flex-wrap items-baseline gap-x-2 text-sm">
+                        <span className="text-xl font-semibold tracking-tight tabular-nums">
+                          <Moved delta={taxTotals(salary.v).netM - startNet(salary.v)} min={10} wasText={eur(startNet(salary.v))}>
+                            {eur(taxTotals(salary.v).netM)}
+                          </Moved>
+                        </span>
+                        <span>a month after tax</span>
+                      </p>
+                    </>
+                  ) : r.pay?.allowance ? (
+                    <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2 text-sm">
+                      <span className="text-xl font-semibold tracking-tight tabular-nums">{r.pay.allowance.text}</span>
+                      <span>a month as an allowance</span>
+                    </p>
+                  ) : r.pay?.hourly ? (
+                    <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2 text-sm">
+                      <span className="text-xl font-semibold tracking-tight tabular-nums">{r.pay.hourly}</span>
+                      <span>an hour</span>
+                    </p>
                   ) : null}
-
-                  {r.mine ? (
-                    <p className="mt-2 text-sm text-muted-foreground">{post.title_clean ?? post.title}{r.pay ? ` · ${r.pay.allowance ? "allowance named by " + (r.pay.allowance.source === "Allowance stated in the posting" ? "the employer" : "similar postings") : r.pay.typical ? "typical pay for this kind of job" : "pay stated by the employer"}` : ""}</p>
-                  ) : (
-                    <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                      <p className="min-w-0 flex-1 text-sm text-muted-foreground">{r.roles.length > 0 ? `e.g. ${r.roles.slice(0, 3).join(", ")}` : ""}</p>
-                      {apply ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            apply({ level: [r.level as Level], ...(industry ? { industry: [industry] } : {}) })
-                            onPick?.()
-                          }}
-                          className="shrink-0 cursor-pointer rounded-full border px-3 py-1 text-sm font-medium transition-colors hover:border-foreground"
-                        >
-                          {r.open} open {r.open === 1 ? "job" : "jobs"} →
-                        </button>
-                      ) : null}
-                    </div>
-                  )}
-                </li>
-              )
-            })}
-            {steps.length === 0 ? <li className="text-sm text-muted-foreground">No higher level with open postings in this line of work.</li> : null}
-          </ol>
-          <p className="-mt-3 text-xs text-muted-foreground">Bar length is the pay a month before tax, on one scale for every level. Colour means nothing here. &ldquo;Typical&rdquo; marks a figure that is not from postings.</p>
-          </>
-        )
-      })()}
-
-
-      {checkpoints.length > 0 ? (
-        <div>
-          <h4 className="mb-1 flex items-center gap-2 text-sm font-medium">
-            The same job, staying put
-            <Hint label="About this figure">
-              Typical pay for this job across employers (Statistics Netherlands, 2024), grown {pct(cagr, 1)} a year, the occupation&apos;s own pay growth for 2019 to 2024, before inflation, with no promotion.
-            </Hint>
-          </h4>
-          <dl className="divide-y border-y">
-            {checkpoints.map((c) => (
-              <div key={c.y} className="flex flex-wrap items-baseline justify-between gap-x-4 py-2.5">
-                <dt className="text-muted-foreground">In {c.y} years</dt>
-                <dd className="font-semibold tabular-nums">
-                  {eur(c.low)} – {eur(c.high)} <span className="text-sm font-normal text-muted-foreground">a month · you keep {eur(c.kept)}</span>
-                </dd>
+                  {salary ? (
+                    <button type="button" aria-expanded={isOpen} onClick={() => setOpenRow(isOpen ? null : id)} className="mt-2 cursor-pointer text-sm underline underline-offset-4 hover:text-brand">
+                      {isOpen ? "Hide how this is worked out" : "How this is worked out"}
+                    </button>
+                  ) : null}
+                  {isOpen && salary ? <TakeHome startNet={startNet(salary.v)} range={r.mine && mineRange && otherRange ? <AfterTaxRange first={firstRange} mine={{ p25: r10(mineRange.p25), p75: r10(mineRange.p75) }} other={{ p25: r10(otherRange.p25), p75: r10(otherRange.p75) }} ruling={ruling} /> : undefined} month={salary.v} typical={salary.typical} totals={taxTotals(salary.v)} premium={premium} threshold={r.level === "Internship" ? null : threshold} ruling={ruling} /> : null}
+                  {r.mine ? <p className="mt-2 text-sm">{post.title_clean ?? post.title}</p> : r.years !== null ? <p className="mt-2 text-sm">Asks for {Math.round(r.years)}+ years of experience</p> : null}
+                  {!r.mine && r.roles.length > 0 ? (
+                    <p className="mt-2 text-sm">
+                      <span className="font-semibold">Typical jobs: </span>
+                      {r.roles.slice(0, 3).join(", ")}
+                    </p>
+                  ) : null}
+                </div>
+                {!r.mine && apply ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      apply({ level: [r.level as Level], ...(industry ? { industry: [industry] } : {}) })
+                      onPick?.()
+                    }}
+                    className="w-40 shrink-0 cursor-pointer rounded-full border-[1.5px] px-4 py-2 text-center text-sm font-medium transition-colors hover:border-foreground"
+                  >
+                    See {r.open} open {r.open === 1 ? "job" : "jobs"}
+                  </button>
+                ) : null}
               </div>
-            ))}
-          </dl>
+            </li>
+          )
+        })}
+      </ol>
+      {transition ? (
+        <div className="mt-8">
+          <NextMoves transition={transition} postings={data.postings} onPick={onPick} />
         </div>
       ) : null}
+    </Section>
+  )
+}
 
-      {transition ? <NextMoves transition={transition} postings={data.postings} onPick={onPick} /> : null}
+/**
+ * The pay after tax with your settings, inside "How this is worked out" and set like the table under it: a month and a year, the low and the high end of the range, and the same
+ * two ends with the 30% ruling the other way. A number that a setting has moved turns green or red, with the first one in the hover.
+ */
+function AfterTaxRange({ mine, other, ruling, first }: { mine: { p25: number; p75: number }; other: { p25: number; p75: number }; ruling: boolean; first: { p25: number; p75: number } | null }): React.JSX.Element {
+  const cell = (now: number, was: number | null, strong: boolean): React.JSX.Element => (
+    <>
+      <dd className="text-right tabular-nums">
+        <Moved delta={was === null ? 0 : now - was} min={10} wasText={was === null ? "" : eur(was)}>
+          {eur(now)}
+        </Moved>
+      </dd>
+      <dd className={`text-right tabular-nums ${strong ? "" : "text-muted-foreground"}`}>{eur(now * 12)}</dd>
+    </>
+  )
+  const row = (label: string, now: number, was: number | null, strong = false): React.JSX.Element => (
+    <div className={`grid grid-cols-[minmax(0,1fr)_7rem_6rem] items-baseline gap-x-3 py-2 ${strong ? "font-semibold" : ""}`}>
+      <dt className={strong ? "" : "text-muted-foreground"}>{label}</dt>
+      {cell(now, was, strong)}
+    </div>
+  )
+
+  return (
+    <div className="mb-3 border-b-[1.5px] pb-3">
+      <div className="grid grid-cols-[minmax(0,1fr)_7rem_6rem] gap-x-3 text-xs text-muted-foreground">
+        <span>After tax, with your settings</span>
+        <span className="text-right">a month</span>
+        <span className="text-right">a year</span>
+      </div>
+      <dl className="divide-y-[1.5px]">
+        {row("Low end of the range", mine.p25, first?.p25 ?? null, true)}
+        {row("High end of the range", mine.p75, first?.p75 ?? null, true)}
+        {row(`Low end ${ruling ? "without" : "with"} the 30% ruling`, other.p25, null)}
+        {row(`High end ${ruling ? "without" : "with"} the 30% ruling`, other.p75, null)}
+      </dl>
     </div>
   )
 }

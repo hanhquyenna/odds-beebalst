@@ -92,6 +92,95 @@ export function fieldMatch(profile: Profile, skills: Iterable<string>, family: s
 export const FAMILIES: ReadonlyArray<string> = M.families
 
 /**
+ * The lines of work a profile points to, strongest first: what its job titles and degrees say they are (the most recent roles count most), each one
+ * only when it clearly leads for some title or degree. A profile with finance, data and marketing in it gives all three; one with nothing to read gives none.
+ */
+export function profileFields(profile: Profile): string[] {
+  const score = new Map<string, number>()
+  const jobs = profile.positions.length
+  const items = [...itemsOf(profile)]
+  items.forEach((post, i) => {
+    const top = Math.max(...post)
+    const family = M.families[post.indexOf(top)]
+    if (family === "Other" || top < 0.35) return
+    // Roles come first in the readings, newest first; degrees follow.
+    const weight = i < jobs ? 0.85 ** i : 0.6
+    score.set(family, (score.get(family) ?? 0) + weight * top)
+  })
+
+  // Skills point to lines of work too: one that two or more of the skills clearly belong to (SQL and Python for data, say) counts as well, even if no job title said so.
+  const bySkill = new Map<string, number>()
+  for (const skill of profile.skills) {
+    const alone = familyPosterior(skillTokens([skill.Name ?? ""]))
+    if (!alone) continue
+    const top = Math.max(...alone)
+    const family = M.families[alone.indexOf(top)]
+    if (family !== "Other" && top >= 0.5) bySkill.set(family, (bySkill.get(family) ?? 0) + 1)
+  }
+  for (const [family, n] of bySkill) {
+    if (n >= 2) score.set(family, (score.get(family) ?? 0) + 0.4 * n)
+  }
+
+  return [...score.entries()].sort((x, y) => y[1] - x[1]).map(([family]) => family)
+}
+
+/**
+ * How much a title word is evidence of THIS kind of work, 0.1 to 1. Counted from the same postings as the field model: the word's share of use (per posting of
+ * each line of work) that falls in the job's own line. "Equity" is found mostly in finance postings, so for a finance job it counts fully; "growth" is found mostly in
+ * marketing postings, so for a finance job it counts for little, and matching it is no evidence of finance. With no line of work for the job, a word counts for how
+ * concentrated it is in any one line (spread across all of them, it says little). A word the model has never seen is neither: 0.5.
+ */
+export function wordSpecificity(token: string, family?: string | null): number {
+  const counts = M.vocab[token]
+  if (!counts) {
+    return 0.5
+  }
+  const rates = counts.map((c, f) => c / (M.totals[f] || 1))
+  const sum = rates.reduce((a, b) => a + b, 0)
+  if (sum === 0) {
+    return 0.5
+  }
+  const f = family ? M.families.indexOf(family) : -1
+  if (f >= 0) {
+    return Math.min(1, Math.max(0.1, rates[f] / sum / 0.5))
+  }
+  const top = Math.max(...rates) / sum
+
+  return Math.min(1, Math.max(0.1, (top - 1 / M.families.length) / (0.6 - 1 / M.families.length)))
+}
+
+/**
+ * How focused the whole history is on this job's line of work, 0 to 1: the average (not the best) of how each past role and each degree points at it, with
+ * recent roles counting more. A profile spread across AI, marketing and finance scores low for any one of them; a career spent in one line scores high.
+ * Where fieldMatch asks "has the person ever done this?", this asks "is this what the person does?". Null when the job has no line of work or the profile has nothing to read.
+ */
+export function consistencyWith(profile: Profile, family: string | null | undefined): number | null {
+  const f = family ? M.families.indexOf(family) : -1
+  if (f < 0) {
+    return null
+  }
+  const items = itemsOf(profile)
+  if (items.length === 0) {
+    return null
+  }
+  const jobs = profile.positions.map((p) => familyPosterior(titleTokens(p.Title ?? ""))).filter((x): x is number[] => x !== null)
+  const schools = items.length - jobs.length > 0 ? items.slice(jobs.length) : []
+  let weight = 0
+  let total = 0
+  jobs.forEach((post, i) => {
+    const w = 0.8 ** i
+    weight += w
+    total += w * post[f]
+  })
+  for (const post of schools) {
+    weight += 0.5
+    total += 0.5 * post[f]
+  }
+
+  return weight > 0 ? total / weight : null
+}
+
+/**
  * The department a job title belongs to, in the same families the postings use, or null when the title does not say. A title that
  * sits between two families is left unnamed rather than guessed.
  */

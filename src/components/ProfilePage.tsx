@@ -27,12 +27,12 @@ const fromPicker = (value: string): string => {
   return y && mo ? `${MONTHS[Number(mo) - 1]} ${y}` : ""
 }
 
-const field = "h-10 w-full rounded-lg border bg-background px-3 text-sm focus:border-ring focus:outline-none focus:ring-3 focus:ring-ring/40"
+const field = "h-10 w-full rounded-lg border-[1.5px] bg-background px-3 text-sm focus:border-ring focus:outline-none focus:ring-3 focus:ring-ring/40"
 const label = "flex flex-col gap-1 text-[0.8125rem] font-medium text-muted-foreground"
 
 function Section({ id, title, hint, action, children }: { id?: string; title: string; hint?: string; action?: React.ReactNode; children: React.ReactNode }): React.JSX.Element {
   return (
-    <section id={id} className="scroll-mt-24 rounded-xl border bg-card p-5 sm:p-6">
+    <section id={id} className="scroll-mt-24 rounded-xl border-[1.5px] bg-card p-5 sm:p-6">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="font-heading text-xl font-medium tracking-tight">{title}</h2>
@@ -65,7 +65,7 @@ function EntryList({ rows, onChange, blank, summary, fields, noun }: ListProps):
         const [main, sub] = summary(row)
 
         return (
-          <details key={i} open={fresh === i} className="group rounded-xl border bg-background">
+          <details key={i} open={fresh === i} className="group rounded-xl border-[1.5px] bg-background">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
               <span className="min-w-0">
                 <span className="block truncate font-medium">{main || `New ${noun}`}</span>
@@ -73,7 +73,7 @@ function EntryList({ rows, onChange, blank, summary, fields, noun }: ListProps):
               </span>
               <span className="text-xs text-muted-foreground group-open:hidden">Edit</span>
             </summary>
-            <div className="grid gap-3 border-t px-4 py-4 sm:grid-cols-2">
+            <div className="grid gap-3 border-t-[1.5px] px-4 py-4 sm:grid-cols-2">
               {fields(row, (key, value) => onChange(rows.map((r, j) => (j === i ? { ...r, [key]: value } : r))))}
               <div className="sm:col-span-2">
                 <Button variant="ghost" size="sm" onClick={() => onChange(rows.filter((_, j) => j !== i))} className="cursor-pointer text-destructive">
@@ -128,10 +128,11 @@ export function ProfilePage({ onBack }: ProfilePageProps): React.JSX.Element {
       setLinkNote(null)
       importLinkedIn(url, data.session?.access_token ?? null)
         .then(async (li) => {
-          // The picture fills an empty one; a picture you chose yourself stays.
-          const picture = !p.avatar && li.photo ? await shrink(li.photo).catch(() => "") : ""
-          data.setProfile({ ...mergeLinkedIn(p, li), avatar: p.avatar || picture, linkedin: url })
-          setLinkNote({ ok: true, text: `Read ${li.positions.length} roles, ${li.education.length} degrees and ${li.skills.length} skills${picture ? ", and your picture" : ""}. Check them below.` })
+          // Everything LinkedIn gives replaces what was there, the picture included; where it gives no picture, yours stays.
+          const picture = li.photo ? await shrink(li.photo).catch(() => "") : ""
+          data.setProfile({ ...mergeLinkedIn(p, li), avatar: picture || p.avatar, linkedin: url })
+          const got = [`${li.positions.length} roles`, `${li.education.length} degrees`, `${li.skills.length} skills`, ...(li.languages.length ? [`${li.languages.length} languages`] : []), ...(li.about ? ["your about text"] : []), ...(picture ? ["your picture"] : [])]
+          setLinkNote({ ok: true, text: `Imported ${got.join(", ")}. Check them below.` })
         })
         .catch((err: unknown) => setLinkNote({ ok: false, text: err instanceof Error ? err.message : "Could not read that profile." }))
         .finally(() => setLinking("idle"))
@@ -167,7 +168,7 @@ export function ProfilePage({ onBack }: ProfilePageProps): React.JSX.Element {
         <ArrowLeftIcon className="size-4" aria-hidden="true" /> Dashboard
       </button>
 
-      <section className="overflow-hidden rounded-xl border bg-card">
+      <section className="overflow-hidden rounded-xl border-[1.5px] bg-card">
         <div className="h-28 bg-[oklch(0.17_0.004_60)] sm:h-36" style={{ backgroundImage: "radial-gradient(60% 120% at 85% 0%, oklch(0.7 0.18 52 / 0.6), transparent 70%)" }} />
         <div className="px-5 pb-6 sm:px-6">
           <div className="-mt-12 flex items-end gap-4 sm:-mt-14">
@@ -223,7 +224,7 @@ export function ProfilePage({ onBack }: ProfilePageProps): React.JSX.Element {
         </div>
       </section>
 
-      <Section title="LinkedIn" hint="Paste the link to your own profile and we read your roles, degrees, skills and languages into this page. Only a public profile can be read, and you can edit everything after.">
+      <Section id="profile-linkedin" title="LinkedIn" hint="Paste the link to your own profile and we read your roles, degrees, skills and languages into this page. Only a public profile can be read, and you can edit everything after.">
         <form
           className="flex flex-col gap-2 sm:flex-row"
           onSubmit={(e) => {
@@ -232,8 +233,8 @@ export function ProfilePage({ onBack }: ProfilePageProps): React.JSX.Element {
           }}
         >
           <input aria-label="Your LinkedIn link" className={field} placeholder="https://www.linkedin.com/in/your-name" value={link} onChange={(e) => setLink(e.target.value)} inputMode="url" autoComplete="off" />
-          <Button type="submit" disabled={linking === "busy" || Boolean(p.linkedin && link.trim() === p.linkedin)} className="cursor-pointer sm:w-36">
-            {linking === "busy" ? "Reading…" : p.linkedin && link.trim() === p.linkedin ? "Connected" : "Connect"}
+          <Button type="submit" disabled={linking === "busy"} className="cursor-pointer sm:w-36">
+            {linking === "busy" ? "Reading…" : p.linkedin && link.trim() === p.linkedin ? "Import again" : "Connect"}
           </Button>
         </form>
         {linkNote ? <p role="status" className={`mt-2 text-sm ${linkNote.ok ? "font-medium" : "text-destructive"}`}>{linkNote.text}</p> : null}
@@ -372,6 +373,7 @@ export function ProfilePage({ onBack }: ProfilePageProps): React.JSX.Element {
         <CvUpload
           text={p.cv}
           name={p.cvName}
+          source={p.linkedin ? "Text from your LinkedIn" : undefined}
           note={cvNote}
           onChange={(cv, cvName, uploaded) => {
             // A chosen file also fills the roles, degrees and skills that are still empty, so the CV alone is enough to be judged.

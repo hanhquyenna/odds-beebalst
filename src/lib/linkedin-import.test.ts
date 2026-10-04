@@ -128,3 +128,22 @@ describe("what the app makes of an imported profile", () => {
     expect(d.internship).toBe(true)
   })
 })
+
+describe("pressing Connect replaces what was there", () => {
+  const li = normaliseProfile(ITEM)
+  const before: Profile = { ...DEFAULT_PROFILE, name: "Example", headline: "Example profile: a finance graduate", place: "Rotterdam", about: "old about", cv: "old cv", positions: [{ Title: "Old role" }], education: [], skills: [], languages: [] }
+  const after = mergeLinkedIn(before, li)
+  test("the text fields come from LinkedIn", () => {
+    expect(after.name).toBe("Sam Example")
+    expect(after.headline).toContain("Financial analyst")
+    expect(after.about).toContain("monthly reporting")
+    expect(after.cv).toContain("CFA Level I")
+    expect(after.positions).toHaveLength(3)
+  })
+  test("where LinkedIn gives nothing for a field, what you had stays", () => {
+    const kept = mergeLinkedIn(before, { ...li, about: "", headline: "", place: "" })
+    expect(kept.about).toBe("old about")
+    expect(kept.headline).toBe("Example profile: a finance graduate")
+    expect(kept.place).toBe("Rotterdam")
+  })
+})

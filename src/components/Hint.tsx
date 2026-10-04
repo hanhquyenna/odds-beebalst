@@ -58,7 +58,7 @@ export function Hint({ label, children, align = "left" }: { label: string; child
       </button>
       {open && at
         ? createPortal(
-            <span ref={note} role="note" style={{ position: "fixed", top: at.top, left: at.left, width: Math.min(288, window.innerWidth - 24) }} className="z-[70] rounded-lg border bg-popover p-3 text-left text-[0.8125rem] leading-relaxed font-normal whitespace-normal text-popover-foreground shadow-lg">
+            <span ref={note} role="note" style={{ position: "fixed", top: at.top, left: at.left, width: Math.min(288, window.innerWidth - 24) }} className="z-[70] rounded-lg border-[1.5px] bg-popover p-3 text-left text-[0.8125rem] leading-relaxed font-normal whitespace-normal text-popover-foreground shadow-lg">
               {children}
             </span>,
             document.body,

@@ -1,6 +1,6 @@
 import { degreeOf } from "@/lib/degree"
 import { monthIndex } from "@/lib/months"
-import { fieldMatch, guessFamily } from "@/lib/field"
+import { consistencyWith, fieldMatch, guessFamily, wordSpecificity } from "@/lib/field"
 import { hasLanguage, requiredLanguages } from "@/lib/languages"
 import { FIT_AVERAGE, fitOf, type Fit } from "@/lib/fit"
 import { SKILLS } from "@/lib/skills"
@@ -521,7 +521,8 @@ export function standing(
   const thin = (catShare?.n ?? 0) < 30
 
   const mine = [profile.cv, profile.positions.map((p) => `${p.Title ?? ""} ${p.Description ?? ""}`).join(" "), profile.education.map((e) => `${e["Degree Name"] ?? ""} ${e["Field Of Study"] ?? ""} ${e.Notes ?? ""}`).join(" "), [...skills].join(" ")].join(" ").toLowerCase()
-  const fit = fitOf({ title: post.title_clean ?? post.title, level: levelOf(post), years, wanted: post.skills.map((name) => ({ name, tier: post.tiers?.[name] ?? "unspecified" })), have: (skill) => skills.has(skill), text: mine, field: fieldMatch(profile, skills, post.family ?? guessFamily(post.title_clean ?? post.title, post.skills)), strength })
+  const family = post.family ?? guessFamily(post.title_clean ?? post.title, post.skills)
+  const fit = fitOf({ title: post.title_clean ?? post.title, level: levelOf(post), years, wanted: post.skills.map((name) => ({ name, tier: post.tiers?.[name] ?? "unspecified" })), have: (skill) => skills.has(skill), text: mine, field: fieldMatch(profile, skills, family), consistency: consistencyWith(profile, family), specificity: (w) => wordSpecificity(w, family), strength })
 
   const needsProfile = !hasCvData(profile)
   let rate: Standing["rate"] = null

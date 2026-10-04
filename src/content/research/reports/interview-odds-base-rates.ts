@@ -21,6 +21,55 @@ const report: Report = {
   ],
   sections: [
     {
+      heading: "In plain words",
+      blocks: [
+        { type: "h3", text: "What is the interview chance?" },
+        { type: "p", text: "It is the share of applications like yours that get an interview, shown as a range such as 1.0% to 3.1%. It is a figure for a group of similar applicants, not a prediction about you, and it is not the chance of getting the job. An interview is the first step; the offer comes after it." },
+        { type: "h3", text: "How do we judge it?" },
+        { type: "p", text: "In three steps. First a benchmark: how often applications to jobs of this kind lead to an interview, taken from applicant-tracking data. Second, adjustments for who you are and what you did, each taken from a study that changed one thing and measured the response. Third, how well your CV matches this posting." },
+        { type: "list", items: [
+          "**What we read from you:** the skills and tools on your CV, your line of work, your roles and years of experience, your level, and your track record (the employers, schools, positions, prizes and grades you state), plus where you studied and worked.",
+          "**What we read from the job:** the skills and tools it lists and how much it insists on each (must-have, strong plus, preferred, nice to have), its line of work and level.",
+          "**What you tick:** a referral, a tailored application, an internship on your CV. These move the range by the size the studies found."
+        ] },
+        { type: "h3", text: "Where do the numbers come from?" },
+        { type: "list", items: [
+          "**Market benchmark.** Interview and hire rates from recruiting software: Ashby's 2026 data (109 million applications) and SmartRecruiters' 2025 data. They tell us how often an average application is interviewed.",
+          "**Dutch hiring experiments.** Researchers sent matched CVs to real Dutch vacancies and counted callbacks (Thijssen et al. 2019 and 2021, SCP 2010). They tell us how a foreign background changes the response, and that a CV built to fit a vacancy got a positive response 18% to 54% of the time (4,211 applications).",
+          "**Other controlled studies.** Internships (Baert 2021), employer and school prestige (Kessler et al. 2019), CV quality (Bertrand and Mullainathan 2004), tailoring (ResumeGo 2020) and referrals (Ashby 2026)."
+        ] },
+        { type: "h3", text: "How the number is built, step by step" },
+        { type: "list", ordered: true, items: [
+          "Start from the benchmark range for this kind of role (business, technical or other).",
+          "Apply the gap the Dutch experiments found for a foreign background, if it applies to you.",
+          "Apply what an internship, a referral or a tailored application did in the studies. Weak evidence moves only one end of the range, never both.",
+          "Score how closely your CV matches this posting from 0% to 100%, with must-haves counting most. An average applicant sits at the benchmark.",
+          "Place you inside the range: a better match than average moves you toward the top of what the Dutch experiments saw, a worse match lowers it, by at most about 23%: the Bertrand and Mullainathan study found strong CVs got 30% more callbacks than weak ones, which is a 23% drop going the other way."
+        ] },
+        { type: "h3", text: "How sure are we?" },
+        { type: "p", text: "Every job shows a **confidence** of Low, Medium or High, with a score out of 100. It says how much we had to go on, and it is built from four equal parts: whether there were enough similar jobs to take the benchmark from, how many of the five things we compare could be read from your profile, how many skills the posting lists to compare with, and how tight the range is (do the studies agree). Each part is shown with what was found, so you can see why the score is what it is." },
+        { type: "p", text: "It is not a statistical test and it does not mean the number was checked against real outcomes. It has not been: the benchmark and the background gap are measured on other applicants, mostly in other countries or not on international students, and how much each part of your CV counts in the match score is our own written scale. The range itself is the honest statement of the uncertainty, because it comes from how much the studies differ." },
+        { type: "h3", text: "How much research is behind it?" },
+        { type: "list", items: [
+          "**9 research reports** in this app, and this one cites **32 sources**.",
+          "**Hiring data:** Ashby's 2026 data covers 109 million applications, and SmartRecruiters' 2025 data covers 89 million applications in 95 countries.",
+          "**Dutch experiments:** the matched-CV experiment behind the background gap sent 4,211 applications to real vacancies."
+        ] },
+        { type: "h3", text: "What could make it more scientific?" },
+        { type: "p", text: "These are statistics that could be added to the number. None of them is built yet, so the page calls the number an estimate from research." },
+        { type: "list", items: [
+          "**Regression on real outcomes.** Log applications and what happened next, and fit a logistic regression with the benchmark and the study gaps as the starting values, so the data moves the estimate only as far as it justifies.",
+          "**Calibration.** Report whether a stated 3% really turns out near 3%: the calibration slope, and the Brier score compared with the benchmark alone, on data held back for testing.",
+          "**Confidence intervals.** Replace the range between studies with an interval from the data itself, for example by bootstrapping.",
+          "**Recruiter ratings.** Ask recruiters whether they would interview a person for a posting, and fit how much each part of a CV counts to those answers.",
+          "**Peer benchmark.** Compare a candidate with people who were hired into similar roles, for skills, schools and previous employers.",
+          "**Meta-analysis.** Combine the studies that measure the same gap (for example foreign background in several countries) into one pooled effect with an interval.",
+          "**Bias check.** Test whether the estimate is equally accurate for different groups of applicants."
+        ] },
+        { type: "p", text: "The rest of this report gives the sources, the arithmetic and the limits in detail." }
+      ]
+    },
+    {
       heading: "Introduction",
       blocks: [
         {

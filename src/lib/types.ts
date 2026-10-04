@@ -161,7 +161,7 @@ export interface Person {
   messages?: SavedMessage[]
 }
 
-export type ViewName = "table" | "board" | "people" | "peopleBoard"
+export type ViewName = "table" | "board" | "people" | "peopleBoard" | `v:${string}` | `pv:${string}`
 
 /** How one view is set up: what is hidden and what it is sorted by. Kept with the profile, so it follows you. */
 export interface ViewConfig {
@@ -170,9 +170,38 @@ export interface ViewConfig {
   sortDir: "asc" | "desc"
   /** Names you gave to our properties on this view. */
   names?: Record<string, string>
+  /** The properties that start hidden (properties.ts HIDDEN_AT_START) which you chose to show. */
+  shown?: string[]
+  /** The property the table groups its rows by ("" or absent: no grouping). */
+  groupBy?: string
 }
 
-export type PropertyType = "text" | "select" | "date" | "checkbox" | "url" | "number"
+/** How a saved view lays the jobs out. */
+export type ViewLayout = "list" | "table" | "board" | "calendar"
+
+/** One view of your jobs: its own layout and filters (its sort, grouping and shown properties are kept in `views` under "v:" and the id). */
+export interface SavedView {
+  id: string
+  name: string
+  layout: ViewLayout
+  /** The usual job filters (search, level, place, field, language ...), as normalizeFilters reads them. */
+  filters: import("@/lib/filters").JobFilters
+  /** The filters on your own search: statuses, follow-ups due, hide closed. */
+  tracker: import("@/lib/tracker").TrackerFilter
+  /** The date property a calendar is laid out by: "applied", "followup", or "p:" and the name of a date property of yours. */
+  dateKey?: string
+}
+
+/** One view of your people: a layout and filters (its sort, grouping and shown properties are kept in `views` under "pv:" and the id). */
+export interface SavedPeopleView {
+  id: string
+  name: string
+  layout: ViewLayout
+  filter: import("@/lib/people-table").PeopleFilter
+  dateKey?: string
+}
+
+export type PropertyType = "text" | "select" | "multiselect" | "date" | "checkbox" | "url" | "email" | "phone" | "number"
 
 /** Which visa route the pay figures use. */
 export type PermitRoute = "eu" | "orientation_year" | "hsm_under_30" | "hsm_30_plus"
@@ -184,7 +213,20 @@ export interface PayChoices {
   route: PermitRoute
 }
 
+/** The recommendation boxes ticked on one job, kept so they are still there next time. */
+export interface JobTicks {
+  dutch: boolean
+  years: number
+  skills: string[]
+  referral: boolean
+  tailor: boolean | null
+  degree: boolean
+  student: boolean
+}
+
 export interface Profile {
+  /** Recommendation ticks per job id (newest 200 jobs). */
+  ticks?: Record<string, JobTicks>
   /** Ticks made on the pay of any job. Absent until the person changes one; then each box starts where their answers put it. */
   payChoices?: PayChoices
   permit: Permit
@@ -218,14 +260,29 @@ export interface Profile {
   columns: string[]
   /** What each property holds. A property missing here is text. */
   columnTypes: Record<string, PropertyType>
+  /** The choices of each of your own select properties. A select with none lets you type any value. */
+  columnOptions?: Record<string, string[]>
   /** Your values for those properties, by job id then property name. */
   notes: Record<string, Record<string, string>>
   /** The people in your search, each optionally tied to a job. */
   people: Person[]
   /** Past people searches, by job id: what each found and when. Kept with the profile, newest 25 jobs. */
   peopleFound?: Record<string, PastSearch>
-  /** Table, board and people each keep their own hidden properties and sort. */
+  /** Table, board and people each keep their own hidden properties and sort; each saved view of your jobs keeps its own under "v:" and its id. */
   views: Partial<Record<ViewName, ViewConfig>>
+  /** Your views of the job tracker (Notion-style tabs): a name, how it is laid out, its filters. Absent until you change them: the starting set is used. */
+  savedViews?: SavedView[]
+  /** The views of the jobs that fit you, kept the same way as the views of your own jobs. */
+  fitViews?: SavedView[]
+  /** Jobs you pressed X on in "Jobs that fit you": never recommended again. Kept with the profile, so it follows you to any device. */
+  dismissed?: string[]
+  /** Your views of the people you write to: the same idea, with their own filters. Absent until you change them. */
+  peopleViews?: SavedPeopleView[]
+  /** Properties of your own for people (Channel, Warmth ...), their types and choices, and what you wrote under them for each person. */
+  peopleColumns?: string[]
+  peopleColumnTypes?: Record<string, PropertyType>
+  peopleColumnOptions?: Record<string, string[]>
+  peopleNotes?: Record<string, Record<string, string>>
   /** Your message templates. Null until you change them, when the starting set is used. */
   templates: MessageTemplate[] | null
   /** True once the sign-up questions were answered. */
@@ -234,6 +291,11 @@ export interface Profile {
   prefs: import("@/lib/filters").JobFilters | null
   /** Whether the list of jobs for you follows those preferences. */
   prefsOn: boolean
+  /** The colour you chose for a status, by status (status-colors.ts). A status not here keeps its starting colour. */
+  statusColors?: Record<string, string>
+  /** Days after applying that a follow-up is due, and days after a stage change that a nudge is due. Absent means a week. */
+  followUpDays?: number
+  nudgeDays?: number
 }
 
 export const DEFAULT_PROFILE: Profile = {
@@ -273,6 +335,6 @@ export interface Application {
   title: string
   employer: string
   fit_tier: string
-  stage: "applied" | "interview" | "offer" | "hired" | "rejected"
+  stage: "applied" | "interview" | "offer" | "hired" | "rejected" | "no_reply" | "withdrawn"
   logged_at: string
 }

@@ -1,27 +1,22 @@
 import { useState } from "react"
-import { CalendarIcon, ChevronDownIcon, CircleChevronDownIcon, ExternalLinkIcon, EyeIcon, EyeSlashIcon, HashIcon, LinkIcon, PlusIcon, SquareCheckIcon, TypeIcon, XIcon } from "@/components/icons"
+import { ChevronDownIcon, ExternalLinkIcon, EyeIcon, EyeSlashIcon, XIcon } from "@/components/icons"
+import { AddPropertyForm } from "@/components/AddProperty"
 import { ChanceCell } from "@/components/FitCells"
 import { AddPerson } from "@/components/People"
 import { choicesFor } from "@/components/ViewSettings"
-import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { removeColumn as removeColumnFrom } from "@/lib/columns"
 import { useData } from "@/lib/data"
 import type { Standing } from "@/lib/engine"
 import { LEVELS, levelOf } from "@/lib/engine"
 import { INDUSTRIES, industryOf } from "@/lib/industries"
-import { placeOf } from "@/lib/format"
+import { formatAge, placeOf } from "@/lib/format"
+import { openStatusOf, openStatusText } from "@/lib/open-status"
+import { daysOr } from "@/lib/follow-days"
+import { appliedOn, followUpOf, followUpText } from "@/lib/tracker"
 import { payOf } from "@/lib/spec"
 import { useViewConfig } from "@/lib/views"
 import type { Posting, PropertyType } from "@/lib/types"
-
-const TYPES: ReadonlyArray<{ value: PropertyType; label: string; Icon: typeof TypeIcon }> = [
-  { value: "text", label: "Text", Icon: TypeIcon },
-  { value: "select", label: "Select", Icon: CircleChevronDownIcon },
-  { value: "date", label: "Date", Icon: CalendarIcon },
-  { value: "checkbox", label: "Checkbox", Icon: SquareCheckIcon },
-  { value: "url", label: "Link", Icon: LinkIcon },
-  { value: "number", label: "Number", Icon: HashIcon },
-]
 
 /** A soft colour per select value, the same every time, like Notion's option tags. */
 function tint(value: string): string {
@@ -34,10 +29,10 @@ function tint(value: string): string {
 }
 
 /** One property of one job, edited in place, in whatever type the property was given. */
-export function PropertyField({ post, name, type, value, onChange, wide = false }: { post: Posting; name: string; type: PropertyType; value: string; onChange: (v: string) => void; wide?: boolean }): React.JSX.Element {
+export function PropertyField({ post, name, type, value, onChange, wide = false, choices: given, suggestions }: { post: { title: string }; name: string; type: PropertyType; value: string; onChange: (v: string) => void; wide?: boolean; /** The choices of a select, when they are not the jobs' (people have their own). */ choices?: string[]; /** Values already used, offered to a select with no fixed choices. */ suggestions?: string[] }): React.JSX.Element {
   const data = useData()
   const label = `${name} for ${post.title}`
-  const look = `h-8 rounded-md border border-transparent bg-transparent px-2 hover:border-input focus:border-ring focus:bg-background focus:outline-none ${wide ? "w-full" : "w-44"}`
+  const look = `h-8 rounded-md border-[1.5px] border-transparent bg-transparent px-2 hover:border-input focus:border-ring focus:bg-background focus:outline-none ${wide ? "w-full" : "w-44"}`
   const listId = `opts-${name.replace(/\W+/g, "-")}`
 
   if (type === "checkbox") {
@@ -46,16 +41,82 @@ export function PropertyField({ post, name, type, value, onChange, wide = false 
   if (type === "date") {
     return <input type="date" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className={look} />
   }
+  const choices = given ?? data.profile.columnOptions?.[name]
+  if (type === "select" && choices && choices.length > 0) {
+    // A select with its own choices (Priority: High, Medium, Low): pick one, shown as a coloured tag.
+    return (
+      <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} style={value ? { background: tint(value) } : undefined} className={`${look} cursor-pointer appearance-none ${value ? "rounded-full font-medium" : "text-muted-foreground"}`}>
+        <option value="">—</option>
+        {[...new Set([...choices, ...(value && !choices.includes(value) ? [value] : [])])].map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+    )
+  }
   if (type === "select") {
     return (
       <>
         <input list={listId} aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} style={value ? { background: tint(value) } : undefined} className={`${look} ${value ? "rounded-full font-medium" : ""}`} />
         <datalist id={listId}>
-          {[...new Set(Object.values(data.profile.notes).map((r) => r[name]).filter(Boolean))].map((o) => (
+          {[...new Set(suggestions ?? Object.values(data.profile.notes).map((r) => r[name]).filter(Boolean))].map((o) => (
             <option key={o} value={o} />
           ))}
         </datalist>
       </>
+    )
+  }
+  if (type === "multiselect") {
+    const chosen = value.split(",").map((x) => x.trim()).filter(Boolean)
+    const all = [...new Set([...(given ?? data.profile.columnOptions?.[name] ?? []), ...(suggestions ?? []), ...chosen])]
+    const flip = (o: string): void => onChange((chosen.includes(o) ? chosen.filter((x) => x !== o) : [...chosen, o]).join(", "))
+
+    return (
+      <Popover>
+        <PopoverTrigger aria-label={label} className={`flex min-h-8 cursor-pointer flex-wrap items-center gap-1 rounded-md border-[1.5px] border-transparent px-2 py-1 text-left hover:border-input ${wide ? "w-full" : "w-44"}`}>
+          {chosen.length === 0 ? <span className="text-muted-foreground">—</span> : chosen.map((c) => (
+            <span key={c} style={{ background: tint(c) }} className="rounded-full px-2 py-0.5 text-[0.8125rem] font-medium">
+              {c}
+            </span>
+          ))}
+        </PopoverTrigger>
+        <PopoverContent align="start" className="flex max-h-72 w-64 flex-col gap-0.5 overflow-y-auto p-1.5">
+          {all.map((o) => (
+            <button key={o} type="button" role="checkbox" aria-checked={chosen.includes(o)} onClick={() => flip(o)} className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm hover:bg-accent">
+              <span className={`flex size-4 shrink-0 items-center justify-center rounded border-[1.5px] text-[0.625rem] ${chosen.includes(o) ? "border-foreground bg-foreground text-background" : "border-border"}`}>{chosen.includes(o) ? "✓" : ""}</span>
+              {o}
+            </button>
+          ))}
+          <input
+            aria-label={`Add a choice to ${name}`}
+            placeholder="Add a choice, press Enter"
+            onKeyDown={(e) => {
+              const input = e.currentTarget
+              if (e.key === "Enter" && input.value.trim()) {
+                e.preventDefault()
+                if (!chosen.includes(input.value.trim())) onChange([...chosen, input.value.trim()].join(", "))
+                input.value = ""
+              }
+            }}
+            className="mt-1 h-8 rounded-md border-[1.5px] bg-background px-2 text-sm"
+          />
+        </PopoverContent>
+      </Popover>
+    )
+  }
+  if (type === "email" || type === "phone") {
+    const href = type === "email" ? `mailto:${value}` : `tel:${value.replace(/\s/g, "")}`
+
+    return (
+      <span className="flex items-center gap-1">
+        <input type={type === "email" ? "email" : "tel"} aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className={look} />
+        {value.trim() ? (
+          <a href={href} aria-label={`${type === "email" ? "Write to" : "Call"} ${value}`} className="text-muted-foreground hover:text-foreground">
+            <ExternalLinkIcon className="size-4" aria-hidden="true" />
+          </a>
+        ) : null}
+      </span>
     )
   }
   if (type === "url") {
@@ -84,7 +145,6 @@ export function JobProperties({ post, st }: { post: Posting; st: Standing | null
   const data = useData()
   const { profile } = data
   const view = useViewConfig("table")
-  const [draft, setDraft] = useState<{ name: string; type: PropertyType } | null>(null)
   const [menu, setMenu] = useState<boolean>(false)
   const [adding, setAdding] = useState<boolean>(false)
   const linked = data.people.filter((p) => p.jobId === post.id)
@@ -116,34 +176,52 @@ export function JobProperties({ post, st }: { post: Posting; st: Standing | null
     </span>
   )
   const values: Record<string, React.ReactNode> = {
-    chance: <ChanceCell st={st} />,
+    chance: <ChanceCell st={st} post={post} />,
     pay: pay.text ? <span className="tabular-nums">{pay.text}{pay.perHour ? " an hour" : ""}</span> : <span className="text-muted-foreground">No figure</span>,
     location: <span>{placeOf(post.region)}</span>,
+    // When the job went up. A job someone pasted in has no posting date.
+    posted: post.local || formatAge(post) === "Date not shown" ? <span className="text-muted-foreground">Not known</span> : <span>{formatAge(post)}</span>,
+    // The day you applied, and when to ask after it (a week later, while it is still waiting).
+    applied: (() => {
+      const day = appliedOn(data.applications.find((a) => a.posting_id === post.id))
+
+      return day ? <span>{new Date(`${day}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span> : <span className="text-muted-foreground">Not applied</span>
+    })(),
+    deadline: (() => {
+      const v = note("@deadline") || post.valid_through || ""
+
+      return /^\d{4}-\d{2}-\d{2}/.test(v) ? <span>{new Date(`${v.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span> : <span className="text-muted-foreground">Not known</span>
+    })(),
+    followup: (() => {
+      const f = followUpOf(data.applications.find((a) => a.posting_id === post.id), new Date(), daysOr(data.profile.followUpDays, 7))
+
+      return f ? <span className={f.due ? "font-semibold text-red-600" : ""}>{followUpText(f)}</span> : <span className="text-muted-foreground">—</span>
+    })(),
+    // Whether our checks found the job still open, and when we last looked.
+    open: (() => {
+      const st = openStatusOf(post)
+
+      return <span className={st.open ? "" : "font-semibold text-bad-foreground"}>{openStatusText(st)}</span>
+    })(),
+    // How many people had applied when we read it. LinkedIn only, and it stops counting at 200: a snapshot, so it starts hidden.
+    applicants: post.applicants_text ? <span>{post.applicants_text}</span> : <span className="text-muted-foreground">Not known</span>,
     level: choice("level", levelOf(post), LEVELS),
     industry: choice("industry", industryOf(post) ?? "Not stated", ["Not stated", ...INDUSTRIES]),
     language: choice("language", post.dutch_required ? "Dutch needed" : "English", ["English", "Dutch needed"]),
     contact: null,
     sponsor: choice("sponsor", post.ind_sponsor ? "IND sponsor" : "Not a sponsor", ["IND sponsor", "Not a sponsor"]),
+    // When odds first held this job (for a job someone pasted in, the day it was added). Starts hidden.
+    added: post.fetched_at ? <span>{new Date(`${post.fetched_at.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span> : <span className="text-muted-foreground">Not known</span>,
   }
   const { properties } = choicesFor("table", profile.columns)
   // A column of yours called Contact stands in for ours, so the name is not shown twice.
   const standard = properties.filter((p) => p.key in values && !(p.key === "contact" && profile.columns.some((c) => c.toLowerCase() === "contact")))
   const all = [...standard.map((p) => ({ ...p, label: view.config.names?.[p.key] || p.label, custom: false })), ...profile.columns.map((c) => ({ key: `p:${c}`, label: c, custom: true }))]
-  const toggle = (key: string): void => view.update({ hidden: view.show(key) ? [...view.config.hidden, key] : view.config.hidden.filter((k) => k !== key) })
+  const toggle = view.toggle
   const typeOf = (name: string): PropertyType => profile.columnTypes[name] ?? "text"
 
-  function addColumn(): void {
-    const name = (draft?.name ?? "").trim()
-    if (name && !profile.columns.includes(name)) {
-      data.setProfile({ ...profile, columns: [...profile.columns, name], columnTypes: { ...profile.columnTypes, [name]: draft?.type ?? "text" } })
-    }
-    setDraft(null)
-  }
-
   function removeColumn(name: string): void {
-    const notes = Object.fromEntries(Object.entries(profile.notes).map(([id, row]) => [id, Object.fromEntries(Object.entries(row).filter(([k]) => k !== name))]))
-    const types = Object.fromEntries(Object.entries(profile.columnTypes).filter(([k]) => k !== name))
-    data.setProfile({ ...profile, columns: profile.columns.filter((c) => c !== name), columnTypes: types, notes })
+    data.setProfile(removeColumnFrom(profile, name))
   }
 
   /** A name you choose. Ours are kept as a label on this view; your own are renamed everywhere they are used. */
@@ -183,7 +261,7 @@ export function JobProperties({ post, st }: { post: Posting; st: Standing | null
   const hiddenValue = <span className="text-muted-foreground">Hidden</span>
 
   return (
-    <section aria-label="Properties" className="flex flex-col gap-3 rounded-xl border p-4 sm:p-5">
+    <section aria-label="Properties" className="flex flex-col gap-3 rounded-xl border-[1.5px] p-4 sm:p-5">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold tracking-tight">Properties</h2>
         <Popover open={menu} onOpenChange={setMenu}>
@@ -203,7 +281,7 @@ export function JobProperties({ post, st }: { post: Posting; st: Standing | null
                   defaultValue={p.label}
                   onBlur={(e) => rename(p.key, e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-                  className={`h-7 min-w-0 flex-1 rounded border border-transparent bg-transparent px-1.5 text-sm focus:border-ring focus:bg-background focus:outline-none ${view.show(p.key) ? "" : "text-muted-foreground"}`}
+                  className={`h-7 min-w-0 flex-1 rounded border-[1.5px] border-transparent bg-transparent px-1.5 text-sm focus:border-ring focus:bg-background focus:outline-none ${view.show(p.key) ? "" : "text-muted-foreground"}`}
                 />
                 {p.custom ? (
                   <button type="button" aria-label={`Delete ${p.label}`} onClick={() => removeColumn(p.label)} className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-destructive">
@@ -212,35 +290,8 @@ export function JobProperties({ post, st }: { post: Posting; st: Standing | null
                 ) : null}
               </div>
             ))}
-            <div className="mt-1 border-t pt-1">
-              {draft === null ? (
-                <button type="button" onClick={() => setDraft({ name: "", type: "text" })} className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors duration-150 hover:bg-accent">
-                  <PlusIcon className="size-4" aria-hidden="true" /> Add property
-                </button>
-              ) : (
-                <form
-                  className="flex flex-wrap items-center gap-2 p-1"
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    addColumn()
-                  }}
-                >
-                  <input autoFocus aria-label="Property name" placeholder="Name, e.g. Deadline" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="h-8 w-full rounded-md border bg-background px-2 text-sm" />
-                  <select aria-label="Property type" value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value as PropertyType })} className="h-8 rounded-md border bg-background px-2 text-sm">
-                    {TYPES.map((t) => (
-                      <option key={t.value} value={t.value}>
-                        {t.label}
-                      </option>
-                    ))}
-                  </select>
-                  <Button type="submit" size="sm" disabled={!draft.name.trim()} className="cursor-pointer">
-                    Add
-                  </Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setDraft(null)} className="cursor-pointer">
-                    Cancel
-                  </Button>
-                </form>
-              )}
+            <div className="mt-1 border-t-[1.5px] pt-1">
+              <AddPropertyForm onDone={() => setMenu(false)} />
             </div>
           </PopoverContent>
         </Popover>

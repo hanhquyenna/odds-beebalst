@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { FAMILIES, familyPosterior, fieldMatch, guessFamily } from "@/lib/field"
+import { FAMILIES, consistencyWith, familyPosterior, fieldMatch, guessFamily, profileFields, wordSpecificity } from "@/lib/field"
 import { DEFAULT_PROFILE, type Profile } from "@/lib/types"
 
 const profile = (titles: string[], degrees: string[] = []): Profile => ({
@@ -91,3 +91,52 @@ describe("guessFamily", () => {
     expect(guessFamily("Data Analyst", ["sql"])).toBe(guessFamily("Data Analyst", ["sql"]))
   })
 })
+
+describe("wordSpecificity", () => {
+  test("a word counts for the job's own line of work: 'equity' for finance, 'growth' for marketing", () => {
+    expect(wordSpecificity("equity", "Finance & accounting")).toBeGreaterThan(wordSpecificity("growth", "Finance & accounting"))
+    expect(wordSpecificity("growth", "Marketing & communications")).toBeGreaterThan(wordSpecificity("growth", "Finance & accounting"))
+  })
+  test("always between 0.1 and 1, and 0.5 for a word the model has never seen", () => {
+    for (const w of ["equity", "growth", "analyst", "manager", "software"]) {
+      for (const f of [...FAMILIES, null]) {
+        const v = wordSpecificity(w, f)
+        expect(v).toBeGreaterThanOrEqual(0.1)
+        expect(v).toBeLessThanOrEqual(1)
+      }
+    }
+    expect(wordSpecificity("zzzqqq", "Finance & accounting")).toBe(0.5)
+  })
+})
+
+describe("consistencyWith", () => {
+  const focused = profile(["Financial Analyst", "Finance Intern", "Accountant"], ["MSc Finance"])
+  const scattered = profile(["Marketing Intern", "Software Engineer", "Financial Analyst", "HR Assistant"], ["BSc Design"])
+  test("a career spent in one line of work is more consistent with it than one spread over several", () => {
+    expect(consistencyWith(focused, "Finance & accounting")!).toBeGreaterThan(consistencyWith(scattered, "Finance & accounting")!)
+  })
+  test("never above how well the best single role matches", () => {
+    expect(consistencyWith(scattered, "Finance & accounting")!).toBeLessThanOrEqual(fieldMatch(scattered, [], "Finance & accounting")! + 1e-9)
+  })
+  test("null with no line of work or nothing on the profile", () => {
+    expect(consistencyWith(focused, null)).toBeNull()
+    expect(consistencyWith(profile([]), "Finance & accounting")).toBeNull()
+  })
+})
+
+describe("profileFields", () => {
+  test("a profile across finance, marketing and data gives each of them", () => {
+    const f = profileFields(profile(["Financial Analyst", "Marketing Intern", "Data Scientist"]))
+    expect(f.length).toBeGreaterThanOrEqual(2)
+    expect(new Set(f).size).toBe(f.length)
+  })
+  test("one line of work gives that line first; nothing to read gives nothing", () => {
+    expect(profileFields(profile(["Software Engineer", "Backend Developer"], ["BSc Computer Science"]))[0]).toBe(fieldOf("Software Engineer"))
+    expect(profileFields(profile([]))).toEqual([])
+  })
+})
+
+function fieldOf(title: string): string | null {
+  const post = familyPosterior(title.toLowerCase().split(/\W+/).filter(Boolean))
+  return post ? FAMILIES[post.indexOf(Math.max(...post))] : null
+}

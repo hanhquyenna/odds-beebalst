@@ -11,6 +11,8 @@ import {
   deleteApplication,
   fetchApplications,
   fetchPostings,
+  fetchKeptPostings,
+  fetchStoredLogos,
   fetchReference,
   fetchSignals,
   insertApplication,
@@ -20,6 +22,7 @@ import {
   type Reference,
   type Signals,
 } from "@/lib/jobs"
+import { registerLogos } from "@/lib/companies"
 import { DEFAULT_PROFILE, type Application, type PastSearch, type Person, type Posting, type Profile } from "@/lib/types"
 
 const PROFILE_KEY = "careersim.profile"
@@ -55,6 +58,8 @@ interface Data {
   /** How the work is done, from the posting text. Null until the server has answered; filters that need it wait. */
   signals: Record<string, Signals> | null
   byId: Map<string, Posting>
+  /** Jobs you kept that are no longer in the open pool (closed since): read separately so they stay in your list, marked closed. */
+  keptExtra: Posting[]
   shares: Record<Posting["cat"], CategoryShare> | null
   /** When the postings were collected, worked out from them. */
   collected: string
@@ -81,6 +86,8 @@ interface Data {
   removePerson: (id: string) => void
   /** Change what a job's people search has found so far (show more, drop one, add a page). Null removes it. */
   updatePast: (postingId: string, change: (current: PastSearch | null) => PastSearch | null) => void
+  /** Loads the shared jobs again, for when one was just added. */
+  refreshPostings: () => Promise<void>
   addLocalPosting: (post: Posting) => void
   addLocalPostings: (posts: Posting[]) => void
   removeLocalPosting: (id: string) => void
@@ -114,7 +121,8 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
   const [profileSaved, setProfileSaved] = useState<boolean>(false)
   const [session, setSessionState] = useState<Session | null>(null)
   const [saved, setSaved] = useState<Set<string>>(() => new Set(read<string[]>(SAVED_KEY, [])))
-  const [passed, setPassedState] = useState<Set<string>>(() => new Set(read<string[]>(PASSED_KEY, [])))
+  const [passedLocal, setPassedState] = useState<Set<string>>(() => new Set(read<string[]>(PASSED_KEY, [])))
+  const passed = useMemo(() => new Set([...passedLocal, ...(profile.dismissed ?? [])]), [passedLocal, profile.dismissed])
   const [manualReferrals, setReferrals] = useState<Set<string>>(() => new Set(read<string[]>(REFERRAL_KEY, [])))
 
   // Anything saved against a posting that was merged into another moves to the one kept.
@@ -152,11 +160,12 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
   // The pool and the reference tables are public, so they load before anyone signs in.
   useEffect(() => {
     let live = true
-    Promise.all([fetchPostings(), fetchReference(), restoreSession()])
-      .then(([postings, ref, restored]) => {
+    Promise.all([fetchPostings(), fetchReference(), restoreSession(), fetchStoredLogos()])
+      .then(([postings, ref, restored, logos]) => {
         if (!live) {
           return
         }
+        registerLogos(logos)
         const merged = mergePool(postings)
         setRemote(merged.jobs)
         setAlias(merged.alias)
@@ -221,8 +230,14 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
   }, [status])
 
   const postings = useMemo(() => [...local, ...remote], [local, remote])
+  // A job you saved or applied to can leave the open pool (it closed). It is fetched on its own, once, so it stays in your list.
+  const [keptExtra, setKeptExtra] = useState<Posting[]>([])
+  const askedFor = useRef<Set<string>>(new Set())
   const byId = useMemo(() => {
     const map = new Map(postings.map((p) => [p.id, p]))
+    for (const p of keptExtra) {
+      if (!map.has(p.id)) map.set(p.id, p)
+    }
     for (const [from, to] of alias) {
       const kept = map.get(to)
       if (kept && !map.has(from)) {
@@ -231,7 +246,20 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
     }
 
     return map
-  }, [postings, alias])
+  }, [postings, alias, keptExtra])
+  useEffect(() => {
+    if (status !== "ready") {
+      return
+    }
+    const wanted = [...saved, ...applications.map((a) => a.posting_id)].filter((id) => !id.startsWith("local-") && !byId.has(id) && !alias.has(id) && !askedFor.current.has(id))
+    if (wanted.length === 0) {
+      return
+    }
+    for (const id of wanted) askedFor.current.add(id)
+    fetchKeptPostings([...new Set(wanted)])
+      .then((found) => setKeptExtra((now) => [...now, ...found.filter((p) => !now.some((n) => n.id === p.id))]))
+      .catch(() => undefined)
+  }, [status, saved, applications, byId, alias])
   const shares = useMemo(() => (remote.length ? computeShares(remote) : null), [remote])
   const collected = useMemo(() => collectedOn(remote), [remote])
 
@@ -315,6 +343,12 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
   }, [])
 
   const setPassed = useCallback((id: string, on: boolean): void => {
+    // A job you pass on is also kept with the profile, so it stays passed on any device and is never recommended again.
+    const dismissed = new Set(profileRef.current.dismissed ?? [])
+    if (on ? !dismissed.has(id) : dismissed.delete(id)) {
+      if (on) dismissed.add(id)
+      setProfile({ ...profileRef.current, dismissed: [...dismissed] })
+    }
     setPassedState((prev) => {
       const next = new Set(prev)
       if (on) {
@@ -326,7 +360,7 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
 
       return next
     })
-  }, [])
+  }, [setProfile])
 
   const toggleReferral = useCallback((id: string): void => {
     setReferrals((prev) => {
@@ -459,12 +493,22 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
     })
   }, [])
 
+  const refreshPostings = useCallback(async (): Promise<void> => {
+    const [postings, logos] = await Promise.all([fetchPostings(), fetchStoredLogos()])
+    registerLogos(logos)
+    const merged = mergePool(postings)
+    setRemote(merged.jobs)
+    setAlias(merged.alias)
+  }, [])
+
   const value: Data = {
     status,
+    refreshPostings,
     error,
     postings,
     signals,
     byId,
+    keptExtra,
     shares,
     collected,
     reference,

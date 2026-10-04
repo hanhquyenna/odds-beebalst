@@ -100,7 +100,7 @@ export function JobGallery(): React.JSX.Element {
 
       <JobsNotice closed={noticeClosed} onClose={() => setNoticeClosed(true)} />
 
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border bg-card px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border-[1.5px] bg-card px-4 py-3">
         <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
         <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
           <input type="checkbox" checked={on} onChange={(e) => toggle(e.target.checked)} className="size-4 accent-[var(--brand)]" />
@@ -113,7 +113,7 @@ export function JobGallery(): React.JSX.Element {
           <PopoverContent align="start" className="flex w-[22rem] max-w-[calc(100vw-2rem)] flex-col gap-4 p-4">
             <p className="font-semibold">Your job preferences</p>
             <FilterEditor filters={filters} onChange={setFilters} />
-            <div className="flex items-center justify-between gap-2 border-t pt-3">
+            <div className="flex items-center justify-between gap-2 border-t-[1.5px] pt-3">
               <Button type="button" variant="ghost" onClick={() => setFilters(DEFAULT_FILTERS)} className="h-9 cursor-pointer">
                 Clear all
               </Button>

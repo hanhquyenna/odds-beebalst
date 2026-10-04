@@ -33,7 +33,7 @@ export function SignIn({ onCancel, onSignedIn }: SignInProps): React.JSX.Element
   }
 
   return (
-    <form onSubmit={submit} className="mx-auto flex w-full max-w-sm flex-1 flex-col gap-8 py-8 md:my-auto md:flex-none md:border md:bg-card md:p-10">
+    <form onSubmit={submit} className="mx-auto flex w-full max-w-sm flex-1 flex-col gap-8 py-8 md:my-auto md:flex-none md:border-[1.5px] md:bg-card md:p-10">
       <button type="button" onClick={onCancel} className="cursor-pointer self-start text-sm font-medium text-primary">
         &larr; Back
       </button>

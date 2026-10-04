@@ -1,3 +1,4 @@
+import { PersonAvatar } from "@/components/PersonAvatar"
 import { useMemo, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
 import { ChevronDownIcon, ExternalLinkIcon, InfoIcon, MessageIcon, PlusIcon, TrashIcon, XIcon } from "@/components/icons"
@@ -13,8 +14,17 @@ import { departmentOf } from "@/lib/field"
 import { MIND_MAP, SOURCES, type MapNode } from "@/lib/outreach-strategy"
 import { openResearch } from "@/lib/research-link"
 import { addPage, canFindMore, dropPerson, firstPage, hasFree, isUrl, linkedinHref, linkedinPeopleSearch, rankForJob, readPast, revealNext, whyThisPerson, type Suggestion } from "@/lib/suggest"
+import { saved } from "@/lib/saved"
 import { templatesOf } from "@/lib/templates"
+import { useFollowDays } from "@/lib/follow-days"
 import { useViewConfig } from "@/lib/views"
+import { PeopleCalendar } from "@/components/TrackerCalendar"
+import { PeopleFilterBar } from "@/components/PeopleFilterBar"
+import { PeopleTable } from "@/components/PeopleTable"
+import { ToolBar } from "@/components/ToolBar"
+import { ViewTabs } from "@/components/ViewTabs"
+import { applyPeopleFilter, isPeopleFilterOn } from "@/lib/people-table"
+import type { usePeopleViews } from "@/lib/use-people-views"
 import { formatPlace } from "@/lib/format"
 import { STAGES, nextStep, stamp } from "@/lib/outreach-stage"
 import { CONTACT_STATUSES, MESSAGE_KINDS, type ContactStatus, type MessageKind, type MessageTemplate, type PastSearch, type Person, type Posting } from "@/lib/types"
@@ -23,7 +33,7 @@ import { CONTACT_STATUSES, MESSAGE_KINDS, type ContactStatus, type MessageKind, 
  * A button in the toolbar above the list: white with an outline, the same height as Jobs, List and Sort beside it.
  * Pressed, it turns black, so it is plain which panel is open. Every button here uses this one style.
  */
-function ToolButton({ pressed, onClick, label, children }: { pressed: boolean; onClick: () => void; label?: string; children: React.ReactNode }): React.JSX.Element {
+export function ToolButton({ pressed, onClick, label, children }: { pressed: boolean; onClick: () => void; label?: string; children: React.ReactNode }): React.JSX.Element {
   return (
     <button
       type="button"
@@ -31,7 +41,7 @@ function ToolButton({ pressed, onClick, label, children }: { pressed: boolean; o
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`flex h-10 cursor-pointer items-center gap-2 rounded-lg border px-3.5 text-sm font-medium transition-colors duration-150 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px ${
+      className={`flex h-10 cursor-pointer items-center gap-2 rounded-lg border-[1.5px] px-3.5 text-sm font-medium transition-colors duration-150 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px ${
         pressed ? "border-foreground bg-foreground text-background hover:bg-foreground/85" : "bg-card hover:border-foreground/40 hover:bg-accent"
       }`}
     >
@@ -43,7 +53,7 @@ function ToolButton({ pressed, onClick, label, children }: { pressed: boolean; o
 /** Why reaching out matters, as a short slide deck that is the whole panel: the link above it carries the question, so the panel has no title of its own. Closes with the X (a white round button, so it shows on the black and orange slides too) and stays closed on later visits until it is opened again from its link. */
 function WhyOutreach({ onClose }: { onClose: () => void }): React.JSX.Element {
   return (
-    <section aria-label="Why reach out" className="relative max-w-3xl overflow-hidden rounded-xl border border-brand/40 bg-card">
+    <section aria-label="Why reach out" className="relative max-w-3xl overflow-hidden rounded-xl border-[1.5px] border-brand/40 bg-card">
       <button
         type="button"
         onClick={onClose}
@@ -85,7 +95,7 @@ function CopyBlock({ text, id, copied, onCopy, children }: { text: string; id: s
           onCopy(text, id)
         }
       }}
-      className="group relative w-full cursor-copy rounded-lg border bg-background px-3 py-2.5 pr-16 text-left text-sm whitespace-pre-line transition-colors duration-150 outline-none hover:border-brand/60 hover:bg-accent/50 focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-ring/40"
+      className="group relative w-full cursor-copy rounded-lg border-[1.5px] bg-background px-3 py-2.5 pr-16 text-left text-sm whitespace-pre-line transition-colors duration-150 outline-none hover:border-brand/60 hover:bg-accent/50 focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-ring/40"
     >
       {children ?? text}
       <span className={`absolute top-2.5 right-3 text-xs font-medium transition-opacity duration-150 ${done ? "text-brand opacity-100" : "text-muted-foreground opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-visible:opacity-100"}`}>{done ? "Copied" : "Copy"}</span>
@@ -121,12 +131,12 @@ function Peek({ label, id, text, numbered, copied, onCopy, children }: { label: 
   )
 }
 
-const CARD = "rounded-2xl border border-foreground/10 bg-background shadow-sm"
+const CARD = "rounded-2xl border-[1.5px] border-foreground/10 bg-background shadow-sm"
 
 /** A step: a white card with an orange number (or the bare odds mark), the words, and whatever opens from it. */
 function Step({ node, mark, dashed = false, children }: { node: MapNode; mark?: React.ReactNode; dashed?: boolean; children?: React.ReactNode }): React.JSX.Element {
   return (
-    <div className={`flex w-full max-w-[19rem] flex-col items-center gap-1.5 p-4 text-center ${dashed ? "rounded-2xl border border-dashed border-brand/60 bg-background/70" : CARD}`}>
+    <div className={`flex w-full max-w-[19rem] flex-col items-center gap-1.5 p-4 text-center ${dashed ? "rounded-2xl border-[1.5px] border-dashed border-brand/60 bg-background/70" : CARD}`}>
       {mark ?? (node.step === "2" ? <Tick yes={!dashed} size="size-9" /> : <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand text-base font-semibold text-background tabular-nums">{node.step}</span>)}
       <p className="font-semibold">{node.title}</p>
       <p className="text-sm text-muted-foreground">{node.caption}</p>
@@ -150,7 +160,7 @@ function Tick({ yes, size = "size-7" }: { yes: boolean; size?: string }): React.
 function Outcome({ node, yes }: { node: MapNode; yes: boolean }): React.JSX.Element {
   return (
     <div className="relative flex w-full max-w-[19rem] justify-center">
-      <div className={`flex w-full flex-col items-center gap-1.5 p-4 text-center ${yes ? `${CARD} border-brand/50` : "rounded-2xl border border-dashed border-brand/60 bg-background/70"}`}>
+      <div className={`flex w-full flex-col items-center gap-1.5 p-4 text-center ${yes ? `${CARD} border-brand/50` : "rounded-2xl border-[1.5px] border-dashed border-brand/60 bg-background/70"}`}>
         <Tick yes={yes} />
         <p className="font-semibold">{node.title}</p>
         <p className="text-sm text-muted-foreground">{node.caption}</p>
@@ -229,7 +239,7 @@ function MindMap({ copied, onCopy }: { copied: string | null; onCopy: (text: str
           <span aria-hidden="true" className="h-full w-0.5 border-l-2 border-dashed border-brand/50" />
           <p aria-hidden="true" className="absolute top-1/2 left-1/2 ml-5 -translate-y-1/2 -rotate-3 text-base font-medium whitespace-nowrap text-brand-ink italic">we don't stop the grind yet...</p>
         </div>
-        <div className="w-full rounded-2xl border border-dashed border-foreground/25 p-4">
+        <div className="w-full rounded-2xl border-[1.5px] border-dashed border-foreground/25 p-4">
           <p className="mb-3 text-center text-sm font-semibold">If it stalls</p>
           <ul className="grid gap-3 sm:grid-cols-2">
             {stalls.map((leaf, i) => (
@@ -279,7 +289,7 @@ function MessageStrategy({ onClose }: { onClose: () => void }): React.JSX.Elemen
   return (
     <section
       aria-label="What should I message"
-      className="flex flex-col gap-5 rounded-xl border border-brand/25 bg-brand/[0.06] p-4 sm:p-6"
+      className="flex flex-col gap-5 overflow-x-clip rounded-xl border-[1.5px] border-brand/25 bg-brand/[0.06] p-4 sm:p-6"
       style={{ backgroundImage: "radial-gradient(color-mix(in oklch, var(--color-brand) 32%, transparent) 1px, transparent 1.2px)", backgroundSize: "20px 20px" }}
     >
       <div className="flex items-start justify-between gap-4">
@@ -322,7 +332,7 @@ function MessageStrategy({ onClose }: { onClose: () => void }): React.JSX.Elemen
                   const what = cut > 0 ? x.label.slice(cut + 2) : ""
 
                   return (
-                    <li key={x.url} className="border-b last:border-b-0">
+                    <li key={x.url} className="border-b-[1.5px] last:border-b-0">
                       <a href={x.url} target="_blank" rel="noreferrer" className="group grid grid-cols-[1.75rem_1fr] items-baseline gap-y-0.5 py-2.5 text-sm">
                         <span className="text-muted-foreground tabular-nums">{i + 1}</span>
                         <span className="min-w-0">
@@ -342,7 +352,7 @@ function MessageStrategy({ onClose }: { onClose: () => void }): React.JSX.Elemen
   )
 }
 
-const field = "h-9 rounded-md border bg-background px-2.5 text-sm focus:border-ring focus:outline-none"
+const field = "h-9 rounded-md border-[1.5px] bg-background px-2.5 text-sm focus:border-ring focus:outline-none"
 
 /** The jobs a person can be tied to: the ones in your tracker, saved or applied. */
 function useTrackedJobs(): Posting[] {
@@ -370,13 +380,14 @@ export function AddPerson({ onDone, fixedJob }: { onDone: () => void; fixedJob?:
 
   return (
     <form
-      className="grid gap-2 rounded-xl border bg-card p-3 sm:grid-cols-2"
+      className="grid gap-2 rounded-xl border-[1.5px] bg-card p-3 sm:grid-cols-2"
       onSubmit={(e) => {
         e.preventDefault()
         if (!name.trim() || (!linked && !company.trim())) {
           return
         }
-        data.addPerson({ name: name.trim(), company: linked ? linked.employer_display : company.trim(), jobId: linked?.id ?? null, status: "To contact", contact: contact.trim(), notes: "", ...(role.trim() ? { role: role.trim() } : {}) })
+        const added = data.addPerson({ name: name.trim(), company: linked ? linked.employer_display : company.trim(), jobId: linked?.id ?? null, status: "To contact", contact: contact.trim(), notes: "", ...(role.trim() ? { role: role.trim() } : {}) })
+        saved(() => data.removePerson(added.id))
         onDone()
       }}
     >
@@ -465,25 +476,6 @@ function useFindPeople(post: Posting): { state: "idle" | "busy"; problem: string
 }
 
 /**
- * A small round picture of the person. Where there is none, or it does not load, the plain grey silhouette every
- * profile starts with, so every row has the same shape and the names line up.
- */
-function PersonPhoto({ photo }: { photo?: string }): React.JSX.Element {
-  const [broken, setBroken] = useState<boolean>(false)
-
-  return photo && !broken ? (
-    <img src={photo} alt="" referrerPolicy="no-referrer" onError={() => setBroken(true)} className="size-8 shrink-0 rounded-full bg-secondary object-cover" />
-  ) : (
-    <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-secondary">
-      <svg viewBox="0 0 32 32" className="size-8 text-muted-foreground/60" fill="currentColor">
-        <circle cx="16" cy="12.5" r="5.5" />
-        <path d="M5 30c0-6.1 4.9-10 11-10s11 3.9 11 10z" />
-      </svg>
-    </span>
-  )
-}
-
-/**
  * People found for one job, one line each: order number, picture (or the grey silhouette), name, position and department, then Connect
  * (opens their LinkedIn page), Add (puts them in your list, linked to the job) and an X to drop them from the results for good.
  * `start` is how many came before, so the numbers carry on across the list.
@@ -492,7 +484,8 @@ function FoundPeople({ post, people, start = 0, onDrop }: { post: Posting; peopl
   const data = useData()
   const [panel, setPanel] = useState<Suggestion | null>(null)
   const add = (s: Suggestion): void => {
-    data.addPerson({ name: s.name, company: post.employer_display, jobId: post.id, status: "To contact", contact: s.url, role: s.headline, notes: "", photo: s.photo, place: s.place, about: s.about, positions: s.positions })
+    const added = data.addPerson({ name: s.name, company: post.employer_display, jobId: post.id, status: "To contact", contact: s.url, role: s.headline, notes: "", photo: s.photo, place: s.place, about: s.about, positions: s.positions })
+    saved(() => data.removePerson(added.id))
   }
   if (people.length === 0) {
     return null
@@ -500,7 +493,7 @@ function FoundPeople({ post, people, start = 0, onDrop }: { post: Posting; peopl
 
   return (
     <>
-    <ul aria-label={`People you could ask at ${post.employer_display}`} className="flex flex-col divide-y rounded-lg border">
+    <ul aria-label={`People you could ask at ${post.employer_display}`} className="flex flex-col divide-y-[1.5px] rounded-lg border-[1.5px]">
       {people.map((s, i) => {
         const added = data.people.some((p) => p.contact === s.url)
         const department = s.headline ? departmentOf(s.headline) : null
@@ -509,7 +502,7 @@ function FoundPeople({ post, people, start = 0, onDrop }: { post: Posting; peopl
           <li key={s.url}>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 sm:flex-nowrap">
             <span className="w-5 shrink-0 text-right text-sm text-muted-foreground tabular-nums">{start + i + 1}</span>
-            <PersonPhoto photo={s.photo} />
+            <PersonAvatar name={s.name} photo={s.photo} />
             <span className="min-w-0 flex-1 basis-40 text-sm sm:truncate">
               <span className="font-semibold">{s.name}</span>
               {s.headline ? <span className="text-muted-foreground"> · {s.headline}</span> : null}
@@ -561,7 +554,7 @@ function FindPeople({ post }: { post: Posting }): React.JSX.Element {
   const revealed = rec ? rec.pool.slice(0, rec.shown) : []
 
   return (
-    <div className="flex flex-col gap-2 border-t pt-3 sm:col-span-2">
+    <div className="flex flex-col gap-2 border-t-[1.5px] pt-3 sm:col-span-2">
       <p className="text-sm text-muted-foreground">Do not know anyone there yet?</p>
       {canMore ? (
         <div>
@@ -593,7 +586,7 @@ function OutreachFromJobs({ onClose }: { onClose: () => void }): React.JSX.Eleme
   const tracked = useTrackedJobs()
 
   return (
-    <section aria-label="Reach out from a job" className="flex flex-col gap-4 rounded-xl border border-brand/40 bg-card p-4 sm:p-5">
+    <section aria-label="Reach out from a job" className="flex flex-col gap-4 rounded-xl border-[1.5px] border-brand/40 bg-card p-4 sm:p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h3 className="text-lg font-semibold tracking-tight">Reach out from a job</h3>
@@ -606,9 +599,9 @@ function OutreachFromJobs({ onClose }: { onClose: () => void }): React.JSX.Eleme
         </button>
       </div>
       {tracked.length === 0 ? (
-        <p className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">Keep a job first (press its bookmark), then come back to find people at that company.</p>
+        <p className="rounded-lg border-[1.5px] border-dashed px-4 py-6 text-sm text-muted-foreground">Keep a job first (press its bookmark), then come back to find people at that company.</p>
       ) : (
-        <ul className="flex flex-col divide-y rounded-lg border">
+        <ul className="flex flex-col divide-y-[1.5px] rounded-lg border-[1.5px]">
           {tracked.map((post) => (
             <OutreachRow key={post.id} post={post} />
           ))}
@@ -691,8 +684,11 @@ export function ReferralLink({ post }: { post: Posting }): React.JSX.Element | n
         <select
           aria-label={`Link someone you know at ${post.employer_display}`}
           value=""
-          onChange={(e) => data.updatePerson(e.target.value, { jobId: post.id, company: post.employer_display })}
-          className="h-8 rounded-md border bg-background px-2 text-sm"
+          onChange={(e) => {
+            data.updatePerson(e.target.value, { jobId: post.id, company: post.employer_display })
+            saved()
+          }}
+          className="h-8 rounded-md border-[1.5px] bg-background px-2 text-sm"
         >
           <option value="">Link someone you know here</option>
           {candidates.map((p) => (
@@ -714,7 +710,7 @@ function PeopleColumns({ show }: { show: (key: string) => boolean }): React.JSX.
   const cell = "min-w-0 truncate px-2"
 
   return (
-    <div aria-hidden="true" className="hidden items-center gap-3 border-b bg-secondary/25 px-3 py-1.5 text-xs font-medium text-muted-foreground lg:flex">
+    <div aria-hidden="true" className="hidden items-center gap-3 border-b-[1.5px] bg-secondary/25 px-3 py-1.5 text-xs font-medium text-muted-foreground lg:flex">
       <span className="w-5 shrink-0" />
       <span className="size-8 shrink-0" />
       <span className={`${cell} flex-[2]`}>Name</span>
@@ -726,15 +722,17 @@ function PeopleColumns({ show }: { show: (key: string) => boolean }): React.JSX.
   )
 }
 
-function PersonRow({ person, show, n }: { person: Person; show: (key: string) => boolean; n: number }): React.JSX.Element {
+/** The panel with everything about one person you hold, and the fields to change it. Opened from "More details" on a row, and from a person's name in the table. */
+export function PersonDetails({ person, onClose }: { person: Person; onClose: () => void }): React.JSX.Element {
   const data = useData()
-  const [panel, setPanel] = useState<boolean>(false)
   const put = (patch: Partial<Omit<Person, "id">>): void => data.updatePerson(person.id, patch)
-  const step = nextStep(person)
-  // Below a laptop the fields are drawn as fields so it is clear they can be typed in; on a laptop they are quiet until hovered.
-  const plain = "h-9 rounded-md border border-input bg-background px-2.5 text-sm focus:border-ring focus:outline-none lg:h-8 lg:border-transparent lg:bg-transparent lg:px-2 lg:hover:border-input lg:focus:bg-background"
+  const step = nextStep(person, new Date(), useFollowDays().nudge)
+  const plain = "h-9 rounded-md border-[1.5px] border-input bg-background px-2.5 text-sm focus:border-ring focus:outline-none lg:h-8 lg:border-transparent lg:bg-transparent lg:px-2 lg:hover:border-input lg:focus:bg-background"
   const stage = (
-    <select aria-label={`Stage of ${person.name}`} value={person.status} onChange={(e) => put(stamp(e.target.value as ContactStatus))} className={`${plain} w-full`}>
+    <select aria-label={`Stage of ${person.name}`} value={person.status} onChange={(e) => {
+        put(stamp(e.target.value as ContactStatus))
+        saved()
+      }} className={`${plain} w-full`}>
       {CONTACT_STATUSES.map((r) => (
         <option key={r}>{r}</option>
       ))}
@@ -742,13 +740,62 @@ function PersonRow({ person, show, n }: { person: Person; show: (key: string) =>
   )
 
   return (
-    <li className="border-b last:border-b-0">
+    <PersonPanel
+      person={{ name: person.name, headline: person.role, company: person.company, place: person.place, photo: person.photo, about: person.about, positions: person.positions, url: linkedinHref(person), facts: [{ label: "Next step", value: step.text }, { label: "Company", value: person.company }, { label: "Job", value: person.jobId ? (data.byId.get(person.jobId)?.title ?? "") : "" }, { label: "Stage", value: person.status }] }}
+      editor={
+        <div className="flex flex-col gap-3 text-sm">
+          <label className="flex flex-col gap-1 text-muted-foreground">
+            Current job
+            <input value={person.role ?? ""} onChange={(e) => put({ role: e.target.value })} placeholder="What they do now" className={`${plain} w-full text-foreground`} />
+          </label>
+          <label className="flex flex-col gap-1 text-muted-foreground">
+            Stage
+            {stage}
+          </label>
+          <label className="flex flex-col gap-1 text-muted-foreground">
+            Link
+            <input value={person.contact} onChange={(e) => put({ contact: e.target.value })} placeholder="LinkedIn, email or phone" className={`${plain} w-full text-foreground`} />
+          </label>
+          <label className="flex flex-col gap-1 text-muted-foreground">
+            Notes
+            <textarea value={person.notes} onChange={(e) => put({ notes: e.target.value })} placeholder="What you want to remember" className="min-h-20 w-full rounded-md border-[1.5px] border-input bg-background px-2.5 py-2 text-foreground focus:border-ring focus:outline-none" />
+          </label>
+          <button type="button" onClick={() => { data.removePerson(person.id); onClose() }} className="flex w-fit cursor-pointer items-center gap-1.5 text-muted-foreground hover:text-destructive">
+            <TrashIcon className="size-4" aria-hidden="true" /> Remove from my list
+          </button>
+        </div>
+      }
+      onClose={onClose}
+    />
+  )
+}
+
+function PersonRow({ person, show, n }: { person: Person; show: (key: string) => boolean; n: number }): React.JSX.Element {
+  const data = useData()
+  const [panel, setPanel] = useState<boolean>(false)
+  const put = (patch: Partial<Omit<Person, "id">>): void => data.updatePerson(person.id, patch)
+  const step = nextStep(person, new Date(), useFollowDays().nudge)
+  // Below a laptop the fields are drawn as fields so it is clear they can be typed in; on a laptop they are quiet until hovered.
+  const plain = "h-9 rounded-md border-[1.5px] border-input bg-background px-2.5 text-sm focus:border-ring focus:outline-none lg:h-8 lg:border-transparent lg:bg-transparent lg:px-2 lg:hover:border-input lg:focus:bg-background"
+  const stage = (
+    <select aria-label={`Stage of ${person.name}`} value={person.status} onChange={(e) => {
+        put(stamp(e.target.value as ContactStatus))
+        saved()
+      }} className={`${plain} w-full`}>
+      {CONTACT_STATUSES.map((r) => (
+        <option key={r}>{r}</option>
+      ))}
+    </select>
+  )
+
+  return (
+    <li className="border-b-[1.5px] last:border-b-0">
       {/* Phone: a card with the person, their current job, the stage and the two actions; link, notes and removing are under More details.
           Tablet: the card also shows the link. Notes are only under More details, so the row stays roomy. Laptop and up: one line, the same fields in a row under the column names. */}
       <div className="grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-3 py-3 lg:flex lg:flex-nowrap lg:gap-y-0 lg:py-2.5">
         <span className="hidden w-5 shrink-0 text-right text-sm text-muted-foreground tabular-nums lg:block">{n}</span>
         <span className="row-span-2 self-start lg:row-span-1">
-          <PersonPhoto photo={person.photo} />
+          <PersonAvatar name={person.name} photo={person.photo} />
         </span>
         <input aria-label={`Name of ${person.name}`} placeholder="Name" value={person.name} onChange={(e) => put({ name: e.target.value })} className={`${plain} min-w-0 font-semibold lg:order-1 lg:flex-[2] lg:font-medium`} />
         {show("status") ? <span className="w-28 shrink-0 lg:order-3 lg:w-32">{stage}</span> : <span />}
@@ -760,7 +807,7 @@ function PersonRow({ person, show, n }: { person: Person; show: (key: string) =>
             target="_blank"
             rel="noreferrer"
             title={isUrl(person.contact) ? `Open ${person.name} on LinkedIn` : `Search LinkedIn for ${person.name}${person.company ? ` at ${person.company}` : ""}`}
-            className="flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-3 text-sm font-medium transition-colors duration-150 hover:border-foreground/40 hover:bg-accent lg:order-6 lg:h-8 lg:px-2.5"
+            className="flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border-[1.5px] px-3 text-sm font-medium transition-colors duration-150 hover:border-foreground/40 hover:bg-accent lg:order-6 lg:h-8 lg:px-2.5"
           >
             Connect
             <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
@@ -774,35 +821,7 @@ function PersonRow({ person, show, n }: { person: Person; show: (key: string) =>
         </div>
       </div>
       {step.due ? <p className="px-3 pb-2.5 text-sm font-medium text-brand-ink lg:pl-[4.75rem]">{step.text}</p> : null}
-      {panel ? (
-        <PersonPanel
-          person={{ name: person.name, headline: person.role, company: person.company, place: person.place, photo: person.photo, about: person.about, positions: person.positions, url: linkedinHref(person), facts: [{ label: "Next step", value: step.text }, { label: "Company", value: person.company }, { label: "Job", value: person.jobId ? (data.byId.get(person.jobId)?.title ?? "") : "" }, { label: "Stage", value: person.status }] }}
-          editor={
-            <div className="flex flex-col gap-3 text-sm">
-              <label className="flex flex-col gap-1 text-muted-foreground">
-                Current job
-                <input value={person.role ?? ""} onChange={(e) => put({ role: e.target.value })} placeholder="What they do now" className={`${plain} w-full text-foreground`} />
-              </label>
-              <label className="flex flex-col gap-1 text-muted-foreground">
-                Stage
-                {stage}
-              </label>
-              <label className="flex flex-col gap-1 text-muted-foreground">
-                Link
-                <input value={person.contact} onChange={(e) => put({ contact: e.target.value })} placeholder="LinkedIn, email or phone" className={`${plain} w-full text-foreground`} />
-              </label>
-              <label className="flex flex-col gap-1 text-muted-foreground">
-                Notes
-                <textarea value={person.notes} onChange={(e) => put({ notes: e.target.value })} placeholder="What you want to remember" className="min-h-20 w-full rounded-md border border-input bg-background px-2.5 py-2 text-foreground focus:border-ring focus:outline-none" />
-              </label>
-              <button type="button" onClick={() => { data.removePerson(person.id); setPanel(false) }} className="flex w-fit cursor-pointer items-center gap-1.5 text-muted-foreground hover:text-destructive">
-                <TrashIcon className="size-4" aria-hidden="true" /> Remove from my list
-              </button>
-            </div>
-          }
-          onClose={() => setPanel(false)}
-        />
-      ) : null}
+      {panel ? <PersonDetails person={person} onClose={() => setPanel(false)} /> : null}
     </li>
   )
 }
@@ -815,7 +834,7 @@ export function TemplatesEditor({ onClose }: { onClose: () => void }): React.JSX
   const edit = (id: string, patch: Partial<MessageTemplate>): void => set(templates.map((t) => (t.id === id ? { ...t, ...patch } : t)))
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border bg-card p-4">
+    <div className="flex flex-col gap-3 rounded-xl border-[1.5px] bg-card p-4">
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-lg font-semibold tracking-tight">Outreach message templates</h3>
         <button type="button" onClick={onClose} aria-label="Close" className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
@@ -824,7 +843,7 @@ export function TemplatesEditor({ onClose }: { onClose: () => void }): React.JSX
       </div>
       <ul className="flex flex-col gap-3">
         {templates.map((t) => (
-          <li key={t.id} className="flex flex-col gap-2 rounded-lg border p-3">
+          <li key={t.id} className="flex flex-col gap-2 rounded-lg border-[1.5px] p-3">
             <div className="flex flex-wrap items-center gap-2">
               <input aria-label="Template name" value={t.name} onChange={(e) => edit(t.id, { name: e.target.value })} className={`${field} min-w-44 flex-1 font-medium`} />
               <select aria-label="Kind" value={t.kind} onChange={(e) => edit(t.id, { kind: e.target.value as MessageKind })} className={field}>
@@ -836,7 +855,7 @@ export function TemplatesEditor({ onClose }: { onClose: () => void }): React.JSX
                 <TrashIcon className="size-4" aria-hidden="true" />
               </button>
             </div>
-            <textarea aria-label={`Wording of ${t.name}`} value={t.body} onChange={(e) => edit(t.id, { body: e.target.value })} className="min-h-28 rounded-lg border bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none" />
+            <textarea aria-label={`Wording of ${t.name}`} value={t.body} onChange={(e) => edit(t.id, { body: e.target.value })} className="min-h-28 rounded-lg border-[1.5px] bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none" />
           </li>
         ))}
       </ul>
@@ -859,9 +878,15 @@ export function TemplatesEditor({ onClose }: { onClose: () => void }): React.JSX
  * position they are linked to. A person linked to a job shows on that job, and a
  * referral counts in its chance, so the two views are the same facts.
  */
-export function PeopleView({ onOpen, layout = "list" }: { onOpen: (post: Posting) => void; layout?: "list" | "board" }): React.JSX.Element {
+export function PeopleView({ onOpen, views, tools }: { onOpen: (post: Posting) => void; views: ReturnType<typeof usePeopleViews>; tools: React.ReactNode }): React.JSX.Element {
   const data = useData()
-  const view = useViewConfig(layout === "board" ? "peopleBoard" : "people")
+  const { active } = views
+  const layout = active.layout
+  const view = useViewConfig(views.configName)
+  const [details, setDetails] = useState<Person | null>(null)
+  const days = useFollowDays()
+  const people = useMemo(() => applyPeopleFilter(data.people, active.filter, new Date(), days.nudge), [data.people, active.filter, days.nudge])
+  const filtered = isPeopleFilterOn(active.filter)
   // One panel at a time: opening one replaces whichever was open.
   const [panel, setPanel] = useState<"outreach" | "add" | "strategy" | null>(null)
   const adding = panel === "add"
@@ -876,7 +901,7 @@ export function PeopleView({ onOpen, layout = "list" }: { onOpen: (post: Posting
   const groups = useMemo(() => {
     const order = (p: Person): string => (sortKey === "name" ? p.name : sortKey === "status" ? String(CONTACT_STATUSES.indexOf(p.status)) : p.name)
     const byCompany = new Map<string, { employer: string | null; jobs: Map<string, { post: Posting | null; people: Person[] }> }>()
-    for (const person of data.people) {
+    for (const person of people) {
       const post = person.jobId ? (data.byId.get(person.jobId) ?? null) : null
       const company = post ? post.employer_display : person.company || "No company yet"
       const entry = byCompany.get(company) ?? { employer: post?.employer ?? null, jobs: new Map() }
@@ -893,7 +918,7 @@ export function PeopleView({ onOpen, layout = "list" }: { onOpen: (post: Posting
     }
 
     return [...byCompany.entries()].sort((a, b) => a[0].localeCompare(b[0]) * (sortKey === "company" ? dir : 1))
-  }, [data.people, data.byId, sortKey, dir])
+  }, [people, data.byId, sortKey, dir])
 
   // One running order number down the whole table, in the order the rows are drawn.
   const order = useMemo(() => {
@@ -938,19 +963,33 @@ export function PeopleView({ onOpen, layout = "list" }: { onOpen: (post: Posting
       {strategy ? <MessageStrategy onClose={() => setPanel(null)} /> : null}
       {adding ? <AddPerson onDone={() => setAdding(false)} /> : null}
 
-      {layout === "board" && data.people.length > 0 ? (
-        <PeopleBoard onOpen={onOpen} sortKey={sortKey} dir={dir} show={view.show} />
+      <ViewTabs views={views.views} active={active} onSelect={views.select} onAdd={views.add} onRename={views.rename} onDuplicate={views.duplicate} onRemove={views.remove} onReset={views.reset} noun="people" />
+      {data.people.length > 0 ? (
+        <>
+          <PeopleFilterBar value={active.filter} onChange={views.setFilter} />
+          {layout === "table" ? null : <ToolBar count={people.length} noun={{ one: "person", many: "people" }} tools={tools} />}
+        </>
+      ) : null}
+
+      {data.people.length > 0 && layout === "calendar" ? (
+        <PeopleCalendar people={people} dateKey={active.dateKey ?? "nudge"} onDateKey={views.setDateKey} onOpen={setDetails} />
+      ) : data.people.length > 0 && people.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{filtered ? "No one here fits these filters." : "No one here yet."}</p>
+      ) : layout === "table" && data.people.length > 0 ? (
+        <PeopleTable people={people} onOpenPerson={setDetails} onOpenJob={onOpen} viewName={views.configName} toolbar={tools} />
+      ) : layout === "board" && data.people.length > 0 ? (
+        <PeopleBoard people={people} onOpen={onOpen} sortKey={sortKey} dir={dir} show={view.show} />
       ) : groups.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
+        <div className="rounded-xl border-[1.5px] border-dashed p-6 text-sm text-muted-foreground">
           <p className="font-medium text-foreground">No one here yet.</p>
           <p className="mt-1">Add someone you know at a company you are applying to, and link them to the job. A referral raises the interview chance for that job, and everyone shows up on the job too.</p>
         </div>
       ) : (
         groups.map(([company, group]) => {
           return (
-            <section key={company} className="overflow-hidden rounded-xl border">
+            <section key={company} className="overflow-hidden rounded-xl border-[1.5px]">
               {/* One job at the company: its title and city sit in the company's header. Several: each job gets its own line above its people. */}
-              <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b bg-secondary/40 px-4 py-3">
+              <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b-[1.5px] bg-secondary/40 px-4 py-3">
                 <span className="flex size-9 items-center justify-center">
                   <CompanyLogo employer={group.employer ?? company} name={company} size={30} wide={1.4} />
                 </span>
@@ -968,7 +1007,7 @@ export function PeopleView({ onOpen, layout = "list" }: { onOpen: (post: Posting
               {[...group.jobs.values()].map((job) => (
                 <div key={job.post?.id ?? "none"}>
                   {group.jobs.size > 1 || !job.post ? (
-                  <div className="flex items-center justify-between gap-3 border-b px-4 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-3 border-b-[1.5px] px-4 py-2 text-sm">
                     {job.post ? (
                       <button type="button" onClick={() => onOpen(job.post as Posting)} className="cursor-pointer text-left font-medium underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground">
                         {job.post.title}
@@ -990,6 +1029,7 @@ export function PeopleView({ onOpen, layout = "list" }: { onOpen: (post: Posting
           )
         })
       )}
+      {details ? <PersonDetails person={data.people.find((p) => p.id === details.id) ?? details} onClose={() => setDetails(null)} /> : null}
     </div>
   )
 }
@@ -999,12 +1039,12 @@ export function PeopleView({ onOpen, layout = "list" }: { onOpen: (post: Posting
  * The same people as a board: a column per step of the conversation, a card per person. Drag a card, or use the
  * menu on it, to move it. Each card shows who they are, how you know them and the job they are linked to.
  */
-function PeopleBoard({ onOpen, sortKey, dir, show }: { onOpen: (post: Posting) => void; sortKey: string; dir: number; show: (key: string) => boolean }): React.JSX.Element {
+function PeopleBoard({ people: shown, onOpen, sortKey, dir, show }: { people: ReadonlyArray<Person>; onOpen: (post: Posting) => void; sortKey: string; dir: number; show: (key: string) => boolean }): React.JSX.Element {
   const data = useData()
   const [over, setOver] = useState<ContactStatus | null>(null)
   const company = (p: Person): string => (p.jobId ? (data.byId.get(p.jobId)?.employer_display ?? p.company) : p.company)
   const key = (p: Person): string => (sortKey === "name" ? p.name : company(p))
-  const people = [...data.people].sort((a, b) => key(a).localeCompare(key(b)) * (sortKey === "company" ? 1 : dir))
+  const people = [...shown].sort((a, b) => key(a).localeCompare(key(b)) * (sortKey === "company" ? 1 : dir))
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -1026,6 +1066,7 @@ function PeopleBoard({ onOpen, sortKey, dir, show }: { onOpen: (post: Posting) =
               const id = e.dataTransfer.getData("text/plain")
               if (data.people.some((p) => p.id === id)) {
                 data.updatePerson(id, stamp(status))
+                saved()
               }
             }}
             className={`flex min-h-40 flex-col gap-3 rounded-xl p-3 ${over === status ? "bg-accent ring-2 ring-primary/30" : "bg-secondary/40"}`}
@@ -1037,12 +1078,12 @@ function PeopleBoard({ onOpen, sortKey, dir, show }: { onOpen: (post: Posting) =
               </div>
               <span className="rounded-full bg-card px-2.5 py-0.5 text-sm font-medium tabular-nums">{here.length}</span>
             </header>
-            {here.length === 0 ? <p className="rounded-xl border border-dashed px-3 py-8 text-center text-sm text-muted-foreground">No one here</p> : null}
+            {here.length === 0 ? <p className="rounded-xl border-[1.5px] border-dashed px-3 py-8 text-center text-sm text-muted-foreground">No one here</p> : null}
             {here.map((p) => {
               const post = p.jobId ? (data.byId.get(p.jobId) ?? null) : null
 
               return (
-                <article key={p.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/plain", p.id)} className="flex cursor-grab flex-col gap-3 rounded-lg border bg-card p-4 active:cursor-grabbing">
+                <article key={p.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/plain", p.id)} className="flex cursor-grab flex-col gap-3 rounded-lg border-[1.5px] bg-card p-4 active:cursor-grabbing">
                   <div className="flex items-start gap-3">
                     <span className="flex h-9 w-10 shrink-0 items-center justify-center">
                       <CompanyLogo employer={post?.employer ?? company(p)} name={company(p) || p.name} size={32} wide={1.4} url={post?.url} />
@@ -1057,7 +1098,10 @@ function PeopleBoard({ onOpen, sortKey, dir, show }: { onOpen: (post: Posting) =
                       {post.title}
                     </button>
                   ) : null}
-                  <select aria-label={`Move ${p.name}`} value={p.status} onChange={(e) => data.updatePerson(p.id, stamp(e.target.value as ContactStatus))} className="h-9 w-full cursor-pointer rounded-md border bg-background px-2 text-sm text-foreground">
+                  <select aria-label={`Move ${p.name}`} value={p.status} onChange={(e) => {
+                    data.updatePerson(p.id, stamp(e.target.value as ContactStatus))
+                    saved()
+                  }} className="h-9 w-full cursor-pointer rounded-md border-[1.5px] bg-background px-2 text-sm text-foreground">
                     {CONTACT_STATUSES.map((c) => (
                       <option key={c}>{c}</option>
                     ))}
@@ -1081,7 +1125,7 @@ export function PeopleForJob({ post }: { post: Posting }): React.JSX.Element {
   return (
     <Section title={`People at ${post.employer_display}`}>
       {linked.length > 0 ? (
-        <ul className="divide-y border-y">
+        <ul className="divide-y-[1.5px] border-y-[1.5px]">
           {linked.map((p) => (
             <li key={p.id} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3">
               <span className="font-medium">{p.name}{p.role ? <span className="font-normal text-muted-foreground"> · {p.role}</span> : null}</span>

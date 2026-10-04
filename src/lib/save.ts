@@ -28,3 +28,18 @@ export function toggleSave(data: Saver, post: Posting): void {
     },
   })
 }
+
+interface Remover extends Saver {
+  applications: ReadonlyArray<{ id: string | number; posting_id: string }>
+  removeApplication: (id: never) => Promise<void>
+}
+
+/** Takes a job out of your list for good: not saved, and any application logged on it is removed too. */
+export function removeFromList(data: Remover, post: Posting): void {
+  data.setSaved(post.id, false)
+  const app = data.applications.find((a) => a.posting_id === post.id)
+  if (app) {
+    data.removeApplication(app.id as never).catch(() => undefined)
+  }
+  toast(`Removed ${post.title} from your list`, { id: UNDO_TOAST, duration: 4000 })
+}
