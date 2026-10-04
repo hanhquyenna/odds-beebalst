@@ -57,7 +57,7 @@ Base rate by category (Ashby 2026, SmartRecruiters 2025) x origin (0.76 / 0.93) 
 - Landing/jobs panel: "see how we collect them" link moved under the rotating logo.
 
 ## 7. Other agents working in parallel
-Another agent built the hourly check (`supabase/functions/check-postings`, `_shared/ats-check.ts`, migration `20261002_posting_checks.sql`, `scripts/check-open.ts`, `scripts/setup-check.sh`), `posted_on` (`scripts/backfill-posted-on.ts`, migration `20261002_posted_on.sql`) and Indeed ingestion (`backend/add_indeed.py`, `add_indeed.sql`). Do not redo them; read them first and do not overwrite their files.
+Another agent built the hourly check (`supabase/functions/check-postings`, `_shared/ats-check.ts`, migration `20261002120100_posting_checks.sql`, `scripts/check-open.ts`, `scripts/setup-check.sh`), `posted_on` (`scripts/backfill-posted-on.ts`, migration `20261002120000_posted_on.sql`) and Indeed ingestion (`backend/add_indeed.py`, `add_indeed.sql`). Do not redo them; read them first and do not overwrite their files.
 
 ## 8. Open work, in the order I would do it
 1. Owner applies `FIX_DEGREE_GATE.sql`; re-run CV checks.
@@ -108,7 +108,7 @@ All 1,950 active postings were read in full by 50 sub-agents blind to the stored
 The Jev scripts now read only postings Jev has not read yet, unless you pass `--rescan`: `jev-requirements.ts` (requirements empty), `jev-fill.mjs` and `jev-family.mjs` (level_jev empty), `jev-fill2.mjs` (dutch_jev empty). On 3 Oct, 151 postings had no Jev reading at all (all `public_sector`, fetched 3 Oct); the ids are what `requirements is null` returns. After a read, run `scripts/make-skill-tiers.ts` (no Jev). Needs TypeSafe credits (the org had none on 3 Oct, HTTP 402). Rough cost for the 151, from the 14,000-character state plus 40 tier questions per request: about 2 million input tokens, about $0.09 at $42 per billion. An estimate, not a measurement.
 
 ## Live views: what the app shows is decided in the database (3 Oct 2026)
-- `public.app_jobs` (every active posting, with `level_view`, `kept_id`, `pick_rank`) is what the app reads. `public.active_jobs` is one row per job, `public.active_internship_entry` is its internship and entry level part. All live, no snapshot, nothing to sync. Migration: `supabase/migrations/20261003_app_jobs_view.sql`.
+- `public.app_jobs` (every active posting, with `level_view`, `kept_id`, `pick_rank`) is what the app reads. `public.active_jobs` is one row per job, `public.active_internship_entry` is its internship and entry level part. All live, no snapshot, nothing to sync. Migration: `supabase/migrations/20261003120000_app_jobs_view.sql`.
 - Active = not closed and a real job. Merged = same employer, title and city (employer's own site kept first). Level = Jev where 0.8 sure, else the same title/seniority/years rules as `levelOf` (checked: 0 differences across 1,906 jobs).
 - The page opens on internship and entry, any time, so its heading number equals `select count(*) from active_internship_entry`. If the view is missing, the app falls back to the table and works it out in the browser.
 - `active_internship_entry_candidates` was built by another agent on top of `active_internship_entry`: keep that view's first columns as they are (add new ones at the end only).
@@ -151,7 +151,7 @@ The owner asked for people at the employers of past-week internship and entry jo
 `cbs_group` decides the typical pay and the pay level rows. The old rule-based mapping was wrong for many jobs (a Professor in architects, a Medical Director in business managers).
 `scripts/jev-occupation.mjs` asks Jev (one `choice` over the 77 CBS groups, 0.8 sure) and `--out file.json` saves the answers without writing. Full read of 2,190 postings cost about $0.25.
 Result: 520 agree, 443 changed or filled where Jev was sure (written; old values in `public.postings_cbsgroup_backup`), 842 left as they were (Jev unsure, current group kept), 385 have no group (no typical pay shown, on purpose).
-Traineeships are Entry, not Internship (a rule at the top of the level case in `20261003_app_jobs_view.sql`), because Jev reads "traineeship" as an internship.
+Traineeships are Entry, not Internship (a rule at the top of the level case in `20261003120000_app_jobs_view.sql`), because Jev reads "traineeship" as an internship.
 Not done: the 842 where Jev is unsure and a group is set have not been hand-checked.
 
 ## 19. Sign-up is one question: the LinkedIn link (3 Oct 2026)

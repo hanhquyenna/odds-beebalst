@@ -63,7 +63,7 @@ function headingText(line: string): string {
 }
 
 /** The key a heading belongs to, or null when the line is not a known heading. */
-function classify(heading: string, employer: string): SectionKey | null {
+function classify(heading: string, _employer: string): SectionKey | null {
   const h = norm(heading)
   for (const [key, rx] of HEADINGS) {
     if (rx.test(h)) return key

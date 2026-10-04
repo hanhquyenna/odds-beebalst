@@ -1,6 +1,8 @@
 // Supabase Edge Function: signs a phone in without typing anything, and makes guest accounts.
 //   guest:  someone without an account (after a LinkedIn import) gets a guest account and its session, so their profile,
 //           phone and morning message work before real sign-in exists. Limited per connection.
+//   adopt:  right after a real sign-in, a guest's profile, phones and applications move to the real account. Needs both
+//           sign-ins: the real one in Authorization and the guest's access token in the body.
 //   create: a signed-in person asks for a one-time code (the QR code on the computer, or the address an iPhone's Home
 //           Screen app opens with, since that app keeps its own storage apart from Safari).
 //   redeem: the phone hands the code back once and gets a session for the same person.
@@ -47,7 +49,7 @@ Deno.serve(async (req) => {
   const anon = Deno.env.get("SUPABASE_ANON_KEY")!
   const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   const admin = { apikey: service, Authorization: `Bearer ${service}`, "Content-Type": "application/json" }
-  const body = (await req.json().catch(() => ({}))) as { action?: string; code?: string; kind?: string }
+  const body = (await req.json().catch(() => ({}))) as { action?: string; code?: string; kind?: string; guest_token?: string }
 
   if (body.action === "create") {
     const jwt = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "")
@@ -116,6 +118,24 @@ Deno.serve(async (req) => {
     if (!session) return reply(500, { error: "Could not sign you in." })
 
     return reply(200, session)
+  }
+
+  if (body.action === "adopt") {
+    const userOf = async (token: string): Promise<string | null> => {
+      if (!token) return null
+      const r = await fetch(`${supabaseUrl}/auth/v1/user`, { headers: { apikey: anon, Authorization: `Bearer ${token}` } })
+      return r.ok ? ((await r.json()).id as string) : null
+    }
+    const owner = await userOf((req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, ""))
+    const guest = await userOf(typeof body.guest_token === "string" ? body.guest_token : "")
+    if (!owner) return reply(401, { error: "Sign in first." })
+    if (!guest) return reply(400, { error: "The guest sign-in is missing or has expired." })
+    if (owner === guest) return reply(200, { moved: {} })
+
+    const done = await fetch(`${supabaseUrl}/rest/v1/rpc/adopt_guest`, { method: "POST", headers: admin, body: JSON.stringify({ guest, owner }) })
+    if (!done.ok) return reply(409, { error: "Could not move the guest account.", detail: (await done.text()).slice(0, 200) })
+
+    return reply(200, { moved: await done.json() })
   }
 
   return reply(400, { error: "Unknown action." })

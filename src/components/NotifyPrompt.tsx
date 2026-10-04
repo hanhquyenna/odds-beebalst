@@ -1,12 +1,10 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { createPhoneLink, startGuestSession, type Session } from "@/lib/auth"
-import { trace } from "@/lib/trace"
 import { useData } from "@/lib/data"
 import { iosOtherBrowser, isInstalled, platformOf, turnOnNotifications, useHasPhone, usePush } from "@/lib/push"
 
 const HOME_CODE = "odds:home-code"
-let promptLogged = false
 
 /**
  * An iPhone's Home Screen app keeps its own storage, apart from Safari. While the "Add to Home Screen" steps are open in
@@ -85,7 +83,6 @@ export function NotifyPrompt({ session }: { session: Session | null }): React.JS
           ? session.user.id
           : async () => {
               const guest = await startGuestSession()
-              trace("guest_for_notifications", { ok: Boolean(guest) })
               if (guest) data.setSession(guest)
               return guest?.user.id ?? null
             },
@@ -97,10 +94,6 @@ export function NotifyPrompt({ session }: { session: Session | null }): React.JS
     }
   }
 
-  if (!promptLogged) {
-    promptLogged = true
-    trace("notify_prompt_shown", { signedIn: Boolean(session) })
-  }
 
   return (
     <div role="presentation" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

@@ -14,7 +14,7 @@ sql() {
 }
 
 echo "1/4 columns..."
-sql < supabase/migrations/20261002_posting_checks.sql
+sql < supabase/migrations/20261002120100_posting_checks.sql
 echo
 
 SECRET="$(openssl rand -hex 24)"

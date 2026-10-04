@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { createPhoneLink, type Session } from "@/lib/auth"
 import { useHomeScreenCode } from "@/components/NotifyPrompt"
 import { iosOtherBrowser, platformOf, promptInstall, usePhoneCount, usePush } from "@/lib/push"
-import { trace } from "@/lib/trace"
 import { cn } from "cn"
 
 type Phone = "ios" | "android"
@@ -96,7 +95,6 @@ function OpenInSafari({ session, browser }: { session: Session | null; browser: 
   function open(): void {
     void linkForSafari()
       .then((url) => {
-        trace("open_in_safari", { browser })
         window.location.href = url.replace(/^https:/, "x-safari-https:").replace(/^http:/, "x-safari-http:")
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not open Safari."))

@@ -1,7 +1,6 @@
 import { mergePool } from "@/lib/sources"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { restoreSession, signOut as authSignOut, startGuestSession, type Session } from "@/lib/auth"
-import { trace } from "@/lib/trace"
 import { computeShares, type CategoryShare } from "@/lib/engine"
 import { collectedOn } from "@/lib/format"
 import type { Strength } from "@/lib/strength"
@@ -273,10 +272,7 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
     }
     guestAsked.current = true
     startGuestSession()
-      .then((guest) => {
-        trace("guest_created", { ok: Boolean(guest) })
-        if (guest) setSessionState(guest)
-      })
+      .then((guest) => guest && setSessionState(guest))
       .catch(() => undefined)
   }, [session, status, profile.linkedin])
 

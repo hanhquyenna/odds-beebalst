@@ -5,7 +5,7 @@ import type { Application, Band, Posting, Profile, TaxParams, Transition } from 
 
 const COLUMNS =
   "id,employer,employer_display,ats,source,title,region,cat,cbs_group,url,ind_sponsor,ind_sponsor_name,years_min,dutch_required,visa_mention,junior_title,degree_asked,skills,pay_posted,applicants,applicants_text,valid_through,seniority,posted_at,days_open,freshness_state,fetched_at,title_clean,level_jev,level_conf,usable,industry,workplace,job_type,dutch_jev,family"
-/** Written by the hourly open/closed check. Left out until the columns exist (supabase/migrations/20261002_posting_checks.sql). */
+/** Written by the hourly open/closed check. Left out until the columns exist (supabase/migrations/20261002120100_posting_checks.sql). */
 const CHECK_COLUMNS = ",closed_at,last_checked,posted_on,skill_tiers,enrollment"
 
 const PAGE = 1000

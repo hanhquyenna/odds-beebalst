@@ -1,5 +1,5 @@
 -- odds: everything the database needs, in one paste. Safe to run again.
--- Part 1: LinkedIn import limits (supabase/migrations/20261001_linkedin_imports.sql)
+-- Part 1: LinkedIn import limits (supabase/migrations/20261001120000_linkedin_imports.sql)
 -- Run in Supabase, SQL Editor. Counts LinkedIn imports per user so the paid scraper cannot be run up.
 create table if not exists public.linkedin_imports (
   id bigint generated always as identity primary key,

@@ -1,4 +1,4 @@
--- Temporary: what the app did on a phone while testing install and notifications (browser, opened from the Home Screen
+-- No longer written (the step log was removed after phone testing); kept so the repo matches the database. What the app did on a phone while testing install and notifications (browser, opened from the Home Screen
 -- or not, signed in or not, the notification answer). No personal data. Only the client-log edge function writes here.
 create table if not exists public.client_events (
   id bigint generated always as identity primary key,

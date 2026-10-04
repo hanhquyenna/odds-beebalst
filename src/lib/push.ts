@@ -1,7 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react"
 import type { Session } from "@/lib/auth"
 import { ANON_KEY, SUPABASE_URL, currentAccessToken, supabase } from "@/lib/supabase"
-import { trace } from "@/lib/trace"
 
 /** The public half of the push keys. The private half is an Edge Function secret (VAPID_KEYS). */
 const VAPID_PUBLIC_KEY = "BGfltRiA2P9Sv9kfaONUOAf6i8Af1oh7i4J9rzFm2yoXYhb6I7tFNiHWp5Za_dxrM-EyfM1kNbhj7JUMTIyZb7o"
@@ -77,7 +76,7 @@ export function startPush(): void {
         subscribed = Boolean(sub)
         emit()
       })
-      .catch((e: unknown) => trace("sw_register_failed", { message: String(e) }))
+      .catch(() => undefined)
   }
 }
 
@@ -153,7 +152,6 @@ function keyBytes(base64url: string): Uint8Array<ArrayBuffer> {
  */
 export async function turnOnNotifications(account: string | (() => Promise<string | null>)): Promise<PushState> {
   const permission = await Notification.requestPermission()
-  trace("permission_answer", { answer: permission })
   if (permission !== "granted") {
     emit()
     return permission === "denied" ? "blocked" : "ask"
@@ -162,31 +160,26 @@ export async function turnOnNotifications(account: string | (() => Promise<strin
   let sub: PushSubscription
   try {
     sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(VAPID_PUBLIC_KEY) }))
-  } catch (e) {
-    trace("push_subscribe_failed", { message: String(e) })
+  } catch {
     throw new Error("Your phone did not let odds turn on notifications.")
   }
   const json = sub.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } }
   // The account comes after the phone's yes: the question must follow the tap directly, so nothing slow goes before it.
   const userId = typeof account === "string" ? account : await account()
   if (!userId) {
-    trace("no_account_for_subscription")
     throw new Error("Could not save this phone. Try again.")
   }
   const { error } = await supabase
     .from("push_subscriptions")
     .upsert({ user_id: userId, endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth, platform: platformOf(), time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Amsterdam" }, { onConflict: "endpoint" })
   if (error) {
-    trace("subscribe_failed", { message: error.message })
     throw new Error(error.message)
   }
-  trace("subscribed")
   subscribed = true
   emit()
   // A first message at once, so the person sees it works without waiting for the morning.
   void fetch(`${SUPABASE_URL}/functions/v1/morning-jobs?welcome=1`, { method: "POST", headers: { apikey: ANON_KEY, Authorization: `Bearer ${currentAccessToken() ?? ANON_KEY}` } })
-    .then(async (r) => trace("welcome_sent", { status: r.status, body: (await r.text()).slice(0, 200) }))
-    .catch((e: unknown) => trace("welcome_failed", { message: String(e) }))
+    .catch(() => undefined)
 
   return "on"
 }

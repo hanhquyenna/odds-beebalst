@@ -1,0 +1,33 @@
+# Supabase CLI settings for this project (ukpmpyfcnbhngkgbnkxi). Only what differs from the defaults is written here.
+project_id = "careerapp2"
+
+# Edge Functions. verify_jwt = false: the function is called without a signed-in user (the browser before sign-in,
+# pg_cron, or a phone opening a QR code) and checks what it needs itself (a secret header, a one-time code, a rate
+# limit). Deploying with the CLI reads these, so CI keeps the same settings as the live project.
+[functions.add-job]
+verify_jwt = false
+
+[functions.check-postings]
+verify_jwt = false
+
+[functions.check-public]
+verify_jwt = false
+
+[functions.suggest-referrals]
+verify_jwt = false
+
+[functions.morning-jobs]
+verify_jwt = false
+
+[functions.phone-link]
+verify_jwt = false
+
+# These need a signed-in user; the gateway checks the token first.
+[functions.import-linkedin]
+verify_jwt = true
+
+[functions.read-profile]
+verify_jwt = true
+
+[functions.match-cv]
+verify_jwt = true

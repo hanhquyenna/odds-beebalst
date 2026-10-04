@@ -123,7 +123,6 @@ async function phoneLinkSession(): Promise<Session | null> {
   const code = params.get("link")
   const standalone = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true
   if (!code || (params.get("notify") === "1" && !standalone)) {
-    if (code) void import("@/lib/trace").then(({ trace }) => trace("link_kept_for_home_screen"))
     return null
   }
   params.delete("link")
@@ -134,7 +133,6 @@ async function phoneLinkSession(): Promise<Session | null> {
       headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
       body: JSON.stringify({ action: "redeem", code }),
     })
-    void import("@/lib/trace").then(({ trace }) => trace("link_redeem", { ok: response.ok, status: response.status }))
     if (!response.ok) {
       return null
     }
@@ -168,6 +166,28 @@ export async function startGuestSession(): Promise<Session | null> {
   } catch {
     return null
   }
+}
+
+/**
+ * For the real sign-in (SSO): call right after it succeeds, with the guest session that was active before, so the
+ * guest's profile, phones (morning message) and applications move to the real account. Safe to call when the
+ * previous session was not a guest: it then does nothing. Returns what moved, or null when nothing did.
+ */
+export async function adoptGuest(previous: Session | null, real: Session): Promise<Record<string, unknown> | null> {
+  if (!previous || !isGuestEmail(previous.user.email) || previous.user.id === real.user.id) {
+    return null
+  }
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/phone-link`, {
+    method: "POST",
+    headers: { apikey: ANON_KEY, Authorization: `Bearer ${real.access_token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "adopt", guest_token: previous.access_token }),
+  })
+  const data = (await response.json().catch(() => ({}))) as { moved?: Record<string, unknown>; error?: string }
+  if (!response.ok) {
+    throw new Error(data.error ?? "Could not move the guest account")
+  }
+
+  return data.moved ?? null
 }
 
 /** A guest account's placeholder address, never shown as the person's email. */
