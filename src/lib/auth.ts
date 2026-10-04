@@ -74,31 +74,6 @@ function toSession(data: AuthResponse): Session | null {
   }
 }
 
-const DEV_OUT = "careersim.devSignedOut"
-
-/**
- * Local development only: signs in with the account named in .env.local (VITE_DEV_EMAIL and VITE_DEV_PASSWORD), so
- * testing needs no form. Vite removes this branch from a production build. Signing out stays signed out until the tab closes.
- */
-async function devSignIn(): Promise<Session | null> {
-  if (!import.meta.env.DEV) {
-    return null
-  }
-  const email = import.meta.env.VITE_DEV_EMAIL as string | undefined
-  const password = import.meta.env.VITE_DEV_PASSWORD as string | undefined
-  try {
-    if (!email || !password || window.sessionStorage.getItem(DEV_OUT)) {
-      return null
-    }
-    const session = toSession(await call("token?grant_type=password", { email, password }))
-    keep(session)
-
-    return session
-  } catch {
-    return null
-  }
-}
-
 /** A one-time code that signs a phone in: "qr" for the QR code on a computer, "home" for an iPhone's Home Screen app. */
 export async function createPhoneLink(session: Session, kind: "qr" | "home"): Promise<{ code: string; expires_at: string }> {
   const response = await fetch(`${SUPABASE_URL}/functions/v1/phone-link`, {
@@ -203,7 +178,7 @@ export async function restoreSession(): Promise<Session | null> {
   }
   const stored = loadSession()
   if (!stored) {
-    return devSignIn()
+    return null
   }
   if (stored.expires_at - 60 > Math.floor(Date.now() / 1000)) {
     keep(stored)
@@ -222,34 +197,48 @@ export async function restoreSession(): Promise<Session | null> {
   }
 }
 
-export async function signInWithPassword(email: string, password: string): Promise<Session> {
-  const session = toSession(await call("token?grant_type=password", { email, password }))
+const NEXT_KEY = "careersim.oauthNext"
+
+function remember(key: string, value: string): void {
+  try {
+    window.sessionStorage.setItem(key, value)
+  } catch {
+    return
+  }
+}
+
+function recall(key: string): string | null {
+  try {
+    const value = window.sessionStorage.getItem(key)
+    window.sessionStorage.removeItem(key)
+
+    return value
+  } catch {
+    return null
+  }
+}
+
+/** Signs in with the one-time token the verify-shoo bridge hands back. Same session shape as every other door. */
+export async function signInWithTokenHash(tokenHash: string): Promise<Session> {
+  const session = toSession(await call("verify", { type: "magiclink", token_hash: tokenHash }))
   if (!session) {
     throw new Error("Sign in failed")
   }
   keep(session)
-  try {
-    window.sessionStorage.removeItem(DEV_OUT)
-  } catch {
-    // nothing to clear
-  }
 
   return session
 }
 
-/** Returns the session, or null when the project wants the email confirmed first. */
-export async function signUp(email: string, password: string): Promise<Session | null> {
-  const session = toSession(await call("signup", { email, password }))
-  keep(session)
+/** Remembers where the SSO trip started ("jobs" for a fresh sign-up), across the redirect. */
+export function rememberOAuthNext(next: string): void {
+  remember(NEXT_KEY, next)
+}
 
-  return session
+/** Reads and clears what rememberOAuthNext stored (null outside an SSO trip). */
+export function takeOAuthNext(): string | null {
+  return recall(NEXT_KEY)
 }
 
 export function signOut(): void {
   keep(null)
-  try {
-    window.sessionStorage.setItem(DEV_OUT, "1")
-  } catch {
-    return
-  }
 }

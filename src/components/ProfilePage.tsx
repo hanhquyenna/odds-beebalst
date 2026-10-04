@@ -1,7 +1,5 @@
 import { ArrowLeftIcon, CameraIcon, PlusIcon, XIcon } from "@/components/icons"
-import { CvUpload } from "@/components/CvUpload"
-import { describeFilled, fillFromCv } from "@/lib/cv-parse"
-import { useRef, useState } from "react"
+import { Suspense, lazy, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { parseCsv } from "@/lib/csv"
 import { importLinkedIn, LINKEDIN_URL, mergeLinkedIn } from "@/lib/linkedin"
@@ -9,6 +7,10 @@ import { useData } from "@/lib/data"
 import { shrink } from "@/lib/image"
 import { DUTCH_OPTIONS, ORIGIN_OPTIONS, PERMIT_OPTIONS } from "@/lib/journey"
 import type { DutchLevel, Origin, Permit, Profile, Row } from "@/lib/types"
+
+// Lazy: the upload box (with its reader and parser) loads only where a CV
+// goes in, not with the profile page around it.
+const CvUpload = lazy(() => import("@/components/CvUpload").then((module) => ({ default: module.CvUpload })))
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
@@ -370,18 +372,34 @@ export function ProfilePage({ onBack }: ProfilePageProps): React.JSX.Element {
       </Section>
 
       <Section id="profile-cv" title="Your CV" hint="Upload it and the chance on every job is worked out from it, together with the roles, degrees and skills above.">
-        <CvUpload
-          text={p.cv}
-          name={p.cvName}
-          source={p.linkedin ? "Text from your LinkedIn" : undefined}
-          note={cvNote}
-          onChange={(cv, cvName, uploaded) => {
-            // A chosen file also fills the roles, degrees and skills that are still empty, so the CV alone is enough to be judged.
-            const f = uploaded ? fillFromCv(p, cv) : null
-            data.setProfile({ ...p, cv, cvName, ...(f?.patch ?? {}) })
-            setCvNote(f ? describeFilled(f.filled, p.positions.length + p.education.length + p.skills.length > 0) : null)
-          }}
-        />
+        <Suspense fallback={null}>
+          <CvUpload
+            text={p.cv}
+            name={p.cvName}
+            source={p.linkedin ? "Text from your LinkedIn" : undefined}
+            note={cvNote}
+            onChange={(cv, cvName, uploaded) => {
+              if (!uploaded) {
+                data.setProfile({ ...p, cv, cvName })
+                setCvNote(null)
+
+                return
+              }
+              // The parser loads on first use, so it stays out of the page until then.
+              void import("@/lib/cv-parse").then(
+                ({ describeFilled, fillFromCv }) => {
+                  // A chosen file also fills the roles, degrees and skills that are still empty, so the CV alone is enough to be judged.
+                  const f = fillFromCv(p, cv)
+                  data.setProfile({ ...p, cv, cvName, ...f.patch })
+                  setCvNote(describeFilled(f.filled, p.positions.length + p.education.length + p.skills.length > 0))
+                },
+                () => {
+                  data.setProfile({ ...p, cv, cvName })
+                },
+              )
+            }}
+          />
+        </Suspense>
       </Section>
     </div>
   )

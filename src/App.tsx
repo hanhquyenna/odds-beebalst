@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { OfferGate } from "@/components/OfferGate"
 import { StatusColorsDialog } from "@/components/StatusColorsDialog"
+import { ShooCallback } from "@/components/ShooCallback"
 import { Toaster } from "@/components/ui/sonner"
 import { useData } from "@/lib/data"
 import { pageFromPath, pathForPage, type StaticPage } from "@/lib/pages"
@@ -20,6 +21,7 @@ import { clearSeenRooms, saveSeenRooms } from "@/lib/seen"
 import { isGuestEmail } from "@/lib/auth"
 import { openInstallGuide, useInstallGuide } from "@/lib/push"
 import { clearDraft } from "@/lib/session"
+import { isShooCallback } from "@/lib/shoo"
 
 // Lazy because they carry the form schema. Someone coming back to their
 // account needs neither.
@@ -221,6 +223,20 @@ export default function App(): React.JSX.Element {
     setFormEntry("welcome")
   }
 
+  // Back from Google: the callback URL has done its job, the page is home again.
+  const shooReturn = isShooCallback(location.pathname)
+
+  function handleShooDone(next: "account" | "jobs" | "signin"): void {
+    history.replaceState({}, "", "/")
+    if (next === "jobs") {
+      // A fresh sign-up: the answers are saved, the draft has done its job.
+      clearDraft()
+      showJobs()
+    } else {
+      setView(next)
+    }
+  }
+
   return (
     <div className="flex min-h-svh flex-col bg-background text-foreground">
       <Toaster position="top-center" closeButton />
@@ -282,6 +298,8 @@ export default function App(): React.JSX.Element {
           />
         ) : page ? (
           <StaticPageView page={page} onBack={closePage} onOpenPage={openPage} />
+        ) : shooReturn ? (
+          <ShooCallback onDone={handleShooDone} />
         ) : (
           <Suspense fallback={null}>
             {view === "signin" ? <SignIn onCancel={() => setView(onboarded ? "account" : "journey")} onSignedIn={() => setView("account")} /> : null}

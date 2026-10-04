@@ -9,10 +9,14 @@ import type { Posting } from "@/lib/types"
 export function useFit(post: Posting): Standing | null {
   const data = useData()
   const referral = data.referrals.has(post.id)
+  const reference = data.reference
+  const shares = data.shares
+  const profile = data.profile
+  const strengthFor = data.strengthFor
 
   return useMemo(
-    () => (data.reference && data.shares ? standing(post, data.profile, data.reference, data.shares, undefined, referral, data.strengthFor(post)) : null),
-    [post, data.profile, data.reference, data.shares, referral, data.strengthFor],
+    (): Standing | null => (reference && shares ? standing(post, profile, reference, shares, undefined, referral, strengthFor(post)) : null),
+    [post, profile, reference, shares, referral, strengthFor],
   )
 }
 

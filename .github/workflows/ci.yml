@@ -1,0 +1,19 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bunx tsc -b
+      # Errors fail the run; warnings are ok (fast-refresh ones are accepted).
+      - run: bunx oxlint
+      - run: bun test src
+      - run: bun run build
+      - run: bun run perf

@@ -37,24 +37,31 @@ interface Meter {
 export function useMeter(excluding?: string, kind: "interview" | "job" = "interview"): Meter {
   const data = useData()
   const scale = kind === "job" ? JOB_PER_INTERVIEW : 1
+  const applications = data.applications
+  const byId = data.byId
+  const profile = data.profile
+  const reference = data.reference
+  const shares = data.shares
+  const referrals = data.referrals
+  const strengthFor = data.strengthFor
 
-  return useMemo(() => {
+  return useMemo((): Meter => {
     const contributions: Contribution[] = []
-    if (data.reference && data.shares) {
-      for (const app of data.applications) {
-        const post = data.byId.get(app.posting_id)
+    if (reference && shares) {
+      for (const app of applications) {
+        const post = byId.get(app.posting_id)
         if (!post || post.id === excluding) {
           continue
         }
-        const st = standing(post, data.profile, data.reference, data.shares, NO_WHAT_IF, data.referrals.has(post.id), data.strengthFor(post))
+        const st = standing(post, profile, reference, shares, NO_WHAT_IF, referrals.has(post.id), strengthFor(post))
         if (st.rate && !st.rate.thin) {
-          contributions.push({ post, low: st.rate.low * scale, mid: st.rate.mid * scale, high: st.rate.high * scale })
+          contributions.push({ post: post, low: st.rate.low * scale, mid: st.rate.mid * scale, high: st.rate.high * scale })
         }
       }
     }
 
-    return { low: together(contributions.map((c) => c.low)), mid: together(contributions.map((c) => c.mid)), high: together(contributions.map((c) => c.high)), contributions }
-  }, [data.applications, data.byId, data.profile, data.reference, data.shares, data.referrals, data.strengthFor, excluding, scale])
+    return { low: together(contributions.map((c): number => c.low)), mid: together(contributions.map((c): number => c.mid)), high: together(contributions.map((c): number => c.high)), contributions: contributions }
+  }, [applications, byId, profile, reference, shares, referrals, strengthFor, excluding, scale])
 }
 
 const SEGMENTS = 10

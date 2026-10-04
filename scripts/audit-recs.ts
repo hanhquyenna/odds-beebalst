@@ -3,7 +3,7 @@
  * which gates fail, what would be offered, and whether the offer is right. Read-only: it reads the same pool the app reads.
  *   bun scripts/audit-recs.ts
  */
-import { derive, computeShares, standing, NO_WHAT_IF } from "../src/lib/engine"
+import { derive, computeShares, standing } from "../src/lib/engine"
 import { fetchPostings, type Reference } from "../src/lib/jobs"
 import { DEFAULT_PROFILE, type Posting, type Profile } from "../src/lib/types"
 

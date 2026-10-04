@@ -1,6 +1,6 @@
 # Deploying odds, and adding real sign-in
 
-For whoever wires up CI/CD and SSO. State on 5 Oct 2026. Repo: `hanhquyenna/odds-beebalst`, branch `main`.
+For whoever deploys odds. State on 5 Oct 2026. CI: `.github/workflows/ci.yml` (type check, lint, tests, build, bundle budget). Repo: `hanhquyenna/odds-beebalst`, branch `main`.
 
 ## 1. The web app
 
@@ -32,35 +32,24 @@ Everything below is already live. CI only has to keep it that way.
 - **morning-jobs** uses the app's own job filters, bundled into `supabase/functions/morning-jobs/match.js`. After
   changing `src/lib/filters.ts`, run `scripts/build-morning-jobs.sh` and deploy `morning-jobs`.
 
-## 3. Real sign-in (SSO)
+## 3. Sign-in: Google through Shoo, and guest accounts
 
-Today there is no sign-in form people use: anyone who imports their LinkedIn, or turns on notifications from the
-Home Screen icon, gets a **guest account** automatically (address `guest-…@guest.odds.invalid`, no password). Their
-profile, phones and applications live on that account.
+Sign-in is Google only, through Shoo (`src/lib/shoo.ts`, `src/components/ShooCallback.tsx`), bridged to a normal
+Supabase session by the `verify-shoo` function so every row-level policy keeps working.
 
-When you add SSO:
+- To switch it on: set the secret `SHOO_APP_ORIGINS` to the site's origin(s), comma-separated
+  (`supabase secrets set SHOO_APP_ORIGINS=https://your-domain --project-ref ukpmpyfcnbhngkgbnkxi`), then
+  `sh scripts/deploy-shoo-bridge.sh`. `config.toml` keeps `verify-shoo` callable before sign-in (it checks the Shoo
+  token itself).
+- In Supabase, Authentication, URL Configuration: set Site URL to the production address and add it (with `/**`) to
+  Redirect URLs. Today the Site URL is `http://localhost:3000`.
 
-1. **Redirect URLs.** In Supabase, Authentication, URL Configuration: set Site URL to the production address and add
-   it (with `/**`) to Redirect URLs. Today the Site URL is `http://localhost:3000`, which is wrong for production.
-2. **Keep the guest's data.** Right after a person signs in with SSO, move their guest account into the real one.
-   Keep the session that was active before the SSO sign-in, then:
-
-   ```ts
-   import { adoptGuest, loadSession } from "@/lib/auth"
-
-   const before = loadSession()            // read this BEFORE the SSO session replaces it
-   // ... SSO sign-in completes, giving `real` (a Session) ...
-   await adoptGuest(before, real)          // does nothing unless `before` was a guest
-   data.setSession(real)
-   ```
-
-   `adoptGuest` calls the `phone-link` function (`action: "adopt"`), which checks both sign-ins and moves, in one
-   database transaction (`public.adopt_guest`), the profile (unless the real account already has one), the phones
-   that get the morning message, applications, and cached readings. It is tested and refuses a missing or wrong
-   sign-in and a second attempt.
-3. The account menu hides guest addresses already (`isGuestEmail`). Once SSO exists, "Sign in to keep it" there can
-   point to it.
-4. Guest accounts are capped at 20 per connection per day (`guest_accounts` table).
+**Guest accounts.** Anyone who imports their LinkedIn, or turns on notifications from the Home Screen icon, without
+signing in gets a guest account automatically (address `guest-…@guest.odds.invalid`, no password), so their profile,
+phone and morning message work. When they then sign in with Google, `ShooCallback` calls `adoptGuest()` before the
+new session is used: the guest's profile (unless the Google account already has one), phones, applications and cached
+readings move to the Google account in one database transaction (`public.adopt_guest`, via the `phone-link`
+function, which checks both sign-ins). Guest accounts are capped at 20 per connection per day.
 
 ## 4. The phone flow, for reference
 

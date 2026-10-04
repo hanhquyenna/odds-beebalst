@@ -1,7 +1,6 @@
 import { useId, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { CheckIcon, UploadIcon, XIcon } from "@/components/icons"
-import { CvReadError, readCvFile } from "@/lib/cv-file"
 
 interface CvUploadProps {
   /** The CV text now in the profile. */
@@ -17,6 +16,18 @@ interface CvUploadProps {
 }
 
 const ACCEPT = ".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+
+/** What the reader throws says what to do; anything else means the file would not open. */
+async function problemOf(err: unknown): Promise<string> {
+  try {
+    const { CvReadError } = await import("@/lib/cv-file")
+    if (err instanceof CvReadError) return err.message
+  } catch {
+    // The reader itself did not load; fall through to the generic message.
+  }
+
+  return "We could not read that file. Try a PDF or Word file."
+}
 
 /**
  * Where a CV goes in: choose a file or drop it here. It is read in the browser into text and only the text is kept, in the
@@ -37,10 +48,13 @@ export function CvUpload({ text, name, source, onChange, note }: CvUploadProps):
     setBusy(true)
     setProblem(null)
     try {
+      // Loaded here, not at the top, so the reader (pdf.js, fflate) stays out of the page until a file is chosen.
+      // Still read in the browser and never kept: only the text goes on.
+      const { readCvFile } = await import("@/lib/cv-file")
       const read = await readCvFile(file)
       onChange(read.text, read.name, true)
     } catch (err) {
-      setProblem(err instanceof CvReadError ? err.message : "We could not read that file. Try a PDF or Word file.")
+      setProblem(await problemOf(err))
     } finally {
       setBusy(false)
       if (input.current) input.current.value = ""
