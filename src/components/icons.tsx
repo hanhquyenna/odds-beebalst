@@ -3,50 +3,61 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowSquareOut,
+  BatteryFull,
   Bell,
   BookmarkSimple,
+  BookOpen,
   Buildings,
   CalendarBlank,
   Camera,
   CaretCircleDown,
   CaretDown,
-  Rows,
-  PencilSimple,
-  Envelope,
-  ListChecks,
-  Phone,
   CaretLeft,
   CaretRight,
   CaretUp,
+  CellSignalFull,
+  ChatCircleText,
   Check,
   CheckCircle,
   CheckSquare,
   CircleNotch,
-  Hash,
-  Info,
-  LinkSimple,
-  ChatCircleText,
-  Minus,
-  Plus,
-  Question,
-  Kanban,
-  MagnifyingGlass,
-  SealCheck,
-  SortAscending,
+  Copy,
+  DotsThree,
+  DotsThreeVertical,
+  Envelope,
+  Export,
   Eye,
   EyeSlash,
+  Hash,
+  Info,
+  Kanban,
+  LinkSimple,
+  ListChecks,
+  Lock,
+  MagnifyingGlass,
+  Minus,
+  PencilSimple,
+  Phone,
+  Plus,
+  PlusSquare,
+  Question,
+  Rows,
+  SealCheck,
   ShieldCheck,
+  SortAscending,
+  Star,
   Table,
   TextT,
   Trash,
-  UsersThree,
-  UploadSimple,
-  User,
-  Warning,
-  X,
-  XCircle,
   type Icon,
   type IconProps,
+  UploadSimple,
+  User,
+  UsersThree,
+  Warning,
+  WifiHigh,
+  X,
+  XCircle,
 } from "@phosphor-icons/react"
 
 /**
@@ -104,3 +115,14 @@ export const EyeIcon = bold(Eye)
 export const EyeSlashIcon = bold(EyeSlash)
 export const MessageIcon = bold(ChatCircleText)
 export const SearchIcon = bold(MagnifyingGlass)
+export const BatteryIcon = bold(BatteryFull)
+export const BookOpenIcon = bold(BookOpen)
+export const SignalIcon = bold(CellSignalFull)
+export const CopyIcon = bold(Copy)
+export const DotsThreeIcon = bold(DotsThree)
+export const DotsThreeVerticalIcon = bold(DotsThreeVertical)
+export const ShareIcon = bold(Export)
+export const LockIcon = bold(Lock)
+export const PlusSquareIcon = bold(PlusSquare)
+export const StarIcon = bold(Star)
+export const WifiIcon = bold(WifiHigh)

@@ -176,6 +176,24 @@ export default function App(): React.JSX.Element {
     setView("jobs")
   }
 
+  // The morning message opens odds at ?open=new-jobs: straight to the jobs, and the number on the icon is cleared.
+  useEffect(() => {
+    if (data.status !== "ready") {
+      return
+    }
+    ;(navigator as Navigator & { clearAppBadge?: () => Promise<void> }).clearAppBadge?.().catch(() => undefined)
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("open") !== "new-jobs") {
+      return
+    }
+    params.delete("open")
+    window.history.replaceState(null, "", `${window.location.pathname}${params.size > 0 ? `?${params}` : ""}${window.location.hash}`)
+    if (onboarded) {
+      showJobs()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.status])
+
   function handleSaved(): void {
     // Straight to the jobs. Someone who has just answered wants those, not
     // their own answers read back at them.
