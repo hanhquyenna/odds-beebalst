@@ -99,8 +99,88 @@ async function devSignIn(): Promise<Session | null> {
   }
 }
 
+/** A one-time code that signs a phone in: "qr" for the QR code on a computer, "home" for an iPhone's Home Screen app. */
+export async function createPhoneLink(session: Session, kind: "qr" | "home"): Promise<{ code: string; expires_at: string }> {
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/phone-link`, {
+    method: "POST",
+    headers: { apikey: ANON_KEY, Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "create", kind }),
+  })
+  const data = (await response.json().catch(() => ({}))) as { code?: string; expires_at?: string; error?: string }
+  if (!response.ok || !data.code || !data.expires_at) {
+    throw new Error(data.error ?? "Could not make a link")
+  }
+
+  return { code: data.code, expires_at: data.expires_at }
+}
+
+/**
+ * Opened from a phone link (?link=…): trades the code for a session. An iPhone in Safari leaves a Home Screen code
+ * (marked &notify=1) for the Home Screen app to use, so that one is only spent once odds runs from the Home Screen.
+ */
+async function phoneLinkSession(): Promise<Session | null> {
+  const params = new URLSearchParams(window.location.search)
+  const code = params.get("link")
+  const standalone = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true
+  if (!code || (params.get("notify") === "1" && !standalone)) {
+    if (code) void import("@/lib/trace").then(({ trace }) => trace("link_kept_for_home_screen"))
+    return null
+  }
+  params.delete("link")
+  window.history.replaceState(null, "", `${window.location.pathname}${params.size > 0 ? `?${params}` : ""}${window.location.hash}`)
+  try {
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/phone-link`, {
+      method: "POST",
+      headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "redeem", code }),
+    })
+    void import("@/lib/trace").then(({ trace }) => trace("link_redeem", { ok: response.ok, status: response.status }))
+    if (!response.ok) {
+      return null
+    }
+    const session = toSession((await response.json()) as AuthResponse)
+    keep(session)
+
+    return session
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A guest account for someone who imported LinkedIn without making one: no email, no password. It keeps their profile,
+ * moves them to their phone and gets them the morning message until real sign-in exists.
+ */
+export async function startGuestSession(): Promise<Session | null> {
+  try {
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/phone-link`, {
+      method: "POST",
+      headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "guest" }),
+    })
+    if (!response.ok) {
+      return null
+    }
+    const session = toSession((await response.json()) as AuthResponse)
+    keep(session)
+
+    return session
+  } catch {
+    return null
+  }
+}
+
+/** A guest account's placeholder address, never shown as the person's email. */
+export function isGuestEmail(email: string | null | undefined): boolean {
+  return Boolean(email && email.endsWith("@guest.odds.invalid"))
+}
+
 /** Restores the stored session, refreshing it when it is about to expire. */
 export async function restoreSession(): Promise<Session | null> {
+  const linked = await phoneLinkSession()
+  if (linked) {
+    return linked
+  }
   const stored = loadSession()
   if (!stored) {
     return devSignIn()

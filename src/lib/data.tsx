@@ -1,6 +1,7 @@
 import { mergePool } from "@/lib/sources"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
-import { restoreSession, signOut as authSignOut, type Session } from "@/lib/auth"
+import { restoreSession, signOut as authSignOut, startGuestSession, type Session } from "@/lib/auth"
+import { trace } from "@/lib/trace"
 import { computeShares, type CategoryShare } from "@/lib/engine"
 import { collectedOn } from "@/lib/format"
 import type { Strength } from "@/lib/strength"
@@ -263,6 +264,22 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
   const shares = useMemo(() => (remote.length ? computeShares(remote) : null), [remote])
   const collected = useMemo(() => collectedOn(remote), [remote])
 
+  // Imported LinkedIn without an account: a guest account is made at once, so the profile is kept and the phone and the
+  // morning message work. The profile on this device is then saved to it (below, "first time this account is used").
+  const guestAsked = useRef<boolean>(false)
+  useEffect(() => {
+    if (session || status !== "ready" || !profile.linkedin || guestAsked.current) {
+      return
+    }
+    guestAsked.current = true
+    startGuestSession()
+      .then((guest) => {
+        trace("guest_created", { ok: Boolean(guest) })
+        if (guest) setSessionState(guest)
+      })
+      .catch(() => undefined)
+  }, [session, status, profile.linkedin])
+
   // Signing in brings the stored profile and applications down; they win over this browser's copy.
   useEffect(() => {
     if (!session || status !== "ready") {
@@ -277,7 +294,7 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
         if (stored) {
           setProfileState(migrateProfile({ ...DEFAULT_PROFILE, ...stored }))
           setProfileSaved(true)
-        } else if (profileRef.current.onboarded) {
+        } else if (profileRef.current.onboarded || profileRef.current.linkedin) {
           // First time this account is used: keep what was answered on this device.
           saveProfile(session.user.id, profileRef.current)
             .then(() => setProfileSaved(true))

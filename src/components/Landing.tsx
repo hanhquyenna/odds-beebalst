@@ -122,8 +122,7 @@ export function Landing({ onStart, onOpenPage }: LandingProps): React.JSX.Elemen
   )
 }
 
-/** The film: played once when it scrolls into view, rests for twelve seconds, then plays again. Still picture where motion is off. */
-const REST_MS = 12000
+/** The film: plays while it is on screen, loops, and rests when scrolled away. Still picture where motion is off. */
 
 /** 4K where the screen has the pixels for it (a retina laptop or bigger), 1080p everywhere else, so a phone or a small laptop never decodes pixels it cannot show. */
 function pickFilm(): string {
@@ -136,7 +135,6 @@ function HeroVideo(): React.JSX.Element {
   const still = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
   const video = useRef<HTMLVideoElement | null>(null)
   const visible = useRef(false)
-  const timer = useRef<number | undefined>(undefined)
   const edge = "linear-gradient(to right, transparent, black 2%, black 98%, transparent)"
 
   useEffect(() => {
@@ -144,36 +142,34 @@ function HeroVideo(): React.JSX.Element {
     if (!el || still || typeof IntersectionObserver === "undefined") {
       return
     }
+    const play = (): void => {
+      if (visible.current && el.paused) {
+        void el.play().catch(() => undefined)
+      }
+    }
+    // Plays while on screen and rests when scrolled away. iPhones can refuse to start a film on their own (Low Power
+    // Mode, or while it is still loading), so it is tried again when it loads and on the first touch.
     const watch = new IntersectionObserver(
       (entries) => {
         visible.current = entries.some((entry) => entry.isIntersecting)
-        if (visible.current && el.paused && !el.ended && el.currentTime === 0) {
-          void el.play().catch(() => undefined)
+        if (visible.current) {
+          play()
+        } else if (!el.paused) {
+          el.pause()
         }
       },
       { threshold: 0.45 },
     )
     watch.observe(el)
+    el.addEventListener("canplay", play)
+    window.addEventListener("touchend", play, { passive: true })
 
     return () => {
       watch.disconnect()
-      window.clearTimeout(timer.current)
+      el.removeEventListener("canplay", play)
+      window.removeEventListener("touchend", play)
     }
   }, [still])
-
-  const replayLater = (): void => {
-    window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => {
-      const el = video.current
-      if (!el) {
-        return
-      }
-      el.currentTime = 0
-      if (visible.current) {
-        void el.play().catch(() => undefined)
-      }
-    }, REST_MS)
-  }
 
   return (
     <div className="relative mx-auto aspect-video w-full" style={{ maskImage: edge, WebkitMaskImage: edge }}>
@@ -187,9 +183,9 @@ function HeroVideo(): React.JSX.Element {
           poster="/brag/odds-poster.jpg"
           muted
           playsInline
-          preload="metadata"
+          loop
+          preload="auto"
           aria-label="A short film: every job board in one list, your interview odds, built for international students"
-          onEnded={replayLater}
         />
       )}
     </div>

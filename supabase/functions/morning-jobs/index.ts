@@ -51,7 +51,41 @@ function message(jobs: ReadonlyArray<Job>, day: string): { title: string; body: 
   }
 }
 
+const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" }
+
+/**
+ * Right after someone turns notifications on: one message to their own devices, so they see at once that it works.
+ * Called by the app with the person's sign-in; it can only ever reach that person's own devices.
+ */
+async function welcome(req: Request): Promise<Response> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!
+  const anon = Deno.env.get("SUPABASE_ANON_KEY")!
+  const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } })
+  const jwt = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "")
+  const who = jwt ? await fetch(`${supabaseUrl}/auth/v1/user`, { headers: { apikey: anon, Authorization: `Bearer ${jwt}` } }) : null
+  if (!who || !who.ok) return json(401, { error: "Sign in first." })
+  const userId = (await who.json()).id as string
+  const rest = { apikey: service, Authorization: `Bearer ${service}` }
+  const subs = (await (await fetch(`${supabaseUrl}/rest/v1/push_subscriptions?select=id,endpoint,p256dh,auth&user_id=eq.${userId}&order=created_at.desc&limit=1`, { headers: rest })).json()) as Sub[]
+  if (subs.length === 0) return json(404, { error: "No device to send to." })
+
+  const vapidKeys = await webpush.importVapidKeys(JSON.parse(Deno.env.get("VAPID_KEYS")!), { extractable: false })
+  const server = await webpush.ApplicationServer.new({ contactInformation: Deno.env.get("VAPID_CONTACT") ?? "mailto:hello@odds.nl", vapidKeys })
+  const sub = subs[0]
+  try {
+    await server
+      .subscribe({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } })
+      .pushTextMessage(JSON.stringify({ title: "You’re set", body: "odds sends you the new jobs that fit you at 8 every morning.", url: "/", tag: "odds-welcome" }), { ttl: 3600, urgency: webpush.Urgency.High })
+    return json(200, { sent: true })
+  } catch (e) {
+    return json(502, { error: String(e).slice(0, 200) })
+  }
+}
+
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors })
+  if (new URL(req.url).searchParams.get("welcome") === "1") return welcome(req)
   if (req.method !== "POST") return reply(405, { error: "Use POST." })
   const secret = Deno.env.get("MORNING_SECRET")
   if (!secret || req.headers.get("x-check-secret") !== secret) return reply(401, { error: "Not allowed." })

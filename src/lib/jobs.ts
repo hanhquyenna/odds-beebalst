@@ -13,22 +13,40 @@ const PAGE = 1000
 /** What only the view app_jobs has: the level the database works out, and which posting each one was merged into. */
 const VIEW_COLUMNS = ",level_view,kept_id,pick_rank,role_kind"
 
-/** One table or view, a thousand rows at a time. Null when it does not exist (the view is not there yet). */
+/** Pages fetched at once after the first: a few in parallel instead of one after another, so the list arrives sooner. */
+const PARALLEL_PAGES = 4
+
+/**
+ * One table or view, a thousand rows at a time. The first page settles the columns; the rest come several at once.
+ * Null when it does not exist (the view is not there yet).
+ */
 async function readAll(table: string, columns: string): Promise<{ rows: Posting[]; columns: string } | null> {
-  const rows: Posting[] = []
   let cols = columns
-  for (let from = 0; ; from += PAGE) {
-    let { data, error } = await supabase.from(table).select(cols).order("id").range(from, from + PAGE - 1)
-    if (error?.code === "42703" && cols.includes(CHECK_COLUMNS)) {
-      cols = cols.replace(CHECK_COLUMNS, "")
-      ;({ data, error } = await supabase.from(table).select(cols).order("id").range(from, from + PAGE - 1))
+  const page = (from: number) => supabase.from(table).select(cols).order("id").range(from, from + PAGE - 1)
+
+  let { data, error } = await page(0)
+  if (error?.code === "42703" && cols.includes(CHECK_COLUMNS)) {
+    cols = cols.replace(CHECK_COLUMNS, "")
+    ;({ data, error } = await page(0))
+  }
+  if (error) {
+    if (error.code === "42P01" || error.code === "PGRST205" || error.code === "42703") return null
+    throw new Error(error.message)
+  }
+  const rows: Posting[] = [...((data ?? []) as unknown as Posting[])]
+  let more = (data ?? []).length === PAGE
+
+  for (let from = PAGE; more; from += PAGE * PARALLEL_PAGES) {
+    const batch = await Promise.all(Array.from({ length: PARALLEL_PAGES }, (_, i) => page(from + i * PAGE)))
+    for (const result of batch) {
+      if (result.error) throw new Error(result.error.message)
+      const got = (result.data ?? []) as unknown as Posting[]
+      rows.push(...got)
+      if (got.length < PAGE) {
+        more = false
+        break
+      }
     }
-    if (error) {
-      if (error.code === "42P01" || error.code === "PGRST205" || error.code === "42703") return null
-      throw new Error(error.message)
-    }
-    rows.push(...((data ?? []) as unknown as Posting[]))
-    if ((data ?? []).length < PAGE) break
   }
 
   return { rows, columns: cols }

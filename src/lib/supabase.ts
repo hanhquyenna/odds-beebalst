@@ -16,6 +16,11 @@ export function setAccessToken(token: string | null): void {
   accessToken = token
 }
 
+/** The signed-in user's JWT, for calls outside PostgREST (edge functions). */
+export function currentAccessToken(): string | null {
+  return accessToken
+}
+
 const authedFetch: typeof fetch = (input, init) => {
   const headers = new Headers(init?.headers)
   headers.set("apikey", SUPABASE_ANON_KEY)

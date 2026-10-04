@@ -1,12 +1,11 @@
 import { BellIcon } from "@/components/icons"
 import { useMemo, useState } from "react"
-import { InstallGuide } from "@/components/InstallGuide"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useData } from "@/lib/data"
 import { standing } from "@/lib/engine"
 import { DEFAULT_FILTERS, activeCount, applyFilters, normalizeFilters } from "@/lib/filters"
-import { platformOf, promptInstall, turnOnNotifications, usePush } from "@/lib/push"
+import { openInstallGuide, platformOf, promptInstall, turnOnNotifications, useHasPhone, usePush } from "@/lib/push"
 import { loadSeenRooms } from "@/lib/seen"
 
 /** Anything past this is shown as a plus, so the badge stays a badge. */
@@ -52,19 +51,20 @@ export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.El
 
   const count = fresh.length
   const push = usePush()
-  const [guide, setGuide] = useState<boolean>(false)
+  const hasPhone = useHasPhone(data.session)
   const [busy, setBusy] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
-  // After a LinkedIn import, until this device gets the morning message, the bell asks for it.
-  const invite = Boolean(data.session && data.profile.linkedin) && (push.state === "install" || push.state === "ask" || push.state === "blocked")
+  const desktop = platformOf() === "desktop"
+  // After a LinkedIn import, until one of the person's phones gets the morning message, the bell asks for it.
+  const invite = Boolean(data.session && data.profile.linkedin) && !hasPhone && (push.state === "install" || push.state === "ask" || push.state === "blocked")
 
-  async function addToHomeScreen(): Promise<void> {
-    // Android and computers can offer their own one-tap install; iPhones need the steps.
-    if (push.canPrompt && (await promptInstall())) {
+  async function addToPhone(): Promise<void> {
+    // Android offers its own one-tap install; a computer shows the QR code and an iPhone the steps.
+    if (!desktop && push.canPrompt && (await promptInstall())) {
       return
     }
     setOpen(false)
-    setGuide(true)
+    openInstallGuide()
   }
 
   async function turnOn(): Promise<void> {
@@ -90,7 +90,7 @@ export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.El
         {count > 0 ? (
           <span className="absolute -top-1 -right-1 rounded-full bg-background px-1.5 text-[11px] font-semibold text-foreground tabular-nums">{count > MOST_SHOWN ? `${MOST_SHOWN}+` : count}</span>
         ) : invite ? (
-          <span aria-hidden="true" className="absolute top-1 right-1 size-3 rounded-full bg-brand ring-2 ring-background" />
+          <span aria-hidden="true" className="absolute top-1 right-1 size-3 rounded-full bg-current ring-2 ring-background" />
         ) : null}
       </PopoverTrigger>
       <PopoverContent align="end" className="flex w-72 flex-col gap-2 p-3">
@@ -98,10 +98,10 @@ export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.El
           <div className="flex flex-col gap-2 border-b-[1.5px] pb-3">
             {push.state === "install" ? (
               <>
-                <p className="text-sm font-medium">Get your jobs every morning</p>
-                <p className="text-xs text-muted-foreground">Add odds to your Home Screen and get the new jobs that fit you at 8 every morning.</p>
-                <Button size="sm" onClick={() => void addToHomeScreen()} className="cursor-pointer">
-                  Add to Home Screen
+                <p className="text-sm font-medium">{desktop ? "Get your jobs on your phone" : "Get your jobs every morning"}</p>
+                <p className="text-xs text-muted-foreground">{desktop ? "Add odds to your phone and get the new jobs that fit you at 8 every morning." : "Add odds to your Home Screen and get the new jobs that fit you at 8 every morning."}</p>
+                <Button size="sm" onClick={() => void addToPhone()} className="cursor-pointer">
+                  {desktop ? "Add to your phone" : "Add to Home Screen"}
                 </Button>
               </>
             ) : push.state === "ask" ? (
@@ -150,7 +150,6 @@ export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.El
         )}
       </PopoverContent>
     </Popover>
-    {guide ? <InstallGuide onClose={() => setGuide(false)} /> : null}
     </>
   )
 }

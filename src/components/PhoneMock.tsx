@@ -1,4 +1,4 @@
-import { BatteryIcon, BellIcon, BookOpenIcon, ChevronLeftIcon, CopyIcon, DotsThreeIcon, DotsThreeVerticalIcon, LockIcon, PlusIcon, PlusSquareIcon, SearchIcon, ShareIcon, SignalIcon, StarIcon, WifiIcon, XIcon } from "@/components/icons"
+import { BatteryIcon, BellIcon, BookOpenIcon, ChevronLeftIcon, ChevronRightIcon, CopyIcon, DotsThreeVerticalIcon, LockIcon, PlusIcon, PlusSquareIcon, SearchIcon, ShareIcon, SignalIcon, StarIcon, WifiIcon, XIcon } from "@/components/icons"
 import { cn } from "cn"
 
 /**
@@ -62,20 +62,23 @@ function HomeIndicator({ light = false }: { light?: boolean }): React.JSX.Elemen
   return <span aria-hidden="true" className={cn("absolute bottom-1.5 left-1/2 z-30 h-1 w-20 -translate-x-1/2 rounded-full", light ? "bg-white" : "bg-black")} />
 }
 
-/** Safari's bar at the bottom (iOS 26): back, the address, and ··· . */
-function SafariBar({ tapDots = false }: { tapDots?: boolean }): React.JSX.Element {
+/** Safari's bars at the bottom, as most iPhones show them: the address, then back, forward, Share in the middle, bookmarks, tabs. */
+function SafariBar({ tapShare = false }: { tapShare?: boolean }): React.JSX.Element {
   return (
-    <div className="absolute inset-x-2 bottom-5 z-10 flex items-center gap-1.5">
-      <span className="flex size-8 items-center justify-center rounded-full bg-white/90 shadow-md ring-1 ring-black/5">
-        <ChevronLeftIcon className="size-3.5 text-black" />
+    <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col gap-1.5 border-t border-black/10 bg-[#f7f7f7]/95 px-3 pt-2 pb-5 backdrop-blur">
+      <span className="flex h-7 min-w-0 items-center justify-center gap-1 rounded-lg bg-black/[0.06] px-2 text-[11px] text-black">
+        <LockIcon className="size-2.5 shrink-0 text-neutral-500" />
+        <span className="truncate">{HOST}</span>
       </span>
-      <span className="flex h-8 flex-1 items-center justify-center gap-1 rounded-full bg-white/90 text-[11px] text-black shadow-md ring-1 ring-black/5">
-        <LockIcon className="size-2.5 text-neutral-500" />
-        {HOST}
-      </span>
-      <span className="relative flex size-8 items-center justify-center rounded-full bg-white/90 shadow-md ring-1 ring-black/5">
-        <DotsThreeIcon className="size-4 text-black" />
-        {tapDots ? <Tap round /> : null}
+      <span className="flex items-center justify-between px-1" style={{ color: BLUE }}>
+        <ChevronLeftIcon className="size-4" />
+        <ChevronRightIcon className="size-4 opacity-40" />
+        <span className="relative flex size-6 items-center justify-center">
+          <ShareIcon className="size-4" />
+          {tapShare ? <Tap /> : null}
+        </span>
+        <BookOpenIcon className="size-4" />
+        <CopyIcon className="size-4" />
       </span>
     </div>
   )
@@ -150,7 +153,7 @@ function LockScreen({ android = false }: { android?: boolean }): React.JSX.Eleme
   )
 }
 
-/** odds open from the Home Screen: no browser bars, the bell at the top with its box open. */
+/** odds opened from the Home Screen: no browser bars, and the card that asks to turn notifications on. */
 function AppWithBell(): React.JSX.Element {
   return (
     <>
@@ -160,17 +163,16 @@ function AppWithBell(): React.JSX.Element {
           <OddsIcon className="size-4 rounded-full" />
           odds
         </span>
-        <span className="relative">
-          <BellIcon weight="fill" className="size-5 text-brand" />
-          <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-brand ring-2 ring-white" />
-        </span>
+        <BellIcon weight="fill" className="size-5 text-brand" />
       </div>
       <div className="relative min-h-0 flex-1">
         <img src="/install/app-jobs.jpg" alt="" className="h-full w-full object-cover object-[0_-40px]" />
-        <div className="absolute top-1 right-2 w-[150px] rounded-xl border-[1.5px] border-black/20 bg-white p-2.5 shadow-lg">
-          <p className="text-[10px] font-semibold text-black">Turn on notifications</p>
-          <p className="mt-0.5 text-[9px] leading-snug text-neutral-600">Get the new jobs that fit you at 8 every morning.</p>
-          <span className="relative mt-1.5 block rounded-md bg-[#1c1a19] py-1 text-center text-[9px] font-medium text-white">Turn on notifications</span>
+        <div className="absolute inset-0 flex items-center justify-center bg-black/30 px-4">
+          <div className="w-full rounded-xl border-[1.5px] border-black/20 bg-white p-3 text-center shadow-lg">
+            <p className="text-[11px] font-semibold text-black">Turn on notifications</p>
+            <p className="mt-0.5 text-[9px] leading-snug text-neutral-600">Get the new jobs that fit you at 8 every morning.</p>
+            <span className="relative mt-2 block rounded-md bg-[#1c1a19] py-1.5 text-[9px] font-medium text-white">Turn on notifications</span>
+          </div>
         </div>
       </div>
     </>
@@ -220,7 +222,7 @@ export function IosPhone({ screen }: { screen: IosScreen }): React.JSX.Element {
     <Frame>
       <StatusBar />
       <Page />
-      {screen === "safari" || screen === "menu" ? <SafariBar tapDots={screen === "safari"} /> : null}
+      {screen === "safari" ? <SafariBar tapShare /> : null}
       {screen === "menu" ? (
         <div className="absolute right-2 bottom-16 z-20 w-40 overflow-hidden rounded-2xl bg-white/95 shadow-2xl ring-1 ring-black/10">
           <Row icon={<ShareIcon className="size-3.5" />} label="Share" tap />
@@ -235,7 +237,7 @@ export function IosPhone({ screen }: { screen: IosScreen }): React.JSX.Element {
             <OddsIcon className="size-7" />
             <span className="min-w-0 flex-1 text-[10px] leading-tight text-black">
               <span className="block truncate font-semibold">odds · Jobs in the Netherlands</span>
-              <span className="text-neutral-500">{HOST}</span>
+              <span className="block truncate text-neutral-500">{HOST}</span>
             </span>
             <span className="flex size-5 items-center justify-center rounded-full bg-black/10">
               <XIcon className="size-2.5 text-neutral-600" />
@@ -277,7 +279,7 @@ export function IosPhone({ screen }: { screen: IosScreen }): React.JSX.Element {
             <OddsIcon className="size-11" />
             <span className="flex-1 text-[11px] text-black">
               <span className="block border-b border-black/10 pb-1">odds</span>
-              <span className="block pt-1 text-neutral-500">{HOST}</span>
+              <span className="block truncate pt-1 text-neutral-500">{HOST}</span>
             </span>
           </div>
           <div className="relative mx-2.5 mt-3 flex items-center justify-between rounded-xl bg-white px-3 py-2 text-[11px] text-black">
@@ -333,9 +335,9 @@ export function AndroidPhone({ screen }: { screen: AndroidScreen }): React.JSX.E
     <Frame android>
       <StatusBar android />
       <div className="flex items-center gap-1.5 px-2 pb-1.5">
-        <span className="flex h-7 flex-1 items-center gap-1 rounded-full bg-[#eef0f3] px-2.5 text-[11px] text-black">
-          <LockIcon className="size-2.5 text-neutral-500" />
-          {HOST}
+        <span className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded-full bg-[#eef0f3] px-2.5 text-[11px] text-black">
+          <LockIcon className="size-2.5 shrink-0 text-neutral-500" />
+          <span className="truncate">{HOST}</span>
         </span>
         <span className="flex size-6 items-center justify-center rounded-md border-[1.5px] border-black/60 text-[9px] font-semibold text-black">2</span>
         <span className="relative flex size-6 items-center justify-center">
@@ -365,7 +367,7 @@ export function AndroidPhone({ screen }: { screen: AndroidScreen }): React.JSX.E
               <OddsIcon className="size-9 rounded-full" />
               <span className="text-[11px] leading-tight">
                 <span className="block font-semibold">odds</span>
-                <span className="text-neutral-500">{HOST}</span>
+                <span className="block truncate text-neutral-500">{HOST}</span>
               </span>
             </div>
             <div className="mt-4 flex justify-end gap-4 text-[11px] font-medium text-[#1a73e8]">

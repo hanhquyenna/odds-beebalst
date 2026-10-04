@@ -5,7 +5,9 @@ import { JobListSkeleton } from "@/components/Skeleton"
 import { ProfilePage } from "@/components/ProfilePage"
 import { Footer } from "@/components/Footer"
 import { JobDetail } from "@/components/JobDetail"
+import { InstallGuide } from "@/components/InstallGuide"
 import { NewJobsBell } from "@/components/NewPlacesBell"
+import { NotifyPrompt } from "@/components/NotifyPrompt"
 import { StaticPageView } from "@/components/StaticPages"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -15,6 +17,8 @@ import { Toaster } from "@/components/ui/sonner"
 import { useData } from "@/lib/data"
 import { pageFromPath, pathForPage, type StaticPage } from "@/lib/pages"
 import { clearSeenRooms, saveSeenRooms } from "@/lib/seen"
+import { isGuestEmail } from "@/lib/auth"
+import { openInstallGuide, useInstallGuide } from "@/lib/push"
 import { clearDraft } from "@/lib/session"
 
 // Lazy because they carry the form schema. Someone coming back to their
@@ -33,6 +37,7 @@ function jobIdFromPath(pathname: string): string | null {
 export default function App(): React.JSX.Element {
   const data = useData()
   const onboarded = data.profile.onboarded
+  const installGuide = useInstallGuide()
   // With answers already given the account is coming, so the welcome screen
   // must not flash first.
   const [view, setView] = useState<View>(() => (onboarded ? "account" : "journey"))
@@ -183,6 +188,12 @@ export default function App(): React.JSX.Element {
     }
     ;(navigator as Navigator & { clearAppBadge?: () => Promise<void> }).clearAppBadge?.().catch(() => undefined)
     const params = new URLSearchParams(window.location.search)
+    // A phone that scanned the QR code on a computer: straight to the steps for that phone.
+    if (params.get("install") === "1") {
+      params.delete("install")
+      window.history.replaceState(null, "", `${window.location.pathname}${params.size > 0 ? `?${params}` : ""}${window.location.hash}`)
+      openInstallGuide()
+    }
     if (params.get("open") !== "new-jobs") {
       return
     }
@@ -220,7 +231,7 @@ export default function App(): React.JSX.Element {
           scrolled a little it takes a translucent paper background and a rule,
           so the wordmark stays legible over whatever passes under it. */}
       <header className={`sticky top-0 z-20 transition-colors duration-300 ${scrolled ? "border-b-[1.5px] bg-background" : "border-b-[1.5px] border-transparent"}`}>
-        <div className={`mx-auto flex w-full ${column} flex-wrap items-center justify-between gap-x-2 gap-y-1 px-5 py-3 sm:flex-nowrap sm:gap-2 sm:px-6 sm:py-4`}>
+        <div className={`mx-auto flex w-full ${column} flex-nowrap items-center justify-between gap-2.5 px-4 py-3 sm:gap-2 sm:px-6 sm:py-4`}>
           {/* The wordmark is the way home: the account for someone with answers
               saved, the front page for everyone else. */}
           <button
@@ -230,7 +241,7 @@ export default function App(): React.JSX.Element {
           >
             <Wordmark />
           </button>
-          <nav aria-label="odds information" className="order-3 flex w-full basis-full items-center justify-center gap-4 border-t-[1.5px] border-border/70 pt-1 text-xs sm:order-none sm:min-w-0 sm:flex-1 sm:basis-auto sm:justify-end sm:gap-4 sm:overflow-visible sm:border-t-0 sm:pl-4 sm:pt-0 sm:text-xs md:gap-5 md:pl-6 md:text-sm">
+          <nav aria-label="odds information" className="flex min-w-0 flex-1 items-center justify-end gap-2.5 text-xs sm:gap-4 sm:pl-4 md:gap-5 md:pl-6 md:text-sm">
             {(["how-it-works", "about", "research"] as const).map((nextPage) => (
               <button
                 key={nextPage}
@@ -243,12 +254,12 @@ export default function App(): React.JSX.Element {
             ))}
           </nav>
           {onboarded ? (
-            <div className="order-2 ml-auto flex shrink-0 items-center gap-2 sm:order-none sm:ml-2">
+            <div className="flex shrink-0 items-center gap-1.5 sm:ml-2 sm:gap-2">
               <NewJobsBell refresh={visits} onOpen={showJobs} />
-              <AccountMenu email={data.session?.user.email ?? null} avatar={data.profile.avatar} name={data.profile.name} onDashboard={onboarded ? () => setView("account") : undefined} onAnswers={() => setView("answers")} onSignIn={() => leaveSharedJob("signin")} onSignOut={handleSignOut} />
+              <AccountMenu email={isGuestEmail(data.session?.user.email) ? null : (data.session?.user.email ?? null)} avatar={data.profile.avatar} name={data.profile.name} onDashboard={onboarded ? () => setView("account") : undefined} onAnswers={() => setView("answers")} onSignIn={() => leaveSharedJob("signin")} onSignOut={handleSignOut} />
             </div>
           ) : !page && view === "journey" ? (
-            <Button type="button" variant="ghost" onClick={() => leaveSharedJob("signin")} className="order-2 ml-auto h-9 shrink-0 cursor-pointer px-2 text-xs font-medium sm:order-none sm:ml-0 sm:px-3 sm:text-sm">
+            <Button type="button" variant="ghost" onClick={() => leaveSharedJob("signin")} className="h-9 shrink-0 cursor-pointer px-1.5 text-xs font-medium sm:px-3 sm:text-sm">
               Sign in
             </Button>
           ) : null}
@@ -302,6 +313,8 @@ export default function App(): React.JSX.Element {
 
         {view !== "signin" || page ? <Footer onOpenPage={openPage} /> : null}
       </main>
+      {installGuide ? <InstallGuide session={data.session} onClose={() => openInstallGuide(false)} /> : null}
+      <NotifyPrompt session={data.session} />
     </div>
   )
 }
