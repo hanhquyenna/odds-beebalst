@@ -88,7 +88,6 @@ export function Landing({ onStart, onOpenPage }: LandingProps): React.JSX.Elemen
                 <h2 id="jobs-heading" aria-live="polite" className="text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl">
                   {jobsHeadline(fitting.length, filters)}
                 </h2>
-                <p className="text-band-muted">English-language jobs in the Netherlands for international students. Adjust the filters to see more.</p>
               </div>
             </div>
 
