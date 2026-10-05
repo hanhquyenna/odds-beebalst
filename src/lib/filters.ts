@@ -42,21 +42,23 @@ export interface JobFilters {
 /** The lines of work to filter by: what the job is, not what the employer does. "Other" is not something anyone filters for. */
 export const FIELD_OPTIONS: ReadonlyArray<string> = FAMILIES.filter((f) => f !== "Other")
 
-/** A job's line of work: Jev's reading, or the title-and-skills guess for a job Jev has not read yet. Null when neither is sure. Pure in the posting, so one answer is kept per posting: every keystroke asks for every row. */
-const fieldCache = new WeakMap<object, string | null>()
+/** The guessed line of work per posting, kept with the title and skills it was guessed from, so a posting given a new title or skills list is guessed again. */
+const guessedFields = new WeakMap<object, { title: string; skills: ReadonlyArray<string>; field: string | null }>()
 
-export const fieldOf = (post: Pick<Posting, "family" | "title" | "title_clean" | "skills">): string | null => {
+/** A job's line of work: Jev's reading, or the title-and-skills guess for a job Jev has not read yet. Null when neither is sure. The guess is kept per posting: every keystroke asks for every row. */
+export function fieldOf(post: Pick<Posting, "family" | "title" | "title_clean" | "skills">): string | null {
   if (post.family !== null && post.family !== undefined) {
     return post.family
   }
-  const hit = fieldCache.get(post)
-  if (hit !== undefined) {
-    return hit
+  const title = post.title_clean ?? post.title
+  const hit = guessedFields.get(post)
+  if (hit && hit.title === title && hit.skills === post.skills) {
+    return hit.field
   }
-  const guessed = guessFamily(post.title_clean ?? post.title, post.skills)
-  fieldCache.set(post, guessed)
+  const field = guessFamily(title, post.skills)
+  guessedFields.set(post, { title: title, skills: post.skills, field: field })
 
-  return guessed
+  return field
 }
 
 export const NO_FILTERS: JobFilters = { query: "", field: [], industry: [], level: [], language: [], sponsorOnly: false, posted: "any", type: [], workplace: [], city: [], minPay: null, source: [] }
@@ -135,28 +137,14 @@ function searchTextOf(post: Posting): { text: string; squashed: string } {
     return hit
   }
   const text = plain(`${post.title} ${post.employer_display} ${post.region ?? ""} ${fieldOf(post) ?? ""} ${industryOf(post) ?? ""} ${levelOf(post)}`)
-  const made = { text, squashed: squashed(text) }
+  const made = { text: text, squashed: squashed(text) }
   searchable.set(post, made)
 
   return made
 }
 
-/** The words of the query being typed, kept from the last call: filtering asks every posting about the same query, so it is split once per keystroke, not once per posting. */
-let lastQuery: string | null = null
-let lastWords: string[] = []
-
-function queryWordsOf(query: string): string[] {
-  if (query !== lastQuery) {
-    lastQuery = query
-    lastWords = plain(query).split(/\s+/).filter(Boolean)
-  }
-
-  return lastWords
-}
-
-/** Every word typed is found in the job: as written, run together ("ecommerce"), or as a plural ("interns"). */
-export function matchesQuery(post: Posting, query: string): boolean {
-  const words = queryWordsOf(query)
+/** Every word typed is found in the job: as written, run together ("ecommerce"), or as a plural ("interns"). Takes the query already split by applyFilters. */
+function matchesWords(post: Posting, words: ReadonlyArray<string>): boolean {
   if (words.length === 0) {
     return true
   }
@@ -175,6 +163,9 @@ export function matchesQuery(post: Posting, query: string): boolean {
 }
 
 export function applyFilters<T extends Posting>(posts: ReadonlyArray<T>, filters: JobFilters, env: FilterEnv = {}): ReadonlyArray<T> {
+  // Split once for the whole list: lower-casing and stripping accents per posting was most of the cost of a keystroke.
+  const words = plain(filters.query).split(/\s+/).filter(Boolean)
+
   // Cheapest checks first, so a posting that fails a ticked box never pays for the text search or the derived facts.
   return posts.filter((post) => {
     if (filters.sponsorOnly && !post.ind_sponsor) {
@@ -220,7 +211,7 @@ export function applyFilters<T extends Posting>(posts: ReadonlyArray<T>, filters
     if (filters.minPay !== null && (payMid(post, env.reference ?? null)?.month ?? 0) < filters.minPay) {
       return false
     }
-    if (!matchesQuery(post, filters.query)) {
+    if (!matchesWords(post, words)) {
       return false
     }
 

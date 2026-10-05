@@ -122,7 +122,7 @@ export function fitOf(input: FitInput): Fit | null {
 
   const titleWords = [...new Set(words(input.title).map(stem))]
   if (titleWords.length > 0 && input.text.trim()) {
-    const mine = new Set(words(input.text).map(stem))
+    const mine = stemsOf(input.text)
     // A word found in every line of work ("growth", "business") is no evidence, so each title word counts for how much it says about the kind of work.
     const weight = (w: string): number => input.specificity?.(w) ?? 1
     const hit = titleWords.filter((w) => mine.has(w))
@@ -157,4 +157,17 @@ export function fitOf(input: FitInput): Fit | null {
 
   // A fit judged on one part alone says little, so it is pulled back toward the average by the share of the weight we could judge.
   return { score: Math.min(1, FIT_AVERAGE + (raw - FIT_AVERAGE) * known + lift), parts }
+}
+
+// The person's text is the same for every job scored against it, so its stemmed words are kept for the last text seen. Keyed on the string itself, so it is never stale.
+let lastText: string | null = null
+let lastStems: ReadonlySet<string> = new Set()
+
+function stemsOf(text: string): ReadonlySet<string> {
+  if (text !== lastText) {
+    lastText = text
+    lastStems = new Set(words(text).map(stem))
+  }
+
+  return lastStems
 }

@@ -1,5 +1,5 @@
 import type { Reference } from "@/lib/jobs"
-import { isInternship } from "@/lib/engine"
+import { eur, isInternship } from "@/lib/engine"
 import { formatHourly, formatPosted } from "@/lib/format"
 import internPay from "@/lib/intern-pay.json"
 import type { Posting } from "@/lib/types"
@@ -54,7 +54,7 @@ export function allowanceNote(source: AllowanceSource): string {
     return `${base} This posting names no amount; this employer states this in its other internship postings.`
   }
 
-  return `${base} This employer names no amount. Across the ${m.employers} employers that do, the middle half state ${euro(m.p25)} to ${euro(m.p75)} (lowest ${euro(m.low)}, highest ${euro(m.high)}), read from ${m.postings} postings. The Dutch average is 370 to 400 euros (CBS). A few employers pay interns well above this, and this posting does not say which kind this is.`
+  return `${base} This employer names no amount. Across the ${m.employers} employers that do, the middle half state ${eur(m.p25)} to ${eur(m.p75)} (lowest ${eur(m.low)}, highest ${eur(m.high)}), read from ${m.postings} postings. The Dutch average is 370 to 400 euros (CBS). A few employers pay interns well above this, and this posting does not say which kind this is.`
 }
 
 /**
@@ -67,9 +67,8 @@ export const TRAINEE_PAY = { low: 2450, high: 3500 } as const
 export const TRAINEE_NOTE =
   "No amount is named, so this is a range from two published figures: a junior trainee earns about €2,450 a month (Nationale Beroepengids, 2025) and the Dutch government pays a starting Rijkstrainee about €3,500 (Werken voor Nederland). Before tax."
 
-const euro = (n: number): string => `€${Math.round(n).toLocaleString("en-NL")}`
 const nearest = (n: number, step: number): number => Math.round(n / step) * step
-const range = (low: number, high: number): string => (low === high ? euro(low) : `${euro(low)} – ${euro(high)}`)
+const range = (low: number, high: number): string => (low === high ? eur(low) : `${eur(low)} – ${eur(high)}`)
 
 /**
  * What the job pays, always gross per month so two jobs can be compared at a

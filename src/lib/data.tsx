@@ -23,7 +23,7 @@ import {
   type Reference,
   type Signals,
 } from "@/lib/jobs"
-import { registerLogos } from "@/lib/companies"
+import { registerLogos } from "@/lib/stored-logos"
 import { DEFAULT_PROFILE, type Application, type PastSearch, type Person, type Posting, type Profile } from "@/lib/types"
 
 const PROFILE_KEY = "careersim.profile"

@@ -14,7 +14,7 @@ export const LARGE_POOL = 2000
 const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64")
 
 /** Public tables the app reads that have no rows in these fixtures: answered with an empty list, like PostgREST does. */
-const EMPTY_TABLES: ReadonlyArray<string> = ["applications", "employer_about", "employer_culture", "employer_facts", "employer_headcount", "employer_hiring", "employer_money", "employer_news", "employer_teams", "profiles"]
+const EMPTY_TABLES: ReadonlySet<string> = new Set(["applications", "employer_about", "employer_culture", "employer_facts", "employer_headcount", "employer_hiring", "employer_money", "employer_news", "employer_teams", "profiles"])
 
 interface Fixtures {
   /** Which rows app_jobs returns: the hand-written flow set, or the generated 2000 for the perf spec. Set per file with test.use({ pool: "large" }). */
@@ -127,7 +127,7 @@ function rowsFor(table: string, url: URL, postings: Posting[]): Row[] | null {
     return TRANSITIONS as unknown as Row[]
   }
 
-  return EMPTY_TABLES.includes(table) ? [] : null
+  return EMPTY_TABLES.has(table) ? [] : null
 }
 
 /** The postings table: one posting's text or requirements on the detail page, and no matches for the text-signal searches. */

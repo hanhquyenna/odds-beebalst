@@ -8,15 +8,13 @@
     // Registered at runtime by src/lib/push.ts.
     "public/sw.js"
   ],
-  "project": ["src/**/*.{ts,tsx,css}", "scripts/**/*.{ts,mjs}", "supabase/functions/**/*.ts"],
+  "project": ["e2e/**/*.ts", "src/**/*.{ts,tsx,css}", "scripts/**/*.{ts,mjs}", "supabase/functions/**/*.ts"],
   "ignore": [
     // Vendored shadcn/ui components: kept whole so `shadcn add` updates stay clean.
     "src/components/ui/**"
   ],
   "ignoreExportsUsedInFile": true,
   "ignoreDependencies": [
-    // Playwright is loaded by local QA scripts from a machine path; the e2e suite will import it directly.
-    "@playwright/test",
     // Deno specifiers in supabase/functions (jsr:@std/..., npm:web-push), resolved by Deno, not package.json.
     "jsr",
     "npm"

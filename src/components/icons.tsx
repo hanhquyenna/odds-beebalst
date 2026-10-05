@@ -1,118 +1,58 @@
-import {
-  ArrowLeft,
-  ArrowRight,
-  ArrowSquareOut,
-  BatteryFull,
-  Bell,
-  BookmarkSimple,
-  BookOpen,
-  Buildings,
-  CalendarBlank,
-  Camera,
-  CaretCircleDown,
-  CaretDown,
-  CaretLeft,
-  CaretRight,
-  CaretUp,
-  CellSignalFull,
-  ChatCircleText,
-  Check,
-  CheckCircle,
-  CheckSquare,
-  CircleNotch,
-  Copy,
-  DotsThreeVertical,
-  Envelope,
-  Export,
-  Eye,
-  EyeSlash,
-  Hash,
-  Info,
-  Kanban,
-  LinkSimple,
-  ListChecks,
-  Lock,
-  MagnifyingGlass,
-  PencilSimple,
-  Phone,
-  Plus,
-  PlusSquare,
-  Question,
-  Rows,
-  SealCheck,
-  SortAscending,
-  Star,
-  Table,
-  TextT,
-  Trash,
-  type Icon,
-  type IconProps,
-  UploadSimple,
-  UsersThree,
-  Warning,
-  WifiHigh,
-  X,
-  XCircle,
-} from "@phosphor-icons/react"
-
 /**
- * The one icon set: Phosphor, in its bold weight, drawn on one grid at one
- * stroke. Everything imports from here, under short names, so a weight or a
- * library change happens in this file only.
+ * The one icon set: Phosphor, drawn on one grid at one stroke. Everything imports from here, under short names, so a library change
+ * happens in this file only. Plain re-exports, so each chunk carries only the icons it uses.
  */
-const bold =
-  (Glyph: Icon) =>
-  (props: IconProps): React.JSX.Element => <Glyph weight="bold" {...props} />
-
-export const ArrowLeftIcon = bold(ArrowLeft)
-export const ArrowRightIcon = bold(ArrowRight)
-export const BadgeCheckIcon = bold(SealCheck)
-export const BellIcon = bold(Bell)
-export const BookmarkIcon = bold(BookmarkSimple)
-export const BuildingsIcon = bold(Buildings)
-export const CalendarIcon = bold(CalendarBlank)
-export const CameraIcon = bold(Camera)
-export const CheckIcon = bold(Check)
-export const ChevronDownIcon = bold(CaretDown)
-export const ChevronLeftIcon = bold(CaretLeft)
-export const ChevronRightIcon = bold(CaretRight)
-export const ChevronUpIcon = bold(CaretUp)
-export const CircleCheckIcon = bold(CheckCircle)
-export const CircleChevronDownIcon = bold(CaretCircleDown)
-export const CircleHelpIcon = bold(Question)
-export const ExternalLinkIcon = bold(ArrowSquareOut)
-export const HashIcon = bold(Hash)
-export const InfoIcon = bold(Info)
-export const LinkIcon = bold(LinkSimple)
-export const Loader2Icon = bold(CircleNotch)
-export const OctagonXIcon = bold(XCircle)
-export const PlusIcon = bold(Plus)
-export const SquareCheckIcon = bold(CheckSquare)
-export const TriangleAlertIcon = bold(Warning)
-export const TypeIcon = bold(TextT)
-export const UploadIcon = bold(UploadSimple)
-export const XIcon = bold(X)
-export const BoardIcon = bold(Kanban)
-export const TableIcon = bold(Table)
-export const RowsIcon = bold(Rows)
-export const PencilIcon = bold(PencilSimple)
-export const EnvelopeIcon = bold(Envelope)
-export const ListChecksIcon = bold(ListChecks)
-export const PhoneIcon = bold(Phone)
-export const PeopleIcon = bold(UsersThree)
-export const TrashIcon = bold(Trash)
-export const SortIcon = bold(SortAscending)
-export const EyeIcon = bold(Eye)
-export const EyeSlashIcon = bold(EyeSlash)
-export const MessageIcon = bold(ChatCircleText)
-export const SearchIcon = bold(MagnifyingGlass)
-export const BatteryIcon = bold(BatteryFull)
-export const BookOpenIcon = bold(BookOpen)
-export const SignalIcon = bold(CellSignalFull)
-export const CopyIcon = bold(Copy)
-export const DotsThreeVerticalIcon = bold(DotsThreeVertical)
-export const ShareIcon = bold(Export)
-export const LockIcon = bold(Lock)
-export const PlusSquareIcon = bold(PlusSquare)
-export const StarIcon = bold(Star)
-export const WifiIcon = bold(WifiHigh)
+export {
+  ArrowLeft as ArrowLeftIcon,
+  ArrowRight as ArrowRightIcon,
+  SealCheck as BadgeCheckIcon,
+  Bell as BellIcon,
+  BookmarkSimple as BookmarkIcon,
+  Buildings as BuildingsIcon,
+  CalendarBlank as CalendarIcon,
+  Camera as CameraIcon,
+  Check as CheckIcon,
+  CaretDown as ChevronDownIcon,
+  CaretLeft as ChevronLeftIcon,
+  CaretRight as ChevronRightIcon,
+  CaretUp as ChevronUpIcon,
+  CheckCircle as CircleCheckIcon,
+  CaretCircleDown as CircleChevronDownIcon,
+  Question as CircleHelpIcon,
+  ArrowSquareOut as ExternalLinkIcon,
+  Hash as HashIcon,
+  Info as InfoIcon,
+  LinkSimple as LinkIcon,
+  CircleNotch as Loader2Icon,
+  XCircle as OctagonXIcon,
+  Plus as PlusIcon,
+  CheckSquare as SquareCheckIcon,
+  Warning as TriangleAlertIcon,
+  TextT as TypeIcon,
+  UploadSimple as UploadIcon,
+  X as XIcon,
+  Kanban as BoardIcon,
+  Table as TableIcon,
+  Rows as RowsIcon,
+  PencilSimple as PencilIcon,
+  Envelope as EnvelopeIcon,
+  ListChecks as ListChecksIcon,
+  Phone as PhoneIcon,
+  UsersThree as PeopleIcon,
+  Trash as TrashIcon,
+  SortAscending as SortIcon,
+  Eye as EyeIcon,
+  EyeSlash as EyeSlashIcon,
+  ChatCircleText as MessageIcon,
+  MagnifyingGlass as SearchIcon,
+  BatteryFull as BatteryIcon,
+  BookOpen as BookOpenIcon,
+  CellSignalFull as SignalIcon,
+  Copy as CopyIcon,
+  DotsThreeVertical as DotsThreeVerticalIcon,
+  Export as ShareIcon,
+  Lock as LockIcon,
+  PlusSquare as PlusSquareIcon,
+  Star as StarIcon,
+  WifiHigh as WifiIcon,
+} from "@phosphor-icons/react"
