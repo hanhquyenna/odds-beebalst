@@ -100,25 +100,35 @@ function messageOf(caught: unknown): string {
   return caught instanceof Error && caught.message ? caught.message : "no answer"
 }
 
+/** Where a Shoo trip started and what address it left: survives new tabs and failed attempts, unlike the redirect itself. */
+export interface ShooNext {
+  next: "jobs" | "account"
+  search: string
+}
+
 /** Remembers where the Shoo trip started ("jobs" for a fresh sign-up, "account" for a plain sign-in), across the redirect. */
 export function rememberShooNext(next: "jobs" | "account"): void {
   try {
-    window.sessionStorage.setItem(NEXT_KEY, next)
+    window.localStorage.setItem(NEXT_KEY, JSON.stringify({ next, search: window.location.search }))
   } catch {
     return
   }
 }
 
 /** Reads and clears what rememberShooNext stored (null outside a Shoo trip, or for anything unexpected). */
-export function takeShooNext(): string | null {
+export function takeShooNext(): ShooNext | null {
   try {
-    const next = window.sessionStorage.getItem(NEXT_KEY)
-    window.sessionStorage.removeItem(NEXT_KEY)
-    if (next !== "jobs" && next !== "account") {
+    const raw = window.localStorage.getItem(NEXT_KEY)
+    window.localStorage.removeItem(NEXT_KEY)
+    if (!raw) {
+      return null
+    }
+    const parsed = JSON.parse(raw) as Partial<ShooNext>
+    if (parsed.next !== "jobs" && parsed.next !== "account") {
       return null
     }
 
-    return next
+    return { next: parsed.next, search: typeof parsed.search === "string" && parsed.search.startsWith("?") ? parsed.search : "" }
   } catch {
     return null
   }
@@ -127,7 +137,7 @@ export function takeShooNext(): string | null {
 /** Drops a remembered destination without reading it (sign-out). */
 export function clearShooNext(): void {
   try {
-    window.sessionStorage.removeItem(NEXT_KEY)
+    window.localStorage.removeItem(NEXT_KEY)
   } catch {
     return
   }

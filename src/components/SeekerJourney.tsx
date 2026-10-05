@@ -60,6 +60,8 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
 
   const review = mode === "edit"
   const stepIndex = COUNTED_STEPS.indexOf(step)
+  // A Google session already answers the account question: never ask it to sign in again.
+  const signedIn = Boolean(data.session && !isGuestEmail(data.session.user.email))
   // Settings save only what moved, so they compare against the saved profile.
   const baseline = useMemo<FormState | null>(() => (review ? toFormState(data.profile) : null), [data.profile, review])
   const changes = baseline ? describeChanges(baseline, form) : []
@@ -137,7 +139,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
       return
     }
 
-    if (!review && step !== "contact") {
+    if (!review && step !== "contact" && !(signedIn && step === "import")) {
       goNext()
 
       return
@@ -247,7 +249,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
           <Button type="button" variant="ghost" disabled={saving} onClick={() => setStep("contact")} className="w-full cursor-pointer text-muted-foreground">
             Continue with Google to keep it on every device
           </Button>
-          <SignInLink onSignIn={onSignIn} />
+          <SignInLink onSignIn={onSignIn} hidden={signedIn} />
         </div>
       </form>
     )
@@ -300,7 +302,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
           review={review}
           step={step}
           onChange={setForm}
-          account={step === "contact" ? { onGoogle: googleSignup, disabled: saving } : null}
+          account={step === "contact" && !signedIn ? { onGoogle: googleSignup, disabled: saving } : null}
         />
       </div>
 
@@ -313,7 +315,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
             {saving ? "Saving" : step === "contact" ? "Keep it on this device" : nextLabel(step, form)}
           </Button>
         </div>
-        <SignInLink onSignIn={onSignIn} />
+        <SignInLink onSignIn={onSignIn} hidden={signedIn} />
       </div>
     </form>
   )
@@ -354,8 +356,12 @@ function SaveBar({ changes, onDiscard, saving }: SaveBarProps): React.JSX.Elemen
   )
 }
 
-/** The way back in, shown only where it is the alternative to what is on screen. */
-function SignInLink({ onSignIn }: { onSignIn: () => void }): React.JSX.Element {
+/** The way back in, shown only where it is the alternative to what is on screen. Never shown to someone already signed in. */
+function SignInLink({ onSignIn, hidden }: { onSignIn: () => void; hidden: boolean }): React.JSX.Element | null {
+  if (hidden) {
+    return null
+  }
+
   return (
     <Button type="button" variant="ghost" onClick={onSignIn} className="w-full cursor-pointer text-muted-foreground">
       Already with us? Sign in

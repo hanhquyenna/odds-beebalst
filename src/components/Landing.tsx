@@ -6,6 +6,7 @@ import { JobBoard } from "@/components/JobBoard"
 import { Button } from "@/components/ui/button"
 import { ResearchSlides } from "@/components/ResearchSlides"
 import { useData } from "@/lib/data"
+import { isGuestEmail } from "@/lib/auth"
 import { FilterBus } from "@/lib/filter-bus"
 import { applyFilters, DEFAULT_FILTERS, type JobFilters as Filters } from "@/lib/filters"
 import { jobsHeadline } from "@/lib/headline"
@@ -29,6 +30,8 @@ interface LandingProps {
  */
 export function Landing({ onStart, onSignIn, onOpenPage }: LandingProps): React.JSX.Element {
   const data = useData()
+  // Someone arriving with a Google session is not asked to sign in again.
+  const signedIn = Boolean(data.session && !isGuestEmail(data.session.user.email))
   const [open, setOpen] = useState<Posting | null>(null)
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
 
@@ -59,9 +62,11 @@ export function Landing({ onStart, onSignIn, onOpenPage }: LandingProps): React.
             <Button onClick={onStart} className="h-11 cursor-pointer rounded-full px-7">
               Start
             </Button>
-            <button type="button" onClick={onSignIn} className="cursor-pointer font-medium text-muted-foreground transition-colors hover:text-foreground">
-              Already with us? Sign in
-            </button>
+            {signedIn ? null : (
+              <button type="button" onClick={onSignIn} className="cursor-pointer font-medium text-muted-foreground transition-colors hover:text-foreground">
+                Already with us? Sign in
+              </button>
+            )}
             <button
               type="button"
               onClick={() => document.getElementById("film")?.scrollIntoView({ behavior: "smooth", block: "center" })}
