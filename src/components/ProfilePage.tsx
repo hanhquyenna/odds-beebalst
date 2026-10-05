@@ -2,6 +2,7 @@ import { ArrowLeftIcon, CameraIcon, PlusIcon, XIcon } from "@/components/icons"
 import { Suspense, lazy, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { parseCsv } from "@/lib/csv"
+import { isGuestEmail } from "@/lib/auth"
 import { importLinkedIn, mergeLinkedIn, toLinkedInUrl } from "@/lib/linkedin"
 import { useData } from "@/lib/data"
 import { shrink } from "@/lib/image"
@@ -112,6 +113,8 @@ interface ProfilePageProps {
 export function ProfilePage({ onBack }: ProfilePageProps): React.JSX.Element {
   const data = useData()
   const p = data.profile
+  // A guest address is a placeholder, never the person's email: hide it everywhere.
+  const displayEmail = data.session && !isGuestEmail(data.session.user.email) ? data.session.user.email : null
   const pictureInput = useRef<HTMLInputElement>(null)
   const [cvNote, setCvNote] = useState<string | null>(null)
   const [skill, setSkill] = useState<string>("")
@@ -180,7 +183,7 @@ export function ProfilePage({ onBack }: ProfilePageProps): React.JSX.Element {
               onClick={() => pictureInput.current?.click()}
               className="group relative flex size-24 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-4 border-card bg-accent text-3xl font-semibold text-primary sm:size-28"
             >
-              {p.avatar ? <img src={p.avatar} alt="" className="size-full object-cover" /> : (p.name || data.session?.user.email || "Me").trim().charAt(0).toUpperCase()}
+              {p.avatar ? <img src={p.avatar} alt="" className="size-full object-cover" /> : (p.name.trim() || displayEmail || "Me").charAt(0).toUpperCase()}
               <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
                 <CameraIcon className="size-6" aria-hidden="true" />
               </span>
@@ -220,7 +223,7 @@ export function ProfilePage({ onBack }: ProfilePageProps): React.JSX.Element {
               <input className={field} placeholder="e.g. Amsterdam" value={p.place} onChange={(e) => set("place", e.target.value)} />
             </label>
             <div className="flex flex-col justify-end text-sm text-muted-foreground">
-              {data.session ? `Signed in as ${data.session.user.email}. ${data.profileSaved ? "Saved to your account." : "Saving…"}` : "Saved on this device only. Sign in to keep it everywhere."}
+              {displayEmail ? `Signed in as ${displayEmail}. ${data.profileSaved ? "Saved to your account." : "Saving…"}` : data.session ? "Guest on this device." : "Saved on this device only. Continue with Google to keep it on every device."}
             </div>
           </div>
         </div>

@@ -1,0 +1,117 @@
+name: Deploy Odds
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "public/**"
+      - "index.html"
+      - "package.json"
+      - "bun.lock"
+      - "vite.config.ts"
+      - "tsconfig*.json"
+      - "components.json"
+      - ".github/workflows/deploy-odds.yaml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-odds
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+      ODDS_S3_BUCKET: ${{ vars.ODDS_S3_BUCKET }}
+      ODDS_CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.ODDS_CLOUDFRONT_DISTRIBUTION_ID }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Validate required configuration
+        run: |
+          set -euo pipefail
+
+          for name in AWS_REGION AWS_ROLE_ARN ODDS_S3_BUCKET ODDS_CLOUDFRONT_DISTRIBUTION_ID; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing repository variable: $name"
+              exit 1
+            fi
+          done
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Vite inlines both of these into the bundle, so neither can be secret in
+      # the cryptographic sense. The anon key lives in Actions secrets anyway, to
+      # keep the project it points at out of a public repository.
+      # Paired with odds_supabase_url in infra terraform: that pins the same
+      # origin into the Content-Security-Policy, so change both together.
+      - name: Build
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: bun run build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+
+      # Only the files under assets/ carry a content hash in their name, so
+      # only they can be frozen: a change to one arrives as a new name. No
+      # --delete: a phone still holding the previous index.html would 403 on
+      # every asset the moment this ran, and the leftovers are a few kilobytes.
+      - name: Upload hashed assets
+        run: |
+          aws s3 sync dist/assets/ "s3://${ODDS_S3_BUCKET}/assets/" \
+            --cache-control "public, max-age=31536000, immutable"
+
+      # Everything else keeps its name from build to build: index.html, and
+      # whatever public/ holds. Freezing those for a year meant a change to
+      # one could never reach a browser that already had it.
+      - name: Upload everything that keeps its name
+        run: |
+          aws s3 sync dist/ "s3://${ODDS_S3_BUCKET}" \
+            --exclude "assets/*" \
+            --cache-control "no-cache, must-revalidate"
+
+      # S3 guesses the MIME type from the runner, so pin the manifests: iPhones
+      # only install the app from application/manifest+json.
+      - name: Pin manifest content type
+        run: |
+          aws s3 cp dist/ "s3://${ODDS_S3_BUCKET}" --recursive \
+            --exclude "*" --include "*.webmanifest" \
+            --content-type "application/manifest+json" \
+            --metadata-directive REPLACE \
+            --cache-control "no-cache, must-revalidate"
+
+      # Everything, not just index.html: the unhashed files are the ones that
+      # need it, and the hashed ones are never asked for under an old name.
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${ODDS_CLOUDFRONT_DISTRIBUTION_ID}" \
+            --paths "/*"
+
+      # End-to-end smoke: the site answers, ships the CSP, and the SPA
+      # fallback serves the app on a deep link (sign-in callback route).
+      # No -f on the first probe: the http_code comparison is the decider,
+      # and -f would exit before it ever runs.
+      - name: Smoke-test the deployment
+        run: |
+          set -euo pipefail
+
+          test "$(curl -s -o /dev/null -w '%{http_code}' https://odds.beeblast.co/)" = "200"
+          curl -sSI https://odds.beeblast.co/ | grep -qi 'content-security-policy'
+          curl -sSf https://odds.beeblast.co/auth/callback | grep -q '<div id="root">'

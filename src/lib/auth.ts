@@ -4,7 +4,7 @@ export interface Session {
   access_token: string
   refresh_token: string
   expires_at: number
-  user: { id: string; email: string }
+  user: { id: string; email: string; avatar?: string }
 }
 
 const STORE = "careersim.session"
@@ -187,33 +187,16 @@ export async function restoreSession(): Promise<Session | null> {
   }
   try {
     const next = toSession(await call("token?grant_type=refresh_token", { refresh_token: stored.refresh_token }))
+    // A refresh rebuilds the session without the photo; keep the stored one so the header does not lose it.
+    if (next && !next.user.avatar) {
+      next.user.avatar = stored.user.avatar
+    }
     keep(next)
 
     return next
   } catch {
     keep(null)
 
-    return null
-  }
-}
-
-const NEXT_KEY = "careersim.oauthNext"
-
-function remember(key: string, value: string): void {
-  try {
-    window.sessionStorage.setItem(key, value)
-  } catch {
-    return
-  }
-}
-
-function recall(key: string): string | null {
-  try {
-    const value = window.sessionStorage.getItem(key)
-    window.sessionStorage.removeItem(key)
-
-    return value
-  } catch {
     return null
   }
 }
@@ -229,16 +212,11 @@ export async function signInWithTokenHash(tokenHash: string): Promise<Session> {
   return session
 }
 
-/** Remembers where the SSO trip started ("jobs" for a fresh sign-up), across the redirect. */
-export function rememberOAuthNext(next: string): void {
-  remember(NEXT_KEY, next)
-}
-
-/** Reads and clears what rememberOAuthNext stored (null outside an SSO trip). */
-export function takeOAuthNext(): string | null {
-  return recall(NEXT_KEY)
-}
-
 export function signOut(): void {
   keep(null)
+}
+
+/** Replaces the stored session (after enriching it elsewhere); the next load reads this copy. */
+export function storeSession(session: Session | null): void {
+  keep(session)
 }

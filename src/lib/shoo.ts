@@ -1,6 +1,6 @@
 import { ANON_KEY, SUPABASE_URL } from "@/lib/supabase"
-import { signInWithTokenHash, type Session } from "@/lib/auth"
-import { SHOO_CALLBACK_PATH, isShooCallback, tokenHashOf } from "@/lib/shoo-url"
+import { signInWithTokenHash, storeSession, type Session } from "@/lib/auth"
+import { SHOO_CALLBACK_PATH, isShooCallback, pictureOfIdToken, tokenHashOf } from "@/lib/shoo-url"
 import type { ShooAuthClient } from "@shoojs/auth"
 
 export { SHOO_CALLBACK_PATH, isShooCallback }
@@ -8,11 +8,11 @@ const NEXT_KEY = "careersim.shooNext"
 
 /**
  * Google sign-in through Shoo (shoo.dev): a free Google-OAuth broker with no
- * signup and no keys. It is one more door, not a replacement: email and
- * password keep working, and the Supabase session stays the authority, so
- * every row-level policy keeps working unchanged. The bridge edge function
+ * signup and no keys. Google is the only door: the bridge edge function
  * (supabase/functions/verify-shoo) turns the Shoo token into a Supabase
- * session; this file never trusts the browser token on its own.
+ * session, and the Supabase session stays the authority, so every row-level
+ * policy keeps working unchanged. This file never trusts the browser token
+ * on its own.
  */
 
 let client: ShooAuthClient | null = null
@@ -83,16 +83,25 @@ export async function completeShooSignIn(): Promise<Session> {
   if (!tokenHash) {
     throw new Error("Google sign-in failed talking to our server: empty answer.")
   }
+  const session = await signInWithTokenHash(tokenHash)
+  // The photo is fresh every sign-in and rides in the session, so the header
+  // shows it without touching the saved profile (and its sync).
+  const picture = pictureOfIdToken(idToken)
+  if (!picture) {
+    return session
+  }
+  const withPhoto: Session = { ...session, user: { ...session.user, avatar: picture } }
+  storeSession(withPhoto)
 
-  return signInWithTokenHash(tokenHash)
+  return withPhoto
 }
 
 function messageOf(caught: unknown): string {
   return caught instanceof Error && caught.message ? caught.message : "no answer"
 }
 
-/** Remembers where the Shoo trip started ("jobs" for a fresh sign-up), across the redirect. */
-export function rememberShooNext(next: string): void {
+/** Remembers where the Shoo trip started ("jobs" for a fresh sign-up, "account" for a plain sign-in), across the redirect. */
+export function rememberShooNext(next: "jobs" | "account"): void {
   try {
     window.sessionStorage.setItem(NEXT_KEY, next)
   } catch {
@@ -100,14 +109,53 @@ export function rememberShooNext(next: string): void {
   }
 }
 
-/** Reads and clears what rememberShooNext stored (null outside a Shoo trip). */
+/** Reads and clears what rememberShooNext stored (null outside a Shoo trip, or for anything unexpected). */
 export function takeShooNext(): string | null {
   try {
     const next = window.sessionStorage.getItem(NEXT_KEY)
     window.sessionStorage.removeItem(NEXT_KEY)
+    if (next !== "jobs" && next !== "account") {
+      return null
+    }
 
     return next
   } catch {
     return null
   }
+}
+
+/** Drops a remembered destination without reading it (sign-out). */
+export function clearShooNext(): void {
+  try {
+    window.sessionStorage.removeItem(NEXT_KEY)
+  } catch {
+    return
+  }
+}
+
+/** Forgets the Shoo broker identity, so the next trip starts clean (sign-out). */
+export async function forgetShooIdentity(): Promise<void> {
+  ;(await shoo()).clearIdentity()
+}
+
+/** False when the browser blocks site data: a sign-in could never persist, so say so instead of looping. */
+export function storageAvailable(): boolean {
+  try {
+    const key = "careersim.storageTest"
+    window.localStorage.setItem(key, "1")
+    window.localStorage.removeItem(key)
+    window.sessionStorage.setItem(key, "1")
+    window.sessionStorage.removeItem(key)
+
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Watches a redirect handoff: when the page is still here after a while, the redirect was blocked. Returns its cancel. */
+export function redirectWatch(onStuck: () => void, ms = 10000): () => void {
+  const id = window.setTimeout(onStuck, ms)
+
+  return () => window.clearTimeout(id)
 }

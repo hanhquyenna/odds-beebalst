@@ -20,7 +20,7 @@ import { clearSeenRooms, saveSeenRooms } from "@/lib/seen"
 import { isGuestEmail } from "@/lib/auth"
 import { openInstallGuide, useInstallGuide } from "@/lib/push"
 import { clearDraft } from "@/lib/session"
-import { isShooCallback } from "@/lib/shoo"
+import { clearShooNext, forgetShooIdentity, isShooCallback } from "@/lib/shoo"
 
 // Lazy because they carry the form schema. Someone coming back to their
 // account needs neither.
@@ -215,6 +215,8 @@ export default function App(): React.JSX.Element {
     // The next person on this browser gets a blank form, not the last one's answers.
     clearDraft()
     clearSeenRooms()
+    clearShooNext()
+    void forgetShooIdentity()
     data.signOut()
     setView("journey")
     setHomeVisits((count) => count + 1)
@@ -249,7 +251,7 @@ export default function App(): React.JSX.Element {
           <button
             type="button"
             onClick={() => (page ? closePage() : onboarded ? setView("account") : goHome())}
-            className="roomie-wordmark shrink-0 cursor-pointer text-xl font-semibold tracking-tight text-foreground"
+            className="odds-wordmark shrink-0 cursor-pointer text-xl font-semibold tracking-tight text-foreground"
           >
             <Wordmark />
           </button>
@@ -265,12 +267,12 @@ export default function App(): React.JSX.Element {
               </button>
             ))}
           </nav>
-          {onboarded ? (
+          {onboarded || data.session ? (
             <div className="flex shrink-0 items-center gap-1.5 sm:ml-2 sm:gap-2">
               <NewJobsBell refresh={visits} onOpen={showJobs} />
-              <AccountMenu email={isGuestEmail(data.session?.user.email) ? null : (data.session?.user.email ?? null)} avatar={data.profile.avatar} name={data.profile.name} onDashboard={onboarded ? () => setView("account") : undefined} onAnswers={() => setView("answers")} onSignIn={() => leaveSharedJob("signin")} onSignOut={handleSignOut} />
+              <AccountMenu email={isGuestEmail(data.session?.user.email) ? null : (data.session?.user.email ?? null)} guest={isGuestEmail(data.session?.user.email)} profileAvatar={data.profile.avatar || ""} sessionAvatar={data.session?.user.avatar || ""} name={data.profile.name} onDashboard={onboarded ? () => setView("account") : undefined} onAnswers={() => setView("answers")} onSignIn={() => leaveSharedJob("signin")} onSignOut={handleSignOut} />
             </div>
-          ) : !page && view === "journey" ? (
+          ) : !page && !sharedJobId && view === "journey" ? (
             <Button type="button" variant="ghost" onClick={() => leaveSharedJob("signin")} className="h-9 shrink-0 cursor-pointer px-1.5 text-xs font-semibold text-foreground hover:bg-foreground/10 sm:px-3 sm:text-sm">
               Sign in
             </Button>
@@ -298,7 +300,7 @@ export default function App(): React.JSX.Element {
           <ShooCallback onDone={handleShooDone} />
         ) : (
           <Suspense fallback={null}>
-            {view === "signin" ? <SignIn onCancel={() => setView(onboarded ? "account" : "journey")} onSignedIn={() => setView("account")} /> : null}
+            {view === "signin" ? <SignIn onCancel={() => setView(onboarded ? "account" : "journey")} /> : null}
 
             {(view === "account" || view === "jobs") && onboarded ? (
               <Account looking={view === "jobs"} onEdit={() => setView("answers")} onStartLooking={showJobs} onStopLooking={() => setView("account")} />
@@ -353,7 +355,9 @@ function PublicJobRoute({ id, onBack, onUnlock }: { id: string; onBack: () => vo
 
 interface AccountMenuProps {
   email: string | null
-  avatar: string
+  guest: boolean
+  profileAvatar: string
+  sessionAvatar: string
   name: string
   onDashboard?: () => void
   onAnswers: () => void
@@ -361,25 +365,42 @@ interface AccountMenuProps {
   onSignOut: () => void
 }
 
-/** The circle in the header: your initial, and the way to your answers and out. */
-function AccountMenu({ email, avatar, name, onDashboard, onAnswers, onSignIn, onSignOut }: AccountMenuProps): React.JSX.Element {
+/** The circle in the header: your photo once signed in, and the way to your answers and out. */
+function AccountMenu({ email, guest, profileAvatar, sessionAvatar, name, onDashboard, onAnswers, onSignIn, onSignOut }: AccountMenuProps): React.JSX.Element {
   // Controlled so choosing an item closes it; left open it covered the page it opened.
   const [open, setOpen] = useState<boolean>(false)
+  // A dead photo URL falls through to the next source, then to the initial.
+  const sources = [profileAvatar, sessionAvatar].filter((src, index, all) => src !== "" && all.indexOf(src) === index)
+  const sourcesKey = sources.join("|")
+  const [seenSources, setSeenSources] = useState<string>(sourcesKey)
+  const [skipped, setSkipped] = useState<number>(0)
+  // A new person resets the fallthrough: derive during render, not in an effect.
+  if (seenSources !== sourcesKey) {
+    setSeenSources(sourcesKey)
+    setSkipped(0)
+  }
+  const displayName = name.trim()
 
   function choose(action: () => void): void {
     setOpen(false)
     action()
   }
 
+  const photo = sources[skipped] ?? ""
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger aria-label="Account menu" className="flex size-11 cursor-pointer items-center justify-center overflow-hidden rounded-full border-[1.5px] border-foreground bg-background font-semibold text-primary">
-        {avatar ? <img src={avatar} alt="" className="size-full object-cover" /> : (name || email || "Me").trim().charAt(0).toUpperCase()}
+        {photo ? (
+          <img src={photo} alt="" onError={() => setSkipped((n) => n + 1)} className="size-full object-cover" />
+        ) : (
+          (displayName || email || (guest ? "Guest" : "Me")).charAt(0).toUpperCase()
+        )}
       </PopoverTrigger>
       <PopoverContent align="end" className="flex w-60 flex-col p-0">
         <div className="border-b-[1.5px] px-4 py-3">
-          <div className="font-medium">{name || email || "Your profile"}</div>
-          <div className="text-sm text-muted-foreground">{email ? "Saved to your account" : "Saved on this device only"}</div>
+          <div className="font-medium">{displayName || email || (guest ? "Guest" : "Your profile")}</div>
+          <div className="text-sm text-muted-foreground">{email ? "Saved to your account" : guest ? "Guest on this device" : "Saved on this device only"}</div>
         </div>
         {onDashboard ? (
           <Button variant="ghost" onClick={() => choose(onDashboard)} className="cursor-pointer justify-start">
@@ -391,7 +412,7 @@ function AccountMenu({ email, avatar, name, onDashboard, onAnswers, onSignIn, on
         </Button>
         {email ? null : (
           <Button variant="ghost" onClick={() => choose(onSignIn)} className="cursor-pointer justify-start">
-            Sign in to keep it
+            Continue with Google to keep it
           </Button>
         )}
         <Button variant="ghost" onClick={() => choose(onSignOut)} className="cursor-pointer justify-start text-destructive">

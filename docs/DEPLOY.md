@@ -5,9 +5,12 @@ For whoever deploys odds. State on 5 Oct 2026. CI: `.github/workflows/ci.yml` (t
 ## 1. The web app
 
 - Build: `npm run build` (type check, then `vite build`; output `dist/`). It passes.
-- `vercel.json` already sets the build, the single-page rewrites, and the headers the phone features need:
+- Hosting is S3 + CloudFront at https://odds.beeblast.co (terraform in `beeblastco/infra`,
+  pipeline in `.github/workflows/deploy-odds.yaml`). The single-page fallback, the cache split
+  (hashed assets immutable for a year, everything else no-cache), and the manifest content type
+  all live there — keep them together if hosting ever moves:
   `/sw.js` must be served from the site root with `Cache-Control: no-cache`, and `/manifest.webmanifest` as
-  `application/manifest+json`. Keep both if you move off Vercel.
+  `application/manifest+json`.
 - Environment variables for the build (both public, safe in the browser):
   `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`. Nothing else is needed in production.
 - The site must be on **https** at a **fixed address**: iPhones only install and notify from https, and every phone's

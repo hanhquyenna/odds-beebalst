@@ -3,7 +3,7 @@ import { toast } from "sonner"
 import { Landing } from "@/components/Landing"
 import { SeekerQuestions } from "@/components/SeekerQuestions"
 import { Button } from "@/components/ui/button"
-import { beginShooSignIn, rememberShooNext } from "@/lib/shoo"
+import { beginShooSignIn, redirectWatch, rememberShooNext, storageAvailable } from "@/lib/shoo"
 import { describeChanges } from "@/lib/changes"
 import { useData } from "@/lib/data"
 import { saveDraft } from "@/lib/draft"
@@ -22,6 +22,7 @@ import {
   type Step,
 } from "@/lib/journey"
 import { clearDraft } from "@/lib/session"
+import { isGuestEmail } from "@/lib/auth"
 import type { StaticPage } from "@/lib/pages"
 
 interface SeekerJourneyProps {
@@ -160,14 +161,24 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
   // Google instead of a password: the answers ride along in the profile, and
   // the way back knows this trip started at sign-up.
   async function googleSignup(): Promise<void> {
+    if (!storageAvailable()) {
+      setError("Sign-in needs site data to remember you. Allow cookies for this site, then try again.")
+
+      return
+    }
     setSaving(true)
     setError(null)
+    const cancel = redirectWatch(() => {
+      setSaving(false)
+      setError("Still here? Your browser may have blocked the Google redirect. Try again.")
+    })
     try {
       data.setProfile(toProfile(form, data.profile))
       rememberShooNext("jobs")
       await beginShooSignIn()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not make the account.")
+      cancel()
+      setError(caught instanceof Error ? caught.message : "Could not continue with Google.")
       setSaving(false)
     }
   }
@@ -190,7 +201,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
           </p>
         </div>
         <Button size="lg" onClick={goNext} className="h-12 w-full cursor-pointer text-base">
-          Start, it is free 😊
+          Start
         </Button>
       </div>
     )
@@ -234,7 +245,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
             Continue without LinkedIn
           </Button>
           <Button type="button" variant="ghost" disabled={saving} onClick={() => setStep("contact")} className="w-full cursor-pointer text-muted-foreground">
-            Make an account to keep it on every device
+            Continue with Google to keep it on every device
           </Button>
           <SignInLink onSignIn={onSignIn} />
         </div>
@@ -252,7 +263,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
             </button>
           ) : null}
           <h1 className="text-2xl font-semibold tracking-tight">Account settings</h1>
-          {data.session ? <p className="text-sm text-muted-foreground">Signed in as {data.session.user.email}. Changes are saved to your account.</p> : <p className="text-sm text-muted-foreground">Saved on this device. Sign in to keep it on every device.</p>}
+          {data.session ? <p className="text-sm text-muted-foreground">{isGuestEmail(data.session.user.email) ? "Guest on this device. Continue with Google to keep it on every device." : `Signed in as ${data.session.user.email}. Changes are saved to your account.`}</p> : <p className="text-sm text-muted-foreground">Saved on this device. Sign in to keep it on every device.</p>}
         </div>
         <div className="grid gap-6 md:grid-cols-2">
           <SeekerQuestions error={error} form={form} review={review} step={step} onChange={setForm} />
@@ -299,7 +310,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
             &larr; Back
           </Button>
           <Button type="submit" size="lg" disabled={saving} className="flex-1 cursor-pointer disabled:cursor-not-allowed">
-            {saving ? "Saving" : step === "contact" ? "Finish without an account" : nextLabel(step, form)}
+            {saving ? "Saving" : step === "contact" ? "Keep it on this device" : nextLabel(step, form)}
           </Button>
         </div>
         <SignInLink onSignIn={onSignIn} />

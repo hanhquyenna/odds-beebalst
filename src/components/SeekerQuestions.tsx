@@ -176,8 +176,8 @@ export function SeekerQuestions({ error, form, onChange, review, step, account }
   const contact =
     !review && account && asks("contact", step, review) ? (
       <Field key="contact" data-invalid={error ? true : undefined}>
-        <FieldLabel className="text-2xl font-semibold tracking-tight">Keep it in an account?</FieldLabel>
-        <p className="mt-3 text-sm text-muted-foreground">An account keeps your profile, kept jobs and applications on every device. You can skip it and keep everything on this one.</p>
+        <FieldLabel className="text-2xl font-semibold tracking-tight">Keep it with Google?</FieldLabel>
+        <p className="mt-3 text-sm text-muted-foreground">Continue with Google keeps your profile and applications on devices you sign in on. You can skip it and keep everything on this device.</p>
         <div className="mt-6 flex flex-col gap-2">
           <Button
             type="button"
@@ -230,7 +230,7 @@ function ImportQuestion({ review, space, wide }: { review: boolean; space: strin
       <QuestionLabel review={review} short="Your experience">
         Add your experience
       </QuestionLabel>
-      {review ? null : <p className="mt-3 text-sm text-muted-foreground">So we can check each job&apos;s requirements against what you have. Both are optional, and both stay in your browser until you make an account.</p>}
+      {review ? null : <p className="mt-3 text-sm text-muted-foreground">So we can check each job&apos;s requirements against what you have. Both are optional, and both stay in this browser until you continue with Google.</p>}
       <div className={`${space} flex flex-col gap-3`}>
         <div>
           <FieldLabel htmlFor="linkedin-files">LinkedIn data export (Positions, Education, Skills, Languages as .csv)</FieldLabel>
