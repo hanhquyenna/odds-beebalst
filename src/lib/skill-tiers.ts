@@ -31,27 +31,3 @@ export function withSkillTiers<T extends Posting>(post: T): T {
 
   return { ...post, skills: Object.keys(t), tiers }
 }
-
-/**
- * The minimum years of experience a posting asks for, taken from the requirement lines that REQUIRE a number of years. The stored
- * years_min came from any "N years" anywhere in the text, which also caught a PhD contract of 4 years, "9 years of experience behind
- * us" about the company, and a benefit every 3 years, and a false minimum is a hard 0% for the person. Null when no required line
- * names a number of years. With several, the smallest: the gate asks for the least a person could have.
- */
-export function minYearsFor(jev: ReadonlyArray<{ text: string; tier: string; confidence?: number; section?: string | null }> | null): number | null {
-  const required = (jev ?? []).filter((r): r is { text: string; tier: Tier; confidence?: number; section?: string | null } => {
-    if (typeof r.text !== "string") return false
-    if (r.tier === "must") return true
-    // A line Jev called soft with little confidence, and that nothing in it or its heading softens, still counts as required for
-    // this gate: with no cue in the words, weak evidence for "only preferred" is not enough to let a stated minimum go. A clear
-    // cue ("preferably", "a plus", "advantage") always lets it go.
-    return ["strong", "optional", "nice"].includes(r.tier) && typeof r.confidence === "number" && r.confidence < WEAK && !SOFT_CUE.test(r.text) && !SOFT_HEADING.test(r.section ?? "")
-  })
-  const years = fromJev(required.map((r) => ({ text: r.text, tier: "must" as Tier }))).flatMap((l) => (l.years !== null && l.years > 0 && l.years <= 20 ? [l.years] : []))
-
-  return years.length > 0 ? Math.min(...years) : null
-}
-
-const WEAK = 0.5
-const SOFT_CUE = /\b(prefer\w*|plus|advantage\w*|asset|bonus|nice|ideal\w*|desirable|beneficial|would be (great|nice|helpful)|extra|valued|an? edge)\b/i
-const SOFT_HEADING = /\b(prefer\w*|nice|bonus|plus\w*|advantage\w*|desirable|extra|stand out|additional|good to have|beneficial|ideal\w*)\b/i

@@ -1,7 +1,7 @@
 /**
  * Which line of work a CV points to, and whether a job is in it. Counted from the postings themselves: every posting
  * carries the job family Jev read from its whole text, and src/lib/family-model.json holds which title words and listed
- * skills go with which family (scripts/make-family-model.ts). A CV's job titles, degree and skills are scored against it
+ * skills go with which family. A CV's job titles, degree and skills are scored against it
  * with plain naive Bayes: no model call, the same CV always gives the same answer.
  *
  * What it is: how likely the words on the CV are to come from postings of that family, 0 to 1. What it is not: a measured
@@ -29,7 +29,7 @@ export function familyPosterior(tokens: ReadonlyArray<string>): number[] | null 
   }
   const logits = M.families.map((_, f) => known.reduce((sum, t) => sum + Math.log((M.vocab[t][f] + ALPHA) / (M.totals[f] + ALPHA * V)), 0))
   // Several words from one title are not independent evidence, so the sum is damped by how many there are, to the power 0.25.
-  // Chosen by scripts/eval-family-model.ts on postings held out of the counts (1,908 of them, 16 families): right 75.6% of the
+  // Chosen on postings held out of the counts (1,908 of them, 16 families): right 75.6% of the
   // time from title words and skills, 72.5% from title words alone. 0.25 had the lowest log loss with skills; 0.5 was
   // too timid (when it said 49% sure it was right 81% of the time) and 1 far too timid.
   const damp = known.length ** 0.25

@@ -1,5 +1,5 @@
 // POST /jobs/people: people to ask for a referral at a job's company.
-// It only READS public.job_people, which scripts/prefill-people.ts fills in a batch (a scraper search per employer, every person judged by Jev),
+// It only READS public.job_people, which a batch job fills (a scraper search per employer, every person judged by Jev),
 // so a click costs nothing and shows only people that were checked. Nothing is scraped here.
 // Signed-in browser sends { employer, company }; the answer is { people, searched } where `searched` says the employer was looked up at all.
 // Scraped people are personal data: Google accounts only. Not signed in is 401, a free guest account is 403.

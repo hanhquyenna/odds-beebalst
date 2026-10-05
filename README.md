@@ -27,7 +27,7 @@ Fields that postings do not state (kind of job, occupation group, industry, mini
 | People and outreach | `src/components/People.tsx`, `src/lib/suggest.ts`, `src/lib/outreach-stage.ts` |
 | Supabase views and migrations | `supabase/migrations/` |
 | Edge functions `account` (sign-in), `profile` (LinkedIn import, profile reading), `jobs` (add, open/closed checks, morning message, people lookup) | `supabase/functions/` |
-| Data scripts (reading with Jev, audits, people pre-fill) | `scripts/` |
+| Data scripts (after new jobs, logos, LinkedIn check, bundle budget) | `scripts/` |
 
 ## Run it
 
@@ -41,7 +41,7 @@ bun run test                      # unit tests
 bun run build                     # typecheck and production build
 ```
 
-The schema changes since 1 Oct 2026 are in `supabase/migrations/` (`supabase db push`); the base `postings` and reference tables predate them and are not in the repository, so a fresh project needs a copy of the live schema first. Deploying the app and the edge functions is in [docs/DEPLOY.md](docs/DEPLOY.md). The pipeline scripts in `scripts/` read their keys (Supabase access token, TypeSafe key, Apify token) from environment variables for one command and never from a file; `.env.secrets.example` shows the names. **Never commit `.env.local` or a service-role key.**
+The schema changes since 1 Oct 2026 are in `supabase/migrations/` (`supabase db push`); the base `postings` and reference tables predate them and are not in the repository, so a fresh project needs a copy of the live schema first. Deploying the app and the edge functions is in [docs/DEPLOY.md](docs/DEPLOY.md). The pipeline scripts in `scripts/` read their keys (Supabase access token, Apify token) from environment variables for one command and never from a file; `.env.secrets.example` shows the names. **Never commit `.env.local` or a service-role key.**
 
 ## Security and privacy
 
