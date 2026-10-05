@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "e2e": "playwright test",
     "build": "tsc -b && vite build",
     "lint": "oxlint src supabase scripts vite.config.ts",
     "knip": "knip --no-progress",
