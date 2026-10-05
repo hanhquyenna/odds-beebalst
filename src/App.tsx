@@ -7,6 +7,7 @@ import { JobDetail } from "@/components/JobDetail"
 import { InstallGuide } from "@/components/InstallGuide"
 import { NewJobsBell } from "@/components/NewPlacesBell"
 import { NotifyPrompt } from "@/components/NotifyPrompt"
+import { DevicePairing } from "@/components/DevicePairing"
 import { StaticPageView } from "@/components/StaticPages"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -331,6 +332,7 @@ export default function App(): React.JSX.Element {
       </main>
       {installGuide ? <InstallGuide session={data.session} onClose={() => openInstallGuide(false)} /> : null}
       <NotifyPrompt session={data.session} />
+      <DevicePairing />
     </div>
   )
 }

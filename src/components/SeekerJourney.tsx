@@ -175,7 +175,11 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
     try {
       data.setProfile(toProfile(form, data.profile))
       rememberShooNext("jobs")
-      await beginShooSignIn()
+      if ((await beginShooSignIn()) === "browser") {
+        // A Home Screen app: the sign-in goes on in the browser and this app waits for it.
+        cancel()
+        setSaving(false)
+      }
     } catch (caught) {
       cancel()
       setError(caught instanceof Error ? caught.message : "Could not continue with Google.")

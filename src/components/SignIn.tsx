@@ -31,7 +31,11 @@ export function SignIn({ onCancel }: SignInProps): React.JSX.Element {
     })
     try {
       rememberShooNext("account")
-      await beginShooSignIn()
+      if ((await beginShooSignIn()) === "browser") {
+        // A Home Screen app: the sign-in goes on in the browser and this app waits for it.
+        cancel()
+        setBusy(false)
+      }
     } catch (caught) {
       cancel()
       setError(caught instanceof Error ? caught.message : "Could not sign in.")

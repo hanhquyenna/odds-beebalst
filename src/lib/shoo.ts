@@ -1,3 +1,5 @@
+import { startPairing } from "@/lib/pairing"
+import { isInstalled } from "@/lib/push"
 import { ANON_KEY, SUPABASE_URL } from "@/lib/supabase"
 import { signInWithTokenHash, storeSession, type Session } from "@/lib/auth"
 import { SHOO_CALLBACK_PATH, isShooCallback, pictureOfIdToken, tokenHashOf } from "@/lib/shoo-url"
@@ -29,9 +31,18 @@ async function shoo(): Promise<ShooAuthClient> {
   return client
 }
 
-/** Leaves the page for Google; Shoo sends the browser back to /auth/callback. */
-export async function beginShooSignIn(): Promise<void> {
+/**
+ * Leaves the page for Google; Shoo sends the browser back to /auth/callback ("redirect"). A Home Screen app cannot
+ * finish that trip (it comes back in another browser context, without the PKCE secret), so there the sign-in happens in
+ * the browser and the app collects it ("browser", see src/lib/pairing.ts).
+ */
+export async function beginShooSignIn(): Promise<"redirect" | "browser"> {
+  if (isInstalled()) {
+    await startPairing()
+    return "browser"
+  }
   await (await shoo()).startSignIn()
+  return "redirect"
 }
 
 interface BridgeReply {

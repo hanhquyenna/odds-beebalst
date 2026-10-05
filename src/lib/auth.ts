@@ -165,6 +165,51 @@ export async function adoptGuest(previous: Session | null, real: Session): Promi
   return data.moved ?? null
 }
 
+/**
+ * Signing a Home Screen app in through the browser (it cannot finish a Google sign-in itself). The app starts a pair
+ * and keeps its secret; the browser approves it once signed in; the app then collects its session.
+ */
+async function pairCall(body: Record<string, unknown>, accessToken?: string): Promise<Response> {
+  return fetch(`${SUPABASE_URL}/functions/v1/phone-link`, {
+    method: "POST",
+    headers: { apikey: ANON_KEY, "Content-Type": "application/json", ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function startDevicePair(): Promise<{ id: string; secret: string; expires_at: string }> {
+  const response = await pairCall({ action: "pair-start" })
+  const data = (await response.json().catch(() => ({}))) as { id?: string; secret?: string; expires_at?: string; error?: string }
+  if (!response.ok || !data.id || !data.secret || !data.expires_at) {
+    throw new Error(data.error ?? "Could not start sign-in")
+  }
+
+  return { id: data.id, secret: data.secret, expires_at: data.expires_at }
+}
+
+export async function approveDevicePair(session: Session, id: string): Promise<void> {
+  const response = await pairCall({ action: "pair-approve", id }, session.access_token)
+  if (!response.ok) {
+    const data = (await response.json().catch(() => ({}))) as { error?: string }
+    throw new Error(data.error ?? "Could not connect the app")
+  }
+}
+
+/** The session once the browser has approved, "waiting" before that, null when the pair is gone (expired or used). */
+export async function claimDevicePair(id: string, secret: string): Promise<Session | "waiting" | null> {
+  const response = await pairCall({ action: "pair-claim", id, secret })
+  if (response.status === 202) {
+    return "waiting"
+  }
+  if (!response.ok) {
+    return null
+  }
+  const session = toSession((await response.json()) as AuthResponse)
+  keep(session)
+
+  return session
+}
+
 /** A guest account's placeholder address, never shown as the person's email. */
 export function isGuestEmail(email: string | null | undefined): boolean {
   return Boolean(email && email.endsWith("@guest.odds.invalid"))

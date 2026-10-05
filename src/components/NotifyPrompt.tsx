@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { createPhoneLink, startGuestSession, type Session } from "@/lib/auth"
 import { useData } from "@/lib/data"
+import { useWaitingPair } from "@/lib/pairing"
 import { iosOtherBrowser, isInstalled, platformOf, turnOnNotifications, useHasPhone, usePush } from "@/lib/push"
 
 const HOME_CODE = "odds:home-code"
@@ -62,10 +63,12 @@ export function NotifyPrompt({ session }: { session: Session | null }): React.JS
   const push = usePush()
   const hasPhone = useHasPhone(session)
   const [hidden, setHidden] = useState<boolean>(false)
+  const waitingPair = useWaitingPair()
   const [busy, setBusy] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
 
-  if (hidden || data.status !== "ready" || !isInstalled()) {
+  // While the app waits for a sign-in in the browser, that card is the one on screen.
+  if (hidden || data.status !== "ready" || !isInstalled() || waitingPair) {
     return null
   }
 
