@@ -1,5 +1,4 @@
 import {
-  ArrowDown,
   ArrowLeft,
   ArrowRight,
   ArrowSquareOut,
@@ -22,7 +21,6 @@ import {
   CheckSquare,
   CircleNotch,
   Copy,
-  DotsThree,
   DotsThreeVertical,
   Envelope,
   Export,
@@ -35,7 +33,6 @@ import {
   ListChecks,
   Lock,
   MagnifyingGlass,
-  Minus,
   PencilSimple,
   Phone,
   Plus,
@@ -43,7 +40,6 @@ import {
   Question,
   Rows,
   SealCheck,
-  ShieldCheck,
   SortAscending,
   Star,
   Table,
@@ -52,7 +48,6 @@ import {
   type Icon,
   type IconProps,
   UploadSimple,
-  User,
   UsersThree,
   Warning,
   WifiHigh,
@@ -69,7 +64,6 @@ const bold =
   (Glyph: Icon) =>
   (props: IconProps): React.JSX.Element => <Glyph weight="bold" {...props} />
 
-export const ArrowDownIcon = bold(ArrowDown)
 export const ArrowLeftIcon = bold(ArrowLeft)
 export const ArrowRightIcon = bold(ArrowRight)
 export const BadgeCheckIcon = bold(SealCheck)
@@ -91,16 +85,13 @@ export const HashIcon = bold(Hash)
 export const InfoIcon = bold(Info)
 export const LinkIcon = bold(LinkSimple)
 export const Loader2Icon = bold(CircleNotch)
-export const MinusIcon = bold(Minus)
 export const OctagonXIcon = bold(XCircle)
 export const PlusIcon = bold(Plus)
 export const SquareCheckIcon = bold(CheckSquare)
 export const TriangleAlertIcon = bold(Warning)
 export const TypeIcon = bold(TextT)
 export const UploadIcon = bold(UploadSimple)
-export const UserRoundIcon = bold(User)
 export const XIcon = bold(X)
-export const ShieldCheckIcon = bold(ShieldCheck)
 export const BoardIcon = bold(Kanban)
 export const TableIcon = bold(Table)
 export const RowsIcon = bold(Rows)
@@ -119,7 +110,6 @@ export const BatteryIcon = bold(BatteryFull)
 export const BookOpenIcon = bold(BookOpen)
 export const SignalIcon = bold(CellSignalFull)
 export const CopyIcon = bold(Copy)
-export const DotsThreeIcon = bold(DotsThree)
 export const DotsThreeVerticalIcon = bold(DotsThreeVertical)
 export const ShareIcon = bold(Export)
 export const LockIcon = bold(Lock)

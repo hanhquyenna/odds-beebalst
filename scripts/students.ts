@@ -1,4 +1,4 @@
-/** The test students shared by check-students.ts and check-strength-profiles.ts. */
+/** The test students shared by check-students.ts and check-profile-facts.ts. */
 import { DEFAULT_PROFILE, type Profile } from "../src/lib/types"
 
 const pos = (Title: string, company: string, Location: string, from: string, to: string, Description = "") => ({ Title, "Company Name": company, Location, "Started On": from, "Finished On": to, Description })

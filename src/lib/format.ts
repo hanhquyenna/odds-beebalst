@@ -1,12 +1,4 @@
-import { useSyncExternalStore } from "react"
 import type { Posting } from "@/lib/types"
-
-/** Within a day of going up counts as new. */
-export const NEW_FOR_DAYS = 1
-
-export function isNewPosting(post: Pick<Posting, "days_open" | "freshness_state">): boolean {
-  return post.days_open !== null && post.freshness_state !== "still_listed_30_plus" && post.days_open <= NEW_FOR_DAYS
-}
 
 /** Whole days from the employer's posting date (YYYY-MM-DD) to today, by calendar day. */
 export function daysSince(posted: string, now = new Date()): number {
@@ -63,21 +55,6 @@ export function stripMarkup(text: string): string {
     .replace(/&#(\d+);/g, (_, dec: string) => String.fromCodePoint(Number(dec)))
     .replace(/&([a-z]+);/gi, (whole, name: string) => named[name.toLowerCase()] ?? whole)
     .replace(/\n{3,}/g, "\n\n")
-}
-
-/** Wide enough for the job beside the list: a laptop or an iPad held sideways. Tailwind's lg. */
-const WIDE_QUERY = "(min-width: 1024px)"
-
-export function useIsWide(): boolean {
-  return useSyncExternalStore(
-    (onChange) => {
-      const query = window.matchMedia(WIDE_QUERY)
-      query.addEventListener("change", onChange)
-
-      return () => query.removeEventListener("change", onChange)
-    },
-    () => window.matchMedia(WIDE_QUERY).matches,
-  )
 }
 
 /**

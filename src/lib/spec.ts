@@ -1,27 +1,11 @@
 import type { Reference } from "@/lib/jobs"
-import { isInternship, levelOf, type Level } from "@/lib/engine"
+import { isInternship } from "@/lib/engine"
 import { formatHourly, formatPosted } from "@/lib/format"
 import internPay from "@/lib/intern-pay.json"
 import type { Posting } from "@/lib/types"
 
-/**
- * The same four facts about every job, in the same order, in the same words.
- * Rows, the job page and the filters all read from here, so "Senior" or
- * "Dutch needed" never appears as something else somewhere else.
- */
-export interface Spec {
-  level: Level
-  language: "English" | "Dutch needed"
-  sponsor: "IND sponsor" | "No sponsor listed"
-  pay: "Stated" | "Typical" | "Allowance" | "Not known"
-}
-
-export const SPEC_LABEL: Record<keyof Spec, string> = {
-  level: "Level",
-  language: "Language",
-  sponsor: "Sponsor",
-  pay: "Pay",
-}
+/** Where a job's pay figure comes from, in the same words everywhere. */
+export type PayBasis = "Stated" | "Typical" | "Allowance" | "Not known"
 
 export type AllowanceSource = "Allowance stated in the posting" | "Allowance this employer states in its postings" | "Typical internship allowance, from employers that state it"
 
@@ -30,7 +14,7 @@ export interface Pay {
   text: string | null
   /** Where the figure comes from, in the words shown under it. */
   source: "Stated by the employer" | "Typical for this kind of job" | "Typical traineeship pay" | AllowanceSource | null
-  basis: Spec["pay"]
+  basis: PayBasis
   /** True when the figure is an hourly rate the employer states, not a monthly amount. */
   perHour?: true
 }
@@ -156,13 +140,4 @@ export function payMid(post: Posting, reference: Reference | null): { month: num
   const band = reference && post.cbs_group ? reference.bands[post.cbs_group] : null
 
   return band ? { month: (Number(band.p50_hourly) * 2080 * 1.08) / 12, basis: "Typical" } : null
-}
-
-export function specOf(post: Posting, reference: Reference | null): Spec {
-  return {
-    level: levelOf(post),
-    language: post.dutch_required ? "Dutch needed" : "English",
-    sponsor: post.ind_sponsor ? "IND sponsor" : "No sponsor listed",
-    pay: payOf(post, reference).basis,
-  }
 }

@@ -1,6 +1,6 @@
 /**
  * Asks TypeSafe Jev how much each line of a posting insists on it, and (with --write) stores the answer in postings.requirements.
- * Reads the FULL stored text (restore it first with scripts/restore-full-bodies.py), cuts it into candidate lines with their
+ * Reads the full stored text, cuts it into candidate lines with their
  * headings (src/lib/req-lines.ts), and tiers each line against the definitions in src/lib/req-prompt.ts.
  *
  *   set -a; . ./.env.local; set +a

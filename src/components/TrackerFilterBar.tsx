@@ -1,17 +1,6 @@
 import { STEPS } from "@/components/PipelineBoard"
 import { MultiPick } from "@/components/JobFilters"
-import { buttonVariants } from "@/components/ui/button"
-import { cn } from "cn"
 import { NO_TRACKER_FILTER, isTrackerFilterOn, type TrackerFilter } from "@/lib/tracker"
-
-/** A filter that is on or off, drawn like the other filters in the row. */
-export function ToggleFilter({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }): React.JSX.Element {
-  return (
-    <button type="button" aria-pressed={on} onClick={onClick} className={cn(buttonVariants({ variant: "outline" }), "h-10 cursor-pointer border-border bg-background px-3 font-medium", on && "border-brand bg-accent")}>
-      {children}
-    </button>
-  )
-}
 
 /**
  * The filters on your own search, in the same row as the job filters: which statuses to show.

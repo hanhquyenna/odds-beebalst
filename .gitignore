@@ -48,3 +48,6 @@ public/outreach/*.bak
 
 # Agent worktrees: separate checkouts, never part of this one.
 .claude/worktrees/
+
+# Output of scripts/validate-linkedin.ts: review, apply, do not commit
+CLOSE_LINKEDIN_*.sql

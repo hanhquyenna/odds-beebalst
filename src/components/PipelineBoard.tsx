@@ -232,21 +232,3 @@ function JobCard({ card, onOpen, onMove }: { card: Card; onOpen: () => void; onM
     </article>
   )
 }
-
-/** How many jobs are at each step, as one plain line under the title. Counts only. */
-export function PipelineSummary(): React.JSX.Element {
-  const data = useData()
-  const applied = new Set(data.applications.map((a) => a.posting_id))
-  const saved = [...data.postings, ...data.keptExtra].filter((p) => data.saved.has(p.id) && !applied.has(p.id)).length
-  const count = (...stages: Array<Application["stage"]>): number => data.applications.filter((a) => stages.includes(a.stage)).length
-  const parts = [
-    [saved, "saved"],
-    [count("applied"), "applied"],
-    [count("interview"), count("interview") === 1 ? "interview" : "interviews"],
-    [count("offer", "hired"), count("offer", "hired") === 1 ? "offer" : "offers"],
-    [data.people.length, data.people.length === 1 ? "person" : "people"],
-  ] as const
-  const shown = parts.filter(([n]) => n > 0).map(([n, label]) => `${n} ${label}`)
-
-  return <p className="text-sm text-muted-foreground tabular-nums">{shown.length ? shown.join("  ·  ") : "Nothing tracked yet"}</p>
-}

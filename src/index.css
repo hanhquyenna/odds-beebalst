@@ -1,8 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/fraunces";
-@import "@fontsource-variable/geist";
 @import "@fontsource-variable/inter-tight";
 
 @custom-variant dark (&:is(.dark *));
@@ -68,9 +66,8 @@
     /* PALETTE IS WHITE, BLACK AND ORANGE. The owner chose it and rejected blue twice. Do not change the hues in this block without asking them. */
     /* A white canvas, near-black ink and cool grey. One accent (vermilion) for
        what is saved, what is new and the focus ring. Meaning has its own quiet
-       pastels: green for met, yellow for care, red for missing. Geist is the
-       one family the app is set in; Fraunces is kept for the front page and
-       the long-read pages only. */
+       pastels: green for met, yellow for care, red for missing. Inter Tight is
+       the one family the app is set in. */
     --background: oklch(0.997 0.002 70);
     --paper: oklch(0.96 0.02 70);
     --foreground: oklch(0.17 0.004 60);
@@ -208,21 +205,6 @@
     .odds-wordmark:hover img {
         animation: odds-wave 600ms ease;
     }
-}
-
-/* Leaflet paints its own blue and its own typeface. These pull the map back
-   into the warm paper palette; the class names are passed to L.circle and
-   friends in AreaMap. */
-.leaflet-container {
-    background: var(--muted);
-    font-family: var(--font-sans);
-}
-
-/* Chrome leaves a hairline seam between tiles at fractional zoom, which
-   showed as a white line down the middle of the map. The usual Leaflet
-   workaround: blending the tiles closes the gap. */
-.leaflet-container img.leaflet-tile {
-    mix-blend-mode: plus-lighter;
 }
 
 

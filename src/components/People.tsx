@@ -2,7 +2,6 @@ import { PersonAvatar } from "@/components/PersonAvatar"
 import { useMemo, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
 import { ChevronDownIcon, ExternalLinkIcon, InfoIcon, MessageIcon, PlusIcon, TrashIcon, XIcon } from "@/components/icons"
-import { Section } from "@/components/Section"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { useData } from "@/lib/data"
 import { suggestReferrals } from "@/lib/linkedin"
@@ -15,7 +14,6 @@ import { MIND_MAP, SOURCES, type MapNode } from "@/lib/outreach-strategy"
 import { openResearch } from "@/lib/research-link"
 import { addPage, canFindMore, dropPerson, firstPage, hasFree, isUrl, linkedinHref, linkedinPeopleSearch, rankForJob, readPast, revealNext, whyThisPerson, type Suggestion } from "@/lib/suggest"
 import { saved } from "@/lib/saved"
-import { templatesOf } from "@/lib/templates"
 import { useFollowDays } from "@/lib/follow-days"
 import { useNow } from "@/lib/use-now"
 import { useViewConfig } from "@/lib/views"
@@ -28,7 +26,7 @@ import { applyPeopleFilter, isPeopleFilterOn } from "@/lib/people-table"
 import type { usePeopleViews } from "@/lib/use-people-views"
 import { formatPlace } from "@/lib/format"
 import { STAGES, nextStep, stamp } from "@/lib/outreach-stage"
-import { CONTACT_STATUSES, MESSAGE_KINDS, type ContactStatus, type MessageKind, type MessageTemplate, type PastSearch, type Person, type Posting } from "@/lib/types"
+import { CONTACT_STATUSES, type ContactStatus, type PastSearch, type Person, type Posting } from "@/lib/types"
 
 /**
  * A button in the toolbar above the list: white with an outline, the same height as Jobs, List and Sort beside it.
@@ -829,53 +827,6 @@ function PersonRow({ person, show, n }: { person: Person; show: (key: string) =>
   )
 }
 
-/** Your templates: edit the wording, add your own, or go back to the starting set. */
-export function TemplatesEditor({ onClose }: { onClose: () => void }): React.JSX.Element {
-  const data = useData()
-  const templates = templatesOf(data.profile)
-  const set = (next: MessageTemplate[] | null): void => data.setProfile({ ...data.profile, templates: next })
-  const edit = (id: string, patch: Partial<MessageTemplate>): void => set(templates.map((t) => (t.id === id ? { ...t, ...patch } : t)))
-
-  return (
-    <div className="flex flex-col gap-3 rounded-xl border-[1.5px] bg-card p-4">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-lg font-semibold tracking-tight">Outreach message templates</h3>
-        <button type="button" onClick={onClose} aria-label="Close" className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-          <XIcon className="size-4" aria-hidden="true" />
-        </button>
-      </div>
-      <ul className="flex flex-col gap-3">
-        {templates.map((t) => (
-          <li key={t.id} className="flex flex-col gap-2 rounded-lg border-[1.5px] p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <input aria-label="Template name" value={t.name} onChange={(e) => edit(t.id, { name: e.target.value })} className={`${field} min-w-44 flex-1 font-medium`} />
-              <select aria-label="Kind" value={t.kind} onChange={(e) => edit(t.id, { kind: e.target.value as MessageKind })} className={field}>
-                {MESSAGE_KINDS.map((k) => (
-                  <option key={k}>{k}</option>
-                ))}
-              </select>
-              <button type="button" aria-label={`Delete ${t.name}`} onClick={() => set(templates.filter((x) => x.id !== t.id))} className="flex size-9 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:text-foreground">
-                <TrashIcon className="size-4" aria-hidden="true" />
-              </button>
-            </div>
-            <textarea aria-label={`Wording of ${t.name}`} value={t.body} onChange={(e) => edit(t.id, { body: e.target.value })} className="min-h-28 rounded-lg border-[1.5px] bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none" />
-          </li>
-        ))}
-      </ul>
-      <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" onClick={() => set([...templates, { id: crypto.randomUUID(), name: "New template", kind: "Other", body: "Hi {name},\n\n" }])} className="cursor-pointer">
-          <PlusIcon className="size-4" aria-hidden="true" /> Add a template
-        </Button>
-        {data.profile.templates ? (
-          <Button variant="ghost" size="sm" onClick={() => set(null)} className="cursor-pointer text-muted-foreground">
-            Back to the starting set
-          </Button>
-        ) : null}
-      </div>
-    </div>
-  )
-}
-
 /**
  * The people table: everyone in your search, grouped by company and then by the
  * position they are linked to. A person linked to a job shows on that job, and a
@@ -1117,41 +1068,5 @@ function PeopleBoard({ people: shown, onOpen, sortKey, dir, show }: { people: Re
         )
       })}
     </div>
-  )
-}
-
-/** On a job: the people linked to it, and a quick way to add one. The same records as the People table. */
-export function PeopleForJob({ post }: { post: Posting }): React.JSX.Element {
-  const data = useData()
-  const [adding, setAdding] = useState<boolean>(false)
-  const linked = data.people.filter((p) => p.jobId === post.id)
-
-  return (
-    <Section title={`People at ${post.employer_display}`}>
-      {linked.length > 0 ? (
-        <ul className="divide-y-[1.5px] border-y-[1.5px]">
-          {linked.map((p) => (
-            <li key={p.id} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3">
-              <span className="font-medium">{p.name}{p.role ? <span className="font-normal text-muted-foreground"> · {p.role}</span> : null}</span>
-              <span className="text-sm text-muted-foreground">
-                {p.status}
-                {p.status === "Referred" ? <span className="text-good-foreground"> · counted in your chance</span> : null}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-sm text-muted-foreground">No one linked to this job yet. Add a referral and it counts in your interview chance.</p>
-      )}
-      <div className="mt-3">
-        {adding ? (
-          <AddPerson fixedJob={post} onDone={() => setAdding(false)} />
-        ) : (
-          <Button variant="outline" size="sm" onClick={() => setAdding(true)} className="cursor-pointer">
-            <PlusIcon className="size-4" aria-hidden="true" /> Add a person
-          </Button>
-        )}
-      </div>
-    </Section>
   )
 }
