@@ -16,7 +16,7 @@ from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAP = os.path.join(ROOT, "src/lib/company-logos.json")          # employer -> source url (kept as the source of truth)
-OUT_MAP = os.path.join(ROOT, "src/lib/company-logos-local.json")  # employer -> /logos/<file>.png or null
+OUT_MAP = os.path.join(ROOT, "src/lib/company-logos-local.json")  # employer -> /logos/<file>.png, or the source url when it could not be cut out (the only map the app reads)
 OUT_DIR = os.path.join(ROOT, "public/logos")
 MAX_SIDE = 256
 
@@ -215,7 +215,7 @@ def main():
         except Exception as e:  # network or decode
             res, note = None, f"error: {e}"
         if res is None:
-            local[name] = None
+            local[name] = url
             report["fallback"].append((name, note))
         else:
             fname = hashlib.md5(name.encode()).hexdigest()[:10] + ".png"

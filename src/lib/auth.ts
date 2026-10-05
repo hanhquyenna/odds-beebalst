@@ -76,7 +76,7 @@ function toSession(data: AuthResponse): Session | null {
 
 /** A one-time code that signs a phone in: "qr" for the QR code on a computer, "home" for an iPhone's Home Screen app. */
 export async function createPhoneLink(session: Session, kind: "qr" | "home"): Promise<{ code: string; expires_at: string }> {
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/phone-link`, {
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/account`, {
     method: "POST",
     headers: { apikey: ANON_KEY, Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ action: "create", kind }),
@@ -103,7 +103,7 @@ async function phoneLinkSession(): Promise<Session | null> {
   params.delete("link")
   window.history.replaceState(null, "", `${window.location.pathname}${params.size > 0 ? `?${params}` : ""}${window.location.hash}`)
   try {
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/phone-link`, {
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/account`, {
       method: "POST",
       headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
       body: JSON.stringify({ action: "redeem", code }),
@@ -126,7 +126,7 @@ async function phoneLinkSession(): Promise<Session | null> {
  */
 export async function startGuestSession(): Promise<Session | null> {
   try {
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/phone-link`, {
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/account`, {
       method: "POST",
       headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
       body: JSON.stringify({ action: "guest" }),
@@ -152,7 +152,7 @@ export async function adoptGuest(previous: Session | null, real: Session): Promi
   if (!previous || !isGuestEmail(previous.user.email) || previous.user.id === real.user.id) {
     return null
   }
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/phone-link`, {
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/account`, {
     method: "POST",
     headers: { apikey: ANON_KEY, Authorization: `Bearer ${real.access_token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ action: "adopt", guest_token: previous.access_token }),
@@ -170,7 +170,7 @@ export async function adoptGuest(previous: Session | null, real: Session): Promi
  * and keeps its secret; the browser approves it once signed in; the app then collects its session.
  */
 async function pairCall(body: Record<string, unknown>, accessToken?: string): Promise<Response> {
-  return fetch(`${SUPABASE_URL}/functions/v1/phone-link`, {
+  return fetch(`${SUPABASE_URL}/functions/v1/account`, {
     method: "POST",
     headers: { apikey: ANON_KEY, "Content-Type": "application/json", ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
     body: JSON.stringify(body),
@@ -273,7 +273,7 @@ export function keepSessionFresh(onRefresh: (session: Session) => void): () => v
   }
 }
 
-/** Signs in with the one-time token the verify-shoo bridge hands back. Same session shape as every other door. */
+/** Signs in with the one-time token the account/shoo bridge hands back. Same session shape as every other door. */
 export async function signInWithTokenHash(tokenHash: string): Promise<Session> {
   const session = toSession(await call("verify", { type: "magiclink", token_hash: tokenHash }))
   if (!session) {

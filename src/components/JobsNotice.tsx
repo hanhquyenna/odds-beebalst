@@ -4,42 +4,11 @@ import { SourceLogo } from "@/components/SourceChips"
 
 /**
  * The job boards shown on the board. Only boards the sync really reads belong here (public/sources has more logos,
- * but Indeed, Glassdoor, Monster and Jobbird are not read). Edit this list and CLAIM when the sync changes.
+ * but Indeed and Glassdoor are not read). Edit this list and CLAIM when the sync changes.
  */
 const BOARDS = ["LinkedIn", "Magnet.me", "AcademicTransfer"]
 const CLAIM_PLAIN = "the boards students use, in one"
 const CLAIM_ACCENT = "place."
-
-const KEY = "odds:jobs-notice-closed"
-
-function read(): boolean {
-  try {
-    return localStorage.getItem(KEY) === "1"
-  } catch {
-    return false
-  }
-}
-
-function write(closed: boolean): void {
-  try {
-    localStorage.setItem(KEY, closed ? "1" : "0")
-  } catch {
-    // The board still opens and closes without storage; it just will not be remembered.
-  }
-}
-
-/** Whether the board is closed, remembered in the browser. The link that brings it back sits beside the job count, so the page holds both. */
-export function useJobsNotice(): [boolean, (closed: boolean) => void] {
-  const [closed, setClosed] = useState<boolean>(read)
-
-  return [
-    closed,
-    (next) => {
-      setClosed(next)
-      write(next)
-    },
-  ]
-}
 
 /**
  * The board at the top of the jobs: what this is and which job boards the jobs are taken from. It can be

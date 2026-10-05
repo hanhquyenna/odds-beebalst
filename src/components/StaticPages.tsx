@@ -325,6 +325,6 @@ export function StaticPageView({ page, onBack, onOpenPage }: { page: StaticPage 
     case "terms":
       return <TermsPage onBack={onBack} />
     case "research":
-      return <ResearchPage onBack={onBack} onOpenPage={onOpenPage} />
+      return <ResearchPage onBack={onBack} />
   }
 }

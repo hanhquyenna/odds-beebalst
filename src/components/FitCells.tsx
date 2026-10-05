@@ -39,8 +39,8 @@ export function useOriginalChance(post: Posting): number | null {
  * The interview chance, the one number every job has: the higher it is, the better your profile fits. A range of whole percentages. Nothing is
  * a hard gate: what the job asks for and you have not ticked is named in the hover, and ticking it on the job is a recommendation.
  */
-export function ChanceCell({ st, post }: { st: Standing | null; post?: Posting }): React.JSX.Element {
-  const original = useOriginalChance(post ?? ({ id: "", employer: "" } as Posting))
+export function ChanceCell({ st, post }: { st: Standing | null; post: Posting }): React.JSX.Element {
+  const original = useOriginalChance(post)
   if (!st) {
     return <span className="text-muted-foreground">…</span>
   }
@@ -60,7 +60,7 @@ export function ChanceCell({ st, post }: { st: Standing | null; post?: Posting }
   }
   return (
     <span className="font-medium tabular-nums" title={`Estimate ${point(st.rate.mid)} (studies range ${pct(st.rate.low, 1)}–${pct(st.rate.high, 1)}) per application${st.rate.thin ? ". Few postings of this kind to compare with." : ""}${st.failing > 0 ? `. This job also asks for: ${st.gates.filter((g) => g.status === "fail").map((g) => g.name).join(", ")}.` : ""}`}>
-      <Moved delta={post && original !== null && !st.rate.thin ? (st.rate.mid - original) * 100 : 0} min={0.05} wasText={original === null ? "" : point(original)}>
+      <Moved delta={original !== null && !st.rate.thin ? (st.rate.mid - original) * 100 : 0} min={0.05} wasText={original === null ? "" : point(original)}>
         {point(st.rate.mid)}
       </Moved>
     </span>

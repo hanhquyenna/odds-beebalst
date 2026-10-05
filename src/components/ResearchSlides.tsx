@@ -1,11 +1,6 @@
+import { REPORTS } from "@/content/research"
 import type { Report } from "@/content/research/types"
 import type { StaticPage } from "@/lib/pages"
-
-const modules = import.meta.glob<{ default?: Report }>("../content/research/reports/*.ts", { eager: true })
-const REPORTS: Report[] = Object.values(modules)
-  .map((m) => m.default)
-  .filter((r): r is Report => Boolean(r))
-  .sort((a, b) => a.order - b.order)
 
 function Slide({ report, onOpen }: { report: Report; onOpen: (slug: string) => void }): React.JSX.Element {
   return (

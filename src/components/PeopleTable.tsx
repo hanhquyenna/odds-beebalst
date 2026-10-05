@@ -1,15 +1,12 @@
 import { Fragment, useMemo, useState } from "react"
-import { AddPropertyForm } from "@/components/AddProperty"
-import { ChevronDownIcon, ExternalLinkIcon, PlusIcon, XIcon } from "@/components/icons"
-import { GroupByButton } from "@/components/GroupByButton"
-import { AllMark, BulkBar, DeleteDialog, RowMark, useSelection } from "@/components/TableSelect"
+import { AddPropertyHeader, DeletePropertyButton } from "@/components/AddProperty"
+import { ChevronDownIcon, ExternalLinkIcon } from "@/components/icons"
+import { AllMark, BulkBar, DeleteDialog, RowMark, TableBar, useSelection } from "@/components/TableSelect"
 import { PersonAvatar } from "@/components/PersonAvatar"
 import { PropertyField } from "@/components/JobProperties"
 import { EDIT_COLORS, openStatusColors } from "@/components/StatusPicker"
 import { peopleChoices } from "@/components/ViewSettings"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { overrideOf } from "@/lib/cells"
-import { removeColumn } from "@/lib/columns"
 import { useData } from "@/lib/data"
 import { downloadCsv, toCsv } from "@/lib/export-csv"
 import { useFollowDays } from "@/lib/follow-days"
@@ -247,15 +244,7 @@ export function PeopleTable({ people, onOpenPerson, onOpenJob, viewName, toolbar
 
   return (
     <div className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card">
-      <div className="no-scrollbar flex flex-nowrap items-center gap-3 overflow-x-auto border-b-[1.5px] border-line px-3 py-2.5 text-sm sm:flex-wrap sm:justify-between sm:px-4 [&>*]:shrink-0">
-        <span className="text-muted-foreground">
-          {total} {total === 1 ? "person" : "people"}
-        </span>
-        <span className="flex items-center gap-2 sm:flex-wrap [&>*]:shrink-0">
-          {toolbar}
-          <GroupByButton value={groupBy} groups={GROUPS} onChange={(key) => view.update({ groupBy: key })} />
-        </span>
-      </div>
+      <TableBar lead={`${total} ${total === 1 ? "person" : "people"}`} toolbar={toolbar} groupBy={groupBy} groups={GROUPS} onGroupBy={(key) => view.update({ groupBy: key })} />
 
       {selection.some ? <BulkBar count={selection.chosen.size} onExport={() => exportRows(selection.chosen)} onDelete={() => setDeleting("chosen")} onClear={selection.clear} /> : null}
       {deleting ? <DeleteDialog count={selection.chosen.size} noun={{ one: "person", many: "people" }} onConfirm={() => removePeople(selection.chosen)} onCancel={() => setDeleting(null)} /> : null}
@@ -275,23 +264,12 @@ export function PeopleTable({ people, onOpenPerson, onOpenJob, viewName, toolbar
                   <span className="flex items-center justify-between gap-2">
                     {header(c.label, c.key)}
                     {c.key.startsWith("p:") ? (
-                      <button type="button" aria-label={`Delete ${c.label}`} title={`Delete ${c.label}`} onClick={() => data.setProfile(removeColumn(profile, c.label, "people"))} className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-60 hover:text-destructive hover:opacity-100">
-                        <XIcon className="size-3.5" aria-hidden="true" />
-                      </button>
+                      <DeletePropertyButton label={c.label} kind="people" />
                     ) : null}
                   </span>
                 </th>
               ))}
-              <th scope="col" className="w-12 border-b-[1.5px] border-line px-3 py-2.5 text-left">
-                <Popover>
-                  <PopoverTrigger aria-label="Add a property" title="Add a property" className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground">
-                    <PlusIcon className="size-4" aria-hidden="true" />
-                  </PopoverTrigger>
-                  <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)] p-1.5">
-                    <AddPropertyForm kind="people" />
-                  </PopoverContent>
-                </Popover>
-              </th>
+              <AddPropertyHeader kind="people" />
             </tr>
           </thead>
           <tbody>

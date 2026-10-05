@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { useData } from "@/lib/data"
-import { parseCsv } from "@/lib/csv"
+import { readLinkedInExport } from "@/lib/csv"
 import { DUTCH_OPTIONS, ORIGIN_OPTIONS, PERMIT_OPTIONS, STUDYING_OPTIONS, asks, type FormState, type Step } from "@/lib/journey"
 
 // Lazy like the journey itself: the upload box (with its reader and parser)
@@ -207,20 +207,8 @@ function ImportQuestion({ review, space, wide }: { review: boolean; space: strin
     if (!files) {
       return
     }
-    const reads = [...files].map(
-      (file) =>
-        new Promise<Partial<typeof profile>>((resolve) => {
-          const reader = new FileReader()
-          reader.onload = () => {
-            const rows = parseCsv(typeof reader.result === "string" ? reader.result : "")
-            const name = file.name.toLowerCase()
-            resolve(name.includes("position") ? { positions: rows } : name.includes("education") ? { education: rows } : name.includes("skill") ? { skills: rows } : name.includes("language") ? { languages: rows } : {})
-          }
-          reader.readAsText(file)
-        }),
-    )
-    void Promise.all(reads).then((patches) => {
-      data.setProfile({ ...profile, ...Object.assign({}, ...patches) })
+    void readLinkedInExport(files).then((patch) => {
+      data.setProfile({ ...profile, ...patch })
       setNames([...files].map((f) => f.name))
     })
   }

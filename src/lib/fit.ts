@@ -8,7 +8,7 @@
  * The weights are our assumption, since no study measures them; they are written here
  * and shown on the job page, not hidden.
  */
-export interface FitPart {
+interface FitPart {
   key: "skills" | "level" | "role" | "field" | "consistency" | "strength"
   label: string
   /** 0 to 1 */
@@ -68,14 +68,14 @@ export function words(text: string): string[] {
 
 export const stem = (w: string): string => w.replace(/(ing|ers|er|ies|es|s)$/, "")
 
-export type WantedTier = "must" | "strong" | "optional" | "nice" | "unspecified"
+type WantedTier = "must" | "strong" | "optional" | "nice" | "unspecified"
 
 /**
  * How much each kind of requirement counts when the skills are compared. A must-have counts fully, a
  * nice-to-have a fifth. "Unspecified" is a skill the posting names without saying how much it insists
  * (the list read off the text, or a posting with no requirements part). The weights are our assumption.
  */
-export const TIER_WEIGHT: Record<WantedTier, number> = { must: 1, strong: 0.7, optional: 0.4, nice: 0.2, unspecified: 0.6 }
+const TIER_WEIGHT: Record<WantedTier, number> = { must: 1, strong: 0.7, optional: 0.4, nice: 0.2, unspecified: 0.6 }
 
 export interface FitInput {
   title: string

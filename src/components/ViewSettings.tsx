@@ -14,7 +14,7 @@ export interface Choice {
 const BIG_FIRST = new Set(["pay", "chance", "match", "newest", "posted", "level"])
 
 /** What "ascending" and "descending" mean for each thing a view can be sorted by, in words that fit it. */
-export function directionLabels(key: string): { asc: string; desc: string } {
+function directionLabels(key: string): { asc: string; desc: string } {
   if (["pay", "chance", "match"].includes(key)) {
     return { asc: "Low to high", desc: "High to low" }
   }

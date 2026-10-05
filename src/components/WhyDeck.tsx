@@ -119,7 +119,7 @@ interface Column {
  * A column chart drawn to scale: the heights are the figures, on one thick baseline. Each number rides on top of its own column. A range is a
  * solid column with a dashed cut-line box on top for the part that is only known as a range. The columns grow when the slide opens.
  */
-function Columns({ columns, heightClass = "h-32 @xl:h-36 @3xl:h-56" }: { columns: ReadonlyArray<Column>; heightClass?: string }): React.JSX.Element {
+function Columns({ columns }: { columns: ReadonlyArray<Column> }): React.JSX.Element {
   const drawn = useDrawn()
   const t = useTone()
   const move = "transition-[height,bottom] duration-1000 ease-out motion-reduce:transition-none"
@@ -136,7 +136,7 @@ function Columns({ columns, heightClass = "h-32 @xl:h-36 @3xl:h-56" }: { columns
 
           return (
             <div key={c.label} className="flex justify-center">
-              <div className={`relative w-4/5 max-w-28 ${heightClass}`}>
+              <div className="relative h-32 w-4/5 max-w-28 @xl:h-36 @3xl:h-56">
                 <div className={`absolute inset-x-0 bottom-0 rounded-t-xl ${move} ${c.tone === "accent" ? t.accent : t.base}`} style={{ height: pct(solid), transitionDelay: delay }} />
                 {c.solidTo !== undefined ? (
                   <div className={`absolute inset-x-0 rounded-t-xl border-2 border-b-0 border-dashed ${move} ${t.dash}`} style={{ bottom: pct(c.solidTo), height: drawn ? `${(c.share - c.solidTo) * 100}%` : "0%", transitionDelay: delay }} />

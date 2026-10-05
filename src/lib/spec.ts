@@ -5,7 +5,7 @@ import internPay from "@/lib/intern-pay.json"
 import type { Posting } from "@/lib/types"
 
 /** Where a job's pay figure comes from, in the same words everywhere. */
-export type PayBasis = "Stated" | "Typical" | "Allowance" | "Not known"
+type PayBasis = "Stated" | "Typical" | "Allowance" | "Not known"
 
 export type AllowanceSource = "Allowance stated in the posting" | "Allowance this employer states in its postings" | "Typical internship allowance, from employers that state it"
 
@@ -26,7 +26,7 @@ export interface Pay {
  * posting's own amount first, else what the same employer states in its other
  * postings, else the middle half across the employers that state one.
  */
-export const INTERN_MARKET = internPay.market
+const INTERN_MARKET = internPay.market
 const INTERN_POSTINGS = internPay.postings as unknown as Record<string, [number, number]>
 const INTERN_EMPLOYERS = internPay.employers as unknown as Record<string, { low: number | null; high: number | null; postings: number }>
 

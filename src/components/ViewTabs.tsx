@@ -5,7 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import type { ViewLayout } from "@/lib/types"
 
 /** What a tab needs of a view: the views of jobs and of people both have these. */
-export interface TabView {
+interface TabView {
   id: string
   name: string
   layout: ViewLayout

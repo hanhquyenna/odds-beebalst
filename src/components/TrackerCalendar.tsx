@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { ChevronLeftIcon, ChevronRightIcon } from "@/components/icons"
-import { stepOf } from "@/components/PipelineBoard"
+import { stepOf } from "@/components/job-steps"
 import { applicationOf } from "@/components/tracker-values"
 import { useData } from "@/lib/data"
 import { useFollowDays } from "@/lib/follow-days"
@@ -13,11 +13,11 @@ import type { Person, Posting } from "@/lib/types"
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 const MAX_PER_DAY = 3
 
-export interface CalendarItem {
+interface CalendarItem {
   id: string
 }
 
-export interface CalendarProps<T extends CalendarItem> {
+interface CalendarProps<T extends CalendarItem> {
   items: ReadonlyArray<T>
   /** The dates the calendar can be laid out by. */
   dateProps: ReadonlyArray<{ key: string; label: string }>
@@ -37,7 +37,7 @@ export interface CalendarProps<T extends CalendarItem> {
  * A month with items on their days, shared by the jobs and the people. The date comes from a property you choose (the day you applied, a nudge due, any date of your own).
  * Each item is a small chip with a coloured dot; a day with more than three shows the rest when asked;
  */
-export function ItemCalendar<T extends CalendarItem>({ items, dateProps, dateKey, onDateKey, dateOf, label, hint, color, dim, onOpen }: CalendarProps<T>): React.JSX.Element {
+function ItemCalendar<T extends CalendarItem>({ items, dateProps, dateKey, onDateKey, dateOf, label, hint, color, dim, onOpen }: CalendarProps<T>): React.JSX.Element {
   const [cursor, setCursor] = useState<{ y: number; m: number }>(() => {
     const now = new Date()
 

@@ -2,10 +2,10 @@ import { useMemo, useState } from "react"
 import { FilterEditor } from "@/components/JobFilters"
 import { PencilIcon, XIcon } from "@/components/icons"
 import { Tracker } from "@/components/Tracker"
-import { DEFAULT_FILTERS, applyFilters } from "@/lib/filters"
+import { DEFAULT_FILTERS, applyFilters, type JobFilters } from "@/lib/filters"
 import { useSavedViews } from "@/lib/use-saved-views"
 import { Button } from "@/components/ui/button"
-import { useData } from "@/lib/data"
+import { useData, type Data } from "@/lib/data"
 import { standing } from "@/lib/engine"
 import { profileFields } from "@/lib/field"
 import { fitFilters, withFitLanguage } from "@/lib/fit-filters"
@@ -54,7 +54,6 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
   const saved = useSavedViews("fit")
   const { filters } = saved
   const [step, setStep] = useState<0 | 1 | 2>(0)
-  const [editing, setEditing] = useState<boolean>(false)
 
   const fields = useMemo(() => profileFields(data.profile), [data.profile])
   // English unless a language is chosen, and until a line of work is chosen, the ones your profile points to (src/lib/fit-filters.ts, shared with the morning message).
@@ -62,10 +61,8 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
   const needsProfile = data.profile.positions.length === 0 && data.profile.education.length === 0
 
   const shown = useMemo(() => {
-    const applied = new Set(data.applications.map((a) => a.posting_id))
-    const open = data.postings.filter((post) => !post.local && !post.closed_at && !data.saved.has(post.id) && !applied.has(post.id) && !data.passed.has(post.id))
     // Newest first; a job with no posting date goes last.
-    return [...applyFilters(open, effective, { signals: data.signals, reference: data.reference })].sort((x, y) => (x.days_open ?? 1e9) - (y.days_open ?? 1e9) || x.title.localeCompare(y.title))
+    return [...applyFilters(notYours({ postings: data.postings, applications: data.applications, saved: data.saved, passed: data.passed }), effective, { signals: data.signals, reference: data.reference })].sort((x, y) => (x.days_open ?? 1e9) - (y.days_open ?? 1e9) || x.title.localeCompare(y.title))
   }, [data.postings, data.saved, data.applications, data.passed, data.signals, data.reference, effective])
 
   if (!data.reference) return null
@@ -73,22 +70,9 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
   const footer = <MoreRow total={shown.length} step={step} setStep={setStep} />
 
   return (
-    <section aria-label="Jobs that fit you" className="mt-10 flex flex-col gap-4">
-      <div className="flex items-center gap-3">
-        <h2 className="text-xl font-semibold tracking-tight">Jobs that fit you</h2>
-        <button type="button" aria-label="Edit your job preferences" title="Edit your job preferences" onClick={() => setEditing(true)} className="flex size-9 cursor-pointer items-center justify-center rounded-full border-[1.5px] border-line bg-card text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground">
-          <PencilIcon className="size-4" aria-hidden="true" />
-        </button>
-      </div>
-      {editing ? <PreferencesDialog filters={effective} onChange={saved.setFilters} onClose={() => setEditing(false)} /> : null}
-      {needsProfile ? (
-        <ImportPrompt what="the jobs that fit you" />
-      ) : shown.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nothing here fits your preferences. Loosen them with the pencil.</p>
-      ) : (
-        <Tracker posts={shown} onOpen={onOpen} viewName={saved.configName} rowLimit={rowLimit} footer={footer} dismissible />
-      )}
-    </section>
+    <FitSection label="Jobs that fit you" heading="Jobs that fit you" what="the jobs that fit you" filters={effective} onChange={saved.setFilters} needsProfile={needsProfile} empty={shown.length === 0}>
+      <Tracker posts={shown} onOpen={onOpen} viewName={saved.configName} rowLimit={rowLimit} footer={footer} dismissible />
+    </FitSection>
   )
 }
 
@@ -101,16 +85,13 @@ export function HearBackTable({ onOpen }: { onOpen: (post: Posting) => void }): 
   const saved = useSavedViews("fit")
   const { filters } = saved
   const [step, setStep] = useState<0 | 1 | 2>(0)
-  const [editing, setEditing] = useState<boolean>(false)
   const needsProfile = data.profile.positions.length === 0 && data.profile.education.length === 0
   const { strengthFor } = data
 
   const shown = useMemo(() => {
     if (!data.reference || !data.shares || needsProfile) return []
-    const applied = new Set(data.applications.map((a) => a.posting_id))
-    const open = data.postings.filter((post) => !post.local && !post.closed_at && !data.saved.has(post.id) && !applied.has(post.id) && !data.passed.has(post.id))
     const rows: Array<{ post: Posting; mid: number }> = []
-    for (const post of applyFilters(open, withFitLanguage(filters), { signals: data.signals, reference: data.reference })) {
+    for (const post of applyFilters(notYours({ postings: data.postings, applications: data.applications, saved: data.saved, passed: data.passed }), withFitLanguage(filters), { signals: data.signals, reference: data.reference })) {
       const rate = standing(post, data.profile, data.reference, data.shares, undefined, data.referrals.has(post.id), strengthFor(post)).rate
       if (rate && !rate.thin) rows.push({ post, mid: rate.mid })
     }
@@ -124,15 +105,26 @@ export function HearBackTable({ onOpen }: { onOpen: (post: Posting) => void }): 
   const rowLimit = step === 2 ? shown.length : STEPS[step]
 
   return (
-    <section aria-label="Jobs you are most likely to hear back from" className="mt-10 flex flex-col gap-4">
+    <FitSection label="Jobs you are most likely to hear back from" heading="Jobs you're most likely to hear back" what="the jobs you're most likely to hear back from" filters={filters} onChange={saved.setFilters} needsProfile={needsProfile} empty={shown.length === 0}>
+      <Tracker posts={shown} onOpen={onOpen} viewName={`${saved.configName}-hear` as `v:${string}`} rowLimit={rowLimit} footer={<MoreRow total={shown.length} step={step} setStep={setStep} />} dismissible />
+    </FitSection>
+  )
+}
+
+/** One of the two job lists: its heading with the pencil for your preferences, then the jobs, or the import prompt until a profile is in. */
+function FitSection({ label, heading, what, filters, onChange, needsProfile, empty, children }: { label: string; heading: string; what: string; filters: JobFilters; onChange: (next: JobFilters) => void; needsProfile: boolean; empty: boolean; children: React.ReactNode }): React.JSX.Element {
+  const [editing, setEditing] = useState<boolean>(false)
+
+  return (
+    <section aria-label={label} className="mt-10 flex flex-col gap-4">
       <div className="flex items-center gap-3">
-        <h2 className="text-xl font-semibold tracking-tight">Jobs you&apos;re most likely to hear back</h2>
+        <h2 className="text-xl font-semibold tracking-tight">{heading}</h2>
         <button type="button" aria-label="Edit your job preferences" title="Edit your job preferences" onClick={() => setEditing(true)} className="flex size-9 cursor-pointer items-center justify-center rounded-full border-[1.5px] border-line bg-card text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground">
           <PencilIcon className="size-4" aria-hidden="true" />
         </button>
       </div>
-      {editing ? <PreferencesDialog filters={withFitLanguage(filters)} onChange={saved.setFilters} onClose={() => setEditing(false)} /> : null}
-      {needsProfile ? <ImportPrompt what="the jobs you're most likely to hear back from" /> : shown.length === 0 ? <p className="text-sm text-muted-foreground">Nothing here fits your preferences. Loosen them with the pencil.</p> : <Tracker posts={shown} onOpen={onOpen} viewName={`${saved.configName}-hear` as `v:${string}`} rowLimit={rowLimit} footer={<MoreRow total={shown.length} step={step} setStep={setStep} />} dismissible />}
+      {editing ? <PreferencesDialog filters={withFitLanguage(filters)} onChange={onChange} onClose={() => setEditing(false)} /> : null}
+      {needsProfile ? <ImportPrompt what={what} /> : empty ? <p className="text-sm text-muted-foreground">Nothing here fits your preferences. Loosen them with the pencil.</p> : children}
     </section>
   )
 }
@@ -153,7 +145,7 @@ function ImportPrompt({ what }: { what: string }): React.JSX.Element {
  * What you want, set in one place, the way a job site asks: how recent, what level of job, where, which line of work, which language. The jobs that fit you are narrowed to these,
  * then ranked by your interview chance. They are kept with the profile.
  */
-function PreferencesDialog({ filters, onChange, onClose }: { filters: Parameters<typeof applyFilters>[1]; onChange: (next: Parameters<typeof applyFilters>[1]) => void; onClose: () => void }): React.JSX.Element {
+function PreferencesDialog({ filters, onChange, onClose }: { filters: JobFilters; onChange: (next: JobFilters) => void; onClose: () => void }): React.JSX.Element {
   return (
     <div role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()} className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
       <div role="dialog" aria-modal="true" aria-label="Job preferences" onKeyDown={(e) => e.key === "Escape" && onClose()} className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-xl border-[1.5px] bg-card shadow-lg">
@@ -206,4 +198,11 @@ function NotInterested(): React.JSX.Element | null {
       </ul>
     </div>
   )
+}
+
+/** The open jobs that are not yours yet: not kept, applied to or dismissed, and not added by you. */
+function notYours(data: Pick<Data, "postings" | "applications" | "saved" | "passed">): Posting[] {
+  const applied = new Set(data.applications.map((a) => a.posting_id))
+
+  return data.postings.filter((post) => !post.local && !post.closed_at && !data.saved.has(post.id) && !applied.has(post.id) && !data.passed.has(post.id))
 }

@@ -1,21 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { moveJob } from "@/components/PipelineBoard"
+import { OFFER_EVENT, moveJob, type Pending } from "@/components/job-steps"
 import { Button } from "@/components/ui/button"
 import { useData } from "@/lib/data"
 import { point, standing } from "@/lib/engine"
 import type { Posting } from "@/lib/types"
-
-export const OFFER_EVENT = "odds:confirm-offer"
-
-interface Pending {
-  post: Posting
-  fit: string
-}
-
-/** Asks for the offer to be confirmed, then celebrates it and offers to share it. */
-export function askAboutOffer(post: Posting, fit: string): void {
-  window.dispatchEvent(new CustomEvent<Pending>(OFFER_EVENT, { detail: { post, fit } }))
-}
 
 /** The card people can post: what they got and the chance they beat. Drawn here, nothing is uploaded. */
 function drawCard(post: Posting, chance: string | null): Promise<Blob | null> {

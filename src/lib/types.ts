@@ -77,7 +77,7 @@ export interface Band {
   cagr_2019_2024: number | null
 }
 
-export interface Bracket { upto?: number; above?: number; rate: number }
+interface Bracket { upto?: number; above?: number; rate: number }
 export interface Credit { max: number; phase_out_start: number; phase_out_rate: number; zero_at: number }
 
 export interface TaxParams {
@@ -115,7 +115,7 @@ export const CONTACT_STATUSES: ReadonlyArray<ContactStatus> = ["To contact", "Co
 export type MessageKind = "Referral request" | "Follow-up" | "Thank you" | "Introduction" | "Other"
 
 /** A message kept on a person: what was said, when, and whether it went out. */
-export interface SavedMessage {
+interface SavedMessage {
   id: string
   date: string
   kind: MessageKind
@@ -205,7 +205,7 @@ export interface PayChoices {
 }
 
 /** The recommendation boxes ticked on one job, kept so they are still there next time. */
-export interface JobTicks {
+interface JobTicks {
   dutch: boolean
   years: number
   skills: string[]

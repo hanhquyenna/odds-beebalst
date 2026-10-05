@@ -5,7 +5,7 @@ import { useData } from "@/lib/data"
 
 /**
  * Paste a LinkedIn job link and it joins the shared list for everyone, and your tracker. The backend does the checking, and nothing is paid for until the
- * link is a real job link and the job is not already here (see supabase/functions/add-job). A job we already hold is simply put in your tracker.
+ * link is a real job link and the job is not already here (see supabase/functions/jobs/add.ts). A job we already hold is simply put in your tracker.
  */
 export function AddFromLinkedIn({ onDone }: { onDone: (message: string) => void }): React.JSX.Element {
   const data = useData()

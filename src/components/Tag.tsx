@@ -13,7 +13,7 @@ export function ageText(post: Posting): string {
 }
 
 /** The four standard facts of a job, in this order and these words, for a line of plain text or a key-facts block. */
-export function factsOf(post: Posting): Array<{ label: string; value: string; known: boolean; filter?: Partial<JobFilters>; hint?: string }> {
+function factsOf(post: Posting): Array<{ label: string; value: string; known: boolean; filter?: Partial<JobFilters>; hint?: string }> {
   const industry = industryOf(post)
   const level = levelOf(post)
 

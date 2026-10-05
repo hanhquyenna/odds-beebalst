@@ -100,7 +100,7 @@ export function stageIndex(status: ContactStatus): number {
 }
 
 /** What a person is sorted by for a property's header: a number or a text, or null where there is nothing (those go last). `jobTitle` is the title of the linked job; `custom` reads a property you added. */
-export function peopleSortValue(p: Person, key: string, jobTitle: string, custom: (name: string) => string, now: Date = new Date(), days: number = NUDGE_AFTER_DAYS): string | number | null {
+function peopleSortValue(p: Person, key: string, jobTitle: string, custom: (name: string) => string, now: Date = new Date(), days: number = NUDGE_AFTER_DAYS): string | number | null {
   switch (key) {
     case "name":
       return p.name.toLowerCase()

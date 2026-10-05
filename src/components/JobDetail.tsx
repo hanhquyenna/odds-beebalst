@@ -8,7 +8,8 @@ import { SourceLinks } from "@/components/SourceChips"
 import { StatusPicker } from "@/components/StatusPicker"
 import { JobProperties } from "@/components/JobProperties"
 import { Hint } from "@/components/Hint"
-import { CareerLadder, FitCard, LockedPersonal, PayCard, Recommendations, Section, UspStrip } from "@/components/JobPersonal"
+import { CareerLadder, FitCard, LockedPersonal, PayCard, Recommendations, UspStrip } from "@/components/JobPersonal"
+import { Section } from "@/components/Section"
 import { useData } from "@/lib/data"
 import { saved as notifySaved } from "@/lib/saved"
 import { isWhatIfActive, NO_WHAT_IF, standing, type WhatIf } from "@/lib/engine"
@@ -21,8 +22,6 @@ import { fetchBody, fetchJevRequirements } from "@/lib/jobs"
 import type { Posting } from "@/lib/types"
 
 interface JobDetailProps {
-  /** Said above the facts when the job has been judged before. */
-  note?: string | null
   onBack: () => void
   /** Called after a tag has narrowed the list, so a panel over the list can get out of the way. */
   onPick?: () => void
@@ -40,7 +39,7 @@ interface JobDetailProps {
  * posting is open to anyone. What the questions unlock is the personal part:
  * whether you clear it, your chance, what you keep after tax, your permit.
  */
-export function JobDetail({ note, onBack, onPick, onOpenJob, post, pane = false, locked }: JobDetailProps): React.JSX.Element {
+export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locked }: JobDetailProps): React.JSX.Element {
   useBackEntry(post.id, onBack, !pane)
   const data = useData()
   const [body, setBody] = useState<string | null>(post.body ?? null)
@@ -105,7 +104,6 @@ export function JobDetail({ note, onBack, onPick, onOpenJob, post, pane = false,
   const pay = payOf(post, data.reference)
   const saved = data.saved.has(post.id)
   const [asking, setAsking] = useState<boolean>(false)
-  const active = isWhatIfActive(whatIf)
   const fit = base ? (base.failing === 0 ? "met every requirement" : base.failing === 1 ? "missing one requirement" : "missing several requirements") : ""
 
   return (
@@ -150,7 +148,6 @@ export function JobDetail({ note, onBack, onPick, onOpenJob, post, pane = false,
           <StatusPicker post={post} fit={fit} onLocked={locked?.onUnlock} />
           <SourceLinks post={post} />
         </div>
-        {note ? <p className="text-sm text-muted-foreground">{note}</p> : null}
         {locked ? <KeyFacts post={post} onPick={onPick} /> : null}
       </header>
 
@@ -159,19 +156,19 @@ export function JobDetail({ note, onBack, onPick, onOpenJob, post, pane = false,
       ) : (
         <>
           <JobProperties post={job} st={st} />
-          <UspStrip post={job} st={st} base={base} active={active} />
+          <UspStrip post={job} st={st} />
           <Recommendations post={job} base={base} whatIf={whatIf} setWhatIf={setWhatIf} />
           <FitCard post={job} st={st} requirements={requirements} />
         </>
       )}
 
       {body !== "" ? (
-        <Section title="About the job">{body ? <PostingText body={body} employer={post.employer_display} /> : <p className="text-sm text-muted-foreground">Loading the posting…</p>}</Section>
+        <Section title="About the job">{body ? <PostingText body={body} /> : <p className="text-sm text-muted-foreground">Loading the posting…</p>}</Section>
       ) : null}
 
       <AboutCompany post={post} />
 
-      {st ? <PayCard post={post} st={st} onPick={onPick} /> : null}
+      {st ? <PayCard post={post} st={st} /> : null}
 
       {st ? <CareerLadder post={post} st={st} onPick={onPick} /> : null}
 

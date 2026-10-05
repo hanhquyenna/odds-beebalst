@@ -32,7 +32,7 @@ interface Meter {
  * that cannot be scored (a requirement is missing, or too few similar postings)
  * adds nothing.
  */
-export function useMeter(excluding?: string, kind: "interview" | "job" = "interview"): Meter {
+function useMeter(kind: "interview" | "job" = "interview"): Meter {
   const data = useData()
   const scale = kind === "job" ? JOB_PER_INTERVIEW : 1
   const applications = data.applications
@@ -48,7 +48,7 @@ export function useMeter(excluding?: string, kind: "interview" | "job" = "interv
     if (reference && shares) {
       for (const app of applications) {
         const post = byId.get(app.posting_id)
-        if (!post || post.id === excluding) {
+        if (!post) {
           continue
         }
         const st = standing(post, profile, reference, shares, NO_WHAT_IF, referrals.has(post.id), strengthFor(post))
@@ -59,20 +59,13 @@ export function useMeter(excluding?: string, kind: "interview" | "job" = "interv
     }
 
     return { low: together(contributions.map((c): number => c.low)), mid: together(contributions.map((c): number => c.mid)), high: together(contributions.map((c): number => c.high)), contributions: contributions }
-  }, [applications, byId, profile, reference, shares, referrals, strengthFor, excluding, scale])
+  }, [applications, byId, profile, reference, shares, referrals, strengthFor, scale])
 }
 
 const SEGMENTS = 10
 
-/**
- * The odds as ten cells that fill like a charge: the low figure solid, the stretch
- * up to the high figure lighter. Milestones at a quarter, a half and three
- * quarters are marked underneath.
- */
-export function OddsBar({ low, high, label, tone = "brand", color }: { low: number; high: number; label: string; tone?: "brand" | "ink"; /** The bar in this colour (the status colour it stands for), instead of the tone. */ color?: string }): React.JSX.Element {
-  const solid = tone === "ink" ? "bg-foreground" : "bg-brand"
-  const soft = tone === "ink" ? "bg-foreground/25" : "bg-brand/30"
-
+/** The odds as ten cells that fill like a charge, in the colour of the status they stand for. */
+function OddsBar({ value, label, color }: { value: number; label: string; color: string }): React.JSX.Element {
   return (
     <div role="img" aria-label={label} className="flex flex-col">
       <div className="grid grid-cols-10 gap-1">
@@ -81,8 +74,7 @@ export function OddsBar({ low, high, label, tone = "brand", color }: { low: numb
 
           return (
             <div key={i} className="relative h-3.5 overflow-hidden rounded-[3px] bg-secondary">
-              <div className={`absolute inset-y-0 left-0 ${color ? "" : soft} transition-[width] duration-700 ease-out`} style={{ width: `${at(high) * 100}%`, ...(color ? { backgroundColor: color, opacity: 0.3 } : {}) }} />
-              <div className={`absolute inset-y-0 left-0 ${color ? "" : solid} transition-[width] duration-700 ease-out`} style={{ width: `${at(low) * 100}%`, ...(color ? { backgroundColor: color } : {}) }} />
+              <div className="absolute inset-y-0 left-0 transition-[width] duration-700 ease-out" style={{ width: `${at(value) * 100}%`, backgroundColor: color }} />
             </div>
           )
         })}
@@ -90,7 +82,6 @@ export function OddsBar({ low, high, label, tone = "brand", color }: { low: numb
     </div>
   )
 }
-
 
 /** The logos of the companies behind the number, each one counted. */
 function Contributors({ items }: { items: Contribution[] }): React.JSX.Element | null {
@@ -111,7 +102,7 @@ function Contributors({ items }: { items: Contribution[] }): React.JSX.Element |
 }
 
 /** One kind of odds: its name, the figure, the bar. */
-function OddsRow({ title, mid, tone = "brand", aside, note }: { title: string; mid: number; tone?: "brand" | "ink"; aside?: React.ReactNode; note?: React.ReactNode }): React.JSX.Element {
+function OddsRow({ title, mid, offer = false, aside }: { title: string; mid: number; /** The job-offer odds rather than the interview odds. */ offer?: boolean; aside?: React.ReactNode }): React.JSX.Element {
   // The interview odds wear the Interview colour and the job odds the Offer colour, so the bars agree with the counts and the statuses.
   const colors = statusColors(useData().profile.statusColors)
 
@@ -124,8 +115,7 @@ function OddsRow({ title, mid, tone = "brand", aside, note }: { title: string; m
         </p>
         <p className="text-lg font-semibold tabular-nums">{mid === 0 ? "0%" : point(mid)}</p>
       </div>
-      <OddsBar low={mid} high={mid} tone={tone} color={tone === "ink" ? colors.offer : colors.interview} label={`${title} ${mid === 0 ? "0%" : point(mid)}`} />
-      {note ? <p className="text-[0.8125rem] text-muted-foreground tabular-nums">{note}</p> : null}
+      <OddsBar value={mid} color={offer ? colors.offer : colors.interview} label={`${title} ${mid === 0 ? "0%" : point(mid)}`} />
     </div>
   )
 }
@@ -139,7 +129,7 @@ export function SearchSummary(): React.JSX.Element {
   const [explain, setExplain] = useState<boolean>(false)
   const [chances, setChances] = useState<boolean>(false)
   const interview = useMeter()
-  const job = useMeter(undefined, "job")
+  const job = useMeter("job")
   const applied = new Set(data.applications.map((a) => a.posting_id))
   const saved = [...data.postings, ...data.keptExtra].filter((p) => data.saved.has(p.id) && !applied.has(p.id)).length
   const count = (...stages: string[]): number => data.applications.filter((a) => stages.includes(a.stage)).length
@@ -181,7 +171,7 @@ export function SearchSummary(): React.JSX.Element {
       <div className="border-t-[1.5px] border-line px-6 pt-7 pb-6 sm:px-8">
         <div className="grid gap-8 lg:grid-cols-2 lg:gap-12">
           <OddsRow title={total > 0 ? `At least one interview from your ${total} ${total === 1 ? "application" : "applications"}` : "At least one interview"} mid={interview.mid} aside={<Contributors items={interview.contributions} />} />
-          <OddsRow title={total > 0 ? `At least one job offer from your ${total} ${total === 1 ? "application" : "applications"}` : "At least one job offer"} mid={job.mid} tone="ink" />
+          <OddsRow title={total > 0 ? `At least one job offer from your ${total} ${total === 1 ? "application" : "applications"}` : "At least one job offer"} mid={job.mid} offer />
         </div>
         <button type="button" aria-expanded={explain} aria-controls="odds-explained" onClick={() => setExplain(!explain)} className="mt-6 inline-flex cursor-pointer items-center gap-1 text-sm font-medium underline underline-offset-4">
           How does it work <Caret open={explain} />

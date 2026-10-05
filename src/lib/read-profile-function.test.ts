@@ -1,5 +1,5 @@
 /**
- * The real Edge Function code (supabase/functions/read-profile/index.ts) run end to end against a fake Supabase and a fake Jev:
+ * The real Edge Function code (supabase/functions/profile/read.ts) run end to end against a fake Supabase and a fake Jev:
  * what it reads, what it keeps, what it does not read twice, and what it does when things go wrong.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
@@ -31,9 +31,6 @@ beforeEach(async () => {
   world = { profile: null, facts: new Map(), jevCalls: [], jev: (s) => goodJev(s), usedToday: 0, key: "test-key", signedIn: true }
   ;(globalThis as unknown as { Deno: unknown }).Deno = {
     env: { get: (k: string) => ({ SUPABASE_URL: "https://x.supabase.co", SUPABASE_ANON_KEY: "anon", SUPABASE_SERVICE_ROLE_KEY: "service", TYPESAFE_API_KEY: world.key })[k] },
-    serve: (h: (req: Request) => Promise<Response>) => {
-      handler = h
-    },
   }
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
@@ -61,15 +58,14 @@ beforeEach(async () => {
     }
     throw new Error(`unexpected fetch ${url}`)
   }) as typeof fetch
-  // Load a fresh copy of the function so it registers its handler on the fake Deno.
-  await import(`../../supabase/functions/read-profile/index.ts?${Math.random()}`)
+  handler = (await import("../../supabase/functions/profile/read.ts")).readProfile
 })
 afterEach(() => {
   globalThis.fetch = realFetch
 })
 
 const call = async (): Promise<{ status: number; body: { items?: Array<{ hash: string; facts: Row }>; pending?: number; total?: number; error?: string } }> => {
-  const res = await handler(new Request("https://x/functions/v1/read-profile", { method: "POST", headers: { Authorization: "Bearer jwt" }, body: "{}" }))
+  const res = await handler(new Request("https://x/functions/v1/profile/read", { method: "POST", headers: { Authorization: "Bearer jwt" }, body: "{}" }))
 
   return { status: res.status, body: (await res.json()) as never }
 }
@@ -79,7 +75,7 @@ const profile = (): Row => ({
   education: [{ "School Name": "Erasmus University", "Degree Name": "MSc Finance", Notes: "Cum laude" }],
 })
 
-describe("read-profile function", () => {
+describe("profile/read function", () => {
   test("reads every part of the saved profile once and returns the facts", async () => {
     world.profile = profile()
     const r = await call()
@@ -226,7 +222,7 @@ describe("read-profile function", () => {
   })
   test("only the person's own saved profile is read: the user id comes from the sign-in, not from the request", async () => {
     world.profile = profile()
-    const res = await handler(new Request("https://x/functions/v1/read-profile", { method: "POST", headers: { Authorization: "Bearer jwt" }, body: JSON.stringify({ user_id: "someone-else", profile: { cv: "Forged entry about Goldman Sachs" } }) }))
+    const res = await handler(new Request("https://x/functions/v1/profile/read", { method: "POST", headers: { Authorization: "Bearer jwt" }, body: JSON.stringify({ user_id: "someone-else", profile: { cv: "Forged entry about Goldman Sachs" } }) }))
     expect(res.status).toBe(200)
     expect(world.jevCalls.every((s) => !s.includes("Forged"))).toBe(true)
     expect([...world.facts.values()].every((r) => r.user_id === "user-1")).toBe(true)

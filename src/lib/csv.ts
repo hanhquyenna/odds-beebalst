@@ -1,4 +1,4 @@
-import type { Row } from "@/lib/types"
+import type { Profile, Row } from "@/lib/types"
 
 /** The separator a file uses: comma, semicolon (Excel in the Netherlands), tab or bar, whichever the first lines hold most of outside quotes. */
 export function detectDelimiter(text: string): string {
@@ -86,4 +86,18 @@ export function parseCsv(text: string): Row[] {
     .slice(headerAt + 1)
     .filter((r) => r.length >= width)
     .map((r) => Object.fromEntries(header.map((h, i) => [h, (r[i] ?? "").trim()])))
+}
+
+/** The profile rows in a LinkedIn data export, each CSV placed by its file name (Positions, Education, Skills, Languages); other files add nothing. */
+export async function readLinkedInExport(files: FileList): Promise<Partial<Profile>> {
+  const patches = await Promise.all(
+    [...files].map(async (file): Promise<Partial<Profile>> => {
+      const rows = parseCsv(await file.text())
+      const name = file.name.toLowerCase()
+
+      return name.includes("position") ? { positions: rows } : name.includes("education") ? { education: rows } : name.includes("skill") ? { skills: rows } : name.includes("language") ? { languages: rows } : {}
+    }),
+  )
+
+  return Object.assign({}, ...patches)
 }

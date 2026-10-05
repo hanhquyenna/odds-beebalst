@@ -1,4 +1,4 @@
-// Supabase Edge Function: add one LinkedIn job, pasted by anyone, to the shared postings table, so every user sees it.
+// POST /jobs/add: add one LinkedIn job, pasted by anyone, to the shared postings table, so every user sees it.
 // The browser sends { url }. Nothing is paid for until the link is a real LinkedIn job link AND the job is not already in the table:
 //   1. the link is checked (one job address, https, LinkedIn only)        -> 422, free
 //   2. the table is asked for that address                                -> "exists" or "closed", free
@@ -8,7 +8,7 @@
 //   6. otherwise one row is inserted, read by the same rules as the loaders (supabase/functions/_shared/job-intake.ts)
 // There is no limit per person. A single ceiling for everyone together (JOB_GLOBAL_LIMIT, 2,000 a day unless set) only stops a runaway.
 // Secrets: APIFY_JOB_TOKEN (falls back to APIFY_TOKEN). SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided by Supabase.
-// Deploy:  supabase functions deploy add-job --project-ref ukpmpyfcnbhngkgbnkxi --no-verify-jwt
+import { imageDataUrl, reply } from "../_shared/http.ts"
 import { factsRow, industryFromLinkedIn, sameCompany, smallLogoOf, type CompanyItem } from "../_shared/company-facts.ts"
 import { cityOf, inNetherlands, parseJobUrl, readVerdict, rowFromDetails, type JobDetails, type KnownEmployer } from "../_shared/job-intake.ts"
 
@@ -21,18 +21,6 @@ const GLOBAL_LIMIT = (() => {
 
   return Number.isFinite(n) && n > 0 ? n : 2000
 })()
-
-const cors = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-}
-const reply = (status: number, body: unknown): Response => new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } })
-
-const sameTitle = (a: string, b: string): boolean => {
-  const t = (x: string): string => x.toLowerCase().replace(/\b(m ?\/ ?[fvwxd]( ?\/ ?[dx])?|f ?\/ ?m( ?\/ ?[dx])?|all genders)\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim()
-
-  return t(a) === t(b)
-}
 
 interface Held {
   id: string
@@ -47,77 +35,8 @@ interface Held {
 }
 const COLUMNS = "id,employer,title,region,closed_at,employer_display,ind_sponsor,ind_sponsor_name,industry"
 
-/** A small picture from LinkedIn's own image servers as a data URL, or null. Only a picture, and not a large one. */
-async function logoData(address: string | undefined): Promise<string | null> {
-  try {
-    if (!address) return null
-    const u = new URL(address)
-    if (u.protocol !== "https:" || !/(^|\.)licdn\.com$/.test(u.hostname)) return null
-    const res = await fetch(u, { signal: AbortSignal.timeout(8000) })
-    const type = res.headers.get("content-type") ?? ""
-    if (!res.ok || !type.startsWith("image/")) return null
-    const bytes = new Uint8Array(await res.arrayBuffer())
-    if (bytes.length === 0 || bytes.length > LOGO_MAX) return null
-    let binary = ""
-    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-
-    return `data:${type};base64,${btoa(binary)}`
-  } catch {
-    return null
-  }
-}
-
-/**
- * After a job is added: give its employer a logo and, if the employer is new to us, its facts (founded, size, headquarters, description) and an industry.
- * The logo comes with the job read, so it is free. The company page costs about $0.004 and is read only for an employer with no facts yet.
- * Anything that goes wrong here is left out of the answer, never an error: the job is already saved.
- */
-async function enrich(base: string, rest: Record<string, string>, apify: string, employer: string, display: string, hint: { logo?: string; page?: string } = {}): Promise<{ logo: boolean; facts: boolean; industry: string | null }> {
-  const out = { logo: false, facts: false, industry: null as string | null }
-  try {
-    const key = encodeURIComponent(employer)
-    const existing = ((await (await fetch(`${base}/rest/v1/employer_facts?employer=eq.${key}&select=employer,logo&limit=1`, { headers: rest })).json()) as Array<{ logo: string | null }>)[0]
-    let logo = await logoData(hint.logo)
-    if (existing) {
-      if (!existing.logo && logo) {
-        await fetch(`${base}/rest/v1/employer_facts?employer=eq.${key}`, { method: "PATCH", headers: { ...rest, "Content-Type": "application/json" }, body: JSON.stringify({ logo }) })
-        out.logo = true
-      }
-
-      return out
-    }
-    // The company page: its link when the job read gave one, else a search by the employer's name (a page that is not this employer's is dropped below).
-    const page = hint.page && COMPANY_URL.test(hint.page) ? hint.page.split("?")[0] : null
-    const run = await fetch(`https://api.apify.com/v2/acts/${COMPANY_ACTOR}/run-sync-get-dataset-items?token=${apify}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(page ? { companies: [page] } : { searches: [display.replace(/&amp;/g, "&")] }),
-      signal: AbortSignal.timeout(90_000),
-    })
-    const company = run.ok ? ((await run.json()) as CompanyItem[])[0] : undefined
-    const own = company && sameCompany(employer, company.name) ? company : undefined
-    if (!logo && own) logo = await logoData(smallLogoOf(own))
-    const row = factsRow(employer, own ?? { name: display, linkedinUrl: page ?? undefined }, logo)
-    const saved = await fetch(`${base}/rest/v1/employer_facts`, { method: "POST", headers: { ...rest, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(row) })
-    out.facts = saved.ok && Boolean(own)
-    out.logo = saved.ok && logo !== null
-    if (own?.employeeCount) {
-      await fetch(`${base}/rest/v1/employer_headcount`, { method: "POST", headers: { ...rest, "Content-Type": "application/json", Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ employer, read_on: new Date().toISOString().slice(0, 10), employees: own.employeeCount }) })
-    }
-    const industry = industryFromLinkedIn((own?.industries ?? []).map((i) => i.name ?? ""))
-    if (industry) {
-      await fetch(`${base}/rest/v1/postings?employer=eq.${key}&industry=is.null`, { method: "PATCH", headers: { ...rest, "Content-Type": "application/json" }, body: JSON.stringify({ industry }) })
-      out.industry = industry
-    }
-  } catch {
-    // leave it
-  }
-
-  return out
-}
-
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: cors })
+/** Adds the job at { url } unless it is already held, closed, unreadable or outside the Netherlands; answers { status, ... }. */
+export async function addJob(req: Request): Promise<Response> {
   if (req.method !== "POST") return reply(405, { error: "Use POST." })
 
   const base = Deno.env.get("SUPABASE_URL")
@@ -150,7 +69,7 @@ Deno.serve(async (req) => {
     // Already here: match it. If its employer has no logo or facts yet, fill those in too.
     const enriched = byUrl.closed_at ? undefined : await enrich(base, rest, apify, byUrl.employer, byUrl.employer_display ?? byUrl.employer)
 
-    return reply(200, { status: byUrl.closed_at ? "closed" : "exists", id: byUrl.id, title: byUrl.title, employer: byUrl.employer_display, enriched })
+    return reply(200, { status: byUrl.closed_at ? "closed" : "exists", id: byUrl.id, title: byUrl.title, employer: byUrl.employer_display, enriched: enriched })
   }
 
   // The paid read. One ceiling for everyone together, counted in the same table the profile import uses.
@@ -178,7 +97,7 @@ Deno.serve(async (req) => {
   const employer = (item["company.name"] ?? "").trim()
   const title = (item.title ?? "").trim()
   const place = (item.location ?? "").trim()
-  if (!inNetherlands(place)) return reply(200, { status: "not_netherlands", title, employer, place })
+  if (!inNetherlands(place)) return reply(200, { status: "not_netherlands", title: title, employer: employer, place: place })
 
   // 5. The same job under another address: the same employer, title and city, still open.
   const sameEmployer = await get(`employer=eq.${encodeURIComponent(employer)}&limit=300`)
@@ -186,7 +105,7 @@ Deno.serve(async (req) => {
   if (dup) {
     const enriched = await enrich(base, rest, apify, dup.employer, dup.employer_display ?? dup.employer, { logo: item["company.logo"], page: item["company.url"] })
 
-    return reply(200, { status: "exists", id: dup.id, title: dup.title, employer: dup.employer_display, enriched })
+    return reply(200, { status: "exists", id: dup.id, title: dup.title, employer: dup.employer_display, enriched: enriched })
   }
 
   // 6. Insert. A known employer lends its display name, sponsor flag and industry.
@@ -199,5 +118,61 @@ Deno.serve(async (req) => {
 
   const enriched = await enrich(base, rest, apify, employer, employer, { logo: item["company.logo"], page: item["company.url"] })
 
-  return reply(200, { status: "added", id: saved?.id ?? row.id, title, employer: row.employer_display, dutch_required: row.dutch_required, student_fit: row.student_fit, pay: row.pay_posted, enriched })
-})
+  return reply(200, { status: "added", id: saved?.id ?? row.id, title: title, employer: row.employer_display, dutch_required: row.dutch_required, student_fit: row.student_fit, pay: row.pay_posted, enriched: enriched })
+}
+
+/**
+ * After a job is added: give its employer a logo and, if the employer is new to us, its facts (founded, size, headquarters, description) and an industry.
+ * The logo comes with the job read, so it is free. The company page costs about $0.004 and is read only for an employer with no facts yet.
+ * Anything that goes wrong here is left out of the answer, never an error: the job is already saved.
+ */
+async function enrich(base: string, rest: Record<string, string>, apify: string, employer: string, display: string, hint: { logo?: string; page?: string } = {}): Promise<{ logo: boolean; facts: boolean; industry: string | null }> {
+  const out = { logo: false, facts: false, industry: null as string | null }
+  try {
+    const key = encodeURIComponent(employer)
+    const existing = ((await (await fetch(`${base}/rest/v1/employer_facts?employer=eq.${key}&select=employer,logo&limit=1`, { headers: rest })).json()) as Array<{ logo: string | null }>)[0]
+    let logo = await imageDataUrl(hint.logo, LOGO_MAX, 8000)
+    if (existing) {
+      if (!existing.logo && logo) {
+        await fetch(`${base}/rest/v1/employer_facts?employer=eq.${key}`, { method: "PATCH", headers: { ...rest, "Content-Type": "application/json" }, body: JSON.stringify({ logo: logo }) })
+        out.logo = true
+      }
+
+      return out
+    }
+    // The company page: its link when the job read gave one, else a search by the employer's name (a page that is not this employer's is dropped below).
+    const page = hint.page && COMPANY_URL.test(hint.page) ? hint.page.split("?")[0] : null
+    const run = await fetch(`https://api.apify.com/v2/acts/${COMPANY_ACTOR}/run-sync-get-dataset-items?token=${apify}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(page ? { companies: [page] } : { searches: [display.replace(/&amp;/g, "&")] }),
+      signal: AbortSignal.timeout(90_000),
+    })
+    const company = run.ok ? ((await run.json()) as CompanyItem[])[0] : undefined
+    const own = company && sameCompany(employer, company.name) ? company : undefined
+    if (!logo && own) logo = await imageDataUrl(smallLogoOf(own), LOGO_MAX, 8000)
+    const row = factsRow(employer, own ?? { name: display, linkedinUrl: page ?? undefined }, logo)
+    const saved = await fetch(`${base}/rest/v1/employer_facts`, { method: "POST", headers: { ...rest, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(row) })
+    out.facts = saved.ok && Boolean(own)
+    out.logo = saved.ok && logo !== null
+    if (own?.employeeCount) {
+      await fetch(`${base}/rest/v1/employer_headcount`, { method: "POST", headers: { ...rest, "Content-Type": "application/json", Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ employer: employer, read_on: new Date().toISOString().slice(0, 10), employees: own.employeeCount }) })
+    }
+    const industry = industryFromLinkedIn((own?.industries ?? []).map((i) => i.name ?? ""))
+    if (industry) {
+      await fetch(`${base}/rest/v1/postings?employer=eq.${key}&industry=is.null`, { method: "PATCH", headers: { ...rest, "Content-Type": "application/json" }, body: JSON.stringify({ industry: industry }) })
+      out.industry = industry
+    }
+  } catch {
+    // leave it
+  }
+
+  return out
+}
+
+/** Same job title, ignoring gender tags like (m/f/d) and punctuation. */
+function sameTitle(a: string, b: string): boolean {
+  const t = (x: string): string => x.toLowerCase().replace(/\b(m ?\/ ?[fvwxd]( ?\/ ?[dx])?|f ?\/ ?m( ?\/ ?[dx])?|all genders)\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim()
+
+  return t(a) === t(b)
+}

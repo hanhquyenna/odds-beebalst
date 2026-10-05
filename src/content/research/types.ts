@@ -1,5 +1,5 @@
 /** The kinds of line illustration a report can place as a figure. */
-export const ART_KINDS = ["funnel", "stairs", "door", "scales", "compass", "bridge", "map", "receipt", "lens", "thread", "clock", "seed"] as const
+const ART_KINDS = ["funnel", "stairs", "door", "scales", "compass", "bridge", "map", "receipt", "lens", "thread", "clock", "seed"] as const
 export type ArtKind = (typeof ART_KINDS)[number]
 
 /**
@@ -18,7 +18,7 @@ export type Block =
   /** Words to send, set apart and copyable on hover. */
   | { type: "message"; title: string; text: string; note?: string }
 
-export interface Section {
+interface Section {
   /** Numbered automatically: 1, 2, 3 ... */
   heading: string
   blocks: Block[]

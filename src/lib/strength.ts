@@ -1,6 +1,6 @@
 /**
  * How strong a person's track record is for one job: where they worked and in what position, what they have won, and the
- * grades they state. Jev reads each part of the saved profile once (Edge Function read-profile), against fixed categories,
+ * grades they state. Jev reads each part of the saved profile once (Edge Function profile, /profile/read), against fixed categories,
  * and the answers are stored per part. This file turns those stored facts into a number for any job with plain rules, so the
  * same facts always give the same number and every step can be read and tested. No model call happens per job.
  *
@@ -19,9 +19,9 @@ export const STANDING_TIERS = ["none", "known", "elite"] as const
 export const RECOGNITION_TIERS = ["none", "local", "national", "international"] as const
 export const GRADE_TIERS = ["none", "stated_high", "stated_top"] as const
 
-export type StandingTier = (typeof STANDING_TIERS)[number]
-export type RecognitionTier = (typeof RECOGNITION_TIERS)[number]
-export type GradeTier = (typeof GRADE_TIERS)[number]
+type StandingTier = (typeof STANDING_TIERS)[number]
+type RecognitionTier = (typeof RECOGNITION_TIERS)[number]
+type GradeTier = (typeof GRADE_TIERS)[number]
 
 /** What Jev read from one part of the profile (one role, one degree or one line of the CV). */
 export interface ItemFacts {
@@ -98,7 +98,7 @@ export function parseItemFacts(raw: unknown): ItemFacts | null {
 }
 
 /** The start of a part in the person's own words, up to its first full stop and no longer than a short line: "Financial Analyst, Vietcombank (Hanoi, Vietnam)". */
-export function headOf(text: string): string {
+function headOf(text: string): string {
   const first = text.split(/\.\s/)[0].replace(/\.$/, "").trim()
   if (first.length <= 90) return first
   const cut = first.slice(0, 90)

@@ -1,38 +1,19 @@
 # Supabase CLI settings for this project (ukpmpyfcnbhngkgbnkxi). Only what differs from the defaults is written here.
 project_id = "careerapp2"
 
-# Edge Functions. verify_jwt = false: the function is called without a signed-in user (the browser before sign-in,
-# pg_cron, or a phone opening a QR code) and checks what it needs itself (a secret header, a one-time code, a rate
-# limit). Deploying with the CLI reads these, so CI keeps the same settings as the live project.
-[functions.add-job]
+# Edge Functions: three, routed by sub-path (see each index.ts). Deploying with the CLI reads these, so CI keeps the
+# same settings as the live project.
+
+# Signing in: called before anyone is signed in (Google through Shoo, guest accounts, a phone opening a QR code). It
+# checks what it needs itself: the Shoo token, a one-time code, a rate limit.
+[functions.account]
 verify_jwt = false
 
-[functions.check-postings]
-verify_jwt = false
-
-[functions.check-public]
-verify_jwt = false
-
-[functions.suggest-referrals]
-verify_jwt = false
-
-[functions.morning-jobs]
-verify_jwt = false
-
-[functions.phone-link]
-verify_jwt = false
-
-# Google sign-in through Shoo: called before anyone is signed in; it verifies the Shoo token itself (signature, issuer,
-# and one of SHOO_APP_ORIGINS as audience).
-[functions.verify-shoo]
-verify_jwt = false
-
-# These need a signed-in user; the gateway checks the token first.
-[functions.import-linkedin]
+# The person's own profile; the gateway checks the token first (the anon key passes, for a LinkedIn import before sign-in).
+[functions.profile]
 verify_jwt = true
 
-[functions.read-profile]
-verify_jwt = true
-
-[functions.match-cv]
-verify_jwt = true
+# The job list: pg_cron (a secret header), anyone adding a job (a global limit), and signed-in calls that check the
+# token themselves (welcome, people).
+[functions.jobs]
+verify_jwt = false

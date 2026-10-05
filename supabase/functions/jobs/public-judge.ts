@@ -1,5 +1,5 @@
 // What a job page says about whether the job is still open. Pure functions: no network, no clock of their own (the time is passed in).
-// Used by the Edge Function check-public (Deno) and by the tests (bun).
+// Used by the jobs Edge Function (/jobs/check-public, Deno) and by the tests (bun).
 //
 // A job is CLOSED only on hard evidence: the page answers 404 or 410, its own structured data names a deadline (validThrough) that has passed,
 // or an EY careers page says "The Job is no longer available". A page that cannot be read at all is UNKNOWN and changes nothing.

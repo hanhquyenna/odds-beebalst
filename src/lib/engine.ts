@@ -8,7 +8,7 @@ import type { Strength } from "@/lib/strength"
 import type { Reference } from "@/lib/jobs"
 import type { Band, Credit, DutchLevel, PayChoices, PermitRoute, Posting, Profile, TaxParams } from "@/lib/types"
 
-export const HOURS_PER_YEAR = 2080
+const HOURS_PER_YEAR = 2080
 
 // One formatter for every euro amount: toLocaleString("en-NL") builds a new one on each call, which was half the cost of scoring a job.
 const EURO_FORMAT = new Intl.NumberFormat("en-NL")
@@ -94,11 +94,11 @@ function parseDate(value: string | undefined): Date | null {
   return year ? new Date(Number(year[1]), 0, 1) : null
 }
 
-export function ageOf(profile: Profile): number | null {
+function ageOf(profile: Profile): number | null {
   return profile.birth ? new Date().getFullYear() - profile.birth : null
 }
 
-export function ageBandOf(age: number | null): string | null {
+function ageBandOf(age: number | null): string | null {
   if (age == null) {
     return null
   }
@@ -116,7 +116,7 @@ export function ageBandOf(age: number | null): string | null {
   return `${low} tot ${low + 5} jaar`
 }
 
-export type Degree = "unknown" | "bachelor" | "master" | "phd"
+type Degree = "unknown" | "bachelor" | "master" | "phd"
 
 export interface Derived {
   roles: Array<{ title: string; company: string; where: "NL" | "EU" | "non-EU" | "unknown"; years: number }>
@@ -228,7 +228,7 @@ function deriveFresh(profile: Profile): Derived {
 
 // ---------------------------------------------------------------- pay bands
 
-export const sectorFor = (cat: Posting["cat"]): "K" | "J" | "M" => (cat === "finance_business" ? "K" : cat === "tech" ? "J" : "M")
+const sectorFor = (cat: Posting["cat"]): "K" | "J" | "M" => (cat === "finance_business" ? "K" : cat === "tech" ? "J" : "M")
 
 export function occupationCategory(code: string): Posting["cat"] {
   return code.startsWith("04") ? "finance_business" : code.startsWith("08") ? "tech" : "other"
@@ -246,7 +246,7 @@ export interface BandView {
   ageAdjustedP50: number | null
 }
 
-export function bandFor(code: string | null, cat: Posting["cat"], profile: Profile, ref: Reference): BandView | null {
+function bandFor(code: string | null, cat: Posting["cat"], profile: Profile, ref: Reference): BandView | null {
   const band = code ? ref.bands[code] : undefined
   if (!band) {
     return null
@@ -280,7 +280,7 @@ export function payChoicesOf(profile: Profile): PayChoices {
   return { ruling: d.rulingEligible, masterFloor: (d.age ?? 99) < 30 && d.degree === "master", route, ...profile.payChoices }
 }
 
-export function myThreshold(profile: Profile, ref: Reference): number {
+function myThreshold(profile: Profile, ref: Reference): number {
   const t = ref.tax.ind_hsm_thresholds_h2_2026_monthly_excl_holiday
   const route = payChoicesOf(profile).route
   if (route === "eu") {
@@ -358,14 +358,14 @@ export const NO_WHAT_IF: WhatIf = { dutch: false, years: 0, skills: [], referral
 
 export const isWhatIfActive = (w: WhatIf): boolean => w.dutch || w.years > 0 || w.skills.length > 0 || w.referral || w.tailor !== null || w.degree || w.student
 
-export interface Gate {
+interface Gate {
   name: "Permit" | "Degree" | "Minimum years" | "Dutch" | "Language" | "Student"
   status: "pass" | "fail" | "unknown"
   why: string
   source: string
 }
 
-export interface RateLine { label: string; source: string }
+interface RateLine { label: string; source: string }
 
 export interface Standing {
   gates: Gate[]

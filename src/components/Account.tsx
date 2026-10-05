@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { Suspense, lazy, useMemo, useState } from "react"
 import { JobDrawer } from "@/components/JobBoard"
 import { FilterToggle, JobFilters } from "@/components/JobFilters"
 import { JobGallery } from "@/components/JobGallery"
@@ -7,17 +7,17 @@ import { SearchSummary } from "@/components/InterviewMeter"
 import type { ViewLayout, ViewName } from "@/lib/types"
 import { ViewTabs, LAYOUT_CHOICES } from "@/components/ViewTabs"
 import { FitTable, HearBackTable } from "@/components/FitTable"
-import { ToolBar } from "@/components/ToolBar"
+import { ToolBar, ToolButton } from "@/components/ToolBar"
 import { TrackerFilters } from "@/components/TrackerFilterBar"
 import { TrackerCalendar } from "@/components/TrackerCalendar"
 import { applicationOf } from "@/components/tracker-values"
 import { useSavedViews } from "@/lib/use-saved-views"
 import { usePeopleViews } from "@/lib/use-people-views"
 import { applyTrackerFilter, isTrackerFilterOn } from "@/lib/tracker"
-import { PeopleView, ToolButton } from "@/components/People"
 import { choicesFor, peopleChoices, ViewControls } from "@/components/ViewSettings"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { PipelineBoard, stepOf } from "@/components/PipelineBoard"
+import { PipelineBoard } from "@/components/PipelineBoard"
+import { stepOf } from "@/components/job-steps"
 import { AddJobs, Tracker, type AddPanel } from "@/components/Tracker"
 import { TrackerTable } from "@/components/TrackerTable"
 import { Button } from "@/components/ui/button"
@@ -25,7 +25,15 @@ import { JobListSkeleton } from "@/components/Skeleton"
 import { useData } from "@/lib/data"
 import { FilterBus } from "@/lib/filter-bus"
 import { activeCount, applyFilters } from "@/lib/filters"
+import { readStored, store } from "@/lib/remembered"
 import type { Posting } from "@/lib/types"
+import { prefetchOn } from "@/lib/prefetch"
+
+// Lazy: the people view is the second tab and carries the outreach tools, so the jobs open without it. Pointing at its tab fetches it.
+const loadPeople = (): Promise<typeof import("@/components/People")> => import("@/components/People")
+const PeopleView = lazy(() => loadPeople().then((module) => ({ default: module.PeopleView })))
+
+const SUBJECT_KEY = "odds:tracker-subject"
 
 interface AccountProps {
   /** True in the job list, false on the account's own page. */
@@ -44,7 +52,7 @@ export function Account({ looking, onStartLooking, onStopLooking }: AccountProps
   const saved = useSavedViews()
   const { active, filters, configName } = saved
   const [revisit, setRevisit] = useState<Posting | null>(null)
-  const [subject, setSubject] = useState<Subject>(() => remembered("subject", ["jobs", "people"], "jobs"))
+  const [subject, setSubject] = useState<Subject>(() => (readStored(SUBJECT_KEY) === "people" ? "people" : "jobs"))
   const pviews = usePeopleViews()
   // The form to add jobs of your own: opened by the small link under your jobs, or by the upload button beside Sort.
   const [addPanel, setAddPanel] = useState<AddPanel>(null)
@@ -55,7 +63,7 @@ export function Account({ looking, onStartLooking, onStopLooking }: AccountProps
   const view: ViewName = subject === "jobs" ? configName : pviews.configName
   const choose = (next: Subject): void => {
     setSubject(next)
-    remember("subject", next)
+    store(SUBJECT_KEY, next)
   }
   const chooseLayout = (next: Layout): void => {
     if (subject === "jobs") {
@@ -144,7 +152,9 @@ export function Account({ looking, onStartLooking, onStopLooking }: AccountProps
           </div>
 
           {subject === "people" ? (
-            <PeopleView onOpen={setRevisit} views={pviews} tools={tools} />
+            <Suspense fallback={<JobListSkeleton />}>
+              <PeopleView onOpen={setRevisit} views={pviews} tools={tools} />
+            </Suspense>
           ) : (
             <>
               <ViewTabs views={saved.views} active={active} onSelect={saved.select} onAdd={saved.add} onRename={saved.rename} onDuplicate={saved.duplicate} onRemove={saved.remove} onReset={saved.reset} />
@@ -204,25 +214,6 @@ export function Account({ looking, onStartLooking, onStopLooking }: AccountProps
 type Subject = "jobs" | "people"
 type Layout = ViewLayout
 
-/** A choice kept in the browser so the page opens the way it was left. Without storage it simply starts at the default. */
-function remembered<T extends string>(key: string, allowed: ReadonlyArray<T>, fallback: T): T {
-  try {
-    const value = localStorage.getItem(`odds:tracker-${key}`)
-
-    return allowed.find((a) => a === value) ?? fallback
-  } catch {
-    return fallback
-  }
-}
-
-function remember(key: string, value: string): void {
-  try {
-    localStorage.setItem(`odds:tracker-${key}`, value)
-  } catch {
-    // Not remembered; the choice still works for this visit.
-  }
-}
-
 /** Jobs or People: two sides of the same search, each with its own list and board. */
 function SubjectSwitch({ subject, onChange }: { subject: Subject; onChange: (next: Subject) => void }): React.JSX.Element {
   const items = [
@@ -239,6 +230,7 @@ function SubjectSwitch({ subject, onChange }: { subject: Subject; onChange: (nex
           role="tab"
           aria-selected={subject === value}
           onClick={() => onChange(value)}
+          {...(value === "people" ? prefetchOn(loadPeople) : {})}
           className={`flex h-full cursor-pointer items-center gap-2 rounded-md px-3.5 text-sm font-medium transition-colors duration-150 ${subject === value ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"}`}
         >
           <Icon className="size-4" aria-hidden="true" />
@@ -259,10 +251,9 @@ const LAYOUTS = {
 } as const
 
 /** List or board, for whichever of jobs or people is showing. */
-export function LayoutMenu({ subject, layout, onChange, only }: { subject: Subject; layout: Layout; onChange: (next: Layout) => void; /** Offer only these layouts. */ only?: ReadonlyArray<Layout> }): React.JSX.Element {
+export function LayoutMenu({ subject, layout, onChange }: { subject: Subject; layout: Layout; onChange: (next: Layout) => void }): React.JSX.Element {
   const [open, setOpen] = useState<boolean>(false)
-  const all: ReadonlyArray<{ value: Layout; label: string; hint: string; Icon: typeof TableIcon }> = subject === "jobs" ? LAYOUT_CHOICES : LAYOUTS.people
-  const options = only ? all.filter((o) => only.includes(o.value)) : all
+  const options: ReadonlyArray<{ value: Layout; label: string; hint: string; Icon: typeof TableIcon }> = subject === "jobs" ? LAYOUT_CHOICES : LAYOUTS.people
   const current = options.find((v) => v.value === layout) ?? options[0]
 
   return (

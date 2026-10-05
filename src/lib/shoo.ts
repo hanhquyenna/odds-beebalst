@@ -11,7 +11,7 @@ const NEXT_KEY = "careersim.shooNext"
 /**
  * Google sign-in through Shoo (shoo.dev): a free Google-OAuth broker with no
  * signup and no keys. Google is the only door: the bridge edge function
- * (supabase/functions/verify-shoo) turns the Shoo token into a Supabase
+ * (supabase/functions/account/shoo.ts) turns the Shoo token into a Supabase
  * session, and the Supabase session stays the authority, so every row-level
  * policy keeps working unchanged. This file never trusts the browser token
  * on its own.
@@ -51,7 +51,7 @@ interface BridgeReply {
 }
 
 async function bridgeActionLink(idToken: string): Promise<string> {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/verify-shoo`, {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/account/shoo`, {
     method: "POST",
     headers: { "Content-Type": "application/json", apikey: ANON_KEY },
     body: JSON.stringify({ idToken }),

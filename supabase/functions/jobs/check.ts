@@ -1,22 +1,19 @@
-// Supabase Edge Function: ask each employer's own job board whether the postings we hold are still open.
+// POST /jobs/check?slice=0&of=4: ask each employer's own job board whether the postings we hold are still open.
 // Called every hour by pg_cron (see scripts/setup-check.sh), four slices a few minutes apart so one run stays short.
 // Secret: CHECK_SECRET, sent by the schedule as the x-check-secret header. SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided by Supabase.
 import { applyVerdict, CHECKED, checkRows, type Row } from "../_shared/ats-check.ts"
+import { reply } from "../_shared/http.ts"
 
-const json = (status: number, body: unknown): Response => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } })
-
-/** Which of `of` slices an id belongs to, stable across runs. */
-const sliceOf = (id: string, of: number): number => [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % of
-
-Deno.serve(async (req) => {
+/** Checks this run's slice of the postings and answers a tally; the schedule sends x-check-secret. */
+export async function check(req: Request): Promise<Response> {
   const secret = Deno.env.get("CHECK_SECRET")
   if (!secret || req.headers.get("x-check-secret") !== secret) {
-    return json(401, { error: "no" })
+    return reply(401, { error: "no" })
   }
   const url = Deno.env.get("SUPABASE_URL")
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
   if (!url || !key) {
-    return json(500, { error: "not configured" })
+    return reply(500, { error: "not configured" })
   }
   const q = new URL(req.url).searchParams
   const of = Math.max(1, Number(q.get("of") ?? 1))
@@ -27,7 +24,7 @@ Deno.serve(async (req) => {
   for (let from = 0; ; from += 1000) {
     const res = await fetch(`${url}/rest/v1/postings?select=id,ats,employer,title,url,miss_count,closed_at,last_checked&ats=in.(${CHECKED.join(",")})&order=id`, { headers: { ...headers, "Range-Unit": "items", Range: `${from}-${from + 999}` } })
     if (!res.ok) {
-      return json(502, { error: `read failed ${res.status}` })
+      return reply(502, { error: `read failed ${res.status}` })
     }
     const page = (await res.json()) as typeof rows
     rows.push(...page)
@@ -71,13 +68,18 @@ Deno.serve(async (req) => {
   const results = await Promise.all(writes)
   const failed = results.filter((r) => !(r as Response).ok).length
 
-  const summary = { slice, of, checked: mine.length, ...tally, writeFailures: failed }
+  const summary = { slice: slice, of: of, checked: mine.length, ...tally, writeFailures: failed }
   // The run log is a convenience: if the table is not there yet, the run still counts.
   await fetch(`${url}/rest/v1/check_runs`, {
     method: "POST",
-    headers,
-    body: JSON.stringify({ slice, of, checked: mine.length, open: tally.open, closed: tally.closed, unknown: tally.unknown, newly_closed: tally.newlyClosed, reopened: tally.reopened, write_failures: failed, seconds: (Date.now() - started) / 1000 }),
+    headers: headers,
+    body: JSON.stringify({ slice: slice, of: of, checked: mine.length, open: tally.open, closed: tally.closed, unknown: tally.unknown, newly_closed: tally.newlyClosed, reopened: tally.reopened, write_failures: failed, seconds: (Date.now() - started) / 1000 }),
   }).catch(() => null)
 
-  return json(200, summary)
-})
+  return reply(200, summary)
+}
+
+/** Which of `of` slices an id belongs to, stable across runs. */
+function sliceOf(id: string, of: number): number {
+  return [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % of
+}

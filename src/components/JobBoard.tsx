@@ -1,9 +1,8 @@
 import { BookmarkIcon, XIcon } from "@/components/icons"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react"
 import { setDrawerClose } from "@/lib/drawer"
 import { createPortal } from "react-dom"
 import { CompanyLogo } from "@/components/CompanyMark"
-import { JobDetail } from "@/components/JobDetail"
 import { RowStatus } from "@/components/StatusPicker"
 import { Button } from "@/components/ui/button"
 import { SourceCorner } from "@/components/SourceChips"
@@ -14,13 +13,18 @@ import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { removeFromList, toggleSave } from "@/lib/save"
 import { toast } from "sonner"
 import { formatAge, formatPlace } from "@/lib/format"
+import { prefetchOn } from "@/lib/prefetch"
 import type { Posting } from "@/lib/types"
+
+// Lazy: the drawer opens on a click, so the detail pane stays off the landing page's first load. Pointing at the list fetches it.
+const loadJobDetail = (): Promise<typeof import("@/components/JobDetail")> => import("@/components/JobDetail")
+const JobDetail = lazy(() => loadJobDetail().then((module) => ({ default: module.JobDetail })))
 
 /** Jobs listed before "Show more", and how many each press adds. */
 const FIRST = 10
 const MORE = 10
 
-export interface JobGroup {
+interface JobGroup {
   /** A heading over the group. Omitted when there is only one. */
   label?: string
   jobs: ReadonlyArray<Posting>
@@ -77,7 +81,7 @@ export function JobBoard({ groups, locked, empty, selected, onSelect }: JobBoard
 
   return (
     <>
-      <div ref={top} className="@container scroll-mt-20 overflow-hidden rounded-xl border-[1.5px] bg-card text-foreground">
+      <div ref={top} {...prefetchOn(loadJobDetail)} className="@container scroll-mt-20 overflow-hidden rounded-xl border-[1.5px] bg-card text-foreground">
         {visibleGroups.map((group) => {
           const visible = group.jobs
 
@@ -298,7 +302,9 @@ export function JobDrawer({ post, locked, onClose, onSwitch }: JobDrawerProps): 
             <XIcon className="size-4" aria-hidden="true" />
           </button>
         </div>
-        <JobDetail key={post.id} pane post={post} locked={locked} onBack={() => undefined} onPick={() => closeRef()} onOpenJob={onSwitch} />
+        <Suspense fallback={null}>
+          <JobDetail key={post.id} pane post={post} locked={locked} onBack={() => undefined} onPick={() => closeRef()} onOpenJob={onSwitch} />
+        </Suspense>
       </aside>
     </div>,
     document.body,

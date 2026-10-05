@@ -8,7 +8,7 @@ export { toLinkedInUrl } from "@/lib/linkedin-url"
 
 /** Asks the backend to read a LinkedIn profile. The scraper key stays on the server. */
 export async function importLinkedIn(url: string, accessToken: string | null): Promise<LinkedInProfile> {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/import-linkedin`, {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/profile/import`, {
     method: "POST",
     headers: { "Content-Type": "application/json", apikey: ANON_KEY, Authorization: `Bearer ${accessToken ?? ANON_KEY}` },
     body: JSON.stringify({ url }),
@@ -29,7 +29,7 @@ import type { Suggestion } from "@/lib/suggest"
 
 /** The people stored for a job's employer (found in a batch, each checked by Jev). Reading costs nothing; nothing is searched here. `searched` is false when the employer was never looked up. */
 export async function suggestReferrals(employer: string, accessToken: string | null): Promise<{ people: Suggestion[]; searched: boolean }> {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/suggest-referrals`, {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/jobs/people`, {
     method: "POST",
     headers: { "Content-Type": "application/json", apikey: ANON_KEY, Authorization: `Bearer ${accessToken ?? ANON_KEY}` },
     body: JSON.stringify({ employer }),

@@ -1,4 +1,4 @@
-import { STEPS } from "@/components/PipelineBoard"
+import { STEPS } from "@/components/job-steps"
 import { MultiPick } from "@/components/JobFilters"
 import { NO_TRACKER_FILTER, isTrackerFilterOn, type TrackerFilter } from "@/lib/tracker"
 

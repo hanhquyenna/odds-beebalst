@@ -1,18 +1,18 @@
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { JobBoard } from "@/components/JobBoard"
 import { FilterEditor, JobFilters } from "@/components/JobFilters"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { SortSelect } from "@/components/SortSelect"
 import { InfoIcon } from "@/components/icons"
-import { JobsNotice, useJobsNotice } from "@/components/JobsNotice"
+import { JobsNotice } from "@/components/JobsNotice"
 import { JOB_SORTS, sortJobs, type JobSortKey } from "@/lib/sort"
 import { useData } from "@/lib/data"
+import { useRemembered, useStoredChoice } from "@/lib/remembered"
 import { FilterBus } from "@/lib/filter-bus"
 import { standing } from "@/lib/engine"
 import { DEFAULT_FILTERS, activeCount, applyFilters, normalizeFilters, type JobFilters as Filters } from "@/lib/filters"
 import type { Posting } from "@/lib/types"
-import { useState } from "react"
 
 /**
  * The jobs for you, as the same list-and-job board as the front page. Jobs whose
@@ -27,11 +27,12 @@ export function JobGallery(): React.JSX.Element {
   // Preferences only count once there is something in them. Ticked with nothing chosen, the list stays whole.
   const hasPrefs = Boolean(saved && activeCount(saved) > 0)
   const on = Boolean(data.profile.prefsOn) && hasPrefs
-  const [noticeClosed, setNoticeClosed] = useJobsNotice()
+  // The board is closed with its cross and brought back from the link beside the job count, so this page holds both.
+  const [noticeClosed, setNoticeClosed] = useRemembered("odds:jobs-notice-closed", false)
   const [editOpen, setEditOpen] = useState<boolean>(false)
   // With preferences switched on the list opens with them loaded, as the same filters.
   const [filters, setFilters] = useState<Filters>(on && saved ? saved : DEFAULT_FILTERS)
-  const [sort, setSort] = useState<JobSortKey>("newest")
+  const [sort, setSort] = useStoredChoice<JobSortKey>("odds:jobs-sort", JOB_SORTS.map((s) => s.key), "newest")
   const same = JSON.stringify(filters) === JSON.stringify(saved ?? DEFAULT_FILTERS)
 
   const groups = useMemo(() => {

@@ -1,18 +1,15 @@
-import { AllMark, BulkBar, DeleteDialog, RowMark, useSelection } from "@/components/TableSelect"
-import { GroupByButton } from "@/components/GroupByButton"
+import { AllMark, BulkBar, DeleteDialog, RowMark, TableBar, useSelection } from "@/components/TableSelect"
 import { Fragment, useMemo, useState } from "react"
-import { AddPropertyForm } from "@/components/AddProperty"
-import { PencilIcon, PlusIcon, XIcon } from "@/components/icons"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { AddPropertyHeader, DeletePropertyButton } from "@/components/AddProperty"
+import { PencilIcon } from "@/components/icons"
 import { ChanceCell, useFit } from "@/components/FitCells"
 import { CompanyLogo } from "@/components/CompanyMark"
 import { PropertyField } from "@/components/JobProperties"
-import { STEPS, stepOf } from "@/components/PipelineBoard"
+import { STEPS, stepOf } from "@/components/job-steps"
 import { applicationOf, trackerSortValue } from "@/components/tracker-values"
 import { RowStatus } from "@/components/StatusPicker"
 import { choicesFor } from "@/components/ViewSettings"
 import { useData } from "@/lib/data"
-import { removeColumn } from "@/lib/columns"
 import { downloadCsv, toCsv } from "@/lib/export-csv"
 import { appliedDay, cellKey, followUpFor, followUpText, overrideOf } from "@/lib/cells"
 import { daysOr } from "@/lib/follow-days"
@@ -70,7 +67,7 @@ function ChanceTd({ post }: { post: Posting }): React.JSX.Element {
  * choice of which to show (Properties). A header sorts by its column and the same press reverses it; Group puts the rows under headings. Closed jobs stay, marked.
  * Any property you added yourself is a column you can edit in place.
  */
-export function TrackerTable({ posts, onOpen, viewName, toolbar, manage = true, rowLimit, footer, onDismiss, showCount = true, lead }: { posts: ReadonlyArray<Posting>; onOpen: (post: Posting) => void; viewName: ViewName; /** The Table, Sort and Properties buttons, kept in the table's own bar. */ toolbar?: React.ReactNode; /** False for a table of jobs that are not yours yet (the ones that fit you): no Clear all and no Delete, since there is nothing of yours to remove. */ manage?: boolean; /** Show only this many rows, with `footer` as the last row inside the table (the way to see more). */ rowLimit?: number; footer?: React.ReactNode; /** Gives each row an X: not interested, not recommended again. */ onDismiss?: (post: Posting) => void; /** False to leave out the number of jobs in the bar. */ showCount?: boolean; /** Stands in the place of the count (the Filter toggle). */ lead?: React.ReactNode }): React.JSX.Element {
+export function TrackerTable({ posts, onOpen, viewName, toolbar, lead }: { posts: ReadonlyArray<Posting>; onOpen: (post: Posting) => void; viewName: ViewName; /** The Table, Sort and Properties buttons, kept in the table's own bar. */ toolbar: React.ReactNode; /** Stands at the left of the bar (the Filter toggle). */ lead: React.ReactNode }): React.JSX.Element {
   const data = useData()
   const { profile } = data
   const view = useViewConfig(viewName)
@@ -267,22 +264,12 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, manage = true, 
   const numbers = new Map<string, number>()
   for (const g of groups) for (const post of g.posts) numbers.set(post.id, numbers.size + 1)
   const rowNumber = (post: Posting): number => numbers.get(post.id) ?? 0
-  let drawn = 0
-  const total = sorted.length
 
   return (
     <div className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card">
-      <div className="no-scrollbar flex flex-nowrap items-center gap-3 overflow-x-auto border-b-[1.5px] border-line px-3 py-2.5 text-sm sm:flex-wrap sm:justify-between sm:px-4 [&>*]:shrink-0">
-        <span className="text-muted-foreground">
-          {lead ?? (showCount ? `${total} ${total === 1 ? "job" : "jobs"}` : null)}
-        </span>
-        <span className="flex items-center gap-2 sm:flex-wrap [&>*]:shrink-0">
-          {toolbar}
-          <GroupByButton value={groupBy} groups={GROUPS} onChange={(key) => view.update({ groupBy: key })} />
-        </span>
-      </div>
+      <TableBar lead={lead} toolbar={toolbar} groupBy={groupBy} groups={GROUPS} onGroupBy={(key) => view.update({ groupBy: key })} />
 
-      {selection.some ? <BulkBar count={selection.chosen.size} onExport={() => exportRows(selection.chosen)} onDelete={manage ? () => setDeleting("chosen") : undefined} onClear={selection.clear} /> : null}
+      {selection.some ? <BulkBar count={selection.chosen.size} onExport={() => exportRows(selection.chosen)} onDelete={() => setDeleting("chosen")} onClear={selection.clear} /> : null}
       {deleting ? <DeleteDialog count={selection.chosen.size} noun={{ one: "job", many: "jobs" }} onConfirm={() => removeJobs(selection.chosen)} onCancel={() => setDeleting(null)} /> : null}
 
       <div className="max-h-[70vh] overflow-auto">
@@ -300,30 +287,17 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, manage = true, 
                   <span className="flex items-center gap-2">
                     {header(c.label, SORT_OF[c.key] ?? c.key)}
                     {c.key.startsWith("p:") ? (
-                      <button type="button" aria-label={`Delete ${c.label}`} title={`Delete ${c.label}`} onClick={() => data.setProfile(removeColumn(profile, c.label))} className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-60 hover:text-destructive hover:opacity-100">
-                        <XIcon className="size-3.5" aria-hidden="true" />
-                      </button>
+                      <DeletePropertyButton label={c.label} />
                     ) : null}
                   </span>
                 </th>
               ))}
-              <th scope="col" className="w-12 border-b-[1.5px] border-line px-3 py-2.5 text-left">
-                <Popover>
-                  <PopoverTrigger aria-label="Add a property" title="Add a property" className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground">
-                    <PlusIcon className="size-4" aria-hidden="true" />
-                  </PopoverTrigger>
-                  <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)] p-1.5">
-                    <AddPropertyForm />
-                  </PopoverContent>
-                </Popover>
-              </th>
+              <AddPropertyHeader />
             </tr>
           </thead>
           <tbody>
             {groups.map((g) => {
-              const room = Math.max(0, (rowLimit ?? Infinity) - drawn)
-              const rows = g.posts.slice(0, room)
-              drawn += rows.length
+              const rows = g.posts
               if (rows.length === 0) {
                 return null
               }
@@ -380,25 +354,12 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, manage = true, 
                           {cell(post, c.key)}
                         </td>
                       ))}
-                      <td className="border-b-[1.5px] border-line px-3 py-2.5">
-                        {onDismiss ? (
-                          <button type="button" aria-label={`Not interested in ${post.title}`} title="Not interested: don't recommend this again" onClick={() => onDismiss(post)} className="flex size-7 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-secondary hover:text-foreground">
-                            <XIcon className="size-4" aria-hidden="true" />
-                          </button>
-                        ) : null}
-                      </td>
+                      <td className="border-b-[1.5px] border-line px-3 py-2.5" />
                     </tr>
                   ))}
                 </Fragment>
               )
             })}
-            {footer ? (
-              <tr>
-                <td colSpan={columns.length + 3} className="border-b-[1.5px] border-line p-0">
-                  <div className="sticky left-0 w-[min(100vw-3rem,64rem)] max-w-full">{footer}</div>
-                </td>
-              </tr>
-            ) : null}
           </tbody>
         </table>
       </div>

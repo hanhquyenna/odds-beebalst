@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { zipSync, strToU8 } from "fflate"
 import { CV_MESSAGES, CvReadError, MAX_CV_BYTES, MAX_CV_CHARS, docxXmlToText, normaliseCv, readCvFile } from "@/lib/cv-file"
-import { itemsOf } from "../../supabase/functions/read-profile/items"
+import { itemsOf } from "../../supabase/functions/profile/items"
 
 // pdf.js for Node: no worker, no canvas.
 const pdf = async () => (await import("pdfjs-dist/legacy/build/pdf.mjs")) as never

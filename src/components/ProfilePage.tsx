@@ -1,7 +1,7 @@
 import { ArrowLeftIcon, CameraIcon, PlusIcon, XIcon } from "@/components/icons"
 import { Suspense, lazy, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { parseCsv } from "@/lib/csv"
+import { readLinkedInExport } from "@/lib/csv"
 import { isGuestEmail } from "@/lib/auth"
 import { importLinkedIn, mergeLinkedIn, toLinkedInUrl } from "@/lib/linkedin"
 import { useData } from "@/lib/data"
@@ -149,20 +149,8 @@ export function ProfilePage({ onBack }: ProfilePageProps): React.JSX.Element {
     if (!files) {
       return
     }
-    const reads = [...files].map(
-      (file) =>
-        new Promise<Partial<Profile>>((resolve) => {
-          const reader = new FileReader()
-          reader.onload = () => {
-            const rows = parseCsv(typeof reader.result === "string" ? reader.result : "")
-            const name = file.name.toLowerCase()
-            resolve(name.includes("position") ? { positions: rows } : name.includes("education") ? { education: rows } : name.includes("skill") ? { skills: rows } : name.includes("language") ? { languages: rows } : {})
-          }
-          reader.readAsText(file)
-        }),
-    )
-    void Promise.all(reads).then((patches) => {
-      data.setProfile({ ...p, ...Object.assign({}, ...patches) })
+    void readLinkedInExport(files).then((patch) => {
+      data.setProfile({ ...p, ...patch })
       setImported(`Read ${[...files].map((f) => f.name).join(", ")}.`)
     })
   }

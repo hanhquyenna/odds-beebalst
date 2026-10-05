@@ -10,9 +10,10 @@ export function Caret({ open }: { open: boolean }): React.JSX.Element {
   return <ChevronDownIcon aria-hidden="true" className={`size-4 shrink-0 text-muted-foreground transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
 }
 
-function SeeHow({ slug = "interview-odds-base-rates" }: { slug?: string }): React.JSX.Element {
+/** The link to the research behind the base rates. */
+function SeeHow(): React.JSX.Element {
   return (
-    <button type="button" onClick={() => openResearch(slug)} className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium">
+    <button type="button" onClick={() => openResearch("interview-odds-base-rates")} className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium">
       <span className="underline underline-offset-4">See the research</span> <span aria-hidden="true">→</span>
     </button>
   )

@@ -178,7 +178,7 @@ export async function turnOnNotifications(account: string | (() => Promise<strin
   subscribed = true
   emit()
   // A first message at once, so the person sees it works without waiting for the morning.
-  void fetch(`${SUPABASE_URL}/functions/v1/morning-jobs?welcome=1`, { method: "POST", headers: { apikey: ANON_KEY, Authorization: `Bearer ${currentAccessToken() ?? ANON_KEY}` } })
+  void fetch(`${SUPABASE_URL}/functions/v1/jobs/welcome`, { method: "POST", headers: { apikey: ANON_KEY, Authorization: `Bearer ${currentAccessToken() ?? ANON_KEY}` } })
     .catch(() => undefined)
 
   return "on"
