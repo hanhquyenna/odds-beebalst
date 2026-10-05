@@ -42,8 +42,22 @@ export interface JobFilters {
 /** The lines of work to filter by: what the job is, not what the employer does. "Other" is not something anyone filters for. */
 export const FIELD_OPTIONS: ReadonlyArray<string> = FAMILIES.filter((f) => f !== "Other")
 
-/** A job's line of work: Jev's reading, or the title-and-skills guess for a job Jev has not read yet. Null when neither is sure. */
-export const fieldOf = (post: Pick<Posting, "family" | "title" | "title_clean" | "skills">): string | null => post.family ?? guessFamily(post.title_clean ?? post.title, post.skills)
+/** A job's line of work: Jev's reading, or the title-and-skills guess for a job Jev has not read yet. Null when neither is sure. Pure in the posting, so one answer is kept per posting: every keystroke asks for every row. */
+const fieldCache = new WeakMap<object, string | null>()
+
+export const fieldOf = (post: Pick<Posting, "family" | "title" | "title_clean" | "skills">): string | null => {
+  if (post.family !== null && post.family !== undefined) {
+    return post.family
+  }
+  const hit = fieldCache.get(post)
+  if (hit !== undefined) {
+    return hit
+  }
+  const guessed = guessFamily(post.title_clean ?? post.title, post.skills)
+  fieldCache.set(post, guessed)
+
+  return guessed
+}
 
 export const NO_FILTERS: JobFilters = { query: "", field: [], industry: [], level: [], language: [], sponsorOnly: false, posted: "any", type: [], workplace: [], city: [], minPay: null, source: [] }
 
@@ -127,9 +141,22 @@ function searchTextOf(post: Posting): { text: string; squashed: string } {
   return made
 }
 
+/** The words of the query being typed, kept from the last call: filtering asks every posting about the same query, so it is split once per keystroke, not once per posting. */
+let lastQuery: string | null = null
+let lastWords: string[] = []
+
+function queryWordsOf(query: string): string[] {
+  if (query !== lastQuery) {
+    lastQuery = query
+    lastWords = plain(query).split(/\s+/).filter(Boolean)
+  }
+
+  return lastWords
+}
+
 /** Every word typed is found in the job: as written, run together ("ecommerce"), or as a plural ("interns"). */
 export function matchesQuery(post: Posting, query: string): boolean {
-  const words = plain(query).split(/\s+/).filter(Boolean)
+  const words = queryWordsOf(query)
   if (words.length === 0) {
     return true
   }
@@ -148,17 +175,9 @@ export function matchesQuery(post: Posting, query: string): boolean {
 }
 
 export function applyFilters<T extends Posting>(posts: ReadonlyArray<T>, filters: JobFilters, env: FilterEnv = {}): ReadonlyArray<T> {
+  // Cheapest checks first, so a posting that fails a ticked box never pays for the text search or the derived facts.
   return posts.filter((post) => {
-    if (!matchesQuery(post, filters.query)) {
-      return false
-    }
-    if (filters.field.length > 0 && !filters.field.includes(fieldOf(post) ?? "")) {
-      return false
-    }
-    if (filters.industry.length > 0 && !filters.industry.includes(industryOf(post) as Industry)) {
-      return false
-    }
-    if (filters.level.length > 0 && !filters.level.includes(levelOf(post))) {
+    if (filters.sponsorOnly && !post.ind_sponsor) {
       return false
     }
     // English keeps jobs that do not need Dutch, Dutch keeps the ones that do; both ticked, or none, is every job.
@@ -169,6 +188,15 @@ export function applyFilters<T extends Posting>(posts: ReadonlyArray<T>, filters
       return false
     }
     if (filters.posted !== "any" && (post.days_open === null || post.freshness_state === "still_listed_30_plus" || post.days_open > POSTED_DAYS[filters.posted])) {
+      return false
+    }
+    if (filters.level.length > 0 && !filters.level.includes(levelOf(post))) {
+      return false
+    }
+    if (filters.field.length > 0 && !filters.field.includes(fieldOf(post) ?? "")) {
+      return false
+    }
+    if (filters.industry.length > 0 && !filters.industry.includes(industryOf(post) as Industry)) {
       return false
     }
     if (filters.city.length > 0 && !filters.city.includes(cityOf(post))) {
@@ -192,8 +220,11 @@ export function applyFilters<T extends Posting>(posts: ReadonlyArray<T>, filters
     if (filters.minPay !== null && (payMid(post, env.reference ?? null)?.month ?? 0) < filters.minPay) {
       return false
     }
+    if (!matchesQuery(post, filters.query)) {
+      return false
+    }
 
-    return !filters.sponsorOnly || post.ind_sponsor
+    return true
   })
 }
 
