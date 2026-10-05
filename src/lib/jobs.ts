@@ -239,11 +239,12 @@ const SIGNAL_TERMS: Record<keyof Signals, string[]> = {
   contract: ["fixed-term", "fixed term", "freelance", "interim", "temporary", "tijdelijk", "bepaalde tijd", "zzp", "detachering", "contractor"],
 }
 
+/** Every posting id whose text mentions any of the terms, paged by id so pages never overlap or skip rows. */
 async function idsMentioning(terms: string[]): Promise<Set<string>> {
   const ids = new Set<string>()
   const filter = terms.map((t) => `body.ilike.*${t.replace(/[,()]/g, " ")}*`).join(",")
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabase.from("postings").select("id").or(filter).range(from, from + 999)
+    const { data, error } = await supabase.from("postings").select("id").or(filter).order("id").range(from, from + 999)
     if (error) {
       throw new Error(error.message)
     }
