@@ -21,7 +21,7 @@ const LIFETIME = { qr: 15, home: 30 } as const
 const HOURLY = 30
 
 /** Guest accounts one connection can make in a day. */
-const GUESTS_PER_DAY = 3
+const GUESTS_PER_DAY = 20
 
 /** A session for an account, made on the server: a sign-in link (nothing is emailed) exchanged at once. */
 async function sessionFor(supabaseUrl: string, anon: string, admin: Record<string, string>, email: string): Promise<unknown> {

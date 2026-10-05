@@ -1,4 +1,4 @@
-import { ANON_KEY, SUPABASE_URL, setAccessToken } from "@/lib/supabase"
+import { ANON_KEY, SUPABASE_URL, currentAccessToken, setAccessToken } from "@/lib/supabase"
 
 export interface Session {
   access_token: string
@@ -246,7 +246,16 @@ export async function restoreSession(): Promise<Session | null> {
 export function keepSessionFresh(onRefresh: (session: Session) => void): () => void {
   const check = (): void => {
     const stored = loadSession()
-    if (!stored || !expiring(stored) || document.visibilityState === "hidden") {
+    if (!stored || document.visibilityState === "hidden") {
+      return
+    }
+    if (!expiring(stored)) {
+      // Another tab refreshed: take its token, or this tab keeps saving with the old one.
+      if (stored.access_token !== currentAccessToken()) {
+        keep(stored)
+        onRefresh(stored)
+      }
+
       return
     }
     // A failed refresh (offline, a sleeping laptop) is tried again on the next check; signing out is the server's call at the next load.

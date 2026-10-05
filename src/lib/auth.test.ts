@@ -53,6 +53,14 @@ describe("keepSessionFresh", () => {
     expect(calls).toBe(0)
   })
 
+  test("takes a token another tab already refreshed", () => {
+    store.set(STORE, JSON.stringify({ access_token: "from-other-tab", refresh_token: "r9", expires_at: nowSec() + 3000, user: { id: "u1", email: "a@b.c" } }))
+    const seen: Session[] = []
+    keepSessionFresh((s) => seen.push(s))()
+    expect(calls).toBe(0)
+    expect(seen[0]?.access_token).toBe("from-other-tab")
+  })
+
   test("refreshes a token about to expire and hands the new session over", async () => {
     storeSession(30)
     const seen: Session[] = []

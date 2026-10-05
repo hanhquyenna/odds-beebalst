@@ -29,5 +29,7 @@ export function registerLogos(rows: ReadonlyArray<{ employer: string; logo: stri
 
 /** The database's logo for an employer, used by logoFor when the lists have none. */
 export function storedLogoFor(employer: string): string | undefined {
-  return STORED.get(employer.toLowerCase()) ?? STORED.get(nameKey(employer) || "")
+  const key = nameKey(employer)
+
+  return STORED.get(employer.toLowerCase()) ?? (key ? STORED.get(key) : undefined)
 }

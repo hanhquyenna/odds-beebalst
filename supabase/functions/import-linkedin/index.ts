@@ -79,10 +79,11 @@ Deno.serve(async (req) => {
     const r = await fetch(`${supabaseUrl}/rest/v1/linkedin_imports?kind=eq.profile&created_at=gte.${since}&${filter}&select=id`, { headers: { ...rest, Prefer: "count=exact", Range: "0-0" } })
     return Number((r.headers.get("content-range") ?? "*/0").split("/")[1] ?? 0)
   }
-  // Counted before the checks, so parallel requests all see each other; every paid read counts, failed or not.
+  const mine = await countOf(userId ? `user_id=eq.${userId}` : `ip_hash=eq.${ipHash}`)
+  if (mine >= (userId ? DAILY_LIMIT : ANON_LIMIT)) return reply(429, { error: `Up to ${userId ? DAILY_LIMIT : ANON_LIMIT} imports a day. Try again tomorrow, or sign in for more.` })
+  // Counted before the shared check, so parallel requests see each other; every paid read counts, failed or not.
   await fetch(`${supabaseUrl}/rest/v1/linkedin_imports`, { method: "POST", headers: { ...rest, "Content-Type": "application/json" }, body: JSON.stringify({ user_id: userId, ip_hash: ipHash, kind: "profile", url }) })
-  const [mine, all] = await Promise.all([countOf(userId ? `user_id=eq.${userId}` : `ip_hash=eq.${ipHash}`), countOf("id=gt.0")])
-  if (mine > (userId ? DAILY_LIMIT : ANON_LIMIT)) return reply(429, { error: `Up to ${userId ? DAILY_LIMIT : ANON_LIMIT} imports a day. Try again tomorrow, or sign in for more.` })
+  const all = await countOf("id=gt.0")
   if (all > GLOBAL_LIMIT) return reply(429, { error: "Imports are paused for today. Try again tomorrow." })
 
   const run = await fetch(`https://api.apify.com/v2/acts/${APIFY_ACTOR}/run-sync-get-dataset-items?token=${apify}`, {
