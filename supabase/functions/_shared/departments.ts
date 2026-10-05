@@ -22,13 +22,6 @@ export const DEPARTMENT_TITLES: Record<string, string[]> = {
   "Design & UX": ["designer", "UX", "UI"],
 }
 
-/** The titles to search for: the job's own role first, then its department, no repeats. No department known: the role alone. */
-export function searchTitles(role: string[], family: string | null | undefined): string[] {
-  const dept = family ? (DEPARTMENT_TITLES[family] ?? []) : []
-
-  return [...new Set([...role, ...dept].map((t) => t.trim()).filter(Boolean))].slice(0, 12)
-}
-
 /**
  * Departments that sit next to each other, nearest first: when nobody is found in a job's own department, the next ones are tried.
  * Our own list, the same idea as the neighbours used for the track record (src/lib/strength.ts), with operations and project work added next to

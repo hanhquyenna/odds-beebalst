@@ -6,7 +6,7 @@ import { FIT_AVERAGE, fitOf, type Fit } from "@/lib/fit"
 import { SKILLS } from "@/lib/skills"
 import type { Strength } from "@/lib/strength"
 import type { Reference } from "@/lib/jobs"
-import type { Band, Credit, DutchLevel, PayChoices, PermitRoute, Posting, Profile, Row, TaxParams } from "@/lib/types"
+import type { Band, Credit, DutchLevel, PayChoices, PermitRoute, Posting, Profile, TaxParams } from "@/lib/types"
 
 export const HOURS_PER_YEAR = 2080
 
@@ -60,7 +60,6 @@ export function netMonth(
 
 // ---------------------------------------------------------------- skills
 
-export { SKILLS } from "@/lib/skills"
 
 // ---------------------------------------------------------------- profile
 
@@ -767,4 +766,3 @@ export function extractPosting(title: string, text: string): Partial<Posting> {
   }
 }
 
-export type { Row }

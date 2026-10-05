@@ -21,14 +21,13 @@
     "jsr",
     "npm"
   ],
-  // Unresolved imports, unlisted dependencies and missing binaries fail the run. Unused files, dependencies
-  // and exports only report for now: a stale-file cleanup is in flight. Flip them to "error" once it lands.
+  // Everything fails the run, unused code included: dead code never gets a chance to pile up again.
   "rules": {
-    "files": "warn",
-    "dependencies": "warn",
-    "devDependencies": "warn",
-    "exports": "warn",
-    "types": "warn",
-    "duplicates": "warn"
+    "files": "error",
+    "dependencies": "error",
+    "devDependencies": "error",
+    "exports": "error",
+    "types": "error",
+    "duplicates": "error"
   }
 }
