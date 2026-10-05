@@ -39,35 +39,6 @@ Everything below is already live. CI only has to keep it that way.
 - **The morning message** uses the app's own job filters, bundled into `supabase/functions/jobs/match.js`. After
   changing `src/lib/filters.ts`, run `scripts/build-morning-jobs.sh` and deploy `jobs`.
 
-### Moving from ten functions to three (once, in this order)
-
-Until step 3 the old functions keep serving the live site and the schedule; nothing breaks in between.
-
-1. Deploy the three new functions (the old ones stay up):
-   ```sh
-   supabase functions deploy account --project-ref ukpmpyfcnbhngkgbnkxi --use-api
-   supabase functions deploy profile --project-ref ukpmpyfcnbhngkgbnkxi --use-api
-   supabase functions deploy jobs --project-ref ukpmpyfcnbhngkgbnkxi --use-api
-   ```
-2. Point the schedule at them: `supabase db push` applies `20261006120000_group_functions.sql`, which rewrites the
-   pg_cron commands' paths in place and keeps their secrets. Check with
-   `select jobname, command from cron.job;` (every URL should be under `/functions/v1/jobs/`).
-3. Merge the frontend to `main` and let the site deploy; it now calls only the new paths.
-4. Once the site is live on the new paths (and anyone with the old page open has reloaded, a day is plenty),
-   delete the old functions:
-   ```sh
-   supabase functions delete verify-shoo --project-ref ukpmpyfcnbhngkgbnkxi
-   supabase functions delete phone-link --project-ref ukpmpyfcnbhngkgbnkxi
-   supabase functions delete import-linkedin --project-ref ukpmpyfcnbhngkgbnkxi
-   supabase functions delete read-profile --project-ref ukpmpyfcnbhngkgbnkxi
-   supabase functions delete match-cv --project-ref ukpmpyfcnbhngkgbnkxi
-   supabase functions delete add-job --project-ref ukpmpyfcnbhngkgbnkxi
-   supabase functions delete check-postings --project-ref ukpmpyfcnbhngkgbnkxi
-   supabase functions delete check-public --project-ref ukpmpyfcnbhngkgbnkxi
-   supabase functions delete morning-jobs --project-ref ukpmpyfcnbhngkgbnkxi
-   supabase functions delete suggest-referrals --project-ref ukpmpyfcnbhngkgbnkxi
-   ```
-
 ## 3. Sign-in: Google through Shoo, and guest accounts
 
 Sign-in is Google only, through Shoo (`src/lib/shoo.ts`, `src/components/ShooCallback.tsx`), bridged to a normal
