@@ -197,27 +197,6 @@ export async function restoreSession(): Promise<Session | null> {
   }
 }
 
-const NEXT_KEY = "careersim.oauthNext"
-
-function remember(key: string, value: string): void {
-  try {
-    window.sessionStorage.setItem(key, value)
-  } catch {
-    return
-  }
-}
-
-function recall(key: string): string | null {
-  try {
-    const value = window.sessionStorage.getItem(key)
-    window.sessionStorage.removeItem(key)
-
-    return value
-  } catch {
-    return null
-  }
-}
-
 /** Signs in with the one-time token the verify-shoo bridge hands back. Same session shape as every other door. */
 export async function signInWithTokenHash(tokenHash: string): Promise<Session> {
   const session = toSession(await call("verify", { type: "magiclink", token_hash: tokenHash }))
@@ -227,16 +206,6 @@ export async function signInWithTokenHash(tokenHash: string): Promise<Session> {
   keep(session)
 
   return session
-}
-
-/** Remembers where the SSO trip started ("jobs" for a fresh sign-up), across the redirect. */
-export function rememberOAuthNext(next: string): void {
-  remember(NEXT_KEY, next)
-}
-
-/** Reads and clears what rememberOAuthNext stored (null outside an SSO trip). */
-export function takeOAuthNext(): string | null {
-  return recall(NEXT_KEY)
 }
 
 export function signOut(): void {
