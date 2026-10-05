@@ -269,10 +269,10 @@ export default function App(): React.JSX.Element {
               </button>
             ))}
           </nav>
-          {onboarded ? (
+          {onboarded || data.session ? (
             <div className="flex shrink-0 items-center gap-1.5 sm:ml-2 sm:gap-2">
               <NewJobsBell refresh={visits} onOpen={showJobs} />
-              <AccountMenu email={isGuestEmail(data.session?.user.email) ? null : (data.session?.user.email ?? null)} avatar={data.profile.avatar} name={data.profile.name} onDashboard={onboarded ? () => setView("account") : undefined} onAnswers={() => setView("answers")} onSignIn={() => leaveSharedJob("signin")} onSignOut={handleSignOut} />
+              <AccountMenu email={isGuestEmail(data.session?.user.email) ? null : (data.session?.user.email ?? null)} guest={isGuestEmail(data.session?.user.email)} avatar={data.profile.avatar || data.session?.user.avatar || ""} name={data.profile.name} onDashboard={onboarded ? () => setView("account") : undefined} onAnswers={() => setView("answers")} onSignIn={() => leaveSharedJob("signin")} onSignOut={handleSignOut} />
             </div>
           ) : !page && view === "journey" ? (
             <Button type="button" variant="ghost" onClick={() => leaveSharedJob("signin")} className="h-9 shrink-0 cursor-pointer px-1.5 text-xs font-medium sm:px-3 sm:text-sm">
@@ -357,6 +357,7 @@ function PublicJobRoute({ id, onBack, onUnlock }: { id: string; onBack: () => vo
 
 interface AccountMenuProps {
   email: string | null
+  guest: boolean
   avatar: string
   name: string
   onDashboard?: () => void
@@ -365,8 +366,8 @@ interface AccountMenuProps {
   onSignOut: () => void
 }
 
-/** The circle in the header: your initial, and the way to your answers and out. */
-function AccountMenu({ email, avatar, name, onDashboard, onAnswers, onSignIn, onSignOut }: AccountMenuProps): React.JSX.Element {
+/** The circle in the header: your photo once signed in, and the way to your answers and out. */
+function AccountMenu({ email, guest, avatar, name, onDashboard, onAnswers, onSignIn, onSignOut }: AccountMenuProps): React.JSX.Element {
   // Controlled so choosing an item closes it; left open it covered the page it opened.
   const [open, setOpen] = useState<boolean>(false)
 
@@ -378,12 +379,12 @@ function AccountMenu({ email, avatar, name, onDashboard, onAnswers, onSignIn, on
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger aria-label="Account menu" className="flex size-11 cursor-pointer items-center justify-center overflow-hidden rounded-full border-[1.5px] bg-accent font-semibold text-primary">
-        {avatar ? <img src={avatar} alt="" className="size-full object-cover" /> : (name || email || "Me").trim().charAt(0).toUpperCase()}
+        {avatar ? <img src={avatar} alt="" className="size-full object-cover" /> : (name || email || (guest ? "Test" : "Me")).trim().charAt(0).toUpperCase()}
       </PopoverTrigger>
       <PopoverContent align="end" className="flex w-60 flex-col p-0">
         <div className="border-b-[1.5px] px-4 py-3">
-          <div className="font-medium">{name || email || "Your profile"}</div>
-          <div className="text-sm text-muted-foreground">{email ? "Saved to your account" : "Saved on this device only"}</div>
+          <div className="font-medium">{name || email || (guest ? "Test account" : "Your profile")}</div>
+          <div className="text-sm text-muted-foreground">{email ? "Saved to your account" : guest ? "Signed in for testing" : "Saved on this device only"}</div>
         </div>
         {onDashboard ? (
           <Button variant="ghost" onClick={() => choose(onDashboard)} className="cursor-pointer justify-start">
@@ -399,7 +400,7 @@ function AccountMenu({ email, avatar, name, onDashboard, onAnswers, onSignIn, on
           </Button>
         )}
         <Button variant="ghost" onClick={() => choose(onSignOut)} className="cursor-pointer justify-start text-destructive">
-          {email ? "Sign out" : "Clear this device"}
+          {email || guest ? "Sign out" : "Clear this device"}
         </Button>
       </PopoverContent>
     </Popover>

@@ -1,6 +1,6 @@
 import { ANON_KEY, SUPABASE_URL } from "@/lib/supabase"
-import { signInWithTokenHash, type Session } from "@/lib/auth"
-import { SHOO_CALLBACK_PATH, isShooCallback, tokenHashOf } from "@/lib/shoo-url"
+import { signInWithTokenHash, storeSession, type Session } from "@/lib/auth"
+import { SHOO_CALLBACK_PATH, isShooCallback, pictureOfIdToken, tokenHashOf } from "@/lib/shoo-url"
 import type { ShooAuthClient } from "@shoojs/auth"
 
 export { SHOO_CALLBACK_PATH, isShooCallback }
@@ -83,8 +83,17 @@ export async function completeShooSignIn(): Promise<Session> {
   if (!tokenHash) {
     throw new Error("Google sign-in failed talking to our server: empty answer.")
   }
+  const session = await signInWithTokenHash(tokenHash)
+  // The photo is fresh every sign-in and rides in the session, so the header
+  // shows it without touching the saved profile (and its sync).
+  const picture = pictureOfIdToken(idToken)
+  if (!picture) {
+    return session
+  }
+  const withPhoto: Session = { ...session, user: { ...session.user, avatar: picture } }
+  storeSession(withPhoto)
 
-  return signInWithTokenHash(tokenHash)
+  return withPhoto
 }
 
 function messageOf(caught: unknown): string {

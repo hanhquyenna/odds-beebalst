@@ -25,3 +25,18 @@ export function tokenHashOf(actionLink: string): string | null {
 
   return null
 }
+
+/**
+ * The Google photo inside a Shoo token, for display only: the session stays
+ * the authority. Https only, so no javascript: or data: URL can reach an img.
+ */
+export function pictureOfIdToken(idToken: string): string | null {
+  try {
+    const segment = idToken.split(".")[1] ?? ""
+    const payload = JSON.parse(atob(segment.replace(/-/g, "+").replace(/_/g, "/"))) as { picture?: unknown }
+
+    return typeof payload.picture === "string" && payload.picture.startsWith("https://") ? payload.picture : null
+  } catch {
+    return null
+  }
+}
