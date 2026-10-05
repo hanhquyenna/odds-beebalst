@@ -1,25 +1,9 @@
 import local from "@/lib/company-logos-local.json"
 import remote from "@/lib/company-logos.json"
+import { nameKey, storedLogoFor } from "@/lib/stored-logos"
 
 const LOCAL = local as Record<string, string | null>
 const REMOTE = remote as Record<string, string>
-
-/**
- * An employer's name as it is compared: "McKinsey &amp; Company", "McKinsey & Company" and "ABN AMRO Bank N.V." against
- * "ABN AMRO" must be the same company. Drops HTML codes, brackets, legal forms and generic words, and punctuation.
- */
-export function nameKey(name: string): string {
-  const key = name
-    .replace(/&amp;/gi, "&")
-    .toLowerCase()
-    .replace(/\([^)]*\)/g, " ")
-    .replace(/[^\p{L}\p{N}&]+/gu, " ")
-    .replace(/\b(b v|bv|n v|nv|ltd|limited|gmbh|inc|llc|sa|ag|plc|bank|europe|europa|nederland|netherlands|holding|group|international|the|and|en)\b/g, " ")
-    .replace(/\s*&\s*(co|company)\b/g, " ")
-    .replace(/\s+/g, "")
-
-  return key
-}
 
 /** Postings spell an employer as "PwC" where the logo list says "pwc": match on lower case, then on the loosened name. */
 const BY_LOWER = new Map<string, string>()
@@ -36,18 +20,6 @@ for (const [name, source] of Object.entries(REMOTE)) {
 }
 
 /**
- * Logos kept in the database for employers that are not in the lists above (a job pasted in from a new employer), loaded once with the jobs.
- * Looked up the same way as the lists: by the name as written, then by the loosened name.
- */
-const DYNAMIC = new Map<string, string>()
-export function registerLogos(rows: ReadonlyArray<{ employer: string; logo: string }>): void {
-  for (const { employer, logo } of rows) {
-    DYNAMIC.set(employer.toLowerCase(), logo)
-    DYNAMIC.set(nameKey(employer), logo)
-  }
-}
-
-/**
  * The employer's logo with its background cut out, so it can float on the page
  * without a square behind it. Cut out once, ahead of time, by scripts/make_logos.py,
  * and served from /logos. An employer whose picture could not be cut out keeps the
@@ -59,7 +31,7 @@ export function logoFor(employer: string, url?: string | null): string | null {
   if (known) {
     return known
   }
-  const stored = DYNAMIC.get(employer.toLowerCase()) ?? (key ? DYNAMIC.get(key) : undefined)
+  const stored = storedLogoFor(employer)
   if (stored) {
     return stored
   }

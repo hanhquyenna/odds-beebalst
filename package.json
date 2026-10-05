@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "bench": "bun scripts/bench.ts",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "perf": "bun scripts/check-bundles.mjs",

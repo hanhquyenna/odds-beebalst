@@ -1,6 +1,8 @@
+import { IconContext } from "@phosphor-icons/react"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import App from "@/App"
+import { ICON_STYLE } from "@/components/icons"
 import { DataProvider } from "@/lib/data"
 import { takePairFromUrl } from "@/lib/pairing"
 import { startPush } from "@/lib/push"
@@ -12,8 +14,10 @@ takePairFromUrl()
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <DataProvider>
-      <App />
-    </DataProvider>
+    <IconContext.Provider value={ICON_STYLE}>
+      <DataProvider>
+        <App />
+      </DataProvider>
+    </IconContext.Provider>
   </StrictMode>,
 )
