@@ -291,16 +291,60 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
         if (stored) {
           setProfileState(migrateProfile({ ...DEFAULT_PROFILE, ...stored }))
           setProfileSaved(true)
-        } else if (profileRef.current.onboarded || profileRef.current.linkedin) {
-          // First time this account is used: keep what was answered on this device.
+        } else {
+          // First time this account is used: the database gets a row either way, so signing in always
+          // leaves the account behind it up to date. With answers on this device they ride along, otherwise
+          // the blank profile does: a later save fills it in.
           saveProfile(session.user.id, profileRef.current)
             .then(() => setProfileSaved(true))
             .catch(() => undefined)
         }
       })
       .catch(() => undefined)
+    // Applications logged before sign-in move to the account, so the pipeline survives the session.
+    // Anything already there, or failing to move, stays where it is.
     fetchApplications(byId)
-      .then((rows) => live && setApplications(rows))
+      .then(async (rows) => {
+        if (!live) {
+          return
+        }
+        const queued = read<Application[]>(LOCAL_APPS_KEY, []).filter((a) => String(a.id).startsWith("local-"))
+        const missing = queued.filter((q) => !rows.some((r) => r.posting_id === q.posting_id))
+        const moved: Application[] = []
+        for (const app of missing) {
+          try {
+            await insertApplication(session.user.id, app.posting_id, app.fit_tier)
+            moved.push(app)
+          } catch {
+            continue
+          }
+        }
+        if (!live) {
+          return
+        }
+        if (moved.length === 0) {
+          setApplications(rows)
+
+          return
+        }
+        const fresh = await fetchApplications(byId)
+        if (!live) {
+          return
+        }
+        for (const app of moved) {
+          const mine = fresh.find((r) => r.posting_id === app.posting_id)
+          if (mine && app.stage !== "applied") {
+            await updateStage(mine.id, app.stage).catch(() => undefined)
+            mine.stage = app.stage
+          }
+        }
+        const landed = new Set(moved.filter((m) => fresh.some((r) => r.posting_id === m.posting_id)).map((m) => m.id))
+        write(
+          LOCAL_APPS_KEY,
+          read<Application[]>(LOCAL_APPS_KEY, []).filter((a) => !landed.has(a.id)),
+        )
+        setApplications(fresh)
+      })
       .catch(() => undefined)
 
     return () => {
