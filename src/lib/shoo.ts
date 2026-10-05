@@ -100,8 +100,8 @@ function messageOf(caught: unknown): string {
   return caught instanceof Error && caught.message ? caught.message : "no answer"
 }
 
-/** Remembers where the Shoo trip started ("jobs" for a fresh sign-up), across the redirect. */
-export function rememberShooNext(next: string): void {
+/** Remembers where the Shoo trip started ("jobs" for a fresh sign-up, "account" for a plain sign-in), across the redirect. */
+export function rememberShooNext(next: "jobs" | "account"): void {
   try {
     window.sessionStorage.setItem(NEXT_KEY, next)
   } catch {
@@ -109,14 +109,53 @@ export function rememberShooNext(next: string): void {
   }
 }
 
-/** Reads and clears what rememberShooNext stored (null outside a Shoo trip). */
+/** Reads and clears what rememberShooNext stored (null outside a Shoo trip, or for anything unexpected). */
 export function takeShooNext(): string | null {
   try {
     const next = window.sessionStorage.getItem(NEXT_KEY)
     window.sessionStorage.removeItem(NEXT_KEY)
+    if (next !== "jobs" && next !== "account") {
+      return null
+    }
 
     return next
   } catch {
     return null
   }
+}
+
+/** Drops a remembered destination without reading it (sign-out). */
+export function clearShooNext(): void {
+  try {
+    window.sessionStorage.removeItem(NEXT_KEY)
+  } catch {
+    return
+  }
+}
+
+/** Forgets the Shoo broker identity, so the next trip starts clean (sign-out). */
+export async function forgetShooIdentity(): Promise<void> {
+  ;(await shoo()).clearIdentity()
+}
+
+/** False when the browser blocks site data: a sign-in could never persist, so say so instead of looping. */
+export function storageAvailable(): boolean {
+  try {
+    const key = "careersim.storageTest"
+    window.localStorage.setItem(key, "1")
+    window.localStorage.removeItem(key)
+    window.sessionStorage.setItem(key, "1")
+    window.sessionStorage.removeItem(key)
+
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Watches a redirect handoff: when the page is still here after a while, the redirect was blocked. Returns its cancel. */
+export function redirectWatch(onStuck: () => void, ms = 10000): () => void {
+  const id = window.setTimeout(onStuck, ms)
+
+  return () => window.clearTimeout(id)
 }

@@ -168,58 +168,45 @@
 
 /* A strip of photos gliding sideways, looped by drawing the strip twice and
    sliding one strip's width. Paused under the pointer. Reduced motion: still. */
-@keyframes roomie-glide {
+@keyframes odds-glide {
     from { transform: translate3d(0, 0, 0); }
     to { transform: translate3d(-50%, 0, 0); }
 }
 
-.roomie-marquee {
+.odds-marquee {
     mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
     -webkit-mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
 }
 
-.roomie-marquee-track {
-    animation: roomie-glide var(--glide, 60s) linear infinite;
+.odds-marquee-track {
+    animation: odds-glide var(--glide, 60s) linear infinite;
     will-change: transform;
 }
 
-.roomie-marquee-track[data-reverse] {
+.odds-marquee-track[data-reverse] {
     animation-direction: reverse;
 }
 
-.roomie-marquee:hover .roomie-marquee-track {
+.odds-marquee:hover .odds-marquee-track {
     animation-play-state: paused;
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .roomie-marquee-track {
+    .odds-marquee-track {
         animation: none;
     }
 }
 
-/* A card that lifts a little under the pointer, with a warm shadow the
-   colour of the terracotta rather than grey. */
-.roomie-lift {
-    transition: transform 300ms ease, box-shadow 300ms ease;
-}
-
-@media (hover: hover) {
-    .roomie-lift:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 18px 40px -18px oklch(0.4 0.03 66 / 0.4);
-    }
-}
-
 /* The two figures in the logo give one small wave when the pointer arrives. */
-@keyframes roomie-wave {
+@keyframes odds-wave {
     0%, 100% { transform: rotate(0); }
     30% { transform: rotate(-8deg); }
     60% { transform: rotate(6deg); }
 }
 
 @media (hover: hover) {
-    .roomie-wordmark:hover img {
-        animation: roomie-wave 600ms ease;
+    .odds-wordmark:hover img {
+        animation: odds-wave 600ms ease;
     }
 }
 
@@ -236,32 +223,6 @@
    workaround: blending the tiles closes the gap. */
 .leaflet-container img.leaflet-tile {
     mix-blend-mode: plus-lighter;
-}
-
-.roomie-ring {
-    fill: var(--primary);
-    fill-opacity: 0.12;
-    stroke: var(--primary);
-    stroke-width: 2;
-}
-
-.roomie-pin {
-    fill: var(--primary);
-    fill-opacity: 1;
-    stroke: var(--primary-foreground);
-    stroke-width: 2;
-}
-
-.roomie-dot {
-    fill: var(--background);
-    fill-opacity: 1;
-    stroke: var(--muted-foreground);
-    stroke-width: 2;
-}
-
-.roomie-dot-on {
-    fill: var(--primary);
-    stroke: var(--primary-foreground);
 }
 
 

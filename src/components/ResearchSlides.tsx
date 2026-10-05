@@ -60,7 +60,7 @@ export function ResearchSlides({ onOpenPage }: { onOpenPage?: (page: StaticPage)
         </h2>
       </div>
       <div className="mt-8 overflow-hidden">
-        <div className="roomie-marquee-track flex w-max" style={{ ["--glide" as string]: "70s" }}>
+        <div className="odds-marquee-track flex w-max" style={{ ["--glide" as string]: "70s" }}>
           {row}
           {row}
         </div>
