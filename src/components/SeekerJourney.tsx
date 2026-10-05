@@ -8,7 +8,7 @@ import { describeChanges } from "@/lib/changes"
 import { useData } from "@/lib/data"
 import { saveDraft } from "@/lib/draft"
 import { shrink } from "@/lib/image"
-import { importLinkedIn, LINKEDIN_URL, mergeLinkedIn } from "@/lib/linkedin"
+import { importLinkedIn, mergeLinkedIn, toLinkedInUrl } from "@/lib/linkedin"
 import {
   COUNTED_STEPS,
   STEPS,
@@ -85,9 +85,9 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
 
   /** The LinkedIn link is the whole sign-up: the backend reads the profile, the rest keeps its defaults, and the jobs open. */
   async function connectLinkedIn(): Promise<void> {
-    const url = link.trim()
-    if (!LINKEDIN_URL.test(url)) {
-      setError("Paste the link to your profile, like https://www.linkedin.com/in/your-name")
+    const url = toLinkedInUrl(link)
+    if (!url) {
+      setError("Paste the link to your profile, like linkedin.com/in/your-name")
 
       return
     }

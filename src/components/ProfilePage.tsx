@@ -2,7 +2,7 @@ import { ArrowLeftIcon, CameraIcon, PlusIcon, XIcon } from "@/components/icons"
 import { Suspense, lazy, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { parseCsv } from "@/lib/csv"
-import { importLinkedIn, LINKEDIN_URL, mergeLinkedIn } from "@/lib/linkedin"
+import { importLinkedIn, mergeLinkedIn, toLinkedInUrl } from "@/lib/linkedin"
 import { useData } from "@/lib/data"
 import { shrink } from "@/lib/image"
 import { DUTCH_OPTIONS, ORIGIN_OPTIONS, PERMIT_OPTIONS } from "@/lib/journey"
@@ -122,9 +122,9 @@ export function ProfilePage({ onBack }: ProfilePageProps): React.JSX.Element {
   const [linkNote, setLinkNote] = useState<{ ok: boolean; text: string } | null>(null)
 
   function connect(): void {
-    const url = link.trim()
-    if (!LINKEDIN_URL.test(url)) {
-      setLinkNote({ ok: false, text: "Paste the link to your profile, like https://www.linkedin.com/in/your-name" })
+    const url = toLinkedInUrl(link)
+    if (!url) {
+      setLinkNote({ ok: false, text: "Paste the link to your profile, like linkedin.com/in/your-name" })
     } else {
       setLinking("busy")
       setLinkNote(null)
