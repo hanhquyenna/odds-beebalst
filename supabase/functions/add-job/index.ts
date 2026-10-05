@@ -156,11 +156,8 @@ Deno.serve(async (req) => {
   const since = new Date(Date.now() - 86_400_000).toISOString()
   const counted = await fetch(`${base}/rest/v1/linkedin_imports?kind=eq.job&created_at=gte.${since}&select=id`, { headers: { ...rest, Prefer: "count=exact", Range: "0-0" } })
   if (Number((counted.headers.get("content-range") ?? "*/0").split("/")[1] ?? 0) >= GLOBAL_LIMIT) return reply(429, { error: "Adding jobs is paused for today. Try again tomorrow." })
-  const logged = await fetch(`${base}/rest/v1/linkedin_imports`, { method: "POST", headers: { ...rest, "Content-Type": "application/json", Prefer: "return=representation" }, body: JSON.stringify({ user_id: null, ip_hash: null, kind: "job", url: parsed.url }) })
-  const usedId = ((await logged.json().catch(() => [])) as Array<{ id?: number }>)[0]?.id
-  const giveBack = async (): Promise<void> => {
-    if (usedId !== undefined) await fetch(`${base}/rest/v1/linkedin_imports?id=eq.${usedId}`, { method: "DELETE", headers: rest })
-  }
+  // Every paid read counts, failed or not: refunding failures let random job ids drive unmetered scraper runs.
+  await fetch(`${base}/rest/v1/linkedin_imports`, { method: "POST", headers: { ...rest, "Content-Type": "application/json" }, body: JSON.stringify({ user_id: null, ip_hash: null, kind: "job", url: parsed.url }) })
 
   // 3. The read.
   let item: JobDetails | undefined
@@ -169,12 +166,10 @@ Deno.serve(async (req) => {
     if (!run.ok) throw new Error(String(run.status))
     item = ((await run.json()) as JobDetails[])[0]
   } catch {
-    await giveBack()
     return reply(502, { error: "LinkedIn did not answer. Try again in a minute." })
   }
   const verdict = readVerdict(item)
   if (verdict === "unreadable" || !item) {
-    await giveBack()
     return reply(200, { status: "unreadable", message: "That job could not be read. It may have been taken down." })
   }
   // 4. Closed, or not in the Netherlands: not added.

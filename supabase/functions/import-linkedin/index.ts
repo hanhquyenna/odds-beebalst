@@ -81,13 +81,8 @@ Deno.serve(async (req) => {
   const mine = userId ? await countOf(`user_id=eq.${userId}`) : await countOf(`ip_hash=eq.${ipHash}`)
   if (mine >= (userId ? DAILY_LIMIT : ANON_LIMIT)) return reply(429, { error: `Up to ${userId ? DAILY_LIMIT : ANON_LIMIT} imports a day. Try again tomorrow, or sign in for more.` })
   if ((await countOf("id=gt.0")) >= GLOBAL_LIMIT) return reply(429, { error: "Imports are paused for today. Try again tomorrow." })
-  const logged = await fetch(`${supabaseUrl}/rest/v1/linkedin_imports`, { method: "POST", headers: { ...rest, "Content-Type": "application/json", Prefer: "return=representation" }, body: JSON.stringify({ user_id: userId, ip_hash: ipHash, kind: "profile", url }) })
-  const loggedRows = (await logged.json().catch(() => [])) as Array<{ id?: number }>
-  const usedId = Array.isArray(loggedRows) ? loggedRows[0]?.id : undefined
-  // A read that fails is not an import: give the use back, so a broken scraper or a private profile never eats someone's quota.
-  const giveBack = async (): Promise<void> => {
-    if (usedId !== undefined) await fetch(`${supabaseUrl}/rest/v1/linkedin_imports?id=eq.${usedId}`, { method: "DELETE", headers: rest })
-  }
+  // Every paid read counts, failed or not: refunding failures let random profile links drive unmetered scraper runs.
+  await fetch(`${supabaseUrl}/rest/v1/linkedin_imports`, { method: "POST", headers: { ...rest, "Content-Type": "application/json" }, body: JSON.stringify({ user_id: userId, ip_hash: ipHash, kind: "profile", url }) })
 
   const run = await fetch(`https://api.apify.com/v2/acts/${APIFY_ACTOR}/run-sync-get-dataset-items?token=${apify}`, {
     method: "POST",
@@ -95,13 +90,11 @@ Deno.serve(async (req) => {
     body: JSON.stringify({ profileScraperMode: "Profile details no email ($4 per 1k)", queries: [url] }),
   })
   if (!run.ok) {
-    await giveBack()
     return reply(502, { error: "LinkedIn did not answer. Try again in a minute." })
   }
   const items = (await run.json()) as unknown[]
   const item = Array.isArray(items) ? items.find(isUsable) : undefined
   if (!item) {
-    await giveBack()
     return reply(404, { error: "That profile could not be read. Is it public?" })
   }
 
