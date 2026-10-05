@@ -30,8 +30,10 @@ jobs:
       - run: bunx playwright install --with-deps chromium
       # Type-checks and builds once (fake Supabase env), then drives the build in a browser.
       - run: bun run e2e
-      # Budgets the same build e2e just proved renders.
+      # Budgets the same build e2e just proved renders; e2e/lean.spec.ts budgets what landing really fetches.
       - run: bun run perf
+      # Scoring, filtering and sorting 2,000 jobs, failing only past a loose ceiling.
+      - run: bun run bench
       - if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

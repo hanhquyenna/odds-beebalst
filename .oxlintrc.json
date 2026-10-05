@@ -37,7 +37,7 @@
   },
   "overrides": [
     {
-      // No tsconfig covers scripts (Deno and one-off tools), so types resolve loosely there.
+      // No tsconfig covers scripts (data tools), so types resolve loosely there.
       "files": ["scripts/**"],
       "rules": { "typescript/no-base-to-string": "off" }
     }

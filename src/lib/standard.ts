@@ -222,15 +222,6 @@ export function standardTiers(requirements: ReadonlyArray<Requirement>, order: R
     .filter(({ std }) => std.skills.length + std.experience.length + std.education.length + std.language.length + std.qualities.length + std.conditions.length > 0)
 }
 
-/** Every value each row can ever show, for checking that nothing outside the vocabulary gets through. */
-export const VOCABULARY = {
-  skills: Object.keys(SKILLS).filter((name) => !SKILL_AS_QUALITY[name]).map(written),
-  language: LANGUAGES.map(([name]) => name),
-  qualities: QUALITIES.map(([name]) => written(name)),
-  education: [...Object.values(DEGREE_NAME), "A degree in a relevant field"],
-  conditions: CONDITIONS.map(([name]) => name),
-}
-
 /** Skills a posting names without saying how much it insists, written the standard way: the dictionary's order, qualities after skills. */
 export function standardNames(names: ReadonlyArray<string>): string[] {
   const have = new Set(names)

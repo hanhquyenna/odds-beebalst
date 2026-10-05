@@ -22,7 +22,7 @@ export interface Pay {
 /**
  * An internship in the Netherlands pays an allowance, not a salary, and CBS has
  * no pay band for it. The figures are what employers write in their own
- * postings, read by scripts/make_intern_pay.py into intern-pay.json: the
+ * postings, read into intern-pay.json: the
  * posting's own amount first, else what the same employer states in its other
  * postings, else the middle half across the employers that state one.
  */

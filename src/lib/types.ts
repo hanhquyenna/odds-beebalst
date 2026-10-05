@@ -109,7 +109,6 @@ export type Relationship = "Referral" | "Recruiter" | "Hiring manager" | "Interv
  * "Replied" and "Met" are the first three of the old list and keep their meaning, so anyone already saved stays valid.
  */
 export type ContactStatus = "To contact" | "Contacted" | "Connected" | "Replied" | "Chat booked" | "Met" | "Referral asked" | "Referred" | "No reply" | "Said no" | "Passed me on"
-export const RELATIONSHIPS: ReadonlyArray<Relationship> = ["Referral", "Recruiter", "Hiring manager", "Interviewer", "Colleague"]
 export const CONTACT_STATUSES: ReadonlyArray<ContactStatus> = ["To contact", "Contacted", "Connected", "Replied", "Chat booked", "Met", "Referral asked", "Referred", "No reply", "Said no", "Passed me on"]
 
 export type MessageKind = "Referral request" | "Follow-up" | "Thank you" | "Introduction" | "Other"

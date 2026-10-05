@@ -1,5 +1,5 @@
 // POST /jobs/check?slice=0&of=4: ask each employer's own job board whether the postings we hold are still open.
-// Called every hour by pg_cron (see scripts/setup-check.sh), four slices a few minutes apart so one run stays short.
+// Called every hour by pg_cron, four slices a few minutes apart so one run stays short.
 // Secret: CHECK_SECRET, sent by the schedule as the x-check-secret header. SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided by Supabase.
 import { applyVerdict, CHECKED, checkRows, type Row } from "../_shared/ats-check.ts"
 import { reply } from "../_shared/http.ts"
