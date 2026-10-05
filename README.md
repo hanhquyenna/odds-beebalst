@@ -26,7 +26,7 @@ Fields that postings do not state (kind of job, occupation group, industry, mini
 | Job list and job panel | `src/components/JobBoard.tsx`, `JobDetail.tsx`, `JobPersonal.tsx` |
 | People and outreach | `src/components/People.tsx`, `src/lib/suggest.ts`, `src/lib/outreach-stage.ts` |
 | Supabase views and migrations | `supabase/migrations/` |
-| Edge functions (profile reading, people lookup, open/closed checks) | `supabase/functions/` |
+| Edge functions `account` (sign-in), `profile` (LinkedIn import, profile reading), `jobs` (add, open/closed checks, morning message, people lookup) | `supabase/functions/` |
 | Data scripts (reading with Jev, audits, people pre-fill) | `scripts/` |
 
 ## Run it

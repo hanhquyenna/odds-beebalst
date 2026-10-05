@@ -11,3 +11,22 @@ export function ToolBar({ count, noun, tools, lead }: { count?: number; noun: { 
     </div>
   )
 }
+
+/**
+ * A button in the toolbar above the list: white with an outline, the same height as Jobs, List and Sort beside it.
+ * Pressed, it turns black, so it is plain which panel is open. Every button here uses this one style.
+ */
+export function ToolButton({ pressed, onClick, children }: { pressed: boolean; onClick: () => void; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      onClick={onClick}
+      className={`flex h-10 cursor-pointer items-center gap-2 rounded-lg border-[1.5px] px-3.5 text-sm font-medium transition-colors duration-150 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px ${
+        pressed ? "border-foreground bg-foreground text-background hover:bg-foreground/85" : "bg-card hover:border-foreground/40 hover:bg-accent"
+      }`}
+    >
+      {children}
+    </button>
+  )
+}

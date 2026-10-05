@@ -3,7 +3,7 @@ import { formatPosted } from "@/lib/format"
 import type { Posting } from "@/lib/types"
 
 /** The rungs every job sits on, in order. An internship is its own first rung: its allowance is not a graduate salary. */
-export const LADDER = ["Internship", "Entry", "Mid", "Senior", "Manager", "Director"] as const
+const LADDER = ["Internship", "Entry", "Mid", "Senior", "Manager", "Director"] as const
 export type Rung = (typeof LADDER)[number]
 
 export interface RungStats {
@@ -24,7 +24,7 @@ const MIN_YEARS = 4
 const MIN_PAY = 6
 
 /** "Senior Accountant (m/f/x) - Amsterdam" is "Senior Accountant": the noise taken off, the words kept as posted. */
-export function cleanTitle(title: string): string {
+function cleanTitle(title: string): string {
   const t = title
     .replace(/&amp;/g, "&")
     .replace(/\([^)]*\)|\[[^\]]*\]/g, " ")

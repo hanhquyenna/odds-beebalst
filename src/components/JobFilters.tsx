@@ -17,8 +17,6 @@ const ANY = "any"
 interface JobFiltersProps {
   filters: Filters
   onChange: (next: Filters) => void
-  /** Off where the jobs carry no sponsor flag, so the toggle cannot empty the list. */
-  sponsorable?: boolean
   /** Sits at the end of the row of filters, where the sort goes. */
   trailing?: React.ReactNode
   /** When false the row of filters is folded away (the page has a Filter toggle for it); left out, it is always shown. */
@@ -47,12 +45,12 @@ const PAY_ITEMS = [
  * text-foreground is for the dark band, where the section's light text would
  * otherwise run into the paper backgrounds of the controls.
  */
-export function JobFilters({ filters, onChange, sponsorable = true, trailing, extra, open, search = true }: JobFiltersProps): React.JSX.Element {
+export function JobFilters({ filters, onChange, trailing, extra, open, search = true }: JobFiltersProps): React.JSX.Element {
   const active = activeCount(filters)
 
   const [added, setAdded] = useState<string[]>([])
   const [menu, setMenu] = useState<boolean>(false)
-  const defs = useFilterDefs(filters, onChange, sponsorable)
+  const defs = useFilterDefs(filters, onChange)
   const shown = (d: Def): boolean => d.on || added.includes(d.key)
   const rest = defs.filter((d) => !d.always && !shown(d))
   const remove = (d: Def): void => {
@@ -137,7 +135,7 @@ interface Def {
 }
 
 /** Every filter the list offers, each with its control. The row of filters and the preferences editor both draw from this one list. */
-function useFilterDefs(filters: Filters, onChange: (next: Filters) => void, sponsorable: boolean): Def[] {
+function useFilterDefs(filters: Filters, onChange: (next: Filters) => void): Def[] {
   const data = useData()
   // The sites the jobs were found on, with how many each carries. A job on two sites counts under both.
   const sources = useMemo(() => {
@@ -175,22 +173,18 @@ function useFilterDefs(filters: Filters, onChange: (next: Filters) => void, spon
     { key: "source", label: "Source", on: filters.source.length > 0, reset: { source: [] }, node: <MultiPick label="Source" any="Any source" items={sources.map(([name, n]) => ({ value: name, label: `${name} (${n})` }))} value={filters.source} onChange={(v) => onChange({ ...filters, source: v })} /> },
     { key: "field", label: "Job field", always: true, on: filters.field.length > 0, reset: { field: [] }, node: <MultiPick label="Job field" any="Any job field" items={FIELD_OPTIONS.map((name) => ({ value: name, label: name }))} value={filters.field} onChange={(v) => onChange({ ...filters, field: v })} /> },
     { key: "industry", label: "Employer industry", on: filters.industry.length > 0, reset: { industry: [] }, node: <MultiPick label="Employer industry" any="Any industry" items={INDUSTRIES.map((name) => ({ value: name, label: name }))} value={filters.industry} onChange={(v) => onChange({ ...filters, industry: v as Industry[] })} /> },
-    ...(sponsorable
-      ? [
-          {
-            key: "sponsor",
-            label: "IND sponsors",
-            on: filters.sponsorOnly,
-            reset: { sponsorOnly: false },
-            node: (
-              <Button type="button" variant={filters.sponsorOnly ? "default" : "outline"} aria-pressed={filters.sponsorOnly} onClick={() => onChange({ ...filters, sponsorOnly: !filters.sponsorOnly })} className="h-10 cursor-pointer">
-                <BadgeCheckIcon aria-hidden="true" />
-                IND sponsors
-              </Button>
-            ),
-          },
-        ]
-      : []),
+    {
+      key: "sponsor",
+      label: "IND sponsors",
+      on: filters.sponsorOnly,
+      reset: { sponsorOnly: false },
+      node: (
+        <Button type="button" variant={filters.sponsorOnly ? "default" : "outline"} aria-pressed={filters.sponsorOnly} onClick={() => onChange({ ...filters, sponsorOnly: !filters.sponsorOnly })} className="h-10 cursor-pointer">
+          <BadgeCheckIcon aria-hidden="true" />
+          IND sponsors
+        </Button>
+      ),
+    },
   ]
 
   // Job type is hidden for now. The filter and its logic stay in place, so it can come back by removing this line.
@@ -198,8 +192,8 @@ function useFilterDefs(filters: Filters, onChange: (next: Filters) => void, spon
 }
 
 /** All the filters in one place, one labelled row each, for setting job preferences. */
-export function FilterEditor({ filters, onChange, sponsorable = true }: { filters: Filters; onChange: (next: Filters) => void; sponsorable?: boolean }): React.JSX.Element {
-  const defs = useFilterDefs(filters, onChange, sponsorable)
+export function FilterEditor({ filters, onChange }: { filters: Filters; onChange: (next: Filters) => void }): React.JSX.Element {
+  const defs = useFilterDefs(filters, onChange)
 
   return (
     <div className="flex flex-col gap-3">

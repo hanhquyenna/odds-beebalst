@@ -34,7 +34,7 @@ const culture = new Map<string, { heading: string; text: string; id: string; sco
 const teams = new Map<string, { family: string; heading: string; text: string; id: string; tasks: Set<string> }>()
 
 for (const p of rows) {
-  const parsed = parsePosting(stripMarkup(p.body ?? ""), p.employer_display)
+  const parsed = parsePosting(stripMarkup(p.body ?? ""))
   for (const s of parsed.sections) {
     const t = text(s)
     if (s.title && CULTURE.test(s.title) && s.key !== "legal" && good(t)) {

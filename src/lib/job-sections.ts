@@ -5,7 +5,7 @@
  * trade", "Your superpowers", "Picnic perks"); each is recognised only to decide where its section goes, and is never changed or replaced.
  */
 
-export type SectionKey = "about" | "team" | "duties" | "requirements" | "offer" | "apply" | "company" | "legal" | "other"
+type SectionKey = "about" | "team" | "duties" | "requirements" | "offer" | "apply" | "company" | "legal" | "other"
 
 export type Block = { kind: "p"; text: string } | { kind: "ul"; items: string[] }
 
@@ -28,7 +28,7 @@ export interface ParsedPosting {
 }
 
 /** The order sections are shown in. */
-export const SECTION_ORDER: ReadonlyArray<SectionKey> = ["about", "team", "duties", "requirements", "offer", "apply", "other", "company", "legal"]
+const SECTION_ORDER: ReadonlyArray<SectionKey> = ["about", "team", "duties", "requirements", "offer", "apply", "other", "company", "legal"]
 
 const norm = (s: string): string => s.toLowerCase().replace(/[’‘´`]/g, "'").replace(/\s+/g, " ").trim()
 
@@ -64,7 +64,7 @@ function headingText(line: string): string {
 }
 
 /** The key a heading belongs to, or null when the line is not a known heading. */
-function classify(heading: string, _employer: string): SectionKey | null {
+function classify(heading: string): SectionKey | null {
   const h = norm(heading)
   for (const [key, rx] of HEADINGS) {
     if (rx.test(h)) return key
@@ -274,7 +274,7 @@ function footerStart(lines: string[]): number {
 }
 
 /** `text` is the posting with markup already removed (stripMarkup). Every line of it ends up in the result, as written. */
-export function parsePosting(text: string, employer = ""): ParsedPosting {
+export function parsePosting(text: string): ParsedPosting {
   const all = text.replace(/\r/g, "").split("\n")
   const cut = footerStart(all)
   const lines = cut >= 0 ? all.slice(0, cut) : all
@@ -303,7 +303,7 @@ export function parsePosting(text: string, employer = ""): ParsedPosting {
     // "Work Schedule" over "Standard (Mon-Fri)": a label with its value on the next line.
     if (LABEL.test(clean)) {
       const j = lines.findIndex((l, k) => k > i && l.trim())
-      if (j > i && lines[j].trim().length <= 100 && !LABEL.test(headingText(lines[j])) && !classify(headingText(lines[j]), employer)) {
+      if (j > i && lines[j].trim().length <= 100 && !LABEL.test(headingText(lines[j])) && !classify(headingText(lines[j]))) {
         details.push({ label: clean, value: lines[j].trim() })
         for (let k = i + 1; k <= j; k++) lines[k] = ""
         continue
@@ -312,7 +312,7 @@ export function parsePosting(text: string, employer = ""): ParsedPosting {
     const short = clean.length >= 2 && clean.length <= 70 && wordsOf(clean) <= 9 && !/[.!?;,]$/.test(clean) && !BULLET.test(plain)
     // "About the team - GameDistribution": the part before the dash is what is recognised; the whole line is the heading.
     const lead = clean.split(/\s+[-–—|:]\s+/)[0]
-    const key = short ? classify(clean, employer) ?? (lead !== clean ? classify(lead, employer) : null) : null
+    const key = short ? classify(clean) ?? (lead !== clean ? classify(lead) : null) : null
     if (key) {
       found.push({ key, title: plain.replace(/[:：\s]+$/, ""), lines: [] })
       continue

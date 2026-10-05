@@ -1,5 +1,5 @@
 // Turns one LinkedIn job, as the job-details reader returns it, into a row for public.postings. Pure functions: no network, no clock of their own.
-// Shared by the Edge Function add-job (Deno) and the tests (bun). The rules are the ones the loaders use (app/build_data.py, backend/dutch_rules.py), so a job
+// shared by the jobs Edge Function (/jobs/add, Deno) and the tests (bun). The rules are the ones the loaders use (app/build_data.py, backend/dutch_rules.py), so a job
 // that someone pastes is read exactly like one found by a search.
 import { guessFamily } from "./job-family.ts"
 import { SKILL_PATTERNS } from "./job-skills.ts"

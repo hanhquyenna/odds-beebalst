@@ -14,7 +14,7 @@ import type { Posting, Profile } from "@/lib/types"
  *   - the posting's side: how many skills and tools the posting lists, so there is something to compare with
  *   - the range: how tight it is (the high end over the low end)
  */
-export type ConfidenceLevel = "Low" | "Medium" | "High"
+type ConfidenceLevel = "Low" | "Medium" | "High"
 
 export interface Confidence {
   level: ConfidenceLevel

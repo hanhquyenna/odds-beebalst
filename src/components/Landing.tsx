@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react"
 import { JobFilters } from "@/components/JobFilters"
 import { SortSelect } from "@/components/SortSelect"
 import { JOB_SORTS, sortJobs, type JobSortKey } from "@/lib/sort"
 import { JobBoard } from "@/components/JobBoard"
 import { Button } from "@/components/ui/button"
 import logoUrl from "@/logo.svg"
-import { ResearchSlides } from "@/components/ResearchSlides"
 import { useData } from "@/lib/data"
 import { isGuestEmail } from "@/lib/auth"
 import { FilterBus } from "@/lib/filter-bus"
@@ -14,13 +13,14 @@ import { jobsHeadline } from "@/lib/headline"
 import type { StaticPage } from "@/lib/pages"
 import type { Posting } from "@/lib/types"
 
+// Lazy: the slides read every research report (the largest chunk) and sit at the foot of the page, so they load as the page nears them.
+const ResearchSlides = lazy(() => import("@/components/ResearchSlides").then((module) => ({ default: module.ResearchSlides })))
+
 interface LandingProps {
   onSignIn: () => void
   onStart: () => void
   onOpenPage?: (page: StaticPage) => void
 }
-
-
 
 /**
  * The front page: a headline, a strip of real employers gliding past under it,
@@ -127,13 +127,39 @@ export function Landing({ onStart, onSignIn, onOpenPage }: LandingProps): React.
         </section>
       ) : null}
 
-      <ResearchSlides onOpenPage={onOpenPage} />
+      <WhenNear>
+        <Suspense fallback={<SlidesPlaceholder />}>
+          <ResearchSlides onOpenPage={onOpenPage} />
+        </Suspense>
+      </WhenNear>
     </div>
     </FilterBus>
   )
 }
 
-/** The film: plays when it scrolls into view and starts again as soon as it ends. Still picture where motion is off. */
+/** Renders its children once the page scrolls within a screen of them. Until then the slides' placeholder holds their place. */
+function WhenNear({ children }: { children: React.ReactNode }): React.JSX.Element {
+  const spot = useRef<HTMLDivElement | null>(null)
+  const [near, setNear] = useState<boolean>(() => typeof IntersectionObserver === "undefined")
+
+  useEffect(() => {
+    const el = spot.current
+    if (near || !el) {
+      return
+    }
+    const watch = new IntersectionObserver((entries) => setNear(entries.some((entry) => entry.isIntersecting)), { rootMargin: "100% 0px" })
+    watch.observe(el)
+
+    return () => watch.disconnect()
+  }, [near])
+
+  return near ? <>{children}</> : <div ref={spot}><SlidesPlaceholder /></div>
+}
+
+/** Empty space the height of the research slides, so the footer does not jump when they arrive. */
+function SlidesPlaceholder(): React.JSX.Element {
+  return <div aria-hidden="true" className="-mb-7 h-[27.6rem] sm:h-[29rem]" />
+}
 
 /** 4K where the screen has the pixels for it (a retina laptop or bigger), 1080p everywhere else, so a phone or a small laptop never decodes pixels it cannot show. */
 function pickFilm(): string {
@@ -142,6 +168,7 @@ function pickFilm(): string {
   return wide >= 2400 ? "/brag/odds-4k.mp4" : "/brag/odds-1080.mp4"
 }
 
+/** The film: plays when it scrolls into view and starts again as soon as it ends. Still picture where motion is off. */
 function HeroVideo(): React.JSX.Element {
   const still = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
   const video = useRef<HTMLVideoElement | null>(null)
@@ -195,7 +222,7 @@ function HeroVideo(): React.JSX.Element {
           muted
           playsInline
           loop
-          preload="auto"
+          preload="metadata"
           aria-label="A short film: every job board in one list, your interview odds, built for international students"
         />
       )}

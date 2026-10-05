@@ -69,7 +69,7 @@ function ScanToPhone({ session }: { session: Session }): React.JSX.Element {
 
   return (
     <div className="flex flex-col items-center gap-2 rounded-xl border-[1.5px] p-4 text-center">
-      {link ? <QrCode text={link} /> : <div className="size-44 animate-pulse rounded-lg bg-muted" aria-hidden="true" />}
+      {link ? <QrCode text={link} /> : <div className="size-44 rounded-lg bg-muted" aria-hidden="true" />}
       <p className="text-base font-medium">Scan with your phone’s camera</p>
       <p className="text-sm text-muted-foreground">odds opens on your phone, signed in, with the steps below. On iPhone, open it in Safari.</p>
       {error ? <p className="text-sm text-destructive">{error}</p> : null}

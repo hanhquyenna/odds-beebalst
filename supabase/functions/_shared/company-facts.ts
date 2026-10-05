@@ -1,5 +1,5 @@
 // Turns one LinkedIn company page, as the Apify actor harvestapi~linkedin-company returns it, into a row for public.employer_facts, and names the industry
-// in the app's own words. Pure functions, shared by the Edge Function add-job (Deno) and the tests (bun).
+// in the app's own words. Pure functions, shared by the jobs Edge Function (/jobs/add, Deno) and the tests (bun).
 
 export interface CompanyItem {
   name?: string

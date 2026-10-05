@@ -1,18 +1,15 @@
 import { skillLabel } from "@/lib/skills"
 import { CircleHelpIcon, InfoIcon } from "@/components/icons"
-import { useMemo, useState } from "react"
+import { Suspense, lazy, useMemo, useState } from "react"
 import { useOriginalChance } from "@/components/FitCells"
 import { Moved } from "@/components/Moved"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/bits"
 import { Hint } from "@/components/Hint"
 import { Caret, ChancePanel } from "@/components/OddsExplain"
-import { ReferralLink } from "@/components/People"
 import { Section } from "@/components/Section"
 import { TIERS, TIER_LABEL, type Requirement, type Tier } from "@/lib/requirements"
 import { standardise, standardNames, standardTiers } from "@/lib/standard"
-
-export { Section }
 import { useData } from "@/lib/data"
 import { ladderStats, poolOf, rungOf } from "@/lib/ladder"
 import { derive, eur, isInternship, levelOf, type Level, payChoicesOf, netMonth, pct, point, standing, thresholdLines, type Standing, type WhatIf, NO_WHAT_IF } from "@/lib/engine"
@@ -24,6 +21,9 @@ import { allowanceNote, allowanceOf, payMid, payOf, TRAINEE_NOTE, type Allowance
 import { useApplyFilter } from "@/lib/filter-bus"
 import { industryOf } from "@/lib/industries"
 import type { PayChoices, PermitRoute, Posting, Transition } from "@/lib/types"
+
+// Lazy: the add-someone form opens on a click and lives with the people view, which the job drawer should not wait on.
+const AddPerson = lazy(() => import("@/components/People").then((module) => ({ default: module.AddPerson })))
 
 /** The same four, as they read inside a sentence. */
 const MISSING_WORDS: Record<string, string> = { Permit: "a high enough salary", Degree: "the degree", "Minimum years": "enough experience", Dutch: "Dutch", Language: "the language", Student: "student status" }
@@ -63,7 +63,7 @@ function keepOf(post: Posting, data: ReturnType<typeof useData>, original = fals
  * what you would keep each month. They lead every job, and they move when you
  * tick a recommendation below.
  */
-export function UspStrip({ post, st }: { post: Posting; st: Standing; base?: Standing; active?: boolean }): React.JSX.Element {
+export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.JSX.Element {
   const data = useData()
   const [open, setOpen] = useState<boolean>(false)
   const keep = keepOf(post, data)
@@ -459,7 +459,7 @@ export function LockedPersonal({ onUnlock }: { onUnlock: () => void }): React.JS
 
 // ---------------------------------------------------------------- pay
 
-export function PayCard({ post, st, onPick }: { post: Posting; st: Standing; onPick?: () => void }): React.JSX.Element | null {
+export function PayCard({ post, st }: { post: Posting; st: Standing }): React.JSX.Element | null {
   const data = useData()
   const ref = data.reference!
   const view = st.band
@@ -476,7 +476,7 @@ export function PayCard({ post, st, onPick }: { post: Posting; st: Standing; onP
             {allowance.source ? <Hint label="About this pay">{allowance.basis === "Allowance" ? allowanceNote(allowance.source as AllowanceSource) : `${allowance.source}, before tax.`}</Hint> : null}
           </p>
         ) : null}
-        <CareerPath post={post} st={st} onPick={onPick} />
+        <CareerPath />
       </Section>
     )
   }
@@ -488,7 +488,7 @@ export function PayCard({ post, st, onPick }: { post: Posting; st: Standing; onP
           <span className="text-base font-normal text-muted-foreground">an hour</span>
           <Hint label="About this pay">Stated by the employer, before tax. A monthly figure depends on how many hours you work, so none is worked out.</Hint>
         </p>
-        <CareerPath post={post} st={st} onPick={onPick} />
+        <CareerPath />
       </Section>
     )
   }
@@ -500,7 +500,7 @@ export function PayCard({ post, st, onPick }: { post: Posting; st: Standing; onP
           <span className="text-base font-normal text-muted-foreground">a month, typical for a traineeship</span>
           <Hint label="About this pay">{TRAINEE_NOTE}</Hint>
         </p>
-        <CareerPath post={post} st={st} onPick={onPick} />
+        <CareerPath />
       </Section>
     )
   }
@@ -516,7 +516,7 @@ export function PayCard({ post, st, onPick }: { post: Posting; st: Standing; onP
           </Hint>
         </p>
         <p className="mt-3">An allowance is not taxed like a salary, so your settings do not change it. They change the pay after tax at the levels below.</p>
-        <CareerPath post={post} st={st} onPick={onPick} />
+        <CareerPath />
       </Section>
     )
   }
@@ -535,7 +535,7 @@ export function PayCard({ post, st, onPick }: { post: Posting; st: Standing; onP
         </Hint>
       </p>
 
-      <CareerPath post={post} st={st} onPick={onPick} />
+      <CareerPath />
 
       <Info label="Sources">
         <ul className="space-y-1.5">
@@ -583,7 +583,7 @@ const TRANSITION_TITLES: ReadonlyArray<[string, RegExp]> = [
   ["ACCOUNTANT", /\baccountant\b/i],
   ["SOFTWARE DEVELOPER", /\bsoftware (developer|engineer)/i],
 ]
-export function transitionKeyOf(post: Posting): string | undefined {
+function transitionKeyOf(post: Posting): string | undefined {
   if (isInternship(post)) return undefined
   const title = post.title_clean ?? post.title
 
@@ -679,7 +679,7 @@ function RulingHelp({ floor, floorMaster, abroad, under30Master }: { floor: numb
 }
 
 /** What a monthly pay becomes: tax, then health insurance, a month and a year. */
-function TakeHome({ month, typical, totals, premium, threshold, ruling, range, startNet }: { range?: React.ReactNode; startNet?: number; month: number; typical: boolean; totals: { gross: number; netM: number; free: number }; premium: number; threshold: number | null; ruling: boolean }): React.JSX.Element {
+function TakeHome({ month, typical, totals, premium, threshold, ruling, range, startNet }: { range?: React.ReactNode; startNet: number; month: number; typical: boolean; totals: { gross: number; netM: number; free: number }; premium: number; threshold: number | null; ruling: boolean }): React.JSX.Element {
   // Numbers that follow your pay settings (what you get, what is left) show against what they are with the settings as they start.
   const row = (label: string, m: number, strong = false, minus = false, was: number | null = null): React.JSX.Element => (
     <div className={`grid grid-cols-[minmax(0,1fr)_5.5rem_6rem] items-baseline gap-x-3 py-2 ${strong ? "font-semibold" : ""}`}>
@@ -706,10 +706,10 @@ function TakeHome({ month, typical, totals, premium, threshold, ruling, range, s
       </div>
       <dl className="divide-y-[1.5px]">
         {row("Pay before tax", totals.gross)}
-        {row("Income tax", totals.gross - totals.netM, false, true, startNet === undefined ? null : totals.gross - startNet)}
-        {row("What you get", totals.netM, true, false, startNet ?? null)}
+        {row("Income tax", totals.gross - totals.netM, false, true, totals.gross - startNet)}
+        {row("What you get", totals.netM, true, false, startNet)}
         {row("Health insurance", premium, false, true)}
-        {row("What is left", totals.netM - premium, true, false, startNet === undefined ? null : startNet - premium)}
+        {row("What is left", totals.netM - premium, true, false, startNet - premium)}
       </dl>
       {gap != null && threshold != null ? (
         <p className="mt-2 flex flex-wrap items-center gap-2 border-t-[1.5px] pt-2">
@@ -825,7 +825,7 @@ function NextMoves({ transition, postings, onPick }: { transition: Transition; p
 }
 
 /** The pay and visa settings every figure on the page is counted with: what you tick decides the numbers for every job, and is kept as you change it. */
-function CareerPath({ post: _post }: { post: Posting; st: Standing; onPick?: () => void }): React.JSX.Element {
+function CareerPath(): React.JSX.Element {
   const data = useData()
   const ref = data.reference!
   const d = derive(data.profile)
@@ -1066,6 +1066,54 @@ function AfterTaxRange({ mine, other, ruling, first }: { mine: { p25: number; p7
         {row(`Low end ${ruling ? "without" : "with"} the 30% ruling`, other.p25, null)}
         {row(`High end ${ruling ? "without" : "with"} the 30% ruling`, other.p75, null)}
       </dl>
+    </div>
+  )
+}
+
+/**
+ * Under "Get a referral" on a job: link someone you already added at this
+ * company, or add a new person right there; the form has the search for
+ * people at the company inside it. Either way they show on the People
+ * table and count as the referral.
+ */
+function ReferralLink({ post }: { post: Posting }): React.JSX.Element | null {
+  const data = useData()
+  const [adding, setAdding] = useState<boolean>(false)
+  const candidates = data.people.filter((p) => p.jobId !== post.id && p.company.trim().toLowerCase() === post.employer_display.trim().toLowerCase())
+  if (data.people.some((p) => p.jobId === post.id && p.status === "Referred")) {
+    return null
+  }
+  if (adding) {
+    return (
+      <Suspense fallback={null}>
+        <AddPerson fixedJob={post} onDone={() => setAdding(false)} />
+      </Suspense>
+    )
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 pb-3.5 pl-7">
+      {candidates.length > 0 ? (
+        <select
+          aria-label={`Link someone you know at ${post.employer_display}`}
+          value=""
+          onChange={(e) => {
+            data.updatePerson(e.target.value, { jobId: post.id, company: post.employer_display })
+            saved()
+          }}
+          className="h-8 rounded-md border-[1.5px] bg-background px-2 text-sm"
+        >
+          <option value="">Link someone you know here</option>
+          {candidates.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      <button type="button" onClick={() => setAdding(true)} className="cursor-pointer text-sm font-medium text-primary underline underline-offset-4">
+        Add someone new
+      </button>
     </div>
   )
 }

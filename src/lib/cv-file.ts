@@ -71,7 +71,7 @@ export function docxXmlToText(xml: string): string {
   ).replace(/ \| \n/g, "\n")
 }
 
-export async function docxToText(buf: Uint8Array): Promise<string> {
+async function docxToText(buf: Uint8Array): Promise<string> {
   // Imported here so fflate stays out of the page until a Word file is chosen.
   const { strFromU8, unzipSync } = await import("fflate")
   let files: Record<string, Uint8Array>
@@ -105,7 +105,7 @@ async function browserPdfJs(): Promise<PdfJs> {
 }
 
 /** The text of a PDF, page by page. Items on the same baseline join with a space; a new baseline starts a new line. */
-export async function pdfToText(buf: Uint8Array, load: () => Promise<PdfJs> = browserPdfJs): Promise<string> {
+async function pdfToText(buf: Uint8Array, load: () => Promise<PdfJs> = browserPdfJs): Promise<string> {
   const pdfjs = await load()
   let doc
   try {

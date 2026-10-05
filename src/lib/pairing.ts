@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react"
 import { startDevicePair } from "@/lib/auth"
 import { platformOf } from "@/lib/push"
+import { readStored } from "@/lib/remembered"
 
 /**
  * A Home Screen app cannot finish a Google sign-in itself: the trip to Google comes back in a different browser context,
@@ -25,14 +26,6 @@ const emit = (): void => listeners.forEach((l) => l())
 const subscribe = (l: () => void): (() => void) => {
   listeners.add(l)
   return () => listeners.delete(l)
-}
-
-function read(key: string): string | null {
-  try {
-    return window.localStorage.getItem(key)
-  } catch {
-    return null
-  }
 }
 
 function write(key: string, value: string | null): void {
@@ -72,7 +65,7 @@ export function cancelPairing(): void {
 let waitingRaw: string | null = null
 let waitingValue: WaitingPair | null = null
 function waitingSnapshot(): WaitingPair | null {
-  const raw = read(WAITING_KEY)
+  const raw = readStored(WAITING_KEY)
   if (raw !== waitingRaw) {
     waitingRaw = raw
     try {
@@ -109,5 +102,5 @@ export function clearApproval(): void {
 
 /** The pair this browser was asked to approve, or null. */
 export function useApprovalId(): string | null {
-  return useSyncExternalStore(subscribe, () => read(APPROVE_KEY), () => null)
+  return useSyncExternalStore(subscribe, () => readStored(APPROVE_KEY), () => null)
 }

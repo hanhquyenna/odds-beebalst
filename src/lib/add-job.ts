@@ -12,7 +12,7 @@ export type AddJobResult =
 
 /** Sends a pasted LinkedIn job link to the backend, which reads the job once and keeps it in the shared database for everyone. */
 export async function addJob(url: string): Promise<AddJobResult> {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/add-job`, {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/jobs/add`, {
     method: "POST",
     headers: { "Content-Type": "application/json", apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
     body: JSON.stringify({ url }),

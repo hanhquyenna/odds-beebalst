@@ -1,6 +1,6 @@
 /**
  * Logos kept in the database for employers that are not in the logo lists (a job pasted in from a new employer), loaded once with the jobs.
- * Kept apart from companies.ts so the data layer can fill it without pulling the lists (~87 kB gzip) into the first download.
+ * Kept apart from companies.ts so the data layer can fill it without pulling the list (~19 kB gzip with its component) into the first download.
  */
 const STORED = new Map<string, string>()
 

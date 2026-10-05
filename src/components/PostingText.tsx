@@ -26,9 +26,9 @@ function Blocks({ blocks }: { blocks: Block[] }): React.JSX.Element {
  * The posting sectioned, not edited: every line is the employer's, under the employer's own heading in bold. Sections are only put in a familiar order
  * (the role, the team, what you'll do, what they ask, what they offer, how to apply), lines broken mid-sentence are joined, and bullets are lists.
  */
-export function PostingText({ body, employer }: { body: string; employer: string }): React.JSX.Element {
+export function PostingText({ body }: { body: string }): React.JSX.Element {
   const text = useMemo(() => stripMarkup(body), [body])
-  const parsed = useMemo(() => parsePosting(text, employer), [text, employer])
+  const parsed = useMemo(() => parsePosting(text), [text])
   const shown = parsed.sections
 
   return (

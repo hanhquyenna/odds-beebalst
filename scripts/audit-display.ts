@@ -35,7 +35,7 @@ let worst = { id: "", kept: 1 }
 for (const b of bodies) {
   const text = stripMarkup(b.body ?? "")
   try {
-    const out = parsePosting(text, b.employer_display)
+    const out = parsePosting(text)
     if (out.structured) structured++
     if (text.trim().length >= 80 && out.sections.length === 0) problems.push(`${b.id}: ${text.length} characters of text but no section`)
     for (const s of out.sections) {

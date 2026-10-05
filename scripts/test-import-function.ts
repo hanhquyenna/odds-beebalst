@@ -1,5 +1,5 @@
 /**
- * Runs the deployed Edge Function's own code (supabase/functions/import-linkedin/index.ts) on this machine, with the real
+ * Runs the deployed Edge Function's own code (supabase/functions/profile/import.ts) on this machine, with the real
  * Apify actor and your real token, but with the Supabase sign-in check and the import counter replaced by stand-ins.
  * It tests everything except a real login: the link check, the call to Apify, the mapping, the answer the page receives.
  *   APIFY_TOKEN=... bun scripts/test-import-function.ts https://www.linkedin.com/in/your-name
@@ -12,8 +12,7 @@ if (!token || !link) {
 }
 
 const env: Record<string, string> = { SUPABASE_URL: "https://stub.supabase.test", SUPABASE_ANON_KEY: "anon", SUPABASE_SERVICE_ROLE_KEY: "service", APIFY_TOKEN: token }
-let handler: ((req: Request) => Promise<Response> | Response) | undefined
-;(globalThis as unknown as { Deno: unknown }).Deno = { env: { get: (k: string) => env[k] }, serve: (h: typeof handler) => void (handler = h) }
+;(globalThis as unknown as { Deno: unknown }).Deno = { env: { get: (k: string) => env[k] } }
 
 const realFetch = globalThis.fetch
 const calls: string[] = []
@@ -28,10 +27,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   return realFetch(input, init)
 }) as typeof fetch
 
-await import("../supabase/functions/import-linkedin/index.ts")
-if (!handler) throw new Error("The function did not register a handler")
+const { importProfile } = await import("../supabase/functions/profile/import.ts")
 const ask = (body: unknown, auth = "Bearer test-jwt"): Promise<Response> =>
-  Promise.resolve(handler!(new Request("https://stub/functions/v1/import-linkedin", { method: "POST", headers: { Authorization: auth, "Content-Type": "application/json" }, body: JSON.stringify(body) })))
+  importProfile(new Request("https://stub/functions/v1/profile/import", { method: "POST", headers: { Authorization: auth, "Content-Type": "application/json" }, body: JSON.stringify(body) }))
 
 console.log("1. a link that is not a LinkedIn profile ->", (await ask({ url: "https://example.com/in/x" })).status, "(expect 422)")
 const res = await ask({ url: link })

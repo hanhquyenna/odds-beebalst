@@ -12,8 +12,8 @@ import { fetchPostings, fetchReference } from "../src/lib/jobs"
 import { dedupe } from "../src/lib/sources"
 import { parseItemFacts, strengthFromItems, type ReadItem } from "../src/lib/strength"
 import { DEFAULT_PROFILE, type Profile } from "../src/lib/types"
-import { hashItem, itemsOf } from "../supabase/functions/read-profile/items"
-import { PREFACE, buildQuestions, readItemAnswers } from "../supabase/functions/read-profile/judge"
+import { hashItem, itemsOf } from "../supabase/functions/profile/items"
+import { PREFACE, buildQuestions, readItemAnswers } from "../supabase/functions/profile/judge"
 
 const KEY = process.env.TYPESAFE_API_KEY
 if (!KEY) throw new Error("Set TYPESAFE_API_KEY")

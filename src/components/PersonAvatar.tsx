@@ -13,7 +13,7 @@ export function PersonAvatar({ name, photo, size = "sm" }: { name: string; photo
 
   return photo && !broken ? (
     <span className={`${cls} bg-secondary`}>
-      <img src={photo} alt="" referrerPolicy="no-referrer" onError={() => setBroken(true)} className="size-full object-cover" />
+      <img src={photo} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setBroken(true)} className="size-full object-cover" />
     </span>
   ) : (
     <span aria-hidden="true" className={cls} style={{ backgroundColor: `oklch(0.93 0.045 ${hueOf(name)})`, color: `oklch(0.38 0.09 ${hueOf(name)})` }}>

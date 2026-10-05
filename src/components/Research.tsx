@@ -3,25 +3,16 @@ import { Art } from "@/components/ResearchArt"
 import { buttonVariants } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "cn"
+import { REPORTS } from "@/content/research"
 import type { Block, Report } from "@/content/research/types"
-import type { StaticPage } from "@/lib/pages"
+import { copyText } from "@/lib/clipboard"
 
-interface Props {
-  onBack: () => void
-  onOpenPage?: (page: StaticPage) => void
-}
-
-const modules = import.meta.glob<{ default?: Report }>("../content/research/reports/*.ts", { eager: true })
-const REPORTS: Report[] = Object.values(modules)
-  .map((m) => m.default)
-  .filter((r): r is Report => Boolean(r))
-  .sort((a, b) => a.order - b.order)
 
 const slugFromPath = (): string | null => location.pathname.match(/^\/research\/([^/]+)/)?.[1] ?? null
 const pad = (n: number): string => String(n).padStart(2, "0")
 
 /** Research reports: an index, and each report laid out the same way, as a paper. */
-export function ResearchPage({ onBack }: Props): React.JSX.Element {
+export function ResearchPage({ onBack }: { onBack: () => void }): React.JSX.Element {
   const [slug, setSlug] = useState<string | null>(slugFromPath)
   const report = REPORTS.find((r) => r.slug === slug) ?? null
 
@@ -425,25 +416,10 @@ function Message({ title, text, note }: { title: string; text: string; note?: st
   const [done, setDone] = useState<boolean>(false)
 
   function copy(): void {
-    const ok = (): void => {
+    copyText(text, () => {
       setDone(true)
       window.setTimeout(() => setDone(false), 1500)
-    }
-    const fallback = (): void => {
-      const box = document.createElement("textarea")
-      box.value = text
-      box.style.position = "fixed"
-      box.style.opacity = "0"
-      document.body.appendChild(box)
-      box.select()
-      if (document.execCommand("copy")) ok()
-      document.body.removeChild(box)
-    }
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(text).then(ok, fallback)
-    } else {
-      fallback()
-    }
+    })
   }
 
   return (

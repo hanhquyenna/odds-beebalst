@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { hashItem, itemsOf } from "../../supabase/functions/read-profile/items"
+import { hashItem, itemsOf } from "../../supabase/functions/profile/items"
 import type { Session } from "@/lib/auth"
 import { parseItemFacts, strengthFromItems, type ItemFacts, type ReadItem, type Strength } from "@/lib/strength"
 import { ANON_KEY, SUPABASE_URL } from "@/lib/supabase"
 import type { Posting, Profile } from "@/lib/types"
 
 /**
- * What Jev read from the person's saved profile (supabase/functions/read-profile), kept in step with the profile.
+ * What Jev read from the person's saved profile (supabase/functions/profile), kept in step with the profile.
  *
  * The stored facts are matched to the CURRENT profile by fingerprint of each part's text, so a part that was edited or removed
  * stops counting the moment it changes, and a new part counts once it has been read. Signed out, or the reader off or busy:
@@ -55,7 +55,7 @@ export function useProfileFacts(profile: Profile, session: Session | null): { st
     }
     busy.current = true
     setReading(true)
-    fetch(`${SUPABASE_URL}/functions/v1/read-profile`, { method: "POST", headers: { "Content-Type": "application/json", apikey: ANON_KEY, Authorization: `Bearer ${tokenRef.current}` }, body: "{}" })
+    fetch(`${SUPABASE_URL}/functions/v1/profile/read`, { method: "POST", headers: { "Content-Type": "application/json", apikey: ANON_KEY, Authorization: `Bearer ${tokenRef.current}` }, body: "{}" })
       .then(async (res) => {
         if (res.status === 503 || res.status === 401 || (res.status === 404 && !res.headers.get("content-type")?.includes("json"))) {
           stopped.current = true

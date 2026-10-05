@@ -5,7 +5,7 @@
  *
  * Plain rules, no model: sections are found by their headings (English, Dutch, Portuguese, Spanish, Turkish, German), a role is
  * a heading line with a date range beside it, a degree is a line in the education section. Anything not recognised is left out
- * rather than guessed at; the full text still goes to the reader of the profile (read-profile) whole.
+ * rather than guessed at; the full text still goes to the reader of the profile (the profile function, /profile/read) whole.
  */
 import { MONTH_PATTERN } from "@/lib/months"
 import type { Profile } from "@/lib/types"

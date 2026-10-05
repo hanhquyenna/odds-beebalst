@@ -63,7 +63,7 @@ export function fieldOf(post: Pick<Posting, "family" | "title" | "title_clean" |
 
 export const NO_FILTERS: JobFilters = { query: "", field: [], industry: [], level: [], language: [], sponsorOnly: false, posted: "any", type: [], workplace: [], city: [], minPay: null, source: [] }
 
-export const POSTED_DAYS = { day: 1, week: 7, month: 30 } as const
+const POSTED_DAYS = { day: 1, week: 7, month: 30 } as const
 
 /** Levels worth offering: "Not stated" is not something anyone filters for. */
 export const LEVEL_OPTIONS: ReadonlyArray<Level> = LEVELS.filter((level) => level !== "Not stated")

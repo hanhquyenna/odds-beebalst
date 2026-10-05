@@ -3,7 +3,7 @@ import { sourceOf, type JobSource } from "@/lib/sources"
 import type { Posting } from "@/lib/types"
 
 /** Where this job was found. A job found in several places lists every one. */
-export function sourcesOf(post: Posting): JobSource[] {
+function sourcesOf(post: Posting): JobSource[] {
   if (post.local) {
     return []
   }
@@ -18,15 +18,13 @@ const LOGO: Record<string, string> = {
   AcademicTransfer: "academictransfer.com.png",
   Indeed: "indeed.com.svg",
   Glassdoor: "glassdoor.com.svg",
-  Monster: "monsterboard.nl.svg",
-  Jobbird: "jobbird.com.svg",
 }
 
 /** Marks drawn as a bare shape with no square of their own. They sit on a white rounded tile so they read on any background. */
-const GLYPH = new Set(["Indeed", "Glassdoor", "Monster"])
+const GLYPH = new Set(["Indeed", "Glassdoor"])
 
 /** A platform's logo, small and square. Without one, a plain building mark stands for the employer's own site. */
-export function SourceLogo({ name, size = 18 }: { name: string; size?: number }): React.JSX.Element {
+export function SourceLogo({ name, size }: { name: string; size: number }): React.JSX.Element {
   const file = LOGO[name]
   if (!file) {
     return <BuildingsIcon weight="bold" aria-hidden="true" style={{ width: size, height: size }} className="shrink-0 text-muted-foreground" />
@@ -36,7 +34,7 @@ export function SourceLogo({ name, size = 18 }: { name: string; size?: number })
 
   return (
     <span className={`flex shrink-0 items-center justify-center overflow-hidden rounded-[22%] ${glyph ? "bg-white" : ""}`} style={{ width: size, height: size, padding: pad }}>
-      <img src={`/sources/${file}`} alt="" width={size - pad * 2} height={size - pad * 2} className="size-full object-contain" />
+      <img src={`/sources/${file}`} alt="" loading="lazy" decoding="async" width={size - pad * 2} height={size - pad * 2} className="size-full object-contain" />
     </span>
   )
 }

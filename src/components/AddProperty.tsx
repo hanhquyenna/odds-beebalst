@@ -1,7 +1,8 @@
 import { useState } from "react"
-import { CalendarIcon, CircleChevronDownIcon, EnvelopeIcon, HashIcon, LinkIcon, ListChecksIcon, PhoneIcon, PlusIcon, SquareCheckIcon, TypeIcon } from "@/components/icons"
+import { CalendarIcon, CircleChevronDownIcon, EnvelopeIcon, HashIcon, LinkIcon, ListChecksIcon, PhoneIcon, PlusIcon, SquareCheckIcon, TypeIcon, XIcon } from "@/components/icons"
 import { Button } from "@/components/ui/button"
-import { addColumn, availablePresets, type TableKind } from "@/lib/columns"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { addColumn, availablePresets, removeColumn, type TableKind } from "@/lib/columns"
 import { useData } from "@/lib/data"
 import type { PropertyType } from "@/lib/types"
 
@@ -16,6 +17,33 @@ const TYPES: ReadonlyArray<{ value: PropertyType; label: string; Icon: typeof Ty
   { value: "email", label: "Email", Icon: EnvelopeIcon },
   { value: "phone", label: "Phone", Icon: PhoneIcon },
 ]
+
+/** The last header cell of a table: a plus that opens the form to add a property. */
+export function AddPropertyHeader({ kind = "jobs" }: { kind?: TableKind }): React.JSX.Element {
+  return (
+    <th scope="col" className="w-12 border-b-[1.5px] border-line px-3 py-2.5 text-left">
+      <Popover>
+        <PopoverTrigger aria-label="Add a property" title="Add a property" className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground">
+          <PlusIcon className="size-4" aria-hidden="true" />
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)] p-1.5">
+          <AddPropertyForm kind={kind} />
+        </PopoverContent>
+      </Popover>
+    </th>
+  )
+}
+
+/** The small X in the header of a property of your own, which deletes it from the table. */
+export function DeletePropertyButton({ label, kind = "jobs" }: { label: string; kind?: TableKind }): React.JSX.Element {
+  const data = useData()
+
+  return (
+    <button type="button" aria-label={`Delete ${label}`} title={`Delete ${label}`} onClick={() => data.setProfile(removeColumn(data.profile, label, kind))} className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-60 hover:text-destructive hover:opacity-100">
+      <XIcon className="size-3.5" aria-hidden="true" />
+    </button>
+  )
+}
 
 /**
  * Adding a property of your own, in one place for the job and the table. The usual ones from the popular job-tracker templates are one press each (Priority, Next action,

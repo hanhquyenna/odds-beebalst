@@ -1,30 +1,27 @@
-// Supabase Edge Function: reads the signed-in person's SAVED profile into structured facts with TypeSafe Jev, against fixed
+// POST /profile/read: reads the signed-in person's SAVED profile into structured facts with TypeSafe Jev, against fixed
 // categories, and keeps them as the source of truth (table profile_facts). The profile is read from the database here, never
 // taken from the browser. Each part (a role, a degree, a line of the CV) is read once and stored under its fingerprint, so
 // an unchanged part is never read again and an edited or new part is read the next time this runs. Matching to jobs is plain
 // arithmetic in the app (src/lib/strength.ts); no model call happens per job.
-// Deploy:  scripts/deploy-read-profile.sh   Secret: TYPESAFE_API_KEY (Edge Function secret, never in a file)
+// Secret: TYPESAFE_API_KEY (Edge Function secret, never in a file)
+import { reply, userFromRequest } from "../_shared/http.ts"
 import { hashItem, itemsOf, type Item, type ProfileLike } from "./items.ts"
 import { PREFACE, buildQuestions, readItemAnswers, type ItemFacts, type JevReply } from "./judge.ts"
 
 const DAILY_NEW_ITEMS = 150
 const PARALLEL = 5
-const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" }
-const reply = (status: number, body: unknown): Response => new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } })
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: cors })
+/** Reads the caller's saved profile into facts and answers { items, pending, total }. */
+export async function readProfile(req: Request): Promise<Response> {
   if (req.method !== "POST") return reply(405, { error: "Use POST." })
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!
-  const anon = Deno.env.get("SUPABASE_ANON_KEY")!
   const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   const key = Deno.env.get("TYPESAFE_API_KEY")
   if (!key) return reply(503, { error: "Reading your profile is not switched on yet." })
 
-  const jwt = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "")
-  const who = jwt ? await fetch(`${supabaseUrl}/auth/v1/user`, { headers: { apikey: anon, Authorization: `Bearer ${jwt}` } }) : null
-  if (!who || !who.ok) return reply(401, { error: "Sign in first." })
-  const userId = (await who.json()).id as string
+  const user = await userFromRequest(req)
+  if (!user) return reply(401, { error: "Sign in first." })
+  const userId = user.id
   const rest = { apikey: service, Authorization: `Bearer ${service}` }
 
   // The saved profile is the source of truth.
@@ -41,7 +38,7 @@ Deno.serve(async (req) => {
   }
 
   // Read only what has not been read, within the daily allowance.
-  const missing = items.map((item, i) => ({ item, hash: hashes[i] })).filter((m) => !have.has(m.hash))
+  const missing = items.map((item, i) => ({ item: item, hash: hashes[i] })).filter((m) => !have.has(m.hash))
   let budget = DAILY_NEW_ITEMS
   if (missing.length > 0) {
     const since = new Date(Date.now() - 86_400_000).toISOString()
@@ -54,7 +51,7 @@ Deno.serve(async (req) => {
   const judge = async (m: { item: Item; hash: string }): Promise<void> => {
     const state = `${PREFACE}\n\nEntry (${m.item.kind}):\n${m.item.text}`
     for (let i = 0; i < 3; i++) {
-      const res = await fetch("https://api.typesafe.ai/v1/systemone", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify({ state, model: "jev-latest", questions: buildQuestions() }) })
+      const res = await fetch("https://api.typesafe.ai/v1/systemone", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify({ state: state, model: "jev-latest", questions: buildQuestions() }) })
       if (res.ok) {
         const out = (await res.json()) as JevReply & { model?: string }
         const facts = readItemAnswers(out)
@@ -77,4 +74,4 @@ Deno.serve(async (req) => {
   const out = hashes.flatMap((h) => (have.has(h) ? [{ hash: h, facts: have.get(h) }] : []))
 
   return reply(200, { items: out, pending: items.length - out.length, total: items.length })
-})
+}

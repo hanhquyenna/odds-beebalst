@@ -1,5 +1,7 @@
 import { mergePool } from "@/lib/sources"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
+import { toast } from "sonner"
+import { readCache, writeCache } from "@/lib/cache"
 import { keepSessionFresh, restoreSession, signOut as authSignOut, startGuestSession, type Session } from "@/lib/auth"
 import { computeShares, type CategoryShare } from "@/lib/engine"
 import { collectedOn } from "@/lib/format"
@@ -18,6 +20,7 @@ import {
   fetchSignals,
   insertApplication,
   loadProfile,
+  refreshAges,
   saveProfile,
   updateStage,
   type Reference,
@@ -29,11 +32,23 @@ import { DEFAULT_PROFILE, type Application, type PastSearch, type Person, type P
 const PROFILE_KEY = "careersim.profile"
 const SAVED_KEY = "careersim.saved"
 const LOCAL_POSTS_KEY = "careersim.posts"
-const SIGNALS_KEY = "careersim.signals"
+/** Where the signals were kept before they moved to the IndexedDB cache; cleared once so it stops taking localStorage room. */
+const LEGACY_SIGNALS_KEY = "careersim.signals"
 const LOCAL_APPS_KEY = "careersim.apps"
 const REFERRAL_KEY = "careersim.referrals"
 const PASSED_KEY = "careersim.passed"
+/** Cache keys (cache.ts) for the public reads a return visit paints from before the network answers. */
+const POOL_CACHE = "pool"
+const SIGNALS_CACHE = "signals"
 
+/** The public reads a visit starts from, kept together so a return visit can paint them in one go. */
+interface Pool {
+  postings: Posting[]
+  reference: Reference
+  logos: Array<{ employer: string; logo: string }>
+}
+
+/** Reads a JSON value from localStorage, or the fallback when there is none or storage is blocked. */
 function read<T>(key: string, fallback: T): T {
   try {
     const raw = window.localStorage.getItem(key)
@@ -44,6 +59,7 @@ function read<T>(key: string, fallback: T): T {
   }
 }
 
+/** Writes a JSON value to localStorage; a full or blocked storage just skips it. */
 function write(key: string, value: unknown): void {
   try {
     window.localStorage.setItem(key, JSON.stringify(value))
@@ -52,7 +68,7 @@ function write(key: string, value: unknown): void {
   }
 }
 
-interface Data {
+export interface Data {
   status: "loading" | "ready" | "error"
   error: string | null
   postings: Posting[]
@@ -121,6 +137,8 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
   const [profile, setProfileState] = useState<Profile>(() => migrateProfile({ ...DEFAULT_PROFILE, ...read<Partial<Profile>>(PROFILE_KEY, {}) }))
   const [profileSaved, setProfileSaved] = useState<boolean>(false)
   const [session, setSessionState] = useState<Session | null>(null)
+  // The jobs can paint from the cache before the stored session is restored; nothing that depends on being signed out runs until it is.
+  const [sessionChecked, setSessionChecked] = useState<boolean>(false)
   const [saved, setSaved] = useState<Set<string>>(() => new Set(read<string[]>(SAVED_KEY, [])))
   const [passedLocal, setPassedState] = useState<Set<string>>(() => new Set(read<string[]>(PASSED_KEY, [])))
   const passed = useMemo(() => new Set([...passedLocal, ...(profile.dismissed ?? [])]), [passedLocal, profile.dismissed])
@@ -159,26 +177,15 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user.id, profileSaved])
 
-  // The pool and the reference tables are public, so they load before anyone signs in.
+  // The session is restored on its own, so a slow token refresh never holds the jobs back.
   useEffect(() => {
     let live = true
-    Promise.all([fetchPostings(), fetchReference(), restoreSession(), fetchStoredLogos()])
-      .then(([postings, ref, restored, logos]) => {
-        if (!live) {
-          return
-        }
-        registerLogos(logos)
-        const merged = mergePool(postings)
-        setRemote(merged.jobs)
-        setAlias(merged.alias)
-        setReference(ref)
-        setSessionState(restored)
-        setStatus("ready")
-      })
-      .catch((e: unknown) => {
+    void restoreSession()
+      .catch(() => null)
+      .then((restored) => {
         if (live) {
-          setError(e instanceof Error ? e.message : "Could not load the jobs")
-          setStatus("error")
+          setSessionState(restored)
+          setSessionChecked(true)
         }
       })
 
@@ -187,36 +194,93 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
     }
   }, [])
 
+  // The pool and the reference tables are public, so they load before anyone signs in. A return visit paints the copy kept last time
+  // at once and swaps the fresh one in when it lands; the first visit waits for the network as before.
+  useEffect(() => {
+    let live = true
+    let fresh = false
+    let shown = false
+    const show = (pool: Pool): void => {
+      shown = true
+      registerLogos(pool.logos)
+      const merged = mergePool(pool.postings)
+      setRemote(merged.jobs)
+      setAlias(merged.alias)
+      setReference(pool.reference)
+      setStatus("ready")
+    }
+    try {
+      localStorage.removeItem(LEGACY_SIGNALS_KEY)
+    } catch {
+      // Blocked storage: nothing to clear.
+    }
+    void readCache<Pool>(POOL_CACHE).then((cached) => {
+      if (live && !fresh && cached) {
+        refreshAges(cached.data.postings)
+        show(cached.data)
+      }
+    })
+    Promise.all([fetchPostings(), fetchReference(), fetchStoredLogos()])
+      .then(([postings, ref, logos]) => {
+        if (!live) {
+          return
+        }
+        fresh = true
+        const pool: Pool = { postings: postings, reference: ref, logos: logos }
+        show(pool)
+        void writeCache(POOL_CACHE, stampOf(postings), pool)
+      })
+      .catch((e: unknown) => {
+        if (!live) {
+          return
+        }
+        if (shown) {
+          toast.error("Could not refresh the jobs. Showing the ones from your last visit.", { id: "pool-refresh" })
+
+          return
+        }
+        setError(e instanceof Error ? e.message : "Could not load the jobs")
+        setStatus("error")
+      })
+
+    return () => {
+      live = false
+    }
+  }, [])
+
+  // What the postings' text says is found by the database with a search over every description, which is slow and can time out.
+  // So the answer is kept on this device against the state of the data (how many postings, how recent). A kept answer for older
+  // data is shown meanwhile, and the server is asked again, with a pause between tries, only when the data changes or a try fails.
+  const signalsStamp = useRef<string>("")
   useEffect(() => {
     if (status !== "ready") {
       return
     }
     let live = true
-    // What the postings' text says is found by the database with a search over every description, which is slow and can time out.
-    // So the answer is kept on this device against the state of the data (how many postings, how recent), and asked for again,
-    // with a pause between tries, only when the data changes or the first try fails.
-    const stamp = `${remote.length}:${remote.reduce((latest, p) => (p.fetched_at && p.fetched_at > latest ? p.fetched_at : latest), "")}`
-    try {
-      const cached = JSON.parse(localStorage.getItem(SIGNALS_KEY) ?? "null") as { stamp: string; data: Record<string, Signals> } | null
+    const stamp = stampOf(remote)
+    if (signalsStamp.current === stamp) {
+      return
+    }
+    void (async () => {
+      const cached = await readCache<Record<string, Signals>>(SIGNALS_CACHE)
+      if (!live) {
+        return
+      }
+      if (cached) {
+        setSignals((now) => (cached.stamp === stamp || now === null ? cached.data : now))
+      }
       if (cached?.stamp === stamp) {
-        setSignals(cached.data)
+        signalsStamp.current = stamp
 
         return
       }
-    } catch {
-      // A private window or full storage: ask the database.
-    }
-    void (async () => {
       for (let attempt = 0; attempt < 3 && live; attempt++) {
         try {
           const found = await fetchSignals()
           if (live) {
+            signalsStamp.current = stamp
             setSignals(found)
-            try {
-              localStorage.setItem(SIGNALS_KEY, JSON.stringify({ stamp, data: found }))
-            } catch {
-              // Too big or blocked: fine, it is asked for again next time.
-            }
+            void writeCache(SIGNALS_CACHE, stamp, found)
           }
 
           return
@@ -269,14 +333,14 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
   // morning message work. The profile on this device is then saved to it (below, "first time this account is used").
   const guestAsked = useRef<boolean>(false)
   useEffect(() => {
-    if (session || status !== "ready" || !profile.linkedin || guestAsked.current) {
+    if (session || !sessionChecked || status !== "ready" || !profile.linkedin || guestAsked.current) {
       return
     }
     guestAsked.current = true
     startGuestSession()
       .then((guest) => guest && setSessionState(guest))
       .catch(() => undefined)
-  }, [session, status, profile.linkedin])
+  }, [session, sessionChecked, status, profile.linkedin])
 
   // Tokens last an hour: without this, a tab left open keeps "saving" into 401s and the next load drops those edits.
   const signedIn = session !== null
@@ -373,7 +437,11 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
             // The saved profile is what gets read, so read it once it is saved.
             refreshFacts()
           })
-          .catch(() => setProfileSaved(false))
+          .catch(() => {
+            // The change stays on this device and rides along with the next save.
+            setProfileSaved(false)
+            toast.error("Could not save to your account. Your changes are kept on this device.", { id: "profile-save" })
+          })
       }, 800)
     },
     [session, refreshFacts],
@@ -496,9 +564,36 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
     })
   }, [])
 
+  // Applications change on screen at once; the server is told after, and a failure puts the list back with a toast.
+  const appsRef = useRef<Application[]>(applications)
+  appsRef.current = applications
+  const changeApps = useCallback((change: (prev: Application[]) => Application[]): void => {
+    setApplications((prev) => {
+      const next = change(prev)
+      write(LOCAL_APPS_KEY, next.filter((a) => String(a.id).startsWith("local-")))
+
+      return next
+    })
+  }, [])
+
   const logApplication = useCallback(
     async (post: Posting, fit: string, stage: Application["stage"] = "applied"): Promise<void> => {
-      if (session && !post.local) {
+      const online = session !== null && !post.local
+      // Signed in, the row shows under a placeholder id until the server's row replaces it; it is never kept as a local one.
+      const entry: Application = {
+        id: online ? `pending-${Date.now()}` : `local-${Date.now()}`,
+        posting_id: post.id,
+        title: post.title,
+        employer: post.employer_display,
+        fit_tier: fit,
+        stage: stage,
+        logged_at: todayIso(),
+      }
+      changeApps((prev) => [entry, ...prev])
+      if (!online) {
+        return
+      }
+      try {
         await insertApplication(session.user.id, post.id, fit)
         const rows = await fetchApplications(byId)
         const mine = rows.find((a) => a.posting_id === post.id)
@@ -507,54 +602,48 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
           mine.stage = stage
         }
         setApplications(rows)
-
-        return
+      } catch {
+        changeApps((prev) => prev.filter((a) => a.id !== entry.id))
+        toast.error(`Could not log ${post.title}. Try again.`)
       }
-      const entry: Application = {
-        id: `local-${Date.now()}`,
-        posting_id: post.id,
-        title: post.title,
-        employer: post.employer_display,
-        fit_tier: fit,
-        stage,
-        logged_at: todayIso(),
-      }
-      setApplications((prev) => {
-        const next = [entry, ...prev]
-        write(LOCAL_APPS_KEY, next.filter((a) => String(a.id).startsWith("local-")))
-
-        return next
-      })
     },
-    [session, byId],
+    [session, byId, changeApps],
   )
 
   const changeStage = useCallback(
     async (id: Application["id"], stage: Application["stage"]): Promise<void> => {
-      if (!String(id).startsWith("local-")) {
-        await updateStage(id, stage)
+      const before = appsRef.current.find((a) => a.id === id)
+      changeApps((prev) => prev.map((a) => (a.id === id ? { ...a, stage: stage } : a)))
+      if (!before || !onServer(id)) {
+        return
       }
-      setApplications((prev) => {
-        const next = prev.map((a) => (a.id === id ? { ...a, stage } : a))
-        write(LOCAL_APPS_KEY, next.filter((a) => String(a.id).startsWith("local-")))
-
-        return next
-      })
+      try {
+        await updateStage(id, stage)
+      } catch {
+        changeApps((prev) => prev.map((a) => (a.id === id ? { ...a, stage: before.stage } : a)))
+        toast.error(`Could not move ${before.title}. Try again.`)
+      }
     },
-    [],
+    [changeApps],
   )
 
-  const removeApplication = useCallback(async (id: Application["id"]): Promise<void> => {
-    if (!String(id).startsWith("local-")) {
-      await deleteApplication(id)
-    }
-    setApplications((prev) => {
-      const next = prev.filter((a) => a.id !== id)
-      write(LOCAL_APPS_KEY, next.filter((a) => String(a.id).startsWith("local-")))
-
-      return next
-    })
-  }, [])
+  const removeApplication = useCallback(
+    async (id: Application["id"]): Promise<void> => {
+      const at = appsRef.current.findIndex((a) => a.id === id)
+      const before = appsRef.current[at]
+      changeApps((prev) => prev.filter((a) => a.id !== id))
+      if (!before || !onServer(id)) {
+        return
+      }
+      try {
+        await deleteApplication(id)
+      } catch {
+        changeApps((prev) => [...prev.slice(0, at), before, ...prev.slice(at)])
+        toast.error(`Could not remove ${before.title}. Try again.`)
+      }
+    },
+    [changeApps],
+  )
 
   const refreshPostings = useCallback(async (): Promise<void> => {
     const [postings, logos] = await Promise.all([fetchPostings(), fetchStoredLogos()])
@@ -565,20 +654,20 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
   }, [])
 
   const value: Data = {
-    status,
-    refreshPostings,
-    error,
-    postings,
-    signals,
-    byId,
-    keptExtra,
-    shares,
-    collected,
-    reference,
-    profile,
-    profileSaved,
-    setProfile,
-    session,
+    status: status,
+    refreshPostings: refreshPostings,
+    error: error,
+    postings: postings,
+    signals: signals,
+    byId: byId,
+    keptExtra: keptExtra,
+    shares: shares,
+    collected: collected,
+    reference: reference,
+    profile: profile,
+    profileSaved: profileSaved,
+    setProfile: setProfile,
+    session: session,
     setSession: setSessionState,
     signOut: () => {
       authSignOut()
@@ -599,27 +688,37 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
       setReferrals(new Set())
       setApplications([])
     },
-    saved,
-    toggleSaved,
-    passed,
-    setPassed,
+    saved: saved,
+    toggleSaved: toggleSaved,
+    passed: passed,
+    setPassed: setPassed,
     setSaved: setSaved_,
-    referrals,
+    referrals: referrals,
     strengthFor: facts.strengthFor,
-    toggleReferral,
-    people,
-    addPerson,
-    updatePerson,
-    removePerson,
-    updatePast,
-    addLocalPosting,
-    addLocalPostings,
-    removeLocalPosting,
-    applications,
-    logApplication,
-    changeStage,
-    removeApplication,
+    toggleReferral: toggleReferral,
+    people: people,
+    addPerson: addPerson,
+    updatePerson: updatePerson,
+    removePerson: removePerson,
+    updatePast: updatePast,
+    addLocalPosting: addLocalPosting,
+    addLocalPostings: addLocalPostings,
+    removeLocalPosting: removeLocalPosting,
+    applications: applications,
+    logApplication: logApplication,
+    changeStage: changeStage,
+    removeApplication: removeApplication,
   }
 
   return <Context.Provider value={value}>{children}</Context.Provider>
+}
+
+/** Whether an application is a server row (a numeric id), not one kept on this device or still on its way. */
+function onServer(id: Application["id"]): boolean {
+  return typeof id === "number"
+}
+
+/** A short mark of a pool's state (how many postings, the latest fetch), so a kept answer is known to match the data it was made from. */
+function stampOf(posts: ReadonlyArray<Posting>): string {
+  return `${posts.length}:${posts.reduce((latest, p) => (p.fetched_at && p.fetched_at > latest ? p.fetched_at : latest), "")}`
 }

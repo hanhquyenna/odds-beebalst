@@ -20,30 +20,62 @@ For whoever deploys odds. State on 5 Oct 2026. CI: `.github/workflows/ci.yml` (t
 
 Everything below is already live. CI only has to keep it that way.
 
-- **Edge Functions**: deploy with `supabase functions deploy <name> --project-ref ukpmpyfcnbhngkgbnkxi --use-api`.
+- **Edge Functions**: three, each routing by sub-path (see its `index.ts`):
+  `account` (`/account/shoo`, `/account` with `{ action }`), `profile` (`/profile/import`, `/profile/read`) and `jobs`
+  (`/jobs/add`, `/jobs/check`, `/jobs/check-public`, `/jobs/morning`, `/jobs/welcome`, `/jobs/people`).
+  Deploy with `supabase functions deploy <name> --project-ref ukpmpyfcnbhngkgbnkxi --use-api`.
   `supabase/config.toml` sets which functions are open (`verify_jwt = false`) and which need a signed-in user; the
-  CLI reads it, so do not add `--no-verify-jwt` by hand and do not drop that file. If `phone-link` or `morning-jobs`
-  ever require a sign-in, QR codes, guest accounts and the morning message stop working.
+  CLI reads it, so do not add `--no-verify-jwt` by hand and do not drop that file. If `account` or `jobs`
+  ever require a sign-in, QR codes, guest accounts, the hourly checks and the morning message stop working.
 - **Function secrets** (set in Supabase, never in the repo): `VAPID_KEYS`, `VAPID_PUBLIC_KEY`, `VAPID_CONTACT`,
   `MORNING_SECRET`, `CHECK_SECRET`, `PUBLIC_CHECK_SECRET`, `APIFY_TOKEN`, `APIFY_JOB_TOKEN`, `TYPESAFE_API_KEY`,
   `DAILY_LIMIT`, `ANON_LIMIT`, `GLOBAL_LIMIT`.
 - **Migrations**: every file in `supabase/migrations` has a unique version and is recorded as applied, so
   `supabase db push` has nothing to do today. New migrations need a new 14-digit version
   (`YYYYMMDDHHMMSS_name.sql`); two files with the same version break `db push`.
-- **Scheduled jobs (pg_cron)**: the hourly open/closed checks, and `morning-jobs` at 06:00 and 07:00 UTC (it only
-  sends on the run where it is 8:00 in Amsterdam, so summer and winter time both work).
-- **morning-jobs** uses the app's own job filters, bundled into `supabase/functions/morning-jobs/match.js`. After
-  changing `src/lib/filters.ts`, run `scripts/build-morning-jobs.sh` and deploy `morning-jobs`.
+- **Scheduled jobs (pg_cron)**: the hourly open/closed checks (`/jobs/check`, `/jobs/check-public`), and
+  `/jobs/morning` at 06:00 and 07:00 UTC (it only sends on the run where it is 8:00 in Amsterdam, so summer and winter
+  time both work).
+- **The morning message** uses the app's own job filters, bundled into `supabase/functions/jobs/match.js`. After
+  changing `src/lib/filters.ts`, run `scripts/build-morning-jobs.sh` and deploy `jobs`.
+
+### Moving from ten functions to three (once, in this order)
+
+Until step 3 the old functions keep serving the live site and the schedule; nothing breaks in between.
+
+1. Deploy the three new functions (the old ones stay up):
+   ```sh
+   supabase functions deploy account --project-ref ukpmpyfcnbhngkgbnkxi --use-api
+   supabase functions deploy profile --project-ref ukpmpyfcnbhngkgbnkxi --use-api
+   supabase functions deploy jobs --project-ref ukpmpyfcnbhngkgbnkxi --use-api
+   ```
+2. Point the schedule at them: `supabase db push` applies `20261006120000_group_functions.sql`, which rewrites the
+   pg_cron commands' paths in place and keeps their secrets. Check with
+   `select jobname, command from cron.job;` (every URL should be under `/functions/v1/jobs/`).
+3. Merge the frontend to `main` and let the site deploy; it now calls only the new paths.
+4. Once the site is live on the new paths (and anyone with the old page open has reloaded, a day is plenty),
+   delete the old functions:
+   ```sh
+   supabase functions delete verify-shoo --project-ref ukpmpyfcnbhngkgbnkxi
+   supabase functions delete phone-link --project-ref ukpmpyfcnbhngkgbnkxi
+   supabase functions delete import-linkedin --project-ref ukpmpyfcnbhngkgbnkxi
+   supabase functions delete read-profile --project-ref ukpmpyfcnbhngkgbnkxi
+   supabase functions delete match-cv --project-ref ukpmpyfcnbhngkgbnkxi
+   supabase functions delete add-job --project-ref ukpmpyfcnbhngkgbnkxi
+   supabase functions delete check-postings --project-ref ukpmpyfcnbhngkgbnkxi
+   supabase functions delete check-public --project-ref ukpmpyfcnbhngkgbnkxi
+   supabase functions delete morning-jobs --project-ref ukpmpyfcnbhngkgbnkxi
+   supabase functions delete suggest-referrals --project-ref ukpmpyfcnbhngkgbnkxi
+   ```
 
 ## 3. Sign-in: Google through Shoo, and guest accounts
 
 Sign-in is Google only, through Shoo (`src/lib/shoo.ts`, `src/components/ShooCallback.tsx`), bridged to a normal
-Supabase session by the `verify-shoo` function so every row-level policy keeps working.
+Supabase session by the `account` function (`/account/shoo`) so every row-level policy keeps working.
 
 - To switch it on: set the secret `SHOO_APP_ORIGINS` to the site's origin(s), comma-separated
-  (`supabase secrets set SHOO_APP_ORIGINS=https://your-domain --project-ref ukpmpyfcnbhngkgbnkxi`), then
-  `sh scripts/deploy-shoo-bridge.sh`. `config.toml` keeps `verify-shoo` callable before sign-in (it checks the Shoo
-  token itself).
+  (`supabase secrets set SHOO_APP_ORIGINS=https://your-domain --project-ref ukpmpyfcnbhngkgbnkxi`), then deploy
+  `account`. `config.toml` keeps `account` callable before sign-in (it checks the Shoo token itself).
 - In Supabase, Authentication, URL Configuration: set Site URL to the production address and add it (with `/**`) to
   Redirect URLs. Today the Site URL is `http://localhost:3000`.
 
@@ -51,8 +83,9 @@ Supabase session by the `verify-shoo` function so every row-level policy keeps w
 signing in gets a guest account automatically (address `guest-…@guest.odds.invalid`, no password), so their profile,
 phone and morning message work. When they then sign in with Google, `ShooCallback` calls `adoptGuest()` before the
 new session is used: the guest's profile (unless the Google account already has one), phones, applications and cached
-readings move to the Google account in one database transaction (`public.adopt_guest`, via the `phone-link`
-function, which checks both sign-ins). Guest accounts are capped at 20 per connection per day.
+readings move to the Google account in one database transaction (`public.adopt_guest`, via the `account`
+function, which checks both sign-ins). Guest accounts are capped at 20 per connection per day. Guest accounts do not
+see other people: `/jobs/people` answers 403 to them and the app shows "Sign in with Google to see people." instead.
 
 ## 4. The phone flow, for reference
 

@@ -14,6 +14,7 @@ import { isGuestEmail } from "@/lib/auth"
 import { openInstallGuide, useInstallGuide } from "@/lib/push"
 import { clearDraft } from "@/lib/session"
 import { clearShooNext, forgetShooIdentity, isShooCallback } from "@/lib/shoo"
+import { prefetchOn } from "@/lib/prefetch"
 
 // Lazy because they carry the form schema. Someone coming back to their
 // account needs neither.
@@ -28,14 +29,16 @@ const ProfilePage = lazy(() => import("@/components/ProfilePage").then((module) 
 // behind a skeleton.
 const Account = lazy(() => import("@/components/Account").then((module) => ({ default: module.Account })))
 // Lazy because it only renders on the long-read paths (/how-it-works, /about,
-// /research, /privacy, /terms): the app itself never waits on it.
-const StaticPageView = lazy(() => import("@/components/StaticPages").then((module) => ({ default: module.StaticPageView })))
+// /research, /privacy, /terms): the app itself never waits on it. The header
+// links fetch it on hover or focus.
+const loadStaticPages = (): Promise<typeof import("@/components/StaticPages")> => import("@/components/StaticPages")
+const StaticPageView = lazy(() => loadStaticPages().then((module) => ({ default: module.StaticPageView })))
 // Lazy because it only renders on the OAuth callback path: every other visit
 // never needs the code-for-session trade.
 const ShooCallback = lazy(() => import("@/components/ShooCallback").then((module) => ({ default: module.ShooCallback })))
 // Lazy because each renders nothing until its moment comes: an offer event, the
-// colors editor, the install steps. The offer event fires from the boards,
-// which load later than this chunk, so no event is missed while it loads.
+// colors editor, the install steps. The first two are mounted only once there
+// is an account, since only its boards and menus fire their events.
 const OfferGate = lazy(() => import("@/components/OfferGate").then((module) => ({ default: module.OfferGate })))
 const StatusColorsDialog = lazy(() => import("@/components/StatusColorsDialog").then((module) => ({ default: module.StatusColorsDialog })))
 const InstallGuide = lazy(() => import("@/components/InstallGuide").then((module) => ({ default: module.InstallGuide })))
@@ -104,8 +107,6 @@ export default function App(): React.JSX.Element {
         ? "max-w-sm sm:max-w-2xl lg:max-w-6xl"
         : "max-w-sm md:max-w-lg"
 
-  // The front page, the sign-up questions and the long-read pages carry the serif; the app itself does not.
-  const serif = Boolean(page) || (!sharedJobId && !((view === "account" || view === "jobs" || view === "answers") && onboarded))
 
   /** Back to the front page. The form remounts on the welcome step, which is what the wordmark promises. */
   function goHome(): void {
@@ -262,12 +263,12 @@ export default function App(): React.JSX.Element {
   return (
     <div className="flex min-h-svh flex-col bg-background text-foreground">
       <Toaster position="top-center" closeButton />
-      <Suspense fallback={null}>
-        <StatusColorsDialog />
-      </Suspense>
-      <Suspense fallback={null}>
-        <OfferGate />
-      </Suspense>
+      {onboarded ? (
+        <Suspense fallback={null}>
+          <StatusColorsDialog />
+          <OfferGate />
+        </Suspense>
+      ) : null}
 
       {/* Stays at the top, solid brand orange, the same as the footer, so the two bookend the page. */}
       <header className="sticky top-0 z-20 bg-brand text-foreground">
@@ -287,6 +288,7 @@ export default function App(): React.JSX.Element {
                 key={nextPage}
                 type="button"
                 onClick={() => openPage(nextPage)}
+                {...prefetchOn(loadStaticPages)}
                 className="shrink-0 cursor-pointer whitespace-nowrap py-2 text-foreground underline-offset-4 hover:underline focus:underline"
               >
                 {nextPage === "how-it-works" ? "How it works" : nextPage === "about" ? "About" : "Research"}
@@ -306,7 +308,7 @@ export default function App(): React.JSX.Element {
         </div>
       </header>
 
-      <main className={`mx-auto flex w-full ${page ? "max-w-5xl" : column} flex-1 flex-col px-5 pt-8 pb-7 sm:px-6 ${serif ? "font-display-headings" : ""}`}>
+      <main className={`mx-auto flex w-full ${page ? "max-w-5xl" : column} flex-1 flex-col px-5 pt-8 pb-7 sm:px-6`}>
         {data.status === "loading" ? (
           <JobListSkeleton />
         ) : data.status === "error" ? (

@@ -23,7 +23,6 @@
     "@shoojs/auth": "^0.2.2",
     "@supabase/postgrest-js": "^2.116.0",
     "@tailwindcss/vite": "^4.3.3",
-    "arktype": "^2.2.3",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.3.2",
     "fflate": "^0.8.3",

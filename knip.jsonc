@@ -4,7 +4,7 @@
     "src/**/*.test.{ts,tsx}",
     "scripts/**/*.{ts,mjs}",
     "supabase/functions/*/index.ts",
-    "supabase/functions/morning-jobs/match.src.ts",
+    "supabase/functions/jobs/match.src.ts",
     // Registered at runtime by src/lib/push.ts.
     "public/sw.js"
   ],

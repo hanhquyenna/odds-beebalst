@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { ChevronDownIcon } from "@/components/icons"
-import { STEPS, moveJob, stepOf, type Step } from "@/components/PipelineBoard"
+import { STEPS, moveJob, stepOf, type Step } from "@/components/job-steps"
 import { useFit } from "@/components/FitCells"
 import { useData } from "@/lib/data"
 import { removeFromList } from "@/lib/save"
@@ -121,7 +121,7 @@ export const openStatusColors = (): void => {
 }
 
 /** The look of a status for this person: their colour and the ink on it, or none for a job that is not saved. */
-export function useStatusLook(value: string): { style: React.CSSProperties | undefined; ink: string | undefined } {
+function useStatusLook(value: string): { style: React.CSSProperties | undefined; ink: string | undefined } {
   const data = useData()
   const look = lookOf(value, statusColors(data.profile.statusColors))
 

@@ -54,8 +54,8 @@ function Frame({ android = false, children }: { android?: boolean; children: Rea
 }
 
 /** odds as it looks on a phone: a real screenshot of the page. */
-function Page({ src = "/install/app-home.jpg" }: { src?: string }): React.JSX.Element {
-  return <img src={src} alt="" className="min-h-0 w-full flex-1 object-cover object-top" />
+function Page(): React.JSX.Element {
+  return <img src="/install/app-home.jpg" alt="" className="min-h-0 w-full flex-1 object-cover object-top" />
 }
 
 function HomeIndicator({ light = false }: { light?: boolean }): React.JSX.Element {
@@ -63,7 +63,7 @@ function HomeIndicator({ light = false }: { light?: boolean }): React.JSX.Elemen
 }
 
 /** Safari's bars at the bottom, as most iPhones show them: the address, then back, forward, Share in the middle, bookmarks, tabs. */
-function SafariBar({ tapShare = false }: { tapShare?: boolean }): React.JSX.Element {
+function SafariBar(): React.JSX.Element {
   return (
     <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col gap-1.5 border-t border-black/10 bg-[#f7f7f7]/95 px-3 pt-2 pb-5 backdrop-blur">
       <span className="flex h-7 min-w-0 items-center justify-center gap-1 rounded-lg bg-black/[0.06] px-2 text-[11px] text-black">
@@ -75,7 +75,7 @@ function SafariBar({ tapShare = false }: { tapShare?: boolean }): React.JSX.Elem
         <ChevronRightIcon className="size-4 opacity-40" />
         <span className="relative flex size-6 items-center justify-center">
           <ShareIcon className="size-4" />
-          {tapShare ? <Tap /> : null}
+          <Tap />
         </span>
         <BookOpenIcon className="size-4" />
         <CopyIcon className="size-4" />
@@ -95,7 +95,7 @@ function Row({ icon, label, tap = false, last = false }: { icon: React.ReactNode
 }
 
 /** The Home Screen with odds on it, iPhone or Android. */
-function HomeScreen({ android = false, tap = true }: { android?: boolean; tap?: boolean }): React.JSX.Element {
+function HomeScreen({ android = false }: { android?: boolean }): React.JSX.Element {
   const others = ["#34C759", "#FF9500", "#5856D6", "#FF2D55", "#0A84FF", "#8E8E93", "#30B0C7", "#AF52DE", "#FFCC00", "#64D2FF", "#A2845E"]
 
   return (
@@ -111,7 +111,7 @@ function HomeScreen({ android = false, tap = true }: { android?: boolean; tap?: 
         <span className="relative flex flex-col items-center gap-1">
           <span className="relative">
             <OddsIcon className={cn("size-10", android && "rounded-full")} />
-            {tap ? <Tap /> : null}
+            <Tap />
           </span>
           <span className="text-[9px] font-medium text-white">odds</span>
         </span>
@@ -222,7 +222,7 @@ export function IosPhone({ screen }: { screen: IosScreen }): React.JSX.Element {
     <Frame>
       <StatusBar />
       <Page />
-      {screen === "safari" ? <SafariBar tapShare /> : null}
+      {screen === "safari" ? <SafariBar /> : null}
       {screen === "menu" ? (
         <div className="absolute right-2 bottom-16 z-20 w-40 overflow-hidden rounded-2xl bg-white/95 shadow-2xl ring-1 ring-black/10">
           <Row icon={<ShareIcon className="size-3.5" />} label="Share" tap />

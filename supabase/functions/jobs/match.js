@@ -94,7 +94,7 @@ function familyPosterior(tokens) {
   if (known.length === 0) {
     return null;
   }
-  const logits = M.families.map((_, f) => known.reduce((sum2, t) => sum2 + Math.log((M.vocab[t][f] + ALPHA) / (M.totals[f] + ALPHA * V)), 0));
+  const logits = M.families.map((_, f) => known.reduce((sum, t) => sum + Math.log((M.vocab[t][f] + ALPHA) / (M.totals[f] + ALPHA * V)), 0));
   const damp = known.length ** 0.25;
   const scaled = logits.map((l) => l / damp);
   const top = Math.max(...scaled);
@@ -1981,12 +1981,12 @@ function searchTextOf(post) {
   searchable.set(post, made);
   return made;
 }
-function matchesWords(post, words2) {
-  if (words2.length === 0) {
+function matchesWords(post, words) {
+  if (words.length === 0) {
     return true;
   }
   const { text, squashed: run } = searchTextOf(post);
-  return words2.every((w) => {
+  return words.every((w) => {
     const forms = w.length > 3 && w.endsWith("s") ? [w, w.slice(0, -1)] : [w];
     if (w.length <= 3) {
       return startsAWord(text, w);
@@ -1995,7 +1995,7 @@ function matchesWords(post, words2) {
   });
 }
 function applyFilters(posts, filters, env = {}) {
-  const words2 = plain(filters.query).split(/\s+/).filter(Boolean);
+  const words = plain(filters.query).split(/\s+/).filter(Boolean);
   return posts.filter((post) => {
     if (filters.sponsorOnly && !post.ind_sponsor) {
       return false;
@@ -2039,7 +2039,7 @@ function applyFilters(posts, filters, env = {}) {
     if (filters.minPay !== null && (payMid(post, env.reference ?? null)?.month ?? 0) < filters.minPay) {
       return false;
     }
-    if (!matchesWords(post, words2)) {
+    if (!matchesWords(post, words)) {
       return false;
     }
     return true;
@@ -2131,6 +2131,6 @@ function savedFitFilters(saved) {
   return fitFilters({ ...views[0].filters, query: "" }, profile);
 }
 export {
-  savedFitFilters,
-  applyFilters
+  applyFilters,
+  savedFitFilters
 };

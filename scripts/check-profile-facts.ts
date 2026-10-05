@@ -4,10 +4,10 @@
  *   1. Known entries with known right answers, each read three times: right at least twice in three, never wildly unsteady.
  *   2. Every entry of every test student (scripts/students.ts): the reply must be complete and valid.
  *   set -a; . ./.env.local; . ./.env.secrets; set +a; bun scripts/check-profile-facts.ts      (needs TYPESAFE_API_KEY)
- * Run it before trusting the strength part, and again after any change to supabase/functions/read-profile/judge.ts.
+ * Run it before trusting the strength part, and again after any change to supabase/functions/profile/judge.ts.
  */
-import { PREFACE, buildQuestions, readItemAnswers, type ItemFacts } from "../supabase/functions/read-profile/judge"
-import { itemsOf } from "../supabase/functions/read-profile/items"
+import { PREFACE, buildQuestions, readItemAnswers, type ItemFacts } from "../supabase/functions/profile/judge"
+import { itemsOf } from "../supabase/functions/profile/items"
 import { parseItemFacts } from "../src/lib/strength"
 import { STUDENTS } from "./students"
 

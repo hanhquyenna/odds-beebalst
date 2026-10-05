@@ -1,8 +1,7 @@
-import { useState } from "react"
+import { Suspense, lazy, useState } from "react"
 import { ChevronDownIcon, ExternalLinkIcon, EyeIcon, EyeSlashIcon, XIcon } from "@/components/icons"
 import { AddPropertyForm } from "@/components/AddProperty"
 import { ChanceCell } from "@/components/FitCells"
-import { AddPerson } from "@/components/People"
 import { choicesFor } from "@/components/ViewSettings"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { removeColumn as removeColumnFrom } from "@/lib/columns"
@@ -17,6 +16,9 @@ import { appliedOn, followUpOf, followUpText } from "@/lib/tracker"
 import { payOf } from "@/lib/spec"
 import { useViewConfig } from "@/lib/views"
 import type { Posting, PropertyType } from "@/lib/types"
+
+// Lazy: the form opens on a click and lives with the people view, which the job tables and the drawer should not wait on.
+const AddPerson = lazy(() => import("@/components/People").then((module) => ({ default: module.AddPerson })))
 
 /** A soft colour per select value, the same every time, like Notion's option tags. */
 function tint(value: string): string {
@@ -335,7 +337,11 @@ export function JobProperties({ post, st }: { post: Posting; st: Standing | null
         })}
       </dl>
 
-      {adding ? <AddPerson fixedJob={post} onDone={() => setAdding(false)} /> : null}
+      {adding ? (
+        <Suspense fallback={null}>
+          <AddPerson fixedJob={post} onDone={() => setAdding(false)} />
+        </Suspense>
+      ) : null}
     </section>
   )
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { GroupByButton } from "@/components/GroupByButton"
 import { Button } from "@/components/ui/button"
 
 /** Which rows of a table are ticked. Kept by id, so it survives sorting and paging; ids no longer in the table drop out. */
@@ -91,7 +92,7 @@ export function DeleteDialog({ count, noun, onConfirm, onCancel }: { count: numb
 }
 
 /** The bar over a table once rows are ticked: how many, export them as CSV, delete them, or let go. */
-export function BulkBar({ count, onExport, onDelete, onClear }: { count: number; onExport: () => void; onDelete?: () => void; onClear: () => void }): React.JSX.Element {
+export function BulkBar({ count, onExport, onDelete, onClear }: { count: number; onExport: () => void; onDelete: () => void; onClear: () => void }): React.JSX.Element {
   const btn = "flex h-8 cursor-pointer items-center rounded-lg border-[1.5px] bg-card px-3 text-sm font-medium transition-colors duration-150 hover:bg-accent"
 
   return (
@@ -100,14 +101,25 @@ export function BulkBar({ count, onExport, onDelete, onClear }: { count: number;
       <button type="button" onClick={onExport} className={btn}>
         Export CSV
       </button>
-      {onDelete ? (
-        <button type="button" onClick={onDelete} className={`${btn} text-red-600`}>
-          Delete
-        </button>
-      ) : null}
+      <button type="button" onClick={onDelete} className={`${btn} text-red-600`}>
+        Delete
+      </button>
       <button type="button" onClick={onClear} className="cursor-pointer px-1 text-muted-foreground underline underline-offset-4 hover:text-foreground">
         Clear selection
       </button>
+    </div>
+  )
+}
+
+/** The bar over a table: the count (or what stands in its place) on the left, the table's tools and Group by on the right. */
+export function TableBar({ lead, toolbar, groupBy, groups, onGroupBy }: { lead: React.ReactNode; toolbar: React.ReactNode; groupBy: string; groups: ReadonlyArray<{ key: string; label: string }>; onGroupBy: (key: string) => void }): React.JSX.Element {
+  return (
+    <div className="no-scrollbar flex flex-nowrap items-center gap-3 overflow-x-auto border-b-[1.5px] border-line px-3 py-2.5 text-sm sm:flex-wrap sm:justify-between sm:px-4 [&>*]:shrink-0">
+      <span className="text-muted-foreground">{lead}</span>
+      <span className="flex items-center gap-2 sm:flex-wrap [&>*]:shrink-0">
+        {toolbar}
+        <GroupByButton value={groupBy} groups={groups} onChange={onGroupBy} />
+      </span>
     </div>
   )
 }

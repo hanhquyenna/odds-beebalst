@@ -1,4 +1,4 @@
-import { ENDED, STEPS, stepOf } from "@/components/PipelineBoard"
+import { ENDED, STEPS, stepOf } from "@/components/job-steps"
 import type { useData } from "@/lib/data"
 import { appliedDay, followUpFor, overrideOf } from "@/lib/cells"
 import { daysOr } from "@/lib/follow-days"

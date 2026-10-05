@@ -1,4 +1,4 @@
-import { Section } from "@/components/JobPersonal"
+import { Section } from "@/components/Section"
 import { ageText } from "@/components/Tag"
 import { useEffect, useState } from "react"
 import { useData } from "@/lib/data"

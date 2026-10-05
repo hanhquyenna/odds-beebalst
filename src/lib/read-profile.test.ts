@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { FAMILY_NAMES, GRADES, RECOGNITION, STANDING, buildQuestions, readItemAnswers } from "../../supabase/functions/read-profile/judge"
-import { MAX_ITEMS, MAX_LINE, hashItem, itemsOf } from "../../supabase/functions/read-profile/items"
+import { FAMILY_NAMES, GRADES, RECOGNITION, STANDING, buildQuestions, readItemAnswers } from "../../supabase/functions/profile/judge"
+import { MAX_ITEMS, MAX_LINE, hashItem, itemsOf } from "../../supabase/functions/profile/items"
 import { FAMILIES } from "@/lib/field"
 import { GRADE_TIERS, RECOGNITION_TIERS, STANDING_TIERS, parseItemFacts } from "@/lib/strength"
 

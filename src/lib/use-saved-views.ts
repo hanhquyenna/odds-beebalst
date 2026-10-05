@@ -1,17 +1,10 @@
 import { useMemo, useState } from "react"
 import { useData } from "@/lib/data"
 import type { JobFilters } from "@/lib/filters"
+import { readStored, store } from "@/lib/remembered"
 import { FIT_SEED_VIEWS, SEED_CONFIG, SEED_VIEWS, addView, duplicateView, normalizeViews, removeView, renameView, updateView } from "@/lib/saved-views"
 import type { TrackerFilter } from "@/lib/tracker"
 import type { SavedView, ViewConfig, ViewLayout } from "@/lib/types"
-
-function remembered(key: string): string | null {
-  try {
-    return localStorage.getItem(key)
-  } catch {
-    return null
-  }
-}
 
 /**
  * The tracker's views as tabs: which one is open, and every way to change them. Changes are kept with the profile as they are made, like a Notion database: the filters,
@@ -44,18 +37,14 @@ export function useSavedViews(kind: "jobs" | "fit" = "jobs"): {
   const prefix = fit ? "fit-" : ""
   const storeKey = fit ? "odds:fit-view" : "odds:tracker-view"
   const views = useMemo(() => normalizeViews(profile[field], seed), [profile, field, seed])
-  const [activeId, setActiveId] = useState<string | null>(() => remembered(storeKey))
+  const [activeId, setActiveId] = useState<string | null>(() => readStored(storeKey))
   const active = views.find((v) => v.id === activeId) ?? views[0]
   const [query, setQuery] = useState<string>("")
 
   const select = (id: string): void => {
     setActiveId(id)
     setQuery("")
-    try {
-      localStorage.setItem(storeKey, id)
-    } catch {
-      // Not remembered across visits; it still works for this one.
-    }
+    store(storeKey, id)
   }
   const save = (next: SavedView[], extraViews?: Record<string, ViewConfig | undefined>): void => {
     data.setProfile({ ...profile, [field]: next, ...(extraViews ? { views: { ...profile.views, ...extraViews } } : {}) })

@@ -118,3 +118,45 @@ test("the long-read pages load, from a link and from the address bar", async ({ 
   await page.goBack()
   await expect(page.getByRole("heading", { level: 1, name: "a job search should feel human." })).toBeVisible()
 })
+
+test("a return visit shows the jobs from the last visit before the backend answers", async ({ page }) => {
+  await page.goto("/")
+  await expect(jobRows(page)).toHaveCount(DEFAULT_VISIBLE)
+  // The pool is kept in IndexedDB once it has loaded.
+  await expect.poll(() => page.evaluate(keptPool)).toBe(true)
+
+  // The second visit's job list request is held until the kept list is on screen.
+  let release: () => void = () => undefined
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let asked = false
+  await page.route("**/rest/v1/app_jobs*", async (route): Promise<void> => {
+    asked = true
+    await held
+    await route.fallback()
+  })
+  await page.reload()
+  await expect(jobRows(page)).toHaveCount(DEFAULT_VISIBLE)
+  expect(asked).toBe(true)
+  release()
+  await expect(jobRows(page).first()).toContainText("Customer Success Intern")
+})
+
+/** Whether the app has kept the job pool in its IndexedDB cache. Runs in the page, and never creates the database itself. */
+async function keptPool(): Promise<boolean> {
+  const dbs = await indexedDB.databases()
+  if (!dbs.some((d) => d.name === "odds-cache")) {
+    return false
+  }
+
+  return new Promise((resolve) => {
+    const open = indexedDB.open("odds-cache")
+    open.onerror = (): void => resolve(false)
+    open.onsuccess = (): void => {
+      const get = open.result.transaction("kv", "readonly").objectStore("kv").get("pool")
+      get.onsuccess = (): void => resolve(get.result !== undefined)
+      get.onerror = (): void => resolve(false)
+    }
+  })
+}

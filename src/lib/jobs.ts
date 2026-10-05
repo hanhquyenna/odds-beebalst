@@ -69,13 +69,7 @@ export async function fetchPostings(): Promise<Posting[]> {
       p.dutch_required = true
     }
   }
-  // The age is worked out from the posting date today, not read from the crawl day, so "7 days ago" stays true as days pass.
-  for (const p of pool) {
-    if (p.posted_on) {
-      p.days_open = daysSince(p.posted_on)
-      p.freshness_state = p.days_open <= 6 ? "fresh" : p.days_open <= 44 ? "active" : "aging"
-    }
-  }
+  refreshAges(pool)
   // One industry per employer: the commonest answer across its postings, so one odd reading cannot split an employer in two.
   const votes = new Map<string, Map<string, number>>()
   for (const p of pool) {
@@ -91,6 +85,19 @@ export async function fetchPostings(): Promise<Posting[]> {
   }
 
   return pool
+}
+
+/**
+ * Works each posting's age out from its posting date today, not from the crawl day, so "7 days ago" stays true as days pass.
+ * Run on every fresh read and on the copy kept in this browser, which can be days old.
+ */
+export function refreshAges(pool: Posting[]): void {
+  for (const p of pool) {
+    if (p.posted_on) {
+      p.days_open = daysSince(p.posted_on)
+      p.freshness_state = p.days_open <= 6 ? "fresh" : p.days_open <= 44 ? "active" : "aging"
+    }
+  }
 }
 
 export async function fetchBody(id: string): Promise<string> {

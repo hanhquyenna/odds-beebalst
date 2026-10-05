@@ -22,7 +22,7 @@ const BY_WORD = new Map<string, number>(Object.entries(TABLE).flatMap(([i, words
 const fold = (s: string): string => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
 
 /** Every three-letter month prefix we know, for building a pattern. */
-export const MONTH_PREFIXES: string[] = [...BY_WORD.keys(), "jui"]
+const MONTH_PREFIXES: string[] = [...BY_WORD.keys(), "jui"]
 
 /** A pattern (source) for one month word with an optional full ending and dot: "Mar", "March", "Dez.", "Sept", "Şubat". */
 export const MONTH_PATTERN = `(?:${MONTH_PREFIXES.join("|")})[\\p{L}]{0,8}\\.?`

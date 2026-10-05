@@ -1,18 +1,11 @@
 import { useMemo, useState } from "react"
 import { useData } from "@/lib/data"
 import { NO_PEOPLE_FILTER, PEOPLE_SEED_CONFIG, PEOPLE_SEED_VIEWS, normalizePeopleViews, type PeopleFilter } from "@/lib/people-table"
+import { readStored, store } from "@/lib/remembered"
 import { duplicateView, newId, removeView, renameView, updateView } from "@/lib/saved-views"
 import type { SavedPeopleView, ViewConfig, ViewLayout } from "@/lib/types"
 
 const KEY = "odds:people-view"
-
-function remembered(): string | null {
-  try {
-    return localStorage.getItem(KEY)
-  } catch {
-    return null
-  }
-}
 
 /**
  * The views of the people you write to, as tabs, the same way the jobs have them: each its own layout and filter over the same people, kept with the profile as you change
@@ -37,18 +30,14 @@ export function usePeopleViews(): {
   const data = useData()
   const { profile } = data
   const views = useMemo(() => normalizePeopleViews(profile.peopleViews), [profile.peopleViews])
-  const [activeId, setActiveId] = useState<string | null>(remembered)
+  const [activeId, setActiveId] = useState<string | null>(() => readStored(KEY))
   const [query, setQuery] = useState<string>("")
   const active = views.find((v) => v.id === activeId) ?? views[0]
 
   const select = (id: string): void => {
     setActiveId(id)
     setQuery("")
-    try {
-      localStorage.setItem(KEY, id)
-    } catch {
-      // Not remembered across visits.
-    }
+    store(KEY, id)
   }
   const save = (next: SavedPeopleView[], extra?: Record<string, ViewConfig | undefined>): void => {
     data.setProfile({ ...profile, peopleViews: next, ...(extra ? { views: { ...profile.views, ...extra } } : {}) })

@@ -1,22 +1,15 @@
 import local from "@/lib/company-logos-local.json"
-import remote from "@/lib/company-logos.json"
 import { nameKey, storedLogoFor } from "@/lib/stored-logos"
 
-const LOCAL = local as Record<string, string | null>
-const REMOTE = remote as Record<string, string>
+/** Employer to logo: a cut-out under /logos, or the source picture when it could not be cut out. Written by scripts/make_logos.py. */
+const LOCAL: Record<string, string> = local
 
 /** Postings spell an employer as "PwC" where the logo list says "pwc": match on lower case, then on the loosened name. */
 const BY_LOWER = new Map<string, string>()
 const BY_KEY = new Map<string, string>()
 for (const [name, file] of Object.entries(LOCAL)) {
-  if (file) {
-    BY_LOWER.set(name.toLowerCase(), file)
-    BY_KEY.set(nameKey(name), file)
-  }
-}
-for (const [name, source] of Object.entries(REMOTE)) {
-  if (!BY_LOWER.has(name.toLowerCase())) BY_LOWER.set(name.toLowerCase(), source)
-  if (!BY_KEY.has(nameKey(name))) BY_KEY.set(nameKey(name), source)
+  BY_LOWER.set(name.toLowerCase(), file)
+  BY_KEY.set(nameKey(name), file)
 }
 
 /**
@@ -27,7 +20,7 @@ for (const [name, source] of Object.entries(REMOTE)) {
  */
 export function logoFor(employer: string, url?: string | null): string | null {
   const key = nameKey(employer)
-  const known = LOCAL[employer] ?? REMOTE[employer] ?? BY_LOWER.get(employer.toLowerCase()) ?? (key ? BY_KEY.get(key) : undefined)
+  const known = LOCAL[employer] ?? BY_LOWER.get(employer.toLowerCase()) ?? (key ? BY_KEY.get(key) : undefined)
   if (known) {
     return known
   }

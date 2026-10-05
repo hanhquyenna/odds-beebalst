@@ -1,67 +1,30 @@
-// Supabase Edge Function: import a LinkedIn profile into the odds profile.
+// POST /profile/import: import a LinkedIn profile into the odds profile.
 // The browser sends { url } with the signed-in user's JWT. The Apify token lives only here, as a secret.
-// Deploy:  supabase functions deploy import-linkedin --project-ref ukpmpyfcnbhngkgbnkxi
 // Secrets: supabase secrets set APIFY_TOKEN=... --project-ref ukpmpyfcnbhngkgbnkxi   (never commit the value)
 
+import { imageDataUrl, ipHash, reply, userFromRequest } from "../_shared/http.ts"
 import { isUsable, normaliseProfile, type Json } from "../_shared/linkedin-profile.ts"
 
 const APIFY_ACTOR = "harvestapi~linkedin-profile-scraper"
 // Cost guard for the paid scraper ($4 per 1,000 profiles, so $0.004 each). The limits can be changed without a deploy, by setting the
 // secrets DAILY_LIMIT (signed in), ANON_LIMIT (not signed in) and GLOBAL_LIMIT (everyone together), each per 24 hours.
-const limit = (name: string, fallback: number): number => {
-  const n = Number(Deno.env.get(name))
-  return Number.isFinite(n) && n > 0 ? n : fallback
-}
 const DAILY_LIMIT = limit("DAILY_LIMIT", 20)
 const ANON_LIMIT = limit("ANON_LIMIT", 10)
 const GLOBAL_LIMIT = limit("GLOBAL_LIMIT", 300)
 const URL_RE = /^https:\/\/([a-z]{2,3}\.)?linkedin\.com\/in\/[A-Za-z0-9%_-]{3,100}\/?(\?.*)?$/
 
-const cors = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-}
-const reply = (status: number, body: unknown): Response => new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } })
-
-/** The profile picture as a data URL. Only LinkedIn's own image servers, only a picture, and not a large one. */
-async function fetchPhoto(address: string): Promise<string | null> {
-  try {
-    const u = new URL(address)
-    if (u.protocol !== "https:" || !/(^|\.)licdn\.com$/.test(u.hostname)) return null
-    const res = await fetch(u, { signal: AbortSignal.timeout(6000) })
-    const type = res.headers.get("content-type") ?? ""
-    if (!res.ok || !type.startsWith("image/")) return null
-    const bytes = new Uint8Array(await res.arrayBuffer())
-    if (bytes.length === 0 || bytes.length > 1_500_000) return null
-    let binary = ""
-    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-
-    return `data:${type};base64,${btoa(binary)}`
-  } catch {
-    return null
-  }
-}
-
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: cors })
+/** Reads one LinkedIn profile through the paid scraper, within the daily limits, and answers { profile }. */
+export async function importProfile(req: Request): Promise<Response> {
   if (req.method !== "POST") return reply(405, { error: "Use POST." })
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!
-  const anon = Deno.env.get("SUPABASE_ANON_KEY")!
   const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   const apify = Deno.env.get("APIFY_TOKEN")
   if (!apify) return reply(503, { error: "LinkedIn import is not switched on yet." })
 
   // Anyone may import, signed in or not. A signed-in person is counted as themselves, anyone else by a hashed network address.
-  const jwt = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "")
-  let userId: string | null = null
-  if (jwt && jwt !== anon) {
-    const who = await fetch(`${supabaseUrl}/auth/v1/user`, { headers: { apikey: anon, Authorization: `Bearer ${jwt}` } })
-    if (who.ok) userId = ((await who.json()) as { id?: string }).id ?? null
-  }
-  const address = (req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for") ?? "unknown").split(",")[0].trim()
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${address}|${service.slice(-12)}`))
-  const ipHash = [...new Uint8Array(digest)].map((x) => x.toString(16).padStart(2, "0")).join("").slice(0, 32)
+  const userId = (await userFromRequest(req))?.id ?? null
+  const ip = await ipHash(req)
 
   let url = ""
   try {
@@ -77,12 +40,13 @@ Deno.serve(async (req) => {
   const rest = { apikey: service, Authorization: `Bearer ${service}` }
   const countOf = async (filter: string): Promise<number> => {
     const r = await fetch(`${supabaseUrl}/rest/v1/linkedin_imports?kind=eq.profile&created_at=gte.${since}&${filter}&select=id`, { headers: { ...rest, Prefer: "count=exact", Range: "0-0" } })
+
     return Number((r.headers.get("content-range") ?? "*/0").split("/")[1] ?? 0)
   }
-  const mine = await countOf(userId ? `user_id=eq.${userId}` : `ip_hash=eq.${ipHash}`)
+  const mine = await countOf(userId ? `user_id=eq.${userId}` : `ip_hash=eq.${ip}`)
   if (mine >= (userId ? DAILY_LIMIT : ANON_LIMIT)) return reply(429, { error: `Up to ${userId ? DAILY_LIMIT : ANON_LIMIT} imports a day. Try again tomorrow, or sign in for more.` })
   // Counted before the shared check, so parallel requests see each other; every paid read counts, failed or not.
-  await fetch(`${supabaseUrl}/rest/v1/linkedin_imports`, { method: "POST", headers: { ...rest, "Content-Type": "application/json" }, body: JSON.stringify({ user_id: userId, ip_hash: ipHash, kind: "profile", url }) })
+  await fetch(`${supabaseUrl}/rest/v1/linkedin_imports`, { method: "POST", headers: { ...rest, "Content-Type": "application/json" }, body: JSON.stringify({ user_id: userId, ip_hash: ip, kind: "profile", url: url }) })
   const all = await countOf("id=gt.0")
   if (all > GLOBAL_LIMIT) return reply(429, { error: "Imports are paused for today. Try again tomorrow." })
 
@@ -100,10 +64,15 @@ Deno.serve(async (req) => {
     return reply(404, { error: "That profile could not be read. Is it public?" })
   }
 
-  const profile = normaliseProfile(item)
-  const photo = await fetchPhoto(profile.photoUrl)
-  const { photoUrl: _address, ...rest2 } = profile
-  void _address
+  const { photoUrl, ...profile } = normaliseProfile(item)
+  const photo = await imageDataUrl(photoUrl, 1_500_000, 6000)
 
-  return reply(200, { profile: { ...rest2, ...(photo ? { photo } : {}) } })
-})
+  return reply(200, { profile: { ...profile, ...(photo ? { photo: photo } : {}) } })
+}
+
+/** A positive number from a secret, or the fallback. */
+function limit(name: string, fallback: number): number {
+  const n = Number(Deno.env.get(name))
+
+  return Number.isFinite(n) && n > 0 ? n : fallback
+}

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { judgePage, parseJobPosting } from "../../supabase/functions/check-public/judge"
+import { judgePage, parseJobPosting } from "../../supabase/functions/jobs/public-judge"
 
 const page = (ld: object | string): string => `<html><head><script>var a={"x":1}</script><script type="application/ld+json" nonce="_">${typeof ld === "string" ? ld : JSON.stringify(ld)}</script></head><body>Hello</body></html>`
 const job = (extra: object = {}) => ({ "@context": "https://schema.org/", "@type": "JobPosting", title: "Intern", description: "Use {curly} braces and \"quotes\" } in text", hiringOrganization: { "@type": "Organization", name: "Acme" }, ...extra })

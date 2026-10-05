@@ -1,4 +1,4 @@
-export const STATIC_PAGES = ["about", "how-it-works", "technology", "network", "sources", "safety", "privacy", "terms", "research"] as const
+const STATIC_PAGES = ["about", "how-it-works", "technology", "network", "sources", "safety", "privacy", "terms", "research"] as const
 export type StaticPage = (typeof STATIC_PAGES)[number]
 
 const BY_PATH: Readonly<Record<string, StaticPage>> = Object.fromEntries(STATIC_PAGES.map((page) => [`/${page}`, page]))

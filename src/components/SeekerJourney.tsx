@@ -23,6 +23,7 @@ import {
 } from "@/lib/journey"
 import { clearDraft } from "@/lib/session"
 import { isGuestEmail } from "@/lib/auth"
+import { prefetchWhenIdle } from "@/lib/prefetch"
 import type { StaticPage } from "@/lib/pages"
 
 interface SeekerJourneyProps {
@@ -57,6 +58,12 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
   useEffect(() => {
     onWelcome?.(step === "welcome")
   }, [step, onWelcome])
+  // Past the front page the jobs are a step or two away: fetch their view while the question is read.
+  useEffect(() => {
+    if (mode === "signup" && step !== "welcome") {
+      prefetchWhenIdle(() => import("@/components/Account"))
+    }
+  }, [mode, step])
 
   const review = mode === "edit"
   const stepIndex = COUNTED_STEPS.indexOf(step)
