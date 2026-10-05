@@ -745,9 +745,10 @@ function NextMoves({ transition, postings, onPick }: { transition: Transition; p
   const share = (n: number): string => pct(n / transition.with_next, 1)
 
   const sel = picked !== null ? top5[picked] : null
+  const selTitle = picked !== null ? (transition.top[picked]?.[0] ?? null) : null
   const open = useMemo(() => {
-    if (!sel) return null
-    const words = sel[0].toLowerCase().split(/\s+/).filter(Boolean)
+    if (!selTitle) return null
+    const words = selTitle.toLowerCase().split(/\s+/).filter(Boolean)
     const hits = postings.filter((q) => {
       const t = (q.title_clean ?? q.title).toLowerCase()
       return words.every((w) => t.includes(w))
@@ -758,7 +759,7 @@ function NextMoves({ transition, postings, onPick }: { transition: Transition; p
     const common = [...levels.entries()].sort((a, b) => b[1] - a[1])[0]
 
     return { n: hits.length, years: years.length >= 3 ? years[Math.floor(years.length / 2)] : null, common: common ? { level: common[0], n: common[1] } : null }
-  }, [sel, postings])
+  }, [selTitle, postings])
 
   return (
     <div className="rounded-xl border-[1.5px] bg-card p-4">

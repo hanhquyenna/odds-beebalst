@@ -36,7 +36,7 @@ beforeEach(async () => {
     },
   }
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input)
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
     const json = (body: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...headers } })
     if (url.includes("/auth/v1/user")) return world.signedIn ? json({ id: "user-1" }) : json({}, 401)
     if (url.includes("/rest/v1/profiles?")) return json(world.profile ? [{ data: world.profile }] : [])
@@ -48,12 +48,12 @@ beforeEach(async () => {
       return json(wanted.filter((h) => world.facts.has(h)).map((h) => ({ item_hash: h, facts: world.facts.get(h)!.facts })))
     }
     if (url.endsWith("/rest/v1/profile_facts") && init?.method === "POST") {
-      for (const r of JSON.parse(String(init.body)) as Row[]) if (!world.facts.has(String(r.item_hash))) world.facts.set(String(r.item_hash), r)
+      for (const r of JSON.parse(init.body as string) as Row[]) if (!world.facts.has(String(r.item_hash))) world.facts.set(String(r.item_hash), r)
 
       return json([], 201)
     }
     if (url.includes("api.typesafe.ai")) {
-      const state = (JSON.parse(String(init?.body)) as { state: string }).state
+      const state = (JSON.parse(init?.body as string) as { state: string }).state
       world.jevCalls.push(state)
       const r = world.jev(state, world.jevCalls.length)
 

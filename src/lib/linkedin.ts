@@ -4,7 +4,7 @@ export type { LinkedInProfile } from "@/lib/linkedin-merge"
 export { mergeLinkedIn } from "@/lib/linkedin-merge"
 import type { LinkedInProfile } from "@/lib/linkedin-merge"
 
-export { LINKEDIN_URL, toLinkedInUrl } from "@/lib/linkedin-url"
+export { toLinkedInUrl } from "@/lib/linkedin-url"
 
 /** Asks the backend to read a LinkedIn profile. The scraper key stays on the server. */
 export async function importLinkedIn(url: string, accessToken: string | null): Promise<LinkedInProfile> {

@@ -24,7 +24,7 @@ const HOURLY = 30
 const GUESTS_PER_DAY = 20
 
 /** A session for an account, made on the server: a sign-in link (nothing is emailed) exchanged at once. */
-async function sessionFor(supabaseUrl: string, anon: string, admin: Record<string, string>, email: string): Promise<unknown | null> {
+async function sessionFor(supabaseUrl: string, anon: string, admin: Record<string, string>, email: string): Promise<unknown> {
   const link = await fetch(`${supabaseUrl}/auth/v1/admin/generate_link`, { method: "POST", headers: admin, body: JSON.stringify({ type: "magiclink", email }) })
   const hashed = link.ok ? ((await link.json()) as { properties?: { hashed_token?: string }; hashed_token?: string }) : null
   const tokenHash = hashed?.properties?.hashed_token ?? hashed?.hashed_token
@@ -52,6 +52,8 @@ Deno.serve(async (req) => {
   const anon = Deno.env.get("SUPABASE_ANON_KEY")!
   const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   const admin = { apikey: service, Authorization: `Bearer ${service}`, "Content-Type": "application/json" }
+  // Guest and pair limits key on the caller's network, hashed.
+  const ipHash = await sha256(`${(req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown"}|${service.slice(-16)}`)
   const body = (await req.json().catch(() => ({}))) as { action?: string; code?: string; kind?: string; guest_token?: string; id?: string; secret?: string }
 
   if (body.action === "create") {
@@ -99,8 +101,6 @@ Deno.serve(async (req) => {
   }
 
   if (body.action === "guest") {
-    const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown"
-    const ipHash = await sha256(`${ip}|${service.slice(-16)}`)
     const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
     const recent = await fetch(`${supabaseUrl}/rest/v1/guest_accounts?select=user_id&ip_hash=eq.${ipHash}&created_at=gte.${since}`, { headers: { ...admin, Prefer: "count=exact", Range: "0-0" } })
     const total = Number(recent.headers.get("content-range")?.split("/")[1] ?? 0)
@@ -113,7 +113,7 @@ Deno.serve(async (req) => {
       headers: admin,
       body: JSON.stringify({ email, password: newCode() + newCode(), email_confirm: true, user_metadata: { guest: true } }),
     })
-    if (!made.ok) return reply(500, { error: "Could not make a guest account.", detail: (await made.text()).slice(0, 200) })
+    if (!made.ok) return reply(500, { error: "Could not make a guest account." })
     const userId = (await made.json()).id as string
     await fetch(`${supabaseUrl}/rest/v1/guest_accounts`, { method: "POST", headers: admin, body: JSON.stringify({ user_id: userId, ip_hash: ipHash }) })
 
@@ -136,24 +136,24 @@ Deno.serve(async (req) => {
     if (owner === guest) return reply(200, { moved: {} })
 
     const done = await fetch(`${supabaseUrl}/rest/v1/rpc/adopt_guest`, { method: "POST", headers: admin, body: JSON.stringify({ guest, owner }) })
-    if (!done.ok) return reply(409, { error: "Could not move the guest account.", detail: (await done.text()).slice(0, 200) })
+    if (!done.ok) return reply(409, { error: "Could not move the guest account." })
 
     return reply(200, { moved: await done.json() })
   }
 
   if (body.action === "pair-start") {
-    const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown"
-    const ipHash = await sha256(`${ip}|${service.slice(-16)}`)
     const since = new Date(Date.now() - 3600 * 1000).toISOString()
     const recent = await fetch(`${supabaseUrl}/rest/v1/device_pairs?select=id&ip_hash=eq.${ipHash}&created_at=gte.${since}`, { headers: { ...admin, Prefer: "count=exact", Range: "0-0" } })
     if (Number(recent.headers.get("content-range")?.split("/")[1] ?? 0) >= HOURLY) return reply(429, { error: "Too many sign-in attempts. Try again later." })
     const id = newCode()
     const secret = newCode() + newCode()
     const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString()
-    const saved = await fetch(`${supabaseUrl}/rest/v1/device_pairs`, { method: "POST", headers: admin, body: JSON.stringify({ id, secret_hash: await sha256(secret), ip_hash: ipHash, expires_at: expires }) })
+    const secretHash = await sha256(secret)
+    const saved = await fetch(`${supabaseUrl}/rest/v1/device_pairs`, { method: "POST", headers: admin, body: JSON.stringify({ id, secret_hash: secretHash, ip_hash: ipHash, expires_at: expires }) })
     if (!saved.ok) return reply(500, { error: "Could not start sign-in." })
 
-    return reply(200, { id, secret, expires_at: expires })
+    // The code the app shows and the browser must type: from the secret, so a forwarded ?pair= link alone cannot approve.
+    return reply(200, { id, secret, code: secretHash.slice(0, 6).toUpperCase(), expires_at: expires })
   }
 
   if (body.action === "pair-approve") {
@@ -163,14 +163,16 @@ Deno.serve(async (req) => {
     const userId = (await who.json()).id as string
     const id = typeof body.id === "string" && /^[A-Za-z0-9_-]{20,64}$/.test(body.id) ? body.id : ""
     if (!id) return reply(400, { error: "This sign-in link is not valid." })
+    const code = typeof body.code === "string" && /^[0-9a-f]{6}$/i.test(body.code) ? body.code.toLowerCase() : ""
+    if (!code) return reply(400, { error: "Type the code your app shows." })
     const now = new Date().toISOString()
-    const done = await fetch(`${supabaseUrl}/rest/v1/device_pairs?id=eq.${id}&user_id=is.null&expires_at=gt.${now}&select=id`, {
+    const done = await fetch(`${supabaseUrl}/rest/v1/device_pairs?id=eq.${id}&secret_hash=like.${code}*&user_id=is.null&expires_at=gt.${now}&select=id`, {
       method: "PATCH",
       headers: { ...admin, Prefer: "return=representation" },
       body: JSON.stringify({ user_id: userId, approved_at: now }),
     })
     const rows = done.ok ? ((await done.json()) as unknown[]) : []
-    if (rows.length === 0) return reply(410, { error: "This sign-in has expired. Start again in the app." })
+    if (rows.length === 0) return reply(410, { error: "That code does not match, or this sign-in has expired." })
 
     return reply(200, { approved: true })
   }

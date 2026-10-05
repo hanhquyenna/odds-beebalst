@@ -25,14 +25,14 @@ export function useFit(post: Posting): Standing | null {
  * the same on every job and every place the number appears. Null where there is no estimate.
  */
 export function useOriginalChance(post: Posting): number | null {
-  const data = useData()
+  const { profile, reference, shares, strengthFor } = useData()
 
   return useMemo(() => {
-    if (!data.reference || !data.shares) return null
-    const r = standing(post, data.profile, data.reference, data.shares, undefined, false, data.strengthFor(post)).rate
+    if (!reference || !shares) return null
+    const r = standing(post, profile, reference, shares, undefined, false, strengthFor(post)).rate
 
     return r && !r.thin ? r.mid : null
-  }, [post, data.profile, data.reference, data.shares, data.strengthFor])
+  }, [post, profile, reference, shares, strengthFor])
 }
 
 /**

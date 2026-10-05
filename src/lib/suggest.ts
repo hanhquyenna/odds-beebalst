@@ -154,7 +154,7 @@ export function readPast(raw: unknown): PastSearch | null {
   const r = raw as Record<string, unknown>
   if (r.src !== "stored") return null
   const list = Array.isArray(r.pool) ? r.pool : null
-  const pool = (list ?? []).filter(isSuggestion).map((p) => ({ name: p.name, headline: typeof p.headline === "string" ? p.headline : "", place: typeof p.place === "string" ? p.place : "", url: p.url, ...(typeof p.photo === "string" && p.photo ? { photo: p.photo } : {}), ...(typeof p.about === "string" && p.about ? { about: p.about } : {}), ...(Array.isArray(p.positions) && p.positions.length > 0 ? { positions: p.positions.filter((x): x is PersonPosition => !!x && typeof (x as PersonPosition).title === "string") } : {}) }))
+  const pool = (list ?? []).filter(isSuggestion).map((p) => ({ name: p.name, headline: typeof p.headline === "string" ? p.headline : "", place: typeof p.place === "string" ? p.place : "", url: p.url, ...(typeof p.photo === "string" && p.photo ? { photo: p.photo } : {}), ...(typeof p.about === "string" && p.about ? { about: p.about } : {}), ...(Array.isArray(p.positions) && p.positions.length > 0 ? { positions: p.positions.filter((x): x is PersonPosition => !!x && typeof x.title === "string") } : {}) }))
   if (pool.length === 0) return null
   const shown = Math.min(pool.length, Math.max(0, Math.floor(Number(r.shown)) || 0))
 

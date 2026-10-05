@@ -1,17 +1,11 @@
 import { Suspense, lazy, useEffect, useState } from "react"
-import { Account } from "@/components/Account"
 import { JobListSkeleton } from "@/components/Skeleton"
 import { Footer } from "@/components/Footer"
-import { InstallGuide } from "@/components/InstallGuide"
 import { NewJobsBell } from "@/components/NewPlacesBell"
 import { NotifyPrompt } from "@/components/NotifyPrompt"
 import { DevicePairing } from "@/components/DevicePairing"
-import { StaticPageView } from "@/components/StaticPages"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { OfferGate } from "@/components/OfferGate"
-import { StatusColorsDialog } from "@/components/StatusColorsDialog"
-import { ShooCallback } from "@/components/ShooCallback"
 import { Toaster } from "@/components/ui/sonner"
 import { useData } from "@/lib/data"
 import { pageFromPath, pathForPage, type StaticPage } from "@/lib/pages"
@@ -29,13 +23,36 @@ const SignIn = lazy(() => import("@/components/SignIn").then((module) => ({ defa
 // settings open from the menu. Landing and the account never wait on them.
 const JobDetail = lazy(() => import("@/components/JobDetail").then((module) => ({ default: module.JobDetail })))
 const ProfilePage = lazy(() => import("@/components/ProfilePage").then((module) => ({ default: module.ProfilePage })))
+// Lazy because it is one view among several: first-timers never load the
+// boards and tables until they have answers, and returning users wait on it
+// behind a skeleton.
+const Account = lazy(() => import("@/components/Account").then((module) => ({ default: module.Account })))
+// Lazy because it only renders on the long-read paths (/how-it-works, /about,
+// /research, /privacy, /terms): the app itself never waits on it.
+const StaticPageView = lazy(() => import("@/components/StaticPages").then((module) => ({ default: module.StaticPageView })))
+// Lazy because it only renders on the OAuth callback path: every other visit
+// never needs the code-for-session trade.
+const ShooCallback = lazy(() => import("@/components/ShooCallback").then((module) => ({ default: module.ShooCallback })))
+// Lazy because each renders nothing until its moment comes: an offer event, the
+// colors editor, the install steps. The offer event fires from the boards,
+// which load later than this chunk, so no event is missed while it loads.
+const OfferGate = lazy(() => import("@/components/OfferGate").then((module) => ({ default: module.OfferGate })))
+const StatusColorsDialog = lazy(() => import("@/components/StatusColorsDialog").then((module) => ({ default: module.StatusColorsDialog })))
+const InstallGuide = lazy(() => import("@/components/InstallGuide").then((module) => ({ default: module.InstallGuide })))
 
 type View = "account" | "answers" | "journey" | "jobs" | "signin"
 
+/** The job id in a /job/<id> deep link. Null for any other path, or a malformed escape like /job/abc% that cannot be decoded. */
 function jobIdFromPath(pathname: string): string | null {
   const match = pathname.match(/^\/job\/([^/]+)\/?$/)
-
-  return match ? decodeURIComponent(match[1]) : null
+  if (!match) {
+    return null
+  }
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    return null
+  }
 }
 
 export default function App(): React.JSX.Element {
@@ -245,8 +262,12 @@ export default function App(): React.JSX.Element {
   return (
     <div className="flex min-h-svh flex-col bg-background text-foreground">
       <Toaster position="top-center" closeButton />
-      <StatusColorsDialog />
-      <OfferGate />
+      <Suspense fallback={null}>
+        <StatusColorsDialog />
+      </Suspense>
+      <Suspense fallback={null}>
+        <OfferGate />
+      </Suspense>
 
       {/* Stays at the top, solid brand orange, the same as the footer, so the two bookend the page. */}
       <header className="sticky top-0 z-20 bg-brand text-foreground">
@@ -302,15 +323,21 @@ export default function App(): React.JSX.Element {
             />
           </Suspense>
         ) : page ? (
-          <StaticPageView page={page} onBack={closePage} onOpenPage={openPage} />
+          <Suspense fallback={<JobListSkeleton />}>
+            <StaticPageView page={page} onBack={closePage} onOpenPage={openPage} />
+          </Suspense>
         ) : shooReturn ? (
-          <ShooCallback onDone={handleShooDone} />
+          <Suspense fallback={<JobListSkeleton />}>
+            <ShooCallback onDone={handleShooDone} />
+          </Suspense>
         ) : (
           <Suspense fallback={null}>
             {view === "signin" ? <SignIn onCancel={() => setView(onboarded ? "account" : "journey")} /> : null}
 
             {(view === "account" || view === "jobs") && onboarded ? (
-              <Account looking={view === "jobs"} onEdit={() => setView("answers")} onStartLooking={showJobs} onStopLooking={() => setView("account")} />
+              <Suspense fallback={<JobListSkeleton />}>
+                <Account looking={view === "jobs"} onEdit={() => setView("answers")} onStartLooking={showJobs} onStopLooking={() => setView("account")} />
+              </Suspense>
             ) : null}
 
             {view === "answers" && onboarded ? <ProfilePage onBack={() => setView("account")} /> : null}
@@ -336,7 +363,11 @@ export default function App(): React.JSX.Element {
 
         {view !== "signin" || page ? <Footer onOpenPage={openPage} /> : null}
       </main>
-      {installGuide ? <InstallGuide session={data.session} onClose={() => openInstallGuide(false)} /> : null}
+      {installGuide ? (
+        <Suspense fallback={null}>
+          <InstallGuide session={data.session} onClose={() => openInstallGuide(false)} />
+        </Suspense>
+      ) : null}
       <NotifyPrompt session={data.session} />
       <DevicePairing />
     </div>

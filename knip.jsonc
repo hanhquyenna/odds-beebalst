@@ -1,0 +1,22 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+  "entry": [
+    "src/**/*.test.{ts,tsx}",
+    "scripts/**/*.{ts,mjs}",
+    "supabase/functions/*/index.ts",
+    "supabase/functions/morning-jobs/match.src.ts",
+    // Registered at runtime by src/lib/push.ts.
+    "public/sw.js"
+  ],
+  "project": ["e2e/**/*.ts", "src/**/*.{ts,tsx,css}", "scripts/**/*.{ts,mjs}", "supabase/functions/**/*.ts"],
+  "ignore": [
+    // Vendored shadcn/ui components: kept whole so `shadcn add` updates stay clean.
+    "src/components/ui/**"
+  ],
+  "ignoreExportsUsedInFile": true,
+  "ignoreDependencies": [
+    // Deno specifiers in supabase/functions (jsr:@std/..., npm:web-push), resolved by Deno, not package.json.
+    "jsr",
+    "npm"
+  ]
+}

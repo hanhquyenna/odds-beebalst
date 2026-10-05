@@ -6,7 +6,8 @@ import type { Posting } from "@/lib/types"
  * the industry of the employer, not the kind of work: a finance analyst at a
  * software company is in "Software & internet". Banking, financial services,
  * insurance, accounting and consulting are separate industries.
- * Built by scripts/make_industries.py from LinkedIn's own industry field.
+ * industries.json was built from LinkedIn's own industry field. Employers not in it fall back to
+ * postings.industry, which scripts/after-new-jobs.sh fills for new jobs.
  */
 export const INDUSTRIES = [
   "Banking",

@@ -6,12 +6,16 @@ import { FIT_AVERAGE, fitOf, type Fit } from "@/lib/fit"
 import { SKILLS } from "@/lib/skills"
 import type { Strength } from "@/lib/strength"
 import type { Reference } from "@/lib/jobs"
-import type { Band, Credit, DutchLevel, PayChoices, PermitRoute, Posting, Profile, Row, TaxParams } from "@/lib/types"
+import type { Band, Credit, DutchLevel, PayChoices, PermitRoute, Posting, Profile, TaxParams } from "@/lib/types"
 
 export const HOURS_PER_YEAR = 2080
 
+// One formatter for every euro amount: toLocaleString("en-NL") builds a new one on each call, which was half the cost of scoring a job.
+const EURO_FORMAT = new Intl.NumberFormat("en-NL")
+
+/** A whole-euro amount as shown everywhere ("€3,122"), or a dash when there is none. */
 export const eur = (n: number | null | undefined): string =>
-  n == null ? "—" : `€${Math.round(n).toLocaleString("en-NL")}`
+  n == null ? "—" : `€${EURO_FORMAT.format(Math.round(n))}`
 
 export const pct = (x: number | null | undefined, digits = 0): string =>
   x == null ? "—" : `${(100 * x).toFixed(digits)}%`
@@ -60,7 +64,6 @@ export function netMonth(
 
 // ---------------------------------------------------------------- skills
 
-export { SKILLS } from "@/lib/skills"
 
 // ---------------------------------------------------------------- profile
 
@@ -292,12 +295,12 @@ export function myThreshold(profile: Profile, ref: Reference): number {
 
 export function thresholdLines(view: BandView, profile: Profile, ref: Reference): Array<{ label: string; value: number; clears: boolean; gap: number; yours: boolean }> {
   const t = ref.tax.ind_hsm_thresholds_h2_2026_monthly_excl_holiday
-  const age = ageOf(profile) ?? 30
+  const route = payChoicesOf(profile).route
   const median = view.exclMonth.p50
   const lines = [
-    { label: "Orientation year / after a Dutch degree", value: t.reduced_orientation_year, yours: profile.permit === "orientation_year" },
-    { label: "Highly skilled migrant, under 30", value: t.under_30, yours: profile.permit === "hsm" && age < 30 },
-    { label: "Highly skilled migrant, 30 and over", value: t.age_30_plus, yours: profile.permit === "hsm" && age >= 30 },
+    { label: "Orientation year / after a Dutch degree", value: t.reduced_orientation_year, yours: route === "orientation_year" },
+    { label: "Highly skilled migrant, under 30", value: t.under_30, yours: route === "hsm_under_30" },
+    { label: "Highly skilled migrant, 30 and over", value: t.age_30_plus, yours: route === "hsm_30_plus" },
   ]
 
   return lines.map((l) => ({ ...l, clears: median >= l.value, gap: median - l.value }))
@@ -719,4 +722,3 @@ export function extractPosting(title: string, text: string): Partial<Posting> {
   }
 }
 
-export type { Row }

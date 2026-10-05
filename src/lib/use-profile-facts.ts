@@ -28,8 +28,8 @@ export function useProfileFacts(profile: Profile, session: Session | null): { st
   const key = useMemo(() => JSON.stringify([profile.cv, profile.positions, profile.education]), [profile.cv, profile.positions, profile.education])
   useEffect(() => {
     let live = true
-    const items = itemsOf(profile as never)
-    Promise.all(items.map(hashItem)).then((hashes) => {
+    const items = itemsOf(profile)
+    void Promise.all(items.map(hashItem)).then((hashes) => {
       if (live) setCurrent(items.map((it, i) => ({ hash: hashes[i], text: it.text })))
     })
 

@@ -2,17 +2,8 @@ import { describe, expect, test } from "bun:test"
 import { cumulative, isInternship, levelOf, middle, netMonth, point } from "@/lib/engine"
 import { formatHourly } from "@/lib/format"
 import { payMid, payOf, TRAINEE_PAY } from "@/lib/spec"
-import type { Posting, TaxParams } from "@/lib/types"
-
-// 2026 parameters, as stored in the database (tax_params).
-const TAX: TaxParams = {
-  box1_brackets: [{ upto: 38883, rate: 0.3575 }, { upto: 78426, rate: 0.3756 }, { above: 78426, rate: 0.495 }],
-  general_tax_credit: { max: 3115, phase_out_start: 29736, phase_out_rate: 0.06398, zero_at: 78426 },
-  labour_tax_credit: { max: 5685, phase_out_start: 45592, phase_out_rate: 0.0651, zero_at: 132920 },
-  ruling_30pct: { min_salary: 48013, min_salary_under30_masters: 36497, rate_2026: 0.3 },
-  ind_hsm_thresholds_h2_2026_monthly_excl_holiday: { reduced_orientation_year: 3122, under_30: 4357, age_30_plus: 5942 },
-  health_insurance_2026: { average_premium_month: 157 },
-}
+import type { Posting } from "@/lib/types"
+import { TAX } from "../../e2e/fixtures/reference"
 
 // Gross per year of CBS 0411 Accountants: P25 28.4, P50 36.4 euro an hour, 2,080 hours, 8% holiday allowance.
 const P25 = 28.4 * 2080 * 1.08

@@ -23,6 +23,12 @@ describe("fitOf", () => {
     expect(only("private equity associate")).toBeCloseTo(1 / 1.1, 5)
     expect(only("growth equity")).toBe(1)
   })
+  test("the kept words of the last text never answer for a new text", () => {
+    const role = (text: string): number => fitOf({ ...base, text: text })!.parts.find((p) => p.key === "role")!.value
+    expect(role("financial analyst")).toBe(1)
+    expect(role("nurse")).toBe(0)
+    expect(role("financial analyst")).toBe(1)
+  })
   test("missing a must-have costs more than missing a nice-to-have", () => {
     const wanted = (tier: "must" | "nice") => [{ name: "excel", tier: "must" as const }, { name: "sql", tier }]
     const missMust = fitOf({ ...base, wanted: wanted("must"), have: (s) => s === "excel" })!

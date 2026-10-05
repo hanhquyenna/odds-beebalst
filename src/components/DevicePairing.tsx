@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { adoptGuest, approveDevicePair, claimDevicePair, isGuestEmail, loadSession } from "@/lib/auth"
 import { useData } from "@/lib/data"
-import { cancelPairing, clearApproval, openInBrowser, pairCode, pairUrl, useApprovalId, useWaitingPair } from "@/lib/pairing"
+import { cancelPairing, clearApproval, openInBrowser, pairUrl, useApprovalId, useWaitingPair } from "@/lib/pairing"
 import { isInstalled } from "@/lib/push"
 import { beginShooSignIn, rememberShooNext } from "@/lib/shoo"
 
@@ -16,8 +17,8 @@ function Card({ label, children }: { label: string; children: React.ReactNode })
   )
 }
 
-function Code({ id }: { id: string }): React.JSX.Element {
-  return <p className="font-mono text-3xl font-bold tracking-[0.3em] tabular-nums">{pairCode(id)}</p>
+function Code({ code }: { code: string }): React.JSX.Element {
+  return <p className="font-mono text-3xl font-bold tracking-[0.3em] tabular-nums">{code}</p>
 }
 
 /** In the Home Screen app: waits for the browser sign-in and collects the session as soon as it is approved. */
@@ -82,8 +83,8 @@ function WaitingForBrowser(): React.JSX.Element | null {
   return (
     <Card label="Finish signing in in Safari">
       <h2 className="text-lg font-semibold tracking-tight">Finish signing in in your browser</h2>
-      <p className="text-sm text-muted-foreground">Sign in with Google there and check it shows this code. Then come back here: you will be signed in.</p>
-      <Code id={pair.id} />
+      <p className="text-sm text-muted-foreground">Sign in with Google there and type this code. Then come back here: you will be signed in.</p>
+      <Code code={pair.code} />
       <Button type="button" variant="outline" onClick={() => openInBrowser(pairUrl(pair.id))} className="cursor-pointer">
         Open the browser again
       </Button>
@@ -100,6 +101,7 @@ function ApproveInBrowser(): React.JSX.Element | null {
   const id = useApprovalId()
   const [state, setState] = useState<"ask" | "busy" | "done">("ask")
   const [error, setError] = useState<string | null>(null)
+  const [code, setCode] = useState<string>("")
 
   if (!id || data.status !== "ready") {
     return null
@@ -123,8 +125,6 @@ function ApproveInBrowser(): React.JSX.Element | null {
     return (
       <Card label="Sign in to connect your odds app">
         <h2 className="text-lg font-semibold tracking-tight">Sign in to connect your odds app</h2>
-        <p className="text-sm text-muted-foreground">Your app shows this code:</p>
-        <Code id={id} />
         <Button
           type="button"
           disabled={state === "busy"}
@@ -152,22 +152,22 @@ function ApproveInBrowser(): React.JSX.Element | null {
   return (
     <Card label="Connect your odds app">
       <h2 className="text-lg font-semibold tracking-tight">Connect your odds app?</h2>
-      <p className="text-sm text-muted-foreground">Check your app shows the same code. Only connect your own phone.</p>
-      <Code id={id} />
+      <p className="text-sm text-muted-foreground">Type the code your odds app shows. Only connect your own phone.</p>
+      <Input aria-label="Code from your app" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} maxLength={6} autoComplete="one-time-code" className="text-center font-mono text-2xl tracking-[0.3em]" />
       <Button
         type="button"
-        disabled={state === "busy"}
+        disabled={state === "busy" || code.trim().length !== 6}
         onClick={() => {
           setState("busy")
           setError(null)
-          approveDevicePair(signedIn, id)
+          approveDevicePair(signedIn, id, code)
             .then(() => setState("done"))
             .catch((e: unknown) => {
               setError(e instanceof Error ? e.message : "Could not connect the app.")
               setState("ask")
             })
         }}
-        className="cursor-pointer"
+        className="cursor-pointer disabled:cursor-not-allowed"
       >
         {state === "busy" ? "Connecting…" : "Yes, connect"}
       </Button>

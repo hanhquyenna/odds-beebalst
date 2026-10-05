@@ -53,6 +53,20 @@ function message(jobs: ReadonlyArray<Job>, day: string): { title: string; body: 
 
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" }
 
+/** The browser push services a real subscription points at. Anything else (an internal address, a host that never answers) is refused, since anyone can store an endpoint. */
+const PUSH_HOSTS = ["fcm.googleapis.com", "updates.push.services.mozilla.com", "push.apple.com", "notify.windows.com"]
+
+/** True for an https endpoint on one of the PUSH_HOSTS; both senders skip anything else. */
+function isPushEndpoint(endpoint: string): boolean {
+  try {
+    const url = new URL(endpoint)
+
+    return url.protocol === "https:" && PUSH_HOSTS.some((h) => url.hostname === h || url.hostname.endsWith(`.${h}`))
+  } catch {
+    return false
+  }
+}
+
 /**
  * Right after someone turns notifications on: one message to their own devices, so they see at once that it works.
  * Called by the app with the person's sign-in; it can only ever reach that person's own devices.
@@ -68,7 +82,7 @@ async function welcome(req: Request): Promise<Response> {
   const userId = (await who.json()).id as string
   const rest = { apikey: service, Authorization: `Bearer ${service}` }
   const subs = (await (await fetch(`${supabaseUrl}/rest/v1/push_subscriptions?select=id,endpoint,p256dh,auth&user_id=eq.${userId}&order=created_at.desc&limit=1`, { headers: rest })).json()) as Sub[]
-  if (subs.length === 0) return json(404, { error: "No device to send to." })
+  if (subs.length === 0 || !isPushEndpoint(subs[0].endpoint)) return json(404, { error: "No device to send to." })
 
   const vapidKeys = await webpush.importVapidKeys(JSON.parse(Deno.env.get("VAPID_KEYS")!), { extractable: false })
   const server = await webpush.ApplicationServer.new({ contactInformation: Deno.env.get("VAPID_CONTACT") ?? "mailto:hello@odds.nl", vapidKeys })
@@ -78,8 +92,8 @@ async function welcome(req: Request): Promise<Response> {
       .subscribe({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } })
       .pushTextMessage(JSON.stringify({ title: "You’re set", body: "odds sends you the new jobs that fit you at 8 every morning.", url: "/", tag: "odds-welcome" }), { ttl: 3600, urgency: webpush.Urgency.High })
     return json(200, { sent: true })
-  } catch (e) {
-    return json(502, { error: String(e).slice(0, 200) })
+  } catch {
+    return json(502, { error: "The device did not take the message." })
   }
 }
 
@@ -109,7 +123,7 @@ Deno.serve(async (req) => {
   const now = new Date()
   const all = await get<Sub[]>(`push_subscriptions?select=id,user_id,endpoint,p256dh,auth,send_hour,time_zone,last_sent_at${onlyUser ? `&user_id=eq.${onlyUser}` : ""}`)
   // Due: the person's clock reads their hour, and nothing went out in the last 20 hours (cron runs twice around 8 for summer and winter time).
-  const due = all.filter((s) => (ignoreHour || hourIn(s.time_zone, now) === s.send_hour) && (ignoreHour || !s.last_sent_at || now.getTime() - Date.parse(s.last_sent_at) > 20 * 3600 * 1000))
+  const due = all.filter((s) => isPushEndpoint(s.endpoint) && (ignoreHour || hourIn(s.time_zone, now) === s.send_hour) && (ignoreHour || !s.last_sent_at || now.getTime() - Date.parse(s.last_sent_at) > 20 * 3600 * 1000))
   if (due.length === 0) return reply(200, { subscriptions: all.length, due: 0, sent: 0 })
 
   // Yesterday's new jobs, once for everyone. Each job is in exactly one morning: the one after the day it was found.

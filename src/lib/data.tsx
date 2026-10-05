@@ -1,8 +1,9 @@
 import { mergePool } from "@/lib/sources"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
-import { restoreSession, signOut as authSignOut, startGuestSession, type Session } from "@/lib/auth"
+import { keepSessionFresh, restoreSession, signOut as authSignOut, startGuestSession, type Session } from "@/lib/auth"
 import { computeShares, type CategoryShare } from "@/lib/engine"
 import { collectedOn } from "@/lib/format"
+import { todayIso } from "@/lib/tracker"
 import type { Strength } from "@/lib/strength"
 import { migrateProfile } from "@/lib/people-migrate"
 import { keepPast, readPast } from "@/lib/suggest"
@@ -22,7 +23,7 @@ import {
   type Reference,
   type Signals,
 } from "@/lib/jobs"
-import { registerLogos } from "@/lib/companies"
+import { registerLogos } from "@/lib/stored-logos"
 import { DEFAULT_PROFILE, type Application, type PastSearch, type Person, type Posting, type Profile } from "@/lib/types"
 
 const PROFILE_KEY = "careersim.profile"
@@ -277,6 +278,10 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
       .catch(() => undefined)
   }, [session, status, profile.linkedin])
 
+  // Tokens last an hour: without this, a tab left open keeps "saving" into 401s and the next load drops those edits.
+  const signedIn = session !== null
+  useEffect(() => (signedIn ? keepSessionFresh(setSessionState) : undefined), [signedIn])
+
   // Signing in brings the stored profile and applications down; they win over this browser's copy.
   useEffect(() => {
     if (!session || status !== "ready") {
@@ -512,7 +517,7 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
         employer: post.employer_display,
         fit_tier: fit,
         stage,
-        logged_at: new Date().toISOString().slice(0, 10),
+        logged_at: todayIso(),
       }
       setApplications((prev) => {
         const next = [entry, ...prev]

@@ -5,7 +5,7 @@ import { platformOf } from "@/lib/push"
 /**
  * A Home Screen app cannot finish a Google sign-in itself: the trip to Google comes back in a different browser context,
  * without the secret the app kept (the "Missing PKCE verifier" error). So the app signs in through the browser instead:
- * it opens the browser at ?pair=<id>, the person signs in there and confirms the short code both screens show, and the
+ * it opens the browser at ?pair=<id>, the person signs in there and types the short code the app shows, and the
  * app collects its own session. This file keeps the two sides' state: the pair the app waits on, and the one the
  * browser was asked to approve.
  */
@@ -16,6 +16,7 @@ const APPROVE_KEY = "odds:pair-approve"
 export interface WaitingPair {
   id: string
   secret: string
+  code: string
   expires_at: string
 }
 
@@ -42,11 +43,6 @@ function write(key: string, value: string | null): void {
     // fine without it: the person can start again
   }
   emit()
-}
-
-/** The four characters both screens show, so the person can see the browser is approving their own app. */
-export function pairCode(id: string): string {
-  return id.replace(/[^A-Za-z0-9]/g, "").slice(0, 4).toUpperCase()
 }
 
 /** Opens a page of this site in the phone's browser, out of the Home Screen app: Safari on an iPhone. */

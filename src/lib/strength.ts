@@ -94,7 +94,7 @@ export function parseItemFacts(raw: unknown): ItemFacts | null {
     return null
   }
 
-  return { standing: r.standing, recognition: r.recognition, grades: r.grades, family: r.family as string | null }
+  return { standing: r.standing, recognition: r.recognition, grades: r.grades, family: r.family }
 }
 
 /** The start of a part in the person's own words, up to its first full stop and no longer than a short line: "Financial Analyst, Vietcombank (Hanoi, Vietnam)". */

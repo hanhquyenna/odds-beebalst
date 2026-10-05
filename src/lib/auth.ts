@@ -1,4 +1,4 @@
-import { ANON_KEY, SUPABASE_URL, setAccessToken } from "@/lib/supabase"
+import { ANON_KEY, SUPABASE_URL, currentAccessToken, setAccessToken } from "@/lib/supabase"
 
 export interface Session {
   access_token: string
@@ -177,18 +177,18 @@ async function pairCall(body: Record<string, unknown>, accessToken?: string): Pr
   })
 }
 
-export async function startDevicePair(): Promise<{ id: string; secret: string; expires_at: string }> {
+export async function startDevicePair(): Promise<{ id: string; secret: string; code: string; expires_at: string }> {
   const response = await pairCall({ action: "pair-start" })
-  const data = (await response.json().catch(() => ({}))) as { id?: string; secret?: string; expires_at?: string; error?: string }
-  if (!response.ok || !data.id || !data.secret || !data.expires_at) {
+  const data = (await response.json().catch(() => ({}))) as { id?: string; secret?: string; code?: string; expires_at?: string; error?: string }
+  if (!response.ok || !data.id || !data.secret || !data.code || !data.expires_at) {
     throw new Error(data.error ?? "Could not start sign-in")
   }
 
-  return { id: data.id, secret: data.secret, expires_at: data.expires_at }
+  return { id: data.id, secret: data.secret, code: data.code, expires_at: data.expires_at }
 }
 
-export async function approveDevicePair(session: Session, id: string): Promise<void> {
-  const response = await pairCall({ action: "pair-approve", id }, session.access_token)
+export async function approveDevicePair(session: Session, id: string, code: string): Promise<void> {
+  const response = await pairCall({ action: "pair-approve", id, code: code.trim() }, session.access_token)
   if (!response.ok) {
     const data = (await response.json().catch(() => ({}))) as { error?: string }
     throw new Error(data.error ?? "Could not connect the app")
@@ -225,17 +225,13 @@ export async function restoreSession(): Promise<Session | null> {
   if (!stored) {
     return null
   }
-  if (stored.expires_at - 60 > Math.floor(Date.now() / 1000)) {
+  if (!expiring(stored)) {
     keep(stored)
 
     return stored
   }
   try {
-    const next = toSession(await call("token?grant_type=refresh_token", { refresh_token: stored.refresh_token }))
-    // A refresh rebuilds the session without the photo; keep the stored one so the header does not lose it.
-    if (next && !next.user.avatar) {
-      next.user.avatar = stored.user.avatar
-    }
+    const next = await refresh(stored)
     keep(next)
 
     return next
@@ -243,6 +239,37 @@ export async function restoreSession(): Promise<Session | null> {
     keep(null)
 
     return null
+  }
+}
+
+/** Keeps a signed-in tab's token valid: checks every minute and when the tab comes back, refreshing within a minute of expiry. data.tsx runs it while signed in; the returned function stops it. */
+export function keepSessionFresh(onRefresh: (session: Session) => void): () => void {
+  const check = (): void => {
+    const stored = loadSession()
+    if (!stored || document.visibilityState === "hidden") {
+      return
+    }
+    if (!expiring(stored)) {
+      // Another tab refreshed: take its token, or this tab keeps saving with the old one.
+      if (stored.access_token !== currentAccessToken()) {
+        keep(stored)
+        onRefresh(stored)
+      }
+
+      return
+    }
+    // A failed refresh (offline, a sleeping laptop) is tried again on the next check; signing out is the server's call at the next load.
+    refreshing ??= refreshInBackground(stored, onRefresh).finally(() => {
+      refreshing = null
+    })
+  }
+  const timer = window.setInterval(check, 60_000)
+  document.addEventListener("visibilitychange", check)
+  check()
+
+  return () => {
+    window.clearInterval(timer)
+    document.removeEventListener("visibilitychange", check)
   }
 }
 
@@ -255,6 +282,41 @@ export async function signInWithTokenHash(tokenHash: string): Promise<Session> {
   keep(session)
 
   return session
+}
+
+/** The in-flight refresh, so overlapping checks never spend the same single-use refresh token twice. */
+let refreshing: Promise<void> | null = null
+
+/** True within a minute of expiry, the margin both restore and the background check use. */
+function expiring(session: Session): boolean {
+  return session.expires_at - 60 <= Math.floor(Date.now() / 1000)
+}
+
+/** One background refresh: stores and hands over the new session, unless the person signed out (or in as someone else) while it was out. */
+async function refreshInBackground(stored: Session, onRefresh: (session: Session) => void): Promise<void> {
+  let next: Session
+  try {
+    next = await refresh(stored)
+  } catch {
+    return
+  }
+  if (loadSession()?.refresh_token !== stored.refresh_token) {
+    return
+  }
+  keep(next)
+  onRefresh(next)
+}
+
+/** Trades the stored refresh token for a new session. The caller stores it. */
+async function refresh(stored: Session): Promise<Session> {
+  const next = toSession(await call("token?grant_type=refresh_token", { refresh_token: stored.refresh_token }))
+  if (!next) {
+    throw new Error("Refresh failed")
+  }
+  // A refresh rebuilds the session without the photo; keep the stored one so the header does not lose it.
+  next.user.avatar ??= stored.user.avatar
+
+  return next
 }
 
 export function signOut(): void {

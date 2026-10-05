@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { logoFor, monogram, nameKey, siteDomain } from "@/lib/companies"
+import { logoFor, monogram, siteDomain } from "@/lib/companies"
+import { nameKey } from "@/lib/stored-logos"
 
 describe("logos for any job", () => {
   test("a company's own career site gives its domain", () => {

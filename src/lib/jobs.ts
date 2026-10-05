@@ -99,7 +99,7 @@ export async function fetchBody(id: string): Promise<string> {
     throw new Error(error.message)
   }
 
-  return (data as { body: string | null } | null)?.body ?? ""
+  return data?.body ?? ""
 }
 
 /**
@@ -168,7 +168,7 @@ export async function loadProfile(userId: string): Promise<Partial<Profile> | nu
     throw new Error(error.message)
   }
 
-  return (data as { data: Partial<Profile> } | null)?.data ?? null
+  return data?.data ?? null
 }
 
 export async function saveProfile(userId: string, profile: Profile): Promise<void> {
@@ -239,11 +239,12 @@ const SIGNAL_TERMS: Record<keyof Signals, string[]> = {
   contract: ["fixed-term", "fixed term", "freelance", "interim", "temporary", "tijdelijk", "bepaalde tijd", "zzp", "detachering", "contractor"],
 }
 
+/** Every posting id whose text mentions any of the terms, paged by id so pages never overlap or skip rows. */
 async function idsMentioning(terms: string[]): Promise<Set<string>> {
   const ids = new Set<string>()
   const filter = terms.map((t) => `body.ilike.*${t.replace(/[,()]/g, " ")}*`).join(",")
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabase.from("postings").select("id").or(filter).range(from, from + 999)
+    const { data, error } = await supabase.from("postings").select("id").or(filter).order("id").range(from, from + 999)
     if (error) {
       throw new Error(error.message)
     }
@@ -277,7 +278,7 @@ export async function fetchEmployerAbout(employer: string): Promise<{ about: str
   if (error || !data) {
     return null
   }
-  const row = data as { about: string; source: string }
+  const row = data
 
   return { about: row.about, source: row.source === "odds" ? "odds" : "posting" }
 }
@@ -310,7 +311,7 @@ export async function fetchEmployerFacts(employer: string): Promise<EmployerFact
     return null
   }
 
-  return { ...(facts.data as Omit<EmployerFacts, "headcount">), headcount: (counts.data ?? []) as EmployerFacts["headcount"] }
+  return { ...(facts.data as Omit<EmployerFacts, "headcount">), headcount: (counts.data ?? []) }
 }
 
 /** The logos kept in the database (employer_facts.logo), for employers the app's own logo lists do not have. Empty when there are none. */
@@ -360,9 +361,9 @@ export async function fetchEmployerInsights(employer: string): Promise<EmployerI
   const rows = (teams.data ?? []) as Array<{ family: string; heading: string | null; about: string | null; tasks: string[] | null }>
 
   return {
-    culture: culture.error || !culture.data ? null : (culture.data as { heading: string; about: string }),
+    culture: culture.error || !culture.data ? null : culture.data,
     teams: rows.map((t) => ({ ...t, tasks: t.tasks ?? [] })),
-    money: money.error ? [] : ((money.data ?? []) as EmployerInsights["money"]),
+    money: money.error ? [] : (money.data ?? []),
   }
 }
 
@@ -382,7 +383,7 @@ export interface EmployerHiring {
 export async function fetchEmployerHiring(employer: string): Promise<EmployerHiring | null> {
   const { data, error } = await supabase.from("employer_hiring").select("open_jobs,first_jobs,no_dutch_jobs,visa_mentions,avg_applicants,pay_stated,cities,fields,skills").eq("employer", employer).maybeSingle()
 
-  return error || !data ? null : (data as EmployerHiring)
+  return error || !data ? null : data
 }
 
 export interface EmployerNewsItem {
@@ -396,5 +397,5 @@ export interface EmployerNewsItem {
 export async function fetchEmployerNews(employer: string): Promise<EmployerNewsItem[]> {
   const { data, error } = await supabase.from("employer_news").select("title,url,site,published").eq("employer", employer).order("published", { ascending: false, nullsFirst: false }).limit(3)
 
-  return error ? [] : ((data ?? []) as EmployerNewsItem[])
+  return error ? [] : (data ?? [])
 }

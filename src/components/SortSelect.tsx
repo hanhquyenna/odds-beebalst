@@ -9,7 +9,7 @@ export function SortSelect({ value, onChange, keys, dark = false }: { value: Job
   const options = JOB_SORTS.filter((s) => !keys || keys.includes(s.key)).map((s) => ({ value: s.key, label: s.label }))
 
   return (
-    <Select items={options} value={value} onValueChange={(next) => onChange((next ?? value) as JobSortKey)}>
+    <Select items={options} value={value} onValueChange={(next) => onChange(next ?? value)}>
       <SelectTrigger aria-label="Sort by" className={cn(buttonVariants({ variant: "outline" }), "h-10 cursor-pointer gap-2 border-border bg-background px-3 font-medium")}>
         <SortIcon className={cn("size-4", dark ? "text-band-muted" : "text-muted-foreground")} aria-hidden="true" />
         <SelectValue />

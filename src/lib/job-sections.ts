@@ -54,6 +54,7 @@ const LABEL = /^(job title|location\(s\)|primary location|other locations?|work 
 
 const BULLET = /^\s*(?:[-–—•·▪●‣◦*]|\d{1,2}[.)])\s+/
 // Emoji and pictograph clutter at the start of a line ("💪 Stay healthy").
+// oxlint-disable-next-line no-misleading-character-class -- the class strips stray variation selectors and joiners one by one.
 const LEADING_SYMBOLS = /^[\s\p{Extended_Pictographic}\p{Emoji_Presentation}️‍▶►✔✓✅➡→★☆]+/u
 
 const wordsOf = (s: string): number => s.split(/\s+/).filter(Boolean).length
@@ -154,9 +155,9 @@ function toBlocks(lines: string[]): Block[] {
 const ABBREV = /\b(e\.g|i\.e|etc|vs|approx|incl|ca|dr|mr|mrs|ms|prof|no|st|inc|ltd|co|jr|sr)\./gi
 
 function sentences(text: string): string[] {
-  const guarded = text.replace(ABBREV, (m) => m.replace(/\./g, "\u0001")).replace(/\b([A-Z])\./g, "$1\u0001")
+  const guarded = text.replace(ABBREV, (m) => m.replace(/\./g, "\uE000")).replace(/\b([A-Z])\./g, "$1\uE000")
 
-  return guarded.split(/(?<=[.!?])\s+(?=[A-Z0-9“"(])/).map((x) => x.replace(/\u0001/g, "."))
+  return guarded.split(/(?<=[.!?])\s+(?=[A-Z0-9“"(])/).map((x) => x.replace(/\uE000/g, "."))
 }
 
 /** Sentences glued together with no space ("activities.Assess"), outside addresses and links. */

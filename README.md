@@ -17,7 +17,7 @@ The interview chance is an estimate built from published studies, not a measurem
 
 Everything shown comes from a table of postings in Supabase (Postgres). Views (`app_jobs`, `active_jobs`, `active_internship_entry`) decide which postings are active, which are duplicates and which level each is, so the app, the tables and the numbers cannot drift apart.
 
-Fields that postings do not state (kind of job, occupation group, industry, minimum years, degree, Dutch, student requirement, requirement tiers) are read from the full text with [TypeSafe](https://typesafe.ai) Jev, and samples were re-checked by independent reviewers. Where a reading is not sure, the field stays empty and the app says so instead of guessing. Every figure traces to a source; the sources are listed in the app under "How it works" and "Research", and `START_HERE.md` records how each part of the data was made and checked.
+Fields that postings do not state (kind of job, occupation group, industry, minimum years, degree, Dutch, student requirement, requirement tiers) are read from the full text with [TypeSafe](https://typesafe.ai) Jev, and samples were re-checked by independent reviewers. Where a reading is not sure, the field stays empty and the app says so instead of guessing. Every figure traces to a source; the sources are listed in the app under "How it works" and "Research". [docs/DATA.md](docs/DATA.md) says how each part of the data is made, kept current and checked.
 
 | Part | Where |
 | --- | --- |
@@ -37,11 +37,11 @@ You need [Bun](https://bun.sh) and your own Supabase project.
 bun install
 cp .env.example .env.local        # set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (the anon key only)
 bun run dev                       # http://localhost:5173
-bun test                          # unit tests
+bun run test                      # unit tests
 bun run build                     # typecheck and production build
 ```
 
-The schema is in `supabase/migrations/` and the older setup files in the repository root (`SETUP.sql` and friends). The pipeline scripts in `scripts/` read their keys (Supabase access token, TypeSafe key, Apify token) from environment variables for one command and never from a file; `.env.secrets.example` shows the names. **Never commit `.env.local` or a service-role key.**
+The schema changes since 1 Oct 2026 are in `supabase/migrations/` (`supabase db push`); the base `postings` and reference tables predate them and are not in the repository, so a fresh project needs a copy of the live schema first. Deploying the app and the edge functions is in [docs/DEPLOY.md](docs/DEPLOY.md). The pipeline scripts in `scripts/` read their keys (Supabase access token, TypeSafe key, Apify token) from environment variables for one command and never from a file; `.env.secrets.example` shows the names. **Never commit `.env.local` or a service-role key.**
 
 ## Security and privacy
 

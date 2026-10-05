@@ -4,7 +4,7 @@ For whoever deploys odds. State on 5 Oct 2026. CI: `.github/workflows/ci.yml` (t
 
 ## 1. The web app
 
-- Build: `npm run build` (type check, then `vite build`; output `dist/`). It passes.
+- Build: `bun run build` (type check, then `vite build`; output `dist/`).
 - Hosting is S3 + CloudFront at https://odds.beeblast.co (terraform in `beeblastco/infra`,
   pipeline in `.github/workflows/deploy-odds.yaml`). The single-page fallback, the cache split
   (hashed assets immutable for a year, everything else no-cache), and the manifest content type
