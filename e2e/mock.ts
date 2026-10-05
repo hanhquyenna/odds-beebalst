@@ -105,7 +105,7 @@ function rowsFor(table: string, url: URL, postings: Posting[]): Row[] | null {
     return postings.slice(offset, offset + limit) as unknown as Row[]
   }
   if (table === "postings") {
-    return postingsRows(params.get("select") ?? "", id, params.has("or"), postings)
+    return postingsRows(params.get("select") ?? "", id, postings)
   }
   if (table === "cbs_bands") {
     return BANDS as unknown as Row[]
@@ -123,9 +123,9 @@ function rowsFor(table: string, url: URL, postings: Posting[]): Row[] | null {
   return EMPTY_TABLES.has(table) ? [] : null
 }
 
-/** The postings table: one posting's text or requirements on the detail page, and no matches for the text-signal searches. */
-function postingsRows(select: string, id: string | null, textSearch: boolean, postings: Posting[]): Row[] {
-  if (textSearch || id === null) {
+/** The postings table: one posting's text or requirements on the detail page. */
+function postingsRows(select: string, id: string | null, postings: Posting[]): Row[] {
+  if (id === null) {
     return []
   }
   if (!postings.some((p) => p.id === id)) {

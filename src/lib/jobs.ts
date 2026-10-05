@@ -11,7 +11,7 @@ const CHECK_COLUMNS = ",closed_at,last_checked,posted_on,skill_tiers,enrollment"
 const PAGE = 1000
 
 /** What only the view app_jobs has: the level the database works out, and which posting each one was merged into. */
-const VIEW_COLUMNS = ",level_view,kept_id,pick_rank,role_kind"
+const VIEW_COLUMNS = ",level_view,kept_id,pick_rank,role_kind,work_signals"
 
 /** Pages fetched at once after the first: a few in parallel instead of one after another, so the list arrives sooner. */
 const PARALLEL_PAGES = 4
@@ -238,43 +238,21 @@ export interface Signals {
   contract: boolean
 }
 
-const SIGNAL_TERMS: Record<keyof Signals, string[]> = {
-  hybrid: ["hybrid", "hybride", "work from home", "thuiswerken", "partly remote", "remote work"],
-  remote: ["fully remote", "100% remote", "remote-first", "remote first", "remote position", "remote role", "work remotely", "volledig remote"],
-  partTime: ["part-time", "part time", "parttime", "deeltijd"],
-  fullTime: ["full-time", "full time", "fulltime", "voltijd", "40 hours", "38 hours", "36 hours", "40 uur", "38 uur", "36 uur"],
-  contract: ["fixed-term", "fixed term", "freelance", "interim", "temporary", "tijdelijk", "bepaalde tijd", "zzp", "detachering", "contractor"],
-}
-
-/** Every posting id whose text mentions any of the terms, paged by id so pages never overlap or skip rows. */
-async function idsMentioning(terms: string[]): Promise<Set<string>> {
-  const ids = new Set<string>()
-  const filter = terms.map((t) => `body.ilike.*${t.replace(/[,()]/g, " ")}*`).join(",")
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabase.from("postings").select("id").or(filter).order("id").range(from, from + 999)
-    if (error) {
-      throw new Error(error.message)
-    }
-    for (const row of data as Array<{ id: string }>) {
-      ids.add(row.id)
-    }
-    if ((data as unknown[]).length < 1000) {
-      return ids
+/** Each posting's signals, from the work_signals the database works out once per posting (supabase/migrations/20261006120200_work_signals.sql). */
+export function signalsOf(posts: Posting[]): Record<string, Signals> {
+  const out: Record<string, Signals> = {}
+  for (const post of posts) {
+    const found = post.work_signals ?? []
+    if (found.length > 0) {
+      out[post.id] = {
+        hybrid: found.includes("hybrid"),
+        remote: found.includes("remote"),
+        partTime: found.includes("partTime"),
+        fullTime: found.includes("fullTime"),
+        contract: found.includes("contract"),
+      }
     }
   }
-}
-
-/** One pass per kind of wording, each asking the server which postings mention it. */
-export async function fetchSignals(): Promise<Record<string, Signals>> {
-  const kinds = Object.keys(SIGNAL_TERMS) as Array<keyof Signals>
-  const found = await Promise.all(kinds.map((k) => idsMentioning(SIGNAL_TERMS[k])))
-  const out: Record<string, Signals> = {}
-  kinds.forEach((kind, i) => {
-    for (const id of found[i]) {
-      out[id] ??= { hybrid: false, remote: false, partTime: false, fullTime: false, contract: false }
-      out[id][kind] = true
-    }
-  })
 
   return out
 }

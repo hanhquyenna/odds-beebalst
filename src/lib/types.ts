@@ -1,6 +1,8 @@
 /** A row of the `postings` table, without the description body. */
 export interface Posting {
   id: string
+  /** From the database view app_jobs: how the text says the work is done (hybrid, remote, partTime, fullTime, contract). */
+  work_signals?: string[] | null
   /** Read by TypeSafe Jev, null until it has run: the title without noise, the level it judges, how sure it is, and whether the text is a real job. */
   title_clean?: string | null
   level_jev?: string | null
