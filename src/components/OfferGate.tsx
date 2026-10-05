@@ -34,12 +34,12 @@ function drawCard(post: Posting, chance: string | null): Promise<Blob | null> {
   ctx.fillStyle = accent
   ctx.fillRect(72, 88, 96, 10)
   ctx.fillStyle = "#ffffff"
-  ctx.font = "600 88px Geist, system-ui, sans-serif"
+  ctx.font = "600 88px 'Inter Tight Variable', system-ui, sans-serif"
   ctx.fillText("I beat the odds.", 72, 230)
-  ctx.font = "500 44px Geist, system-ui, sans-serif"
+  ctx.font = "500 44px 'Inter Tight Variable', system-ui, sans-serif"
   const lines = [post.title.length > 46 ? `${post.title.slice(0, 44)}…` : post.title, `at ${post.employer_display}`]
   lines.forEach((l, i) => ctx.fillText(l, 72, 330 + i * 60))
-  ctx.font = "400 34px Geist, system-ui, sans-serif"
+  ctx.font = "400 34px 'Inter Tight Variable', system-ui, sans-serif"
   ctx.fillStyle = "rgba(255,255,255,0.75)"
   if (chance) {
     ctx.fillText(`Estimated chance of an interview: ${chance}`, 72, 500)
