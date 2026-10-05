@@ -4,7 +4,7 @@ export interface Session {
   access_token: string
   refresh_token: string
   expires_at: number
-  user: { id: string; email: string }
+  user: { id: string; email: string; avatar?: string }
 }
 
 const STORE = "careersim.session"
@@ -241,4 +241,9 @@ export function takeOAuthNext(): string | null {
 
 export function signOut(): void {
   keep(null)
+}
+
+/** Replaces the stored session (after enriching it elsewhere); the next load reads this copy. */
+export function storeSession(session: Session | null): void {
+  keep(session)
 }
