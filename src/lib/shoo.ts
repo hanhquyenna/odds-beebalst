@@ -8,11 +8,11 @@ const NEXT_KEY = "careersim.shooNext"
 
 /**
  * Google sign-in through Shoo (shoo.dev): a free Google-OAuth broker with no
- * signup and no keys. It is one more door, not a replacement: email and
- * password keep working, and the Supabase session stays the authority, so
- * every row-level policy keeps working unchanged. The bridge edge function
+ * signup and no keys. Google is the only door: the bridge edge function
  * (supabase/functions/verify-shoo) turns the Shoo token into a Supabase
- * session; this file never trusts the browser token on its own.
+ * session, and the Supabase session stays the authority, so every row-level
+ * policy keeps working unchanged. This file never trusts the browser token
+ * on its own.
  */
 
 let client: ShooAuthClient | null = null

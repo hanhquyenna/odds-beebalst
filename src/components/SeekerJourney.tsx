@@ -253,7 +253,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
             </button>
           ) : null}
           <h1 className="text-2xl font-semibold tracking-tight">Account settings</h1>
-          {data.session ? <p className="text-sm text-muted-foreground">{isGuestEmail(data.session.user.email) ? "Signed in for testing. Changes are saved to this test account." : `Signed in as ${data.session.user.email}. Changes are saved to your account.`}</p> : <p className="text-sm text-muted-foreground">Saved on this device. Sign in to keep it on every device.</p>}
+          {data.session ? <p className="text-sm text-muted-foreground">{isGuestEmail(data.session.user.email) ? "Signed in as a guest. Changes are saved to this guest account." : `Signed in as ${data.session.user.email}. Changes are saved to your account.`}</p> : <p className="text-sm text-muted-foreground">Saved on this device. Sign in to keep it on every device.</p>}
         </div>
         <div className="grid gap-6 md:grid-cols-2">
           <SeekerQuestions error={error} form={form} review={review} step={step} onChange={setForm} />

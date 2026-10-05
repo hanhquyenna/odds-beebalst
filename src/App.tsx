@@ -379,12 +379,12 @@ function AccountMenu({ email, guest, avatar, name, onDashboard, onAnswers, onSig
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger aria-label="Account menu" className="flex size-11 cursor-pointer items-center justify-center overflow-hidden rounded-full border-[1.5px] bg-accent font-semibold text-primary">
-        {avatar ? <img src={avatar} alt="" className="size-full object-cover" /> : (name || email || (guest ? "Test" : "Me")).trim().charAt(0).toUpperCase()}
+        {avatar ? <img src={avatar} alt="" className="size-full object-cover" /> : (name || email || (guest ? "Guest" : "Me")).trim().charAt(0).toUpperCase()}
       </PopoverTrigger>
       <PopoverContent align="end" className="flex w-60 flex-col p-0">
         <div className="border-b-[1.5px] px-4 py-3">
-          <div className="font-medium">{name || email || (guest ? "Test account" : "Your profile")}</div>
-          <div className="text-sm text-muted-foreground">{email ? "Saved to your account" : guest ? "Signed in for testing" : "Saved on this device only"}</div>
+          <div className="font-medium">{name || email || (guest ? "Guest account" : "Your profile")}</div>
+          <div className="text-sm text-muted-foreground">{email ? "Saved to your account" : guest ? "Signed in as a guest" : "Saved on this device only"}</div>
         </div>
         {onDashboard ? (
           <Button variant="ghost" onClick={() => choose(onDashboard)} className="cursor-pointer justify-start">
