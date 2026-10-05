@@ -1,11 +1,9 @@
 import { useMemo, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
 import { Caret, OddsPanel } from "@/components/OddsExplain"
-import { Section } from "@/components/JobPersonal"
-import { stepOf } from "@/components/PipelineBoard"
 import { openStatusColors } from "@/components/StatusPicker"
 import { useData } from "@/lib/data"
-import { NO_WHAT_IF, point, standing, type Standing } from "@/lib/engine"
+import { NO_WHAT_IF, point, standing } from "@/lib/engine"
 import { JOB_PER_INTERVIEW } from "@/lib/odds-kind"
 import { statusColors, type StatusKey } from "@/lib/status-colors"
 import type { Posting } from "@/lib/types"
@@ -91,13 +89,6 @@ export function OddsBar({ low, high, label, tone = "brand", color }: { low: numb
       </div>
     </div>
   )
-}
-
-export const range = (low: number, high: number): string => {
-  const a = Math.round(low * 100)
-  const b = Math.max(a, Math.round(high * 100))
-
-  return a === b ? `${a}%` : `${a}–${b}%`
 }
 
 
@@ -204,53 +195,5 @@ export function SearchSummary(): React.JSX.Element {
       ) : null}
     </section>
     </div>
-  )
-}
-
-/** On a job: both odds now, and what they would become with this job. Marking it Applied, above, is what counts it. */
-export function MeterSection({ post, st }: { post: Posting; st: Standing }): React.JSX.Element {
-  const data = useData()
-  const [open, setOpen] = useState<boolean>(false)
-  const applied = data.applications.some((a) => a.posting_id === post.id) && stepOf(data, post) !== "saved"
-  const rate = st.rate && !st.rate.thin ? st.rate : null
-  const others = { interview: useMeter(post.id, "interview"), job: useMeter(post.id, "job") }
-
-  const row = (kind: "interview" | "job"): React.JSX.Element => {
-    const scale = kind === "job" ? JOB_PER_INTERVIEW : 1
-    const before = others[kind]
-    const withThis = rate ? together([before.mid, rate.mid * scale]) : null
-    const now = applied && withThis !== null ? withThis : before.mid
-    const gain = withThis !== null ? 100 * (withThis - before.mid) : null
-
-    return (
-      <OddsRow
-        key={kind}
-        title={kind === "job" ? "Job odds" : "Interview odds"}
-        mid={now}
-        tone={kind === "job" ? "ink" : "brand"}
-        note={applied ? "Counting this job" : withThis !== null && gain !== null ? `With this job ${point(withThis)} (+${gain.toFixed(1)})` : "Too few similar jobs to score this one"}
-      />
-    )
-  }
-
-  return (
-    <Section
-      title="Your odds"
-      aside={
-        <button type="button" aria-expanded={open} aria-controls="odds-explained-job" onClick={() => setOpen(!open)} className="flex cursor-pointer items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
-          How it works <Caret open={open} />
-        </button>
-      }
-    >
-      <div className="flex flex-col gap-6">
-        {open ? (
-          <div id="odds-explained-job">
-            <OddsPanel />
-          </div>
-        ) : null}
-        {row("interview")}
-        {row("job")}
-      </div>
-    </Section>
   )
 }

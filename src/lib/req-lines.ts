@@ -138,10 +138,3 @@ export function candidateLines(body: string): Candidate[] {
 
   return out
 }
-
-/** The pieces of a line that said they are only a plus, kept with their cue-based tier for the check against Jev. */
-export function softTierOf(line: string): "optional" | "nice" | null {
-  const pieces = splitSoft(line)
-
-  return pieces.length === 1 && pieces[0].soft ? pieces[0].soft : null
-}

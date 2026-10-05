@@ -113,7 +113,6 @@ export const RELATIONSHIPS: ReadonlyArray<Relationship> = ["Referral", "Recruite
 export const CONTACT_STATUSES: ReadonlyArray<ContactStatus> = ["To contact", "Contacted", "Connected", "Replied", "Chat booked", "Met", "Referral asked", "Referred", "No reply", "Said no", "Passed me on"]
 
 export type MessageKind = "Referral request" | "Follow-up" | "Thank you" | "Introduction" | "Other"
-export const MESSAGE_KINDS: ReadonlyArray<MessageKind> = ["Referral request", "Follow-up", "Thank you", "Introduction", "Other"]
 
 /** A message kept on a person: what was said, when, and whether it went out. */
 export interface SavedMessage {
@@ -121,14 +120,6 @@ export interface SavedMessage {
   date: string
   kind: MessageKind
   direction: "sent" | "draft" | "received"
-  body: string
-}
-
-/** Wording to start from. {name}, {company}, {job} and {me} are filled in when it is used. */
-export interface MessageTemplate {
-  id: string
-  name: string
-  kind: MessageKind
   body: string
 }
 
@@ -283,8 +274,6 @@ export interface Profile {
   peopleColumnTypes?: Record<string, PropertyType>
   peopleColumnOptions?: Record<string, string[]>
   peopleNotes?: Record<string, Record<string, string>>
-  /** Your message templates. Null until you change them, when the starting set is used. */
-  templates: MessageTemplate[] | null
   /** True once the sign-up questions were answered. */
   onboarded: boolean
   /** What you told us you are looking for: the same filters as the job list, kept. Null until you set them. */
@@ -323,7 +312,6 @@ export const DEFAULT_PROFILE: Profile = {
   notes: {},
   people: [],
   views: {},
-  templates: null,
   onboarded: false,
   prefs: null,
   prefsOn: false,

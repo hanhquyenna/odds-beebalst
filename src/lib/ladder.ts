@@ -113,15 +113,3 @@ export function ladderStats(posts: ReadonlyArray<Posting>, like?: Posting): Rung
     }
   })
 }
-
-/** The highest rung whose usual years you have reached, or the first. */
-export function rungAt(stats: ReadonlyArray<RungStats>, years: number): Rung {
-  let at: Rung = LADDER[0]
-  for (const s of stats) {
-    if (s.years !== null && s.years <= years) {
-      at = s.level
-    }
-  }
-
-  return at
-}
