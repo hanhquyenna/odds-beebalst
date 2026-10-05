@@ -187,6 +187,10 @@ export async function restoreSession(): Promise<Session | null> {
   }
   try {
     const next = toSession(await call("token?grant_type=refresh_token", { refresh_token: stored.refresh_token }))
+    // A refresh rebuilds the session without the photo; keep the stored one so the header does not lose it.
+    if (next && !next.user.avatar) {
+      next.user.avatar = stored.user.avatar
+    }
     keep(next)
 
     return next

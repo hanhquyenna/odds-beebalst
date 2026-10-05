@@ -27,7 +27,7 @@ interface LandingProps {
  * Anyone can browse and open a job. What the questions unlock is the personal
  * part: whether you clear it, your chance, what you keep after tax, your permit.
  */
-export function Landing({ onStart, onOpenPage }: LandingProps): React.JSX.Element {
+export function Landing({ onStart, onSignIn, onOpenPage }: LandingProps): React.JSX.Element {
   const data = useData()
   const [open, setOpen] = useState<Posting | null>(null)
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
@@ -59,6 +59,9 @@ export function Landing({ onStart, onOpenPage }: LandingProps): React.JSX.Elemen
             <Button onClick={onStart} className="h-11 cursor-pointer rounded-full px-7">
               Start
             </Button>
+            <button type="button" onClick={onSignIn} className="cursor-pointer font-medium text-muted-foreground transition-colors hover:text-foreground">
+              Already with us? Sign in
+            </button>
             <button
               type="button"
               onClick={() => document.getElementById("film")?.scrollIntoView({ behavior: "smooth", block: "center" })}
