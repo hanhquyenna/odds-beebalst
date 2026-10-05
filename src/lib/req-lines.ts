@@ -1,6 +1,6 @@
 /**
  * Cuts a posting into the lines that could be requirements, each with the heading it sits under, ready for Jev to tier
- * (scripts/jev-requirements.mjs) and for tests. Pure: no network, no clock.
+ * (scripts/jev-requirements.ts) and for tests. Pure: no network, no clock.
  *
  * Why the heading travels with the line: "Experience with Tableau" means something different under "Requirements" than under
  * "Nice to have", and a model told only the line cannot know. A line that mixes a hard core with a soft clause
