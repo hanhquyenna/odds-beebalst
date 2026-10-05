@@ -181,7 +181,7 @@ const report: Report = {
         caption: "Evidence tiers used by odds and what each is allowed to do.",
         head: ["Tier", "What it means", "Where it enters the range"],
         rows: [
-          ["Measured in the Netherlands", "odds' own log of Dutch outcomes", "Replaces the base entirely once a cell holds at least 30 entries"],
+          ["Measured in the Netherlands", "odds' own log of Dutch outcomes", "Planned, not built yet: replaces the base entirely once a cell holds at least 30 entries"],
           ["Experimental effect", "A field experiment with matched CVs", "Both the low and the high end"],
           ["Benchmark proxy", "An aggregate from hiring software, not an experiment", "Used as a proxy; applied only when it applies to the person"],
           ["Vendor", "A company's own test", "High end only"],

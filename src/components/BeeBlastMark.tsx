@@ -7,7 +7,7 @@ const BEEBLAST_URL = "https://beeblast.co"
 export function PoweredByBeeBlast(): React.JSX.Element {
   return (
     <span className="flex items-center gap-1.5">
-      <span className="text-xs text-muted-foreground">Powered by</span>
+      <span className="text-xs">Powered by</span>
       <a href={BEEBLAST_URL} target="_blank" rel="noreferrer noopener" aria-label="BeeBlast" className="transition-opacity hover:opacity-70">
         <img src={mark} alt="BeeBlast" width={24} height={24} className="block size-6 rounded-full ring-1 ring-border" />
       </a>

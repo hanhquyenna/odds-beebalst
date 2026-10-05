@@ -1,5 +1,4 @@
 import { Suspense, lazy, useEffect, useState } from "react"
-import logoUrl from "@/logo.svg"
 import { Account } from "@/components/Account"
 import { JobListSkeleton } from "@/components/Skeleton"
 import { ProfilePage } from "@/components/ProfilePage"
@@ -49,7 +48,6 @@ export default function App(): React.JSX.Element {
   // Bumped by the wordmark, so the form remounts on the front page.
   const [homeVisits, setHomeVisits] = useState<number>(0)
   const [formEntry, setFormEntry] = useState<"welcome" | "intro">("welcome")
-  const scrolled = useScrolled()
   const [page, setPage] = useState<StaticPage | null>(() => pageFromPath(location.pathname))
   const [sharedJobId, setSharedJobId] = useState<string | null>(() => jobIdFromPath(location.pathname))
 
@@ -243,17 +241,15 @@ export default function App(): React.JSX.Element {
       <StatusColorsDialog />
       <OfferGate />
 
-      {/* Stays at the top. Clear over the front page's glow; once the page has
-          scrolled a little it takes a translucent paper background and a rule,
-          so the wordmark stays legible over whatever passes under it. */}
-      <header className={`sticky top-0 z-20 transition-colors duration-300 ${scrolled ? "border-b-[1.5px] bg-background" : "border-b-[1.5px] border-transparent"}`}>
+      {/* Stays at the top, solid brand orange, the same as the footer, so the two bookend the page. */}
+      <header className="sticky top-0 z-20 bg-brand text-foreground">
         <div className={`mx-auto flex w-full ${column} flex-nowrap items-center justify-between gap-2.5 px-4 py-3 sm:gap-2 sm:px-6 sm:py-4`}>
           {/* The wordmark is the way home: the account for someone with answers
               saved, the front page for everyone else. */}
           <button
             type="button"
             onClick={() => (page ? closePage() : onboarded ? setView("account") : goHome())}
-            className="roomie-wordmark shrink-0 cursor-pointer text-xl font-semibold tracking-tight text-primary"
+            className="roomie-wordmark shrink-0 cursor-pointer text-xl font-semibold tracking-tight text-foreground"
           >
             <Wordmark />
           </button>
@@ -263,7 +259,7 @@ export default function App(): React.JSX.Element {
                 key={nextPage}
                 type="button"
                 onClick={() => openPage(nextPage)}
-                className="shrink-0 cursor-pointer whitespace-nowrap py-2 text-muted-foreground transition-colors hover:text-foreground focus:text-foreground"
+                className="shrink-0 cursor-pointer whitespace-nowrap py-2 text-foreground underline-offset-4 hover:underline focus:underline"
               >
                 {nextPage === "how-it-works" ? "How it works" : nextPage === "about" ? "About" : "Research"}
               </button>
@@ -275,7 +271,7 @@ export default function App(): React.JSX.Element {
               <AccountMenu email={isGuestEmail(data.session?.user.email) ? null : (data.session?.user.email ?? null)} avatar={data.profile.avatar} name={data.profile.name} onDashboard={onboarded ? () => setView("account") : undefined} onAnswers={() => setView("answers")} onSignIn={() => leaveSharedJob("signin")} onSignOut={handleSignOut} />
             </div>
           ) : !page && view === "journey" ? (
-            <Button type="button" variant="ghost" onClick={() => leaveSharedJob("signin")} className="h-9 shrink-0 cursor-pointer px-1.5 text-xs font-medium sm:px-3 sm:text-sm">
+            <Button type="button" variant="ghost" onClick={() => leaveSharedJob("signin")} className="h-9 shrink-0 cursor-pointer px-1.5 text-xs font-semibold text-foreground hover:bg-foreground/10 sm:px-3 sm:text-sm">
               Sign in
             </Button>
           ) : null}
@@ -377,7 +373,7 @@ function AccountMenu({ email, avatar, name, onDashboard, onAnswers, onSignIn, on
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger aria-label="Account menu" className="flex size-11 cursor-pointer items-center justify-center overflow-hidden rounded-full border-[1.5px] bg-accent font-semibold text-primary">
+      <PopoverTrigger aria-label="Account menu" className="flex size-11 cursor-pointer items-center justify-center overflow-hidden rounded-full border-[1.5px] border-foreground bg-background font-semibold text-primary">
         {avatar ? <img src={avatar} alt="" className="size-full object-cover" /> : (name || email || "Me").trim().charAt(0).toUpperCase()}
       </PopoverTrigger>
       <PopoverContent align="end" className="flex w-60 flex-col p-0">
@@ -406,29 +402,7 @@ function AccountMenu({ email, avatar, name, onDashboard, onAnswers, onSignIn, on
   )
 }
 
-/** True once the page has moved more than a few pixels down. */
-function useScrolled(): boolean {
-  const [scrolled, setScrolled] = useState<boolean>(false)
-
-  useEffect(() => {
-    const read = (): void => setScrolled(window.scrollY > 8)
-    read()
-    window.addEventListener("scroll", read, { passive: true })
-
-    return () => window.removeEventListener("scroll", read)
-  }, [])
-
-  return scrolled
-}
-
-/** The mark and the name, as the brand draws them. Same mark as the favicon. */
+/** The name on the orange header, all in black so the "o" does not vanish into the orange. The round mark sits by the headline on the front page. */
 function Wordmark(): React.JSX.Element {
-  return (
-    <span className="flex items-center gap-2">
-      <img src={logoUrl} alt="" className="size-9" />
-      <span className="text-[1.75rem] leading-none font-bold tracking-[-0.05em]">
-        <span className="text-brand">o</span>dds
-      </span>
-    </span>
-  )
+  return <span className="text-[1.75rem] leading-none font-bold tracking-[-0.05em]">odds</span>
 }

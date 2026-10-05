@@ -187,22 +187,22 @@ export function SearchSummary(): React.JSX.Element {
         <Caret open={chances} />
       </button>
       {chances ? (
-      <div className="grid gap-6 border-t-[1.5px] border-line p-5 lg:grid-cols-2">
-        <OddsRow title={total > 0 ? `At least one interview from your ${total} ${total === 1 ? "application" : "applications"}` : "At least one interview"} mid={interview.mid} aside={<Contributors items={interview.contributions} />} />
-        <OddsRow title={total > 0 ? `At least one job offer from your ${total} ${total === 1 ? "application" : "applications"}` : "At least one job offer"} mid={job.mid} tone="ink" />
+      <div className="border-t-[1.5px] border-line px-6 pt-7 pb-6 sm:px-8">
+        <div className="grid gap-8 lg:grid-cols-2 lg:gap-12">
+          <OddsRow title={total > 0 ? `At least one interview from your ${total} ${total === 1 ? "application" : "applications"}` : "At least one interview"} mid={interview.mid} aside={<Contributors items={interview.contributions} />} />
+          <OddsRow title={total > 0 ? `At least one job offer from your ${total} ${total === 1 ? "application" : "applications"}` : "At least one job offer"} mid={job.mid} tone="ink" />
+        </div>
+        <button type="button" aria-expanded={explain} aria-controls="odds-explained" onClick={() => setExplain(!explain)} className="mt-6 inline-flex cursor-pointer items-center gap-1 text-sm font-medium underline underline-offset-4">
+          How does it work <Caret open={explain} />
+        </button>
+        {explain ? (
+          <div id="odds-explained" className="mt-2 border-t-[1.5px] border-line">
+            <OddsPanel bare />
+          </div>
+        ) : null}
       </div>
       ) : null}
     </section>
-    <div>
-      <button type="button" aria-expanded={explain} aria-controls="odds-explained" onClick={() => setExplain(!explain)} className="cursor-pointer text-sm underline underline-offset-4 hover:text-foreground">
-        How does it work
-      </button>
-      {explain ? (
-        <div id="odds-explained" className="mt-3">
-          <OddsPanel />
-        </div>
-      ) : null}
-    </div>
     </div>
   )
 }

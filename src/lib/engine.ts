@@ -66,7 +66,7 @@ export { SKILLS } from "@/lib/skills"
 
 const NL_PLACES = /netherlands|nederland|amsterdam|rotterdam|utrecht|eindhoven|den haag|the hague|groningen|leiden|delft|tilburg|maastricht|nijmegen/i
 const EU_PLACES = /germany|france|belgium|spain|italy|portugal|austria|ireland|sweden|denmark|finland|poland|czech|hungary|greece|romania|bulgaria|croatia|slovakia|slovenia|lithuania|latvia|estonia|luxembourg|malta|cyprus|berlin|paris|brussels|munich|madrid|barcelona|milan|lisbon|dublin|vienna|stockholm|copenhagen|warsaw|prague|switzerland|norway|united kingdom|london/i
-const DUTCH_SCHOOL = /(universit|hogeschool|\bvu\b|\buva\b|erasmus|tilburg|maastricht|groningen|utrecht|leiden|delft|twente|wageningen|nyenrode|\bhva\b|amsterdam)/i
+const DUTCH_SCHOOL = /(hogeschool|\bvu\b|\buva\b|erasmus|tilburg|maastricht|groningen|utrecht|leiden|delft|twente|wageningen|nyenrode|\bhva\b|amsterdam)/i
 
 /** A date as people write it on a CV: "Mar 2021", "September 2021", "Sept 2021", "Dez 2023", "03/2021", "2021-03", "2021". Anything else is unknown, never an invalid date. */
 function parseDate(value: string | undefined): Date | null {
@@ -164,11 +164,12 @@ function deriveFresh(profile: Profile): Derived {
     months += span
     const place = row.Location ?? ""
     const where = NL_PLACES.test(place) ? "NL" : EU_PLACES.test(place) ? "EU" : place ? "non-EU" : "unknown"
+    // A role with no place says nothing about where it was, so it is left out of the shares rather than counted as work outside the EU.
     if (where === "NL") {
       nl += span
     } else if (where === "EU") {
       eu += span
-    } else {
+    } else if (where === "non-EU") {
       nonEu += span
     }
     if (/intern|stagiair|werkstudent|trainee/i.test(row.Title ?? "")) {

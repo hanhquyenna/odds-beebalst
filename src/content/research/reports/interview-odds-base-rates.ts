@@ -502,7 +502,7 @@ const report: Report = {
         },
         {
           type: "p",
-          text: "Three rules govern how the multipliers combine [3]. The first is overlap: the origin effect and the foreign-experience effect may measure the same employer reaction twice, so the low bound multiplies both (0.76 times 0.88 is 0.67) and the high bound uses only the larger effect. The second is that the strength of the evidence decides which bound it enters. Experimental results enter both bounds, a vendor test such as the cover letter study enters only the high bound, and the study-abroad result of 1.00 is shown so the reader knows it was tested. The third is that once odds has at least 30 logged outcomes in a cell, the measured rate replaces the base."
+          text: "Three rules govern how the multipliers combine [3]. The first is overlap: the origin effect and the foreign-experience effect may measure the same employer reaction twice, so the low bound multiplies both (0.76 times 0.88 is 0.67) and the high bound uses only the larger effect. The second is that the strength of the evidence decides which bound it enters. Experimental results enter both bounds, a vendor test such as the cover letter study enters only the high bound, and the study-abroad result of 1.00 is shown so the reader knows it was tested. The third is a rule for later: once odds keeps a log of outcomes (not built yet) and a cell holds at least 30 of them, the measured rate is meant to replace the base."
         },
         {
           type: "h3",

@@ -81,12 +81,7 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
       </div>
       {editing ? <PreferencesDialog filters={effective} onChange={saved.setFilters} onClose={() => setEditing(false)} /> : null}
       {needsProfile ? (
-        <div className="flex flex-col items-start gap-3 rounded-xl border-[1.5px] border-dashed border-line bg-secondary/30 px-5 py-6">
-          <p className="font-medium">Import your LinkedIn to see the jobs that fit you.</p>
-          <Button type="button" onClick={openLinkedInImport} className="cursor-pointer">
-            Import LinkedIn
-          </Button>
-        </div>
+        <ImportPrompt what="the jobs that fit you" />
       ) : shown.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nothing here fits your preferences. Loosen them with the pencil.</p>
       ) : (
@@ -123,7 +118,7 @@ export function HearBackTable({ onOpen }: { onOpen: (post: Posting) => void }): 
     return rows.map((r) => r.post)
   }, [data.postings, data.profile, data.reference, data.shares, data.referrals, data.saved, data.applications, data.passed, data.signals, data.strengthFor, filters, needsProfile])
 
-  if (!data.reference || needsProfile) return null
+  if (!data.reference) return null
   const rowLimit = step === 2 ? shown.length : STEPS[step]
 
   return (
@@ -135,8 +130,20 @@ export function HearBackTable({ onOpen }: { onOpen: (post: Posting) => void }): 
         </button>
       </div>
       {editing ? <PreferencesDialog filters={filters} onChange={saved.setFilters} onClose={() => setEditing(false)} /> : null}
-      {shown.length === 0 ? <p className="text-sm text-muted-foreground">Nothing here fits your preferences. Loosen them with the pencil.</p> : <Tracker posts={shown} onOpen={onOpen} viewName={`${saved.configName}-hear` as `v:${string}`} rowLimit={rowLimit} footer={<MoreRow total={shown.length} step={step} setStep={setStep} />} dismissible />}
+      {needsProfile ? <ImportPrompt what="the jobs you're most likely to hear back from" /> : shown.length === 0 ? <p className="text-sm text-muted-foreground">Nothing here fits your preferences. Loosen them with the pencil.</p> : <Tracker posts={shown} onOpen={onOpen} viewName={`${saved.configName}-hear` as `v:${string}`} rowLimit={rowLimit} footer={<MoreRow total={shown.length} step={step} setStep={setStep} />} dismissible />}
     </section>
+  )
+}
+
+/** Shown in both job lists until a profile is in: the same box, the same button, so the two sections match. */
+function ImportPrompt({ what }: { what: string }): React.JSX.Element {
+  return (
+    <div className="flex flex-col items-start gap-3 rounded-xl border-[1.5px] border-dashed border-line bg-secondary/30 px-5 py-6">
+      <p className="font-medium">Import your LinkedIn to see {what}.</p>
+      <Button type="button" onClick={openLinkedInImport} className="cursor-pointer">
+        Import LinkedIn
+      </Button>
+    </div>
   )
 }
 

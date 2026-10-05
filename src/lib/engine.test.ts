@@ -77,6 +77,31 @@ describe("hasCvData", () => {
   })
 })
 
+describe("derive: where the work was and where the degree is from", () => {
+  const role = (location: string): Record<string, string> => ({ Title: "Analyst", "Company Name": "Acme", "Started On": "Jan 2022", "Finished On": "Jan 2024", Location: location })
+
+  test("a role with no place is left out of the shares, not counted as work outside the EU", async () => {
+    const { derive } = await import("@/lib/engine")
+    const { DEFAULT_PROFILE } = await import("@/lib/types")
+    const none = derive({ ...DEFAULT_PROFILE, positions: [role("")] })
+    expect(none.share.nonEu).toBe(0)
+    const mixed = derive({ ...DEFAULT_PROFILE, positions: [role(""), role("Amsterdam, Netherlands")] })
+    expect(mixed.share.nl).toBe(1)
+    expect(mixed.share.nonEu).toBe(0)
+    expect(derive({ ...DEFAULT_PROFILE, positions: [role("Hanoi, Vietnam")] }).share.nonEu).toBe(1)
+  })
+
+  test("only a Dutch school makes a Dutch degree, not any school called a university", async () => {
+    const { derive } = await import("@/lib/engine")
+    const { DEFAULT_PROFILE } = await import("@/lib/types")
+    const school = (name: string) => derive({ ...DEFAULT_PROFILE, education: [{ "School Name": name, "Degree Name": "MSc" }] }).dutchDegree
+    expect(school("Peking University")).toBe(false)
+    expect(school("University of Amsterdam")).toBe(true)
+    expect(school("Erasmus University Rotterdam")).toBe(true)
+    expect(school("Hogeschool van Amsterdam")).toBe(true)
+  })
+})
+
 describe("levelOf with the database's level", () => {
   const b = { years_min: null, seniority: null } as Posting
   test("the level the view gives is the one used, whatever the title says", () => {

@@ -13,7 +13,7 @@ function Slide({ report, onOpen }: { report: Report; onOpen: (slug: string) => v
       <button
         type="button"
         onClick={() => onOpen(report.slug)}
-        className="group flex h-full w-full cursor-pointer flex-col rounded-2xl border-2 border-[oklch(0.17_0.004_60)] p-6 text-left text-[oklch(0.17_0.004_60)] transition-colors duration-200 hover:bg-background"
+        className="group flex h-full w-full cursor-pointer flex-col rounded-2xl border-2 border-[oklch(0.17_0.004_60)] p-6 text-left text-[oklch(0.17_0.004_60)] transition-colors duration-200 hover:bg-brand"
       >
         <span className="flex items-start justify-between gap-3">
           <span className="ix-num" style={{ fontSize: "4.5rem" }}>
@@ -53,7 +53,7 @@ export function ResearchSlides({ onOpenPage }: { onOpenPage?: (page: StaticPage)
   )
 
   return (
-    <section aria-labelledby="research-heading" className="relative left-1/2 -mb-7 w-screen -translate-x-1/2 overflow-hidden bg-brand py-10 text-[oklch(0.17_0.004_60)] sm:py-14">
+    <section aria-labelledby="research-heading" className="relative left-1/2 -mb-7 w-screen -translate-x-1/2 overflow-hidden bg-background py-10 text-[oklch(0.17_0.004_60)] sm:py-14">
       <div className="mx-auto w-full max-w-sm px-5 sm:max-w-2xl sm:px-6 lg:max-w-6xl lg:px-10">
         <h2 id="research-heading" className="text-3xl leading-[0.95] font-bold tracking-[-0.045em] sm:text-5xl">
           built on research.

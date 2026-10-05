@@ -4,6 +4,7 @@ import { SortSelect } from "@/components/SortSelect"
 import { JOB_SORTS, sortJobs, type JobSortKey } from "@/lib/sort"
 import { JobBoard } from "@/components/JobBoard"
 import { Button } from "@/components/ui/button"
+import logoUrl from "@/logo.svg"
 import { ResearchSlides } from "@/components/ResearchSlides"
 import { useData } from "@/lib/data"
 import { FilterBus } from "@/lib/filter-bus"
@@ -52,19 +53,21 @@ export function Landing({ onStart, onOpenPage }: LandingProps): React.JSX.Elemen
     <FilterBus value={(patch) => setFilters((f) => ({ ...f, ...patch }))}>
     <div className="flex flex-1 flex-col">
       {/* The opening statement: white, no furniture. -mt-8 undoes the main's top padding. */}
-      <section className="relative left-1/2 -mt-8 w-screen -translate-x-1/2 bg-background pt-16 pb-16 sm:pt-28 sm:pb-24">
+      <section className="relative left-1/2 -mt-8 w-screen -translate-x-1/2 bg-background pt-16 pb-4 sm:pt-28 sm:pb-6">
         <div className="mx-auto w-full max-w-sm px-5 sm:max-w-2xl sm:px-6 lg:max-w-6xl lg:px-10">
-          <h1 className="max-w-4xl text-[clamp(3rem,8.5vw,8rem)] leading-[0.92] font-bold tracking-[-0.045em] text-balance">a job search should feel <span className="text-brand">human.</span></h1>
-          <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-4">
+          <h1 className="max-w-4xl text-[clamp(3rem,8.5vw,8rem)] leading-[0.92] font-bold tracking-[-0.045em] text-balance">a job search should feel <span className="text-brand">human.</span>
+            <img src={logoUrl} alt="" aria-hidden="true" className="ml-[0.15em] inline-block size-[0.82em] align-[-0.06em]" />
+          </h1>
+          <div className="mt-8 flex flex-col items-start gap-10 sm:gap-14">
             <Button onClick={onStart} className="h-11 cursor-pointer rounded-full px-7">
               Start
             </Button>
             <button
               type="button"
               onClick={() => document.getElementById("film")?.scrollIntoView({ behavior: "smooth", block: "center" })}
-              className="inline-flex cursor-pointer items-center gap-2 font-medium"
+              className="cursor-pointer text-3xl leading-[0.95] font-bold tracking-[-0.045em] transition-colors duration-200 hover:text-brand sm:text-5xl"
             >
-              <span className="underline underline-offset-4">See how it works</span> <span aria-hidden="true">↓</span>
+              see how it works.
             </button>
           </div>
         </div>
@@ -72,7 +75,7 @@ export function Landing({ onStart, onOpenPage }: LandingProps): React.JSX.Elemen
             </section>
 
       {/* The film: where "See how it works" lands. */}
-      <section id="film" aria-label="How it works" className="relative left-1/2 w-screen -translate-x-1/2 bg-background py-16 sm:py-24">
+      <section id="film" aria-label="How it works" className="relative left-1/2 w-screen -translate-x-1/2 bg-background pt-0 pb-16 sm:pb-24">
         <div className="mx-auto w-full max-w-sm px-5 sm:max-w-2xl sm:px-6 lg:max-w-6xl lg:px-10">
           <HeroVideo />
         </div>
@@ -122,7 +125,7 @@ export function Landing({ onStart, onOpenPage }: LandingProps): React.JSX.Elemen
   )
 }
 
-/** The film: plays while it is on screen, loops, and rests when scrolled away. Still picture where motion is off. */
+/** The film: plays when it scrolls into view and starts again as soon as it ends. Still picture where motion is off. */
 
 /** 4K where the screen has the pixels for it (a retina laptop or bigger), 1080p everywhere else, so a phone or a small laptop never decodes pixels it cannot show. */
 function pickFilm(): string {
