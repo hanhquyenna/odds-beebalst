@@ -34,6 +34,7 @@ describe("pictureOfIdToken", () => {
 
   test("rejects anything but an https photo", () => {
     expect(pictureOfIdToken(tokenOf("http://photos.example/me.jpg"))).toBeNull()
+    // oxlint-disable-next-line no-script-url -- the test feeds a script URL to prove it is refused.
     expect(pictureOfIdToken(tokenOf("javascript:alert(1)"))).toBeNull()
     expect(pictureOfIdToken(tokenOf(42))).toBeNull()
     expect(pictureOfIdToken(tokenOf(undefined))).toBeNull()

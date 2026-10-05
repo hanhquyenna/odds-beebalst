@@ -65,7 +65,8 @@ Deno.serve(async (req) => {
 
   let url = ""
   try {
-    url = String(((await req.json()) as Json).url ?? "").trim()
+    const sent = ((await req.json()) as Json).url
+    url = typeof sent === "string" ? sent.trim() : ""
   } catch {
     return reply(400, { error: "Send { url }." })
   }

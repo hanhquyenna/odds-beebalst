@@ -82,13 +82,13 @@ export async function completeShooSignIn(): Promise<Session> {
     if (caught instanceof Error && caught.message === "Google sign-in was cancelled.") {
       throw caught
     }
-    throw new Error(`Google sign-in failed talking to Google: ${messageOf(caught)}`)
+    throw new Error(`Google sign-in failed talking to Google: ${messageOf(caught)}`, { cause: caught })
   }
   let tokenHash: string | null
   try {
     tokenHash = tokenHashOf(await bridgeActionLink(idToken))
   } catch (caught) {
-    throw new Error(`Google sign-in failed talking to our server: ${messageOf(caught)}`)
+    throw new Error(`Google sign-in failed talking to our server: ${messageOf(caught)}`, { cause: caught })
   }
   auth.clearIdentity()
   if (!tokenHash) {

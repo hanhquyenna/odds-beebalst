@@ -17,6 +17,7 @@ import { addPage, canFindMore, dropPerson, firstPage, hasFree, isUrl, linkedinHr
 import { saved } from "@/lib/saved"
 import { templatesOf } from "@/lib/templates"
 import { useFollowDays } from "@/lib/follow-days"
+import { useNow } from "@/lib/use-now"
 import { useViewConfig } from "@/lib/views"
 import { PeopleCalendar } from "@/components/TrackerCalendar"
 import { PeopleFilterBar } from "@/components/PeopleFilterBar"
@@ -205,7 +206,7 @@ function MindMap({ copied, onCopy }: { copied: string | null; onCopy: (text: str
   const { goal, find, yes, no, reply, ask, refYes, refNo, log, stalls } = MIND_MAP
   const way = (node: MapNode, id: string, dashed = false): React.JSX.Element => (
     <Step node={node} dashed={dashed}>
-      <Peek label="see example" id={id} text={node.example as string} copied={copied} onCopy={onCopy}>
+      <Peek label="see example" id={id} text={node.example} copied={copied} onCopy={onCopy}>
         {node.swap ? <p className="text-xs text-muted-foreground">{node.swap}</p> : null}
       </Peek>
     </Step>
@@ -228,7 +229,7 @@ function MindMap({ copied, onCopy }: { copied: string | null; onCopy: (text: str
         </Step>
         <Arrow />
         <Step node={ask}>
-          <Peek label="see example" id="map-ask" text={ask.example as string} copied={copied} onCopy={onCopy} />
+          <Peek label="see example" id="map-ask" text={ask.example} copied={copied} onCopy={onCopy} />
         </Step>
         <span aria-hidden="true" className={`h-1 ${LINE}`} />
         <Fork left={{ label: "yes", body: <Outcome node={refYes} yes /> }} right={{ label: "no", body: <Outcome node={refNo} yes={false} /> }} />
@@ -261,7 +262,7 @@ function MessageStrategy({ onClose }: { onClose: () => void }): React.JSX.Elemen
   const [copied, setCopied] = useState<string | null>(null)
   const [why, setWhy] = useState<boolean>(false)
 
-  function done(id: string): void {
+  function markCopied(id: string): void {
     setCopied(id)
     window.setTimeout(() => setCopied(null), 1500)
   }
@@ -277,10 +278,10 @@ function MessageStrategy({ onClose }: { onClose: () => void }): React.JSX.Elemen
       box.select()
       const ok = document.execCommand("copy")
       document.body.removeChild(box)
-      if (ok) done(id)
+      if (ok) markCopied(id)
     }
     if (navigator.clipboard) {
-      navigator.clipboard.writeText(text).then(() => done(id), fallback)
+      navigator.clipboard.writeText(text).then(() => markCopied(id), fallback)
     } else {
       fallback()
     }
@@ -726,7 +727,8 @@ function PeopleColumns({ show }: { show: (key: string) => boolean }): React.JSX.
 export function PersonDetails({ person, onClose }: { person: Person; onClose: () => void }): React.JSX.Element {
   const data = useData()
   const put = (patch: Partial<Omit<Person, "id">>): void => data.updatePerson(person.id, patch)
-  const step = nextStep(person, new Date(), useFollowDays().nudge)
+  const now = useNow()
+  const step = nextStep(person, now, useFollowDays().nudge)
   const plain = "h-9 rounded-md border-[1.5px] border-input bg-background px-2.5 text-sm focus:border-ring focus:outline-none lg:h-8 lg:border-transparent lg:bg-transparent lg:px-2 lg:hover:border-input lg:focus:bg-background"
   const stage = (
     <select aria-label={`Stage of ${person.name}`} value={person.status} onChange={(e) => {
@@ -774,7 +776,8 @@ function PersonRow({ person, show, n }: { person: Person; show: (key: string) =>
   const data = useData()
   const [panel, setPanel] = useState<boolean>(false)
   const put = (patch: Partial<Omit<Person, "id">>): void => data.updatePerson(person.id, patch)
-  const step = nextStep(person, new Date(), useFollowDays().nudge)
+  const now = useNow()
+  const step = nextStep(person, now, useFollowDays().nudge)
   // Below a laptop the fields are drawn as fields so it is clear they can be typed in; on a laptop they are quiet until hovered.
   const plain = "h-9 rounded-md border-[1.5px] border-input bg-background px-2.5 text-sm focus:border-ring focus:outline-none lg:h-8 lg:border-transparent lg:bg-transparent lg:px-2 lg:hover:border-input lg:focus:bg-background"
   const stage = (
@@ -885,7 +888,8 @@ export function PeopleView({ onOpen, views, tools }: { onOpen: (post: Posting) =
   const view = useViewConfig(views.configName)
   const [details, setDetails] = useState<Person | null>(null)
   const days = useFollowDays()
-  const people = useMemo(() => applyPeopleFilter(data.people, active.filter, new Date(), days.nudge), [data.people, active.filter, days.nudge])
+  const now = useNow()
+  const people = useMemo(() => applyPeopleFilter(data.people, active.filter, now, days.nudge), [data.people, active.filter, now, days.nudge])
   const filtered = isPeopleFilterOn(active.filter)
   // One panel at a time: opening one replaces whichever was open.
   const [panel, setPanel] = useState<"outreach" | "add" | "strategy" | null>(null)

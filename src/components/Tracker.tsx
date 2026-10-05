@@ -151,7 +151,7 @@ export function AddJobs({ panel, setPanel }: { panel: AddPanel; setPanel: (p: Ad
     }
     const reader = new FileReader()
     reader.onload = () => {
-      const rows = parseCsv(String(reader.result))
+      const rows = parseCsv(typeof reader.result === "string" ? reader.result : "")
       if (rows.length === 0) {
         setMessage("Nothing to read in that file. It needs a header row and at least one row below it.")
 

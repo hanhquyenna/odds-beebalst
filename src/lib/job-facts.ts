@@ -18,7 +18,7 @@ export function jobTypesOf(post: Posting, signal: Signals | undefined): JobType[
   // Read from the whole text by Jev, where it was sure.
   const read = post.job_type ? ({ fulltime: "Full-time", parttime: "Part-time", contract: "Contract" } as Record<string, JobType>)[post.job_type] : undefined
   if (read) {
-    return [read as JobType]
+    return [read]
   }
   const types: JobType[] = []
   if (signal?.partTime) {

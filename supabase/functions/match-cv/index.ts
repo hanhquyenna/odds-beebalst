@@ -27,7 +27,7 @@ Deno.serve(async (req) => {
   let requirements: string[] = []
   try {
     const b = (await req.json()) as { cv?: unknown; requirements?: unknown }
-    cv = String(b.cv ?? "").slice(0, MAX_CV_CHARS)
+    cv = (typeof b.cv === "string" ? b.cv : "").slice(0, MAX_CV_CHARS)
     requirements = (Array.isArray(b.requirements) ? b.requirements : []).map((r) => String(r).trim().slice(0, 240)).filter(Boolean).slice(0, MAX_ITEMS)
   } catch {
     return reply(400, { error: "Send { cv, requirements }." })

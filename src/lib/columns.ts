@@ -55,10 +55,10 @@ export function columnsOf(profile: Profile, kind: TableKind = "jobs"): OwnColumn
   const f = FIELDS[kind]
 
   return {
-    columns: (profile[f.columns] as string[] | undefined) ?? [],
-    types: (profile[f.types] as Record<string, PropertyType> | undefined) ?? {},
-    options: (profile[f.options] as Record<string, string[]> | undefined) ?? {},
-    notes: (profile[f.notes] as Record<string, Record<string, string>> | undefined) ?? {},
+    columns: profile[f.columns] ?? [],
+    types: profile[f.types] ?? {},
+    options: profile[f.options] ?? {},
+    notes: profile[f.notes] ?? {},
   }
 }
 

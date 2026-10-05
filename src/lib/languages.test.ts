@@ -23,7 +23,7 @@ describe("requiredLanguages", () => {
     ["", []],
   ]
   for (const [title, want] of cases) {
-    test(`${title || "(empty)"}`, () => expect(requiredLanguages(title)).toEqual(want))
+    test(title || "(empty)", () => expect(requiredLanguages(title)).toEqual(want))
   }
   test("the same language named twice is listed once", () => {
     expect(requiredLanguages("German speaking (native German)")).toEqual(["german"])

@@ -96,7 +96,7 @@ export function guessType(values: ReadonlyArray<string>): { type: PropertyType; 
 
 /** Which column is which: by the name of the column first, then by what is in it (links look like links, the first column of words is the title). A name used by one field is not used by another. */
 export function guessMapping(headers: ReadonlyArray<string>, rows: ReadonlyArray<Record<string, string>>): Mapping {
-  const out: Mapping = Object.fromEntries(headers.map((h) => [h, "property" as Target]))
+  const out: Mapping = Object.fromEntries(headers.map((h) => [h, "property"]))
   const taken = new Set<string>()
   const key = (h: string): string => norm(h)
   for (const target of Object.keys(ALIASES) as Array<keyof typeof ALIASES>) {

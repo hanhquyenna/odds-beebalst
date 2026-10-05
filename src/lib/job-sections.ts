@@ -54,6 +54,7 @@ const LABEL = /^(job title|location\(s\)|primary location|other locations?|work 
 
 const BULLET = /^\s*(?:[-–—•·▪●‣◦*]|\d{1,2}[.)])\s+/
 // Emoji and pictograph clutter at the start of a line ("💪 Stay healthy").
+// oxlint-disable-next-line no-misleading-character-class -- the class strips stray variation selectors and joiners one by one.
 const LEADING_SYMBOLS = /^[\s\p{Extended_Pictographic}\p{Emoji_Presentation}️‍▶►✔✓✅➡→★☆]+/u
 
 const wordsOf = (s: string): number => s.split(/\s+/).filter(Boolean).length
@@ -156,6 +157,7 @@ const ABBREV = /\b(e\.g|i\.e|etc|vs|approx|incl|ca|dr|mr|mrs|ms|prof|no|st|inc|l
 function sentences(text: string): string[] {
   const guarded = text.replace(ABBREV, (m) => m.replace(/\./g, "\u0001")).replace(/\b([A-Z])\./g, "$1\u0001")
 
+  // oxlint-disable-next-line no-control-regex -- \u0001 is the placeholder for a guarded full stop, set just above.
   return guarded.split(/(?<=[.!?])\s+(?=[A-Z0-9“"(])/).map((x) => x.replace(/\u0001/g, "."))
 }
 

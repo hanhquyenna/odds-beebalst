@@ -34,8 +34,9 @@ export function text(v: unknown): string {
   if (v && typeof v === "object") {
     const o = v as Json
     for (const k of ["text", "linkedinText", "name", "value"]) if (typeof o[k] === "string" && (o[k] as string).trim()) return (o[k] as string).trim()
-    if (typeof o.month === "string" && o.year != null) return `${o.month} ${o.year}`
-    if (o.year != null) return String(o.year)
+    const year = typeof o.year === "number" || typeof o.year === "string" ? String(o.year) : null
+    if (typeof o.month === "string" && year) return `${o.month} ${year}`
+    if (year) return year
   }
   return ""
 }
