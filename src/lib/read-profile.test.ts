@@ -96,7 +96,7 @@ describe("hashItem", () => {
 
 describe("what Jev may answer matches what the app accepts", () => {
   test("the lines of work are exactly the app's families", () => {
-    expect([...FAMILY_NAMES].sort()).toEqual([...FAMILIES].sort())
+    expect([...FAMILY_NAMES].sort((a, b) => a.localeCompare(b))).toEqual([...FAMILIES].sort((a, b) => a.localeCompare(b)))
   })
   test("the tiers are exactly the app's tiers", () => {
     expect(Object.keys(STANDING)).toEqual([...STANDING_TIERS])

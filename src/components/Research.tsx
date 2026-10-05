@@ -87,7 +87,7 @@ function Index({ onBack, onOpen }: { onBack: () => void; onOpen: (slug: string) 
       </header>
 
       <div className="mt-8">
-        <Select items={TOPICS} value={category} onValueChange={(next) => setCategory((next ?? "All") as (typeof CATEGORIES)[number])}>
+        <Select items={TOPICS} value={category} onValueChange={(next) => setCategory(next ?? "All")}>
           <SelectTrigger aria-label="Topic" className={cn(buttonVariants({ variant: "outline" }), "h-10 cursor-pointer gap-2 border-border bg-background px-3 font-medium", category !== "All" && "border-brand bg-accent")}>
             <SelectValue />
           </SelectTrigger>

@@ -60,7 +60,8 @@ Deno.serve(async (req) => {
   })
   if (!made.ok) {
     const err = (await made.json().catch(() => ({}))) as { msg?: unknown; message?: unknown }
-    if (!`${err.msg ?? err.message ?? ""}`.toLowerCase().includes("already")) {
+    const said = err.msg ?? err.message
+    if (!(typeof said === "string" ? said : "").toLowerCase().includes("already")) {
       return reply(500, { error: "Could not open your account." })
     }
   }

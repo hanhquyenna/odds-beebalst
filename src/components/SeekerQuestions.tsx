@@ -212,14 +212,14 @@ function ImportQuestion({ review, space, wide }: { review: boolean; space: strin
         new Promise<Partial<typeof profile>>((resolve) => {
           const reader = new FileReader()
           reader.onload = () => {
-            const rows = parseCsv(String(reader.result))
+            const rows = parseCsv(typeof reader.result === "string" ? reader.result : "")
             const name = file.name.toLowerCase()
             resolve(name.includes("position") ? { positions: rows } : name.includes("education") ? { education: rows } : name.includes("skill") ? { skills: rows } : name.includes("language") ? { languages: rows } : {})
           }
           reader.readAsText(file)
         }),
     )
-    Promise.all(reads).then((patches) => {
+    void Promise.all(reads).then((patches) => {
       data.setProfile({ ...profile, ...Object.assign({}, ...patches) })
       setNames([...files].map((f) => f.name))
     })

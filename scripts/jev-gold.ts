@@ -95,7 +95,7 @@ for (let i = 0; i < rows.length; i += 6) {
   const out = await Promise.all(batch.map((x) => ask(x.c)))
   batch.forEach((x, k) => { inTok += out[k].tokens; results.push({ g: x, f: out[k].f }) })
 }
-const chk = (name: string, exp: E, got: number, thr: (v: number) => boolean | null): string => {
+const chk = (name: string, exp: E, got: number, _thr: (v: number) => boolean | null): string => {
   if (exp === null) return ""
   cells++
   const ok = exp === 1 ? got >= 0.7 : got <= 0.3

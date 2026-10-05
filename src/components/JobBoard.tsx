@@ -67,17 +67,19 @@ export function JobBoard({ groups, locked, empty, selected, onSelect }: JobBoard
   }
 
   // Groups are cut to the page as one list, so the heading of a group that has not started yet does not show.
+  const visibleGroups: JobGroup[] = []
   let budget = shown
+  for (const group of groups) {
+    const jobs = group.jobs.slice(0, Math.max(0, budget))
+    budget -= jobs.length
+    if (jobs.length > 0) visibleGroups.push({ ...group, jobs: jobs })
+  }
 
   return (
     <>
       <div ref={top} className="@container scroll-mt-20 overflow-hidden rounded-xl border-[1.5px] bg-card text-foreground">
-        {groups.map((group) => {
-          const visible = group.jobs.slice(0, Math.max(0, budget))
-          budget -= visible.length
-          if (visible.length === 0) {
-            return null
-          }
+        {visibleGroups.map((group) => {
+          const visible = group.jobs
 
           return (
             <section key={group.label ?? "all"}>

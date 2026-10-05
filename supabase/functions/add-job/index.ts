@@ -129,7 +129,8 @@ Deno.serve(async (req) => {
 
   let input = ""
   try {
-    input = String(((await req.json()) as Record<string, unknown>).url ?? "")
+    const sent = ((await req.json()) as Record<string, unknown>).url
+    input = typeof sent === "string" ? sent : ""
   } catch {
     return reply(400, { error: "Send { url }." })
   }

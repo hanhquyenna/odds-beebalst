@@ -24,7 +24,7 @@ const HOURLY = 30
 const GUESTS_PER_DAY = 20
 
 /** A session for an account, made on the server: a sign-in link (nothing is emailed) exchanged at once. */
-async function sessionFor(supabaseUrl: string, anon: string, admin: Record<string, string>, email: string): Promise<unknown | null> {
+async function sessionFor(supabaseUrl: string, anon: string, admin: Record<string, string>, email: string): Promise<unknown> {
   const link = await fetch(`${supabaseUrl}/auth/v1/admin/generate_link`, { method: "POST", headers: admin, body: JSON.stringify({ type: "magiclink", email }) })
   const hashed = link.ok ? ((await link.json()) as { properties?: { hashed_token?: string }; hashed_token?: string }) : null
   const tokenHash = hashed?.properties?.hashed_token ?? hashed?.hashed_token

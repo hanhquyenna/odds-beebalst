@@ -135,7 +135,7 @@ export function AboutCompany({ post }: { post: Posting }): React.JSX.Element {
       return fresh
     })
     .slice(0, 4)
-  const site = facts?.website && /^https:\/\//.test(facts.website) ? facts.website : null
+  const site = facts?.website?.startsWith("https://") ? facts.website : null
   const [older, latest] = [facts?.headcount[0], facts?.headcount[facts.headcount.length - 1]]
   const growth = older && latest && older.read_on !== latest.read_on && older.employees > 0 ? Math.round(((latest.employees - older.employees) / older.employees) * 1000) / 10 : null
 

@@ -45,7 +45,7 @@ export function JobDetail({ note, onBack, onPick, onOpenJob, post, pane = false,
   const data = useData()
   const [body, setBody] = useState<string | null>(post.body ?? null)
   // The ticks under Recommendations are kept per job, so they are there next time, and every change shows the same "Saved." notice.
-  const [whatIf, setWhatIfState] = useState<WhatIf>(() => ({ ...NO_WHAT_IF, ...(data.profile.ticks?.[post.id] ?? {}) }))
+  const [whatIf, setWhatIfState] = useState<WhatIf>(() => ({ ...NO_WHAT_IF, ...data.profile.ticks?.[post.id] }))
   const setWhatIf = (next: WhatIf): void => {
     setWhatIfState(next)
     const rest = Object.fromEntries(Object.entries(data.profile.ticks ?? {}).filter(([id]) => id !== post.id))

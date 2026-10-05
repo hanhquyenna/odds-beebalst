@@ -10,7 +10,7 @@ export type SkillTiers = Record<string, Tier | null>
  * there are any, from the headings and cue words of the text when there are not. The same code on the same inputs, so a number
  * computed from this agrees with the number on the job page. An empty object is a posting whose requirement lines name no skill.
  */
-export function skillTiersFor(body: string, jev: ReadonlyArray<{ text: string; tier: Tier | string }> | null): SkillTiers {
+export function skillTiersFor(body: string, jev: ReadonlyArray<{ text: string; tier: string }> | null): SkillTiers {
   const text = stripMarkup(body)
   const valid = (jev ?? []).filter((r): r is { text: string; tier: Tier } => typeof r.text === "string" && ["must", "strong", "optional", "nice"].includes(r.tier))
   const lines = valid.length > 0 ? fromJev(valid) : extractRequirements(text)
@@ -38,7 +38,7 @@ export function withSkillTiers<T extends Posting>(post: T): T {
  * us" about the company, and a benefit every 3 years, and a false minimum is a hard 0% for the person. Null when no required line
  * names a number of years. With several, the smallest: the gate asks for the least a person could have.
  */
-export function minYearsFor(jev: ReadonlyArray<{ text: string; tier: Tier | string; confidence?: number; section?: string | null }> | null): number | null {
+export function minYearsFor(jev: ReadonlyArray<{ text: string; tier: string; confidence?: number; section?: string | null }> | null): number | null {
   const required = (jev ?? []).filter((r): r is { text: string; tier: Tier; confidence?: number; section?: string | null } => {
     if (typeof r.text !== "string") return false
     if (r.tier === "must") return true

@@ -102,6 +102,7 @@ export function HearBackTable({ onOpen }: { onOpen: (post: Posting) => void }): 
   const [step, setStep] = useState<0 | 1 | 2>(0)
   const [editing, setEditing] = useState<boolean>(false)
   const needsProfile = data.profile.positions.length === 0 && data.profile.education.length === 0
+  const { strengthFor } = data
 
   const shown = useMemo(() => {
     if (!data.reference || !data.shares || needsProfile) return []
@@ -109,14 +110,14 @@ export function HearBackTable({ onOpen }: { onOpen: (post: Posting) => void }): 
     const open = data.postings.filter((post) => !post.local && !post.closed_at && !data.saved.has(post.id) && !applied.has(post.id) && !data.passed.has(post.id))
     const rows: Array<{ post: Posting; mid: number }> = []
     for (const post of applyFilters(open, filters, { signals: data.signals, reference: data.reference })) {
-      const rate = standing(post, data.profile, data.reference, data.shares, undefined, data.referrals.has(post.id), data.strengthFor(post)).rate
+      const rate = standing(post, data.profile, data.reference, data.shares, undefined, data.referrals.has(post.id), strengthFor(post)).rate
       if (rate && !rate.thin) rows.push({ post, mid: rate.mid })
     }
     // The highest chance first; among equals, the newest.
     rows.sort((x, y) => y.mid - x.mid || (x.post.days_open ?? 1e9) - (y.post.days_open ?? 1e9) || x.post.title.localeCompare(y.post.title))
 
     return rows.map((r) => r.post)
-  }, [data.postings, data.profile, data.reference, data.shares, data.referrals, data.saved, data.applications, data.passed, data.signals, data.strengthFor, filters, needsProfile])
+  }, [data.postings, data.profile, data.reference, data.shares, data.referrals, data.saved, data.applications, data.passed, data.signals, strengthFor, filters, needsProfile])
 
   if (!data.reference) return null
   const rowLimit = step === 2 ? shown.length : STEPS[step]
