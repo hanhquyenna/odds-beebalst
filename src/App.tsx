@@ -42,10 +42,17 @@ const InstallGuide = lazy(() => import("@/components/InstallGuide").then((module
 
 type View = "account" | "answers" | "journey" | "jobs" | "signin"
 
+/** The job id in a /job/<id> deep link. Null for any other path, or a malformed escape like /job/abc% that cannot be decoded. */
 function jobIdFromPath(pathname: string): string | null {
   const match = pathname.match(/^\/job\/([^/]+)\/?$/)
-
-  return match ? decodeURIComponent(match[1]) : null
+  if (!match) {
+    return null
+  }
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    return null
+  }
 }
 
 export default function App(): React.JSX.Element {

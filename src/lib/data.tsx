@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { restoreSession, signOut as authSignOut, startGuestSession, type Session } from "@/lib/auth"
 import { computeShares, type CategoryShare } from "@/lib/engine"
 import { collectedOn } from "@/lib/format"
+import { todayIso } from "@/lib/tracker"
 import type { Strength } from "@/lib/strength"
 import { migrateProfile } from "@/lib/people-migrate"
 import { keepPast, readPast } from "@/lib/suggest"
@@ -512,7 +513,7 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
         employer: post.employer_display,
         fit_tier: fit,
         stage,
-        logged_at: new Date().toISOString().slice(0, 10),
+        logged_at: todayIso(),
       }
       setApplications((prev) => {
         const next = [entry, ...prev]

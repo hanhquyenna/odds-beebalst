@@ -1,6 +1,7 @@
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import App from "@/App"
+import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { DataProvider } from "@/lib/data"
 import { takePairFromUrl } from "@/lib/pairing"
 import { startPush } from "@/lib/push"
@@ -12,8 +13,10 @@ takePairFromUrl()
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <DataProvider>
-      <App />
-    </DataProvider>
+    <ErrorBoundary>
+      <DataProvider>
+        <App />
+      </DataProvider>
+    </ErrorBoundary>
   </StrictMode>,
 )
