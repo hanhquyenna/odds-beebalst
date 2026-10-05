@@ -15,7 +15,6 @@ import { openResearch } from "@/lib/research-link"
 import { addPage, canFindMore, dropPerson, firstPage, hasFree, isUrl, linkedinHref, linkedinPeopleSearch, rankForJob, readPast, revealNext, whyThisPerson, type Suggestion } from "@/lib/suggest"
 import { saved } from "@/lib/saved"
 import { useFollowDays } from "@/lib/follow-days"
-import { useNow } from "@/lib/use-now"
 import { useViewConfig } from "@/lib/views"
 import { PeopleCalendar } from "@/components/TrackerCalendar"
 import { PeopleFilterBar } from "@/components/PeopleFilterBar"
@@ -725,8 +724,7 @@ function PeopleColumns({ show }: { show: (key: string) => boolean }): React.JSX.
 export function PersonDetails({ person, onClose }: { person: Person; onClose: () => void }): React.JSX.Element {
   const data = useData()
   const put = (patch: Partial<Omit<Person, "id">>): void => data.updatePerson(person.id, patch)
-  const now = useNow()
-  const step = nextStep(person, now, useFollowDays().nudge)
+  const step = nextStep(person, new Date(), useFollowDays().nudge)
   const plain = "h-9 rounded-md border-[1.5px] border-input bg-background px-2.5 text-sm focus:border-ring focus:outline-none lg:h-8 lg:border-transparent lg:bg-transparent lg:px-2 lg:hover:border-input lg:focus:bg-background"
   const stage = (
     <select aria-label={`Stage of ${person.name}`} value={person.status} onChange={(e) => {
@@ -774,8 +772,7 @@ function PersonRow({ person, show, n }: { person: Person; show: (key: string) =>
   const data = useData()
   const [panel, setPanel] = useState<boolean>(false)
   const put = (patch: Partial<Omit<Person, "id">>): void => data.updatePerson(person.id, patch)
-  const now = useNow()
-  const step = nextStep(person, now, useFollowDays().nudge)
+  const step = nextStep(person, new Date(), useFollowDays().nudge)
   // Below a laptop the fields are drawn as fields so it is clear they can be typed in; on a laptop they are quiet until hovered.
   const plain = "h-9 rounded-md border-[1.5px] border-input bg-background px-2.5 text-sm focus:border-ring focus:outline-none lg:h-8 lg:border-transparent lg:bg-transparent lg:px-2 lg:hover:border-input lg:focus:bg-background"
   const stage = (
@@ -839,8 +836,7 @@ export function PeopleView({ onOpen, views, tools }: { onOpen: (post: Posting) =
   const view = useViewConfig(views.configName)
   const [details, setDetails] = useState<Person | null>(null)
   const days = useFollowDays()
-  const now = useNow()
-  const people = useMemo(() => applyPeopleFilter(data.people, active.filter, now, days.nudge), [data.people, active.filter, now, days.nudge])
+  const people = useMemo(() => applyPeopleFilter(data.people, active.filter, new Date(), days.nudge), [data.people, active.filter, days.nudge])
   const filtered = isPeopleFilterOn(active.filter)
   // One panel at a time: opening one replaces whichever was open.
   const [panel, setPanel] = useState<"outreach" | "add" | "strategy" | null>(null)

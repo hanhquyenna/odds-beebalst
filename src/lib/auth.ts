@@ -177,18 +177,18 @@ async function pairCall(body: Record<string, unknown>, accessToken?: string): Pr
   })
 }
 
-export async function startDevicePair(): Promise<{ id: string; secret: string; expires_at: string }> {
+export async function startDevicePair(): Promise<{ id: string; secret: string; code: string; expires_at: string }> {
   const response = await pairCall({ action: "pair-start" })
-  const data = (await response.json().catch(() => ({}))) as { id?: string; secret?: string; expires_at?: string; error?: string }
-  if (!response.ok || !data.id || !data.secret || !data.expires_at) {
+  const data = (await response.json().catch(() => ({}))) as { id?: string; secret?: string; code?: string; expires_at?: string; error?: string }
+  if (!response.ok || !data.id || !data.secret || !data.code || !data.expires_at) {
     throw new Error(data.error ?? "Could not start sign-in")
   }
 
-  return { id: data.id, secret: data.secret, expires_at: data.expires_at }
+  return { id: data.id, secret: data.secret, code: data.code, expires_at: data.expires_at }
 }
 
-export async function approveDevicePair(session: Session, id: string): Promise<void> {
-  const response = await pairCall({ action: "pair-approve", id }, session.access_token)
+export async function approveDevicePair(session: Session, id: string, code: string): Promise<void> {
+  const response = await pairCall({ action: "pair-approve", id, code: code.trim() }, session.access_token)
   if (!response.ok) {
     const data = (await response.json().catch(() => ({}))) as { error?: string }
     throw new Error(data.error ?? "Could not connect the app")

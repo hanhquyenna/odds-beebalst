@@ -155,10 +155,9 @@ function toBlocks(lines: string[]): Block[] {
 const ABBREV = /\b(e\.g|i\.e|etc|vs|approx|incl|ca|dr|mr|mrs|ms|prof|no|st|inc|ltd|co|jr|sr)\./gi
 
 function sentences(text: string): string[] {
-  const guarded = text.replace(ABBREV, (m) => m.replace(/\./g, "\u0001")).replace(/\b([A-Z])\./g, "$1\u0001")
+  const guarded = text.replace(ABBREV, (m) => m.replace(/\./g, "\uE000")).replace(/\b([A-Z])\./g, "$1\uE000")
 
-  // oxlint-disable-next-line no-control-regex -- \u0001 is the placeholder for a guarded full stop, set just above.
-  return guarded.split(/(?<=[.!?])\s+(?=[A-Z0-9“"(])/).map((x) => x.replace(/\u0001/g, "."))
+  return guarded.split(/(?<=[.!?])\s+(?=[A-Z0-9“"(])/).map((x) => x.replace(/\uE000/g, "."))
 }
 
 /** Sentences glued together with no space ("activities.Assess"), outside addresses and links. */

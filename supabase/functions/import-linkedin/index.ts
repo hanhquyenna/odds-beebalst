@@ -81,9 +81,9 @@ Deno.serve(async (req) => {
   }
   // Counted before the checks, so parallel requests all see each other; every paid read counts, failed or not.
   await fetch(`${supabaseUrl}/rest/v1/linkedin_imports`, { method: "POST", headers: { ...rest, "Content-Type": "application/json" }, body: JSON.stringify({ user_id: userId, ip_hash: ipHash, kind: "profile", url }) })
-  const mine = userId ? await countOf(`user_id=eq.${userId}`) : await countOf(`ip_hash=eq.${ipHash}`)
+  const [mine, all] = await Promise.all([countOf(userId ? `user_id=eq.${userId}` : `ip_hash=eq.${ipHash}`), countOf("id=gt.0")])
   if (mine > (userId ? DAILY_LIMIT : ANON_LIMIT)) return reply(429, { error: `Up to ${userId ? DAILY_LIMIT : ANON_LIMIT} imports a day. Try again tomorrow, or sign in for more.` })
-  if ((await countOf("id=gt.0")) > GLOBAL_LIMIT) return reply(429, { error: "Imports are paused for today. Try again tomorrow." })
+  if (all > GLOBAL_LIMIT) return reply(429, { error: "Imports are paused for today. Try again tomorrow." })
 
   const run = await fetch(`https://api.apify.com/v2/acts/${APIFY_ACTOR}/run-sync-get-dataset-items?token=${apify}`, {
     method: "POST",

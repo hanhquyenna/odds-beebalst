@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
   const anon = Deno.env.get("SUPABASE_ANON_KEY")!
   const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   const admin = { apikey: service, Authorization: `Bearer ${service}`, "Content-Type": "application/json" }
-  // Guest limits, pair limits and pair approval all key on the caller's network, hashed.
+  // Guest and pair limits key on the caller's network, hashed.
   const ipHash = await sha256(`${(req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown"}|${service.slice(-16)}`)
   const body = (await req.json().catch(() => ({}))) as { action?: string; code?: string; kind?: string; guest_token?: string; id?: string; secret?: string }
 
@@ -148,10 +148,12 @@ Deno.serve(async (req) => {
     const id = newCode()
     const secret = newCode() + newCode()
     const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString()
-    const saved = await fetch(`${supabaseUrl}/rest/v1/device_pairs`, { method: "POST", headers: admin, body: JSON.stringify({ id, secret_hash: await sha256(secret), ip_hash: ipHash, expires_at: expires }) })
+    const secretHash = await sha256(secret)
+    const saved = await fetch(`${supabaseUrl}/rest/v1/device_pairs`, { method: "POST", headers: admin, body: JSON.stringify({ id, secret_hash: secretHash, ip_hash: ipHash, expires_at: expires }) })
     if (!saved.ok) return reply(500, { error: "Could not start sign-in." })
 
-    return reply(200, { id, secret, expires_at: expires })
+    // The code the app shows and the browser must type: from the secret, so a forwarded ?pair= link alone cannot approve.
+    return reply(200, { id, secret, code: secretHash.slice(0, 6).toUpperCase(), expires_at: expires })
   }
 
   if (body.action === "pair-approve") {
@@ -161,15 +163,16 @@ Deno.serve(async (req) => {
     const userId = (await who.json()).id as string
     const id = typeof body.id === "string" && /^[A-Za-z0-9_-]{20,64}$/.test(body.id) ? body.id : ""
     if (!id) return reply(400, { error: "This sign-in link is not valid." })
-    // Only the network that started the pair may approve it: the app and its own browser share one, a phished link's victim does not.
+    const code = typeof body.code === "string" && /^[0-9a-f]{6}$/i.test(body.code) ? body.code.toLowerCase() : ""
+    if (!code) return reply(400, { error: "Type the code your app shows." })
     const now = new Date().toISOString()
-    const done = await fetch(`${supabaseUrl}/rest/v1/device_pairs?id=eq.${id}&ip_hash=eq.${ipHash}&user_id=is.null&expires_at=gt.${now}&select=id`, {
+    const done = await fetch(`${supabaseUrl}/rest/v1/device_pairs?id=eq.${id}&secret_hash=like.${code}*&user_id=is.null&expires_at=gt.${now}&select=id`, {
       method: "PATCH",
       headers: { ...admin, Prefer: "return=representation" },
       body: JSON.stringify({ user_id: userId, approved_at: now }),
     })
     const rows = done.ok ? ((await done.json()) as unknown[]) : []
-    if (rows.length === 0) return reply(410, { error: "This sign-in has expired, or was started on another network. Start again in the app." })
+    if (rows.length === 0) return reply(410, { error: "That code does not match, or this sign-in has expired." })
 
     return reply(200, { approved: true })
   }

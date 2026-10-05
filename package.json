@@ -14,8 +14,7 @@
     "audit": "bun audit --ignore=GHSA-vfj7-8cjw-p6xm",
     "perf": "bun scripts/check-bundles.mjs",
     "preview": "vite preview",
-    "test": "bun test src",
-    "test:unit": "bun test src"
+    "test": "bun test src"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

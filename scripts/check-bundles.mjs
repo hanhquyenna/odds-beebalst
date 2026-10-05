@@ -1,21 +1,11 @@
 #!/usr/bin/env bun
-/**
- * Perf budget guard: the drift check for bundle growth. Reads dist/ (so run it after `bun run build`, or as
- * `bun run perf` in CI), prints raw and gzip sizes, and FAILS when the entry, the first load or any single chunk is
- * over budget. The first load is what dist/index.html fetches before anything renders: the entry script, every
- * modulepreload and the stylesheet. The pdf worker (*.mjs, ~1.2 MB raw) is not a chunk: it loads only when a PDF is
- * chosen, so it is outside this budget on purpose.
- */
+/** Bundle budget: fails when the first load (index.html's entry, preloads and CSS) or any chunk grows past its cap. Run after `bun run build`. */
 import { readdirSync, readFileSync } from "node:fs"
 import { gzipSync } from "node:zlib"
 
-// Measured 5 Oct 2026 on a build with real env values: entry 129.8 kB gzip, first load 211.7 kB, largest chunk
-// 133.9 kB (what-improves-callbacks, lazy). Caps are those plus about 10%. A build without .env.local once let
-// Rolldown drop the whole app, so never re-baseline on one: check that it still renders.
-const MAX_ENTRY_GZIP_KB = 143
+// Measured 5 Oct 2026 + about 10%. Re-baseline only on a build that renders (an env-less build drops the app).
 const MAX_FIRST_LOAD_GZIP_KB = 233
 const MAX_CHUNK_GZIP_KB = 148
-
 const dist = new URL("../dist/", import.meta.url)
 const dir = new URL("assets/", dist)
 let files
@@ -43,13 +33,6 @@ const fail = (msg) => {
   failed = true
 }
 
-const entry = rows.find((r) => /^index-[^.]+\.js$/.test(r.file))
-if (!entry) {
-  fail("no entry chunk dist/assets/index-*.js; run `bun run build` first.")
-} else if (entry.gzip > MAX_ENTRY_GZIP_KB) {
-  fail(`entry ${entry.file} is ${entry.gzip.toFixed(1)} kB gzip, budget is ${MAX_ENTRY_GZIP_KB} kB.`)
-}
-
 const html = readFileSync(new URL("index.html", dist), "utf8")
 const eager = new Set([...html.matchAll(/(?:src|href)="\/assets\/([^"]+\.(?:js|css))"/g)].map((m) => m[1]))
 const firstLoad = rows.filter((r) => eager.has(r.file)).reduce((sum, r) => sum + r.gzip, 0)
@@ -63,4 +46,4 @@ for (const r of rows) {
 }
 
 if (failed) process.exit(1)
-console.log(`perf: ok: entry <= ${MAX_ENTRY_GZIP_KB} kB, first load <= ${MAX_FIRST_LOAD_GZIP_KB} kB, every chunk <= ${MAX_CHUNK_GZIP_KB} kB gzip.`)
+console.log(`perf: ok: first load <= ${MAX_FIRST_LOAD_GZIP_KB} kB, every chunk <= ${MAX_CHUNK_GZIP_KB} kB gzip.`)

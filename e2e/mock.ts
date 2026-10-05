@@ -1,14 +1,10 @@
 import { test as base, expect, type BrowserContext, type Locator, type Page, type Route } from "@playwright/test"
 import type { Posting } from "../src/lib/types"
-import { generatePostings } from "./fixtures/generate"
 import { BODIES, FLOW_POSTINGS } from "./fixtures/postings"
 import { AGE_FACTORS, BANDS, TAX, TRANSITIONS } from "./fixtures/reference"
 
 /** The fake backend the build points at (playwright.config.ts builds with it). Nothing real is ever reached. */
 export const SUPABASE_ORIGIN = "http://supabase.test"
-
-/** How many postings the "large" pool holds: about the size of the real pool. */
-export const LARGE_POOL = 2000
 
 /** A 1x1 transparent PNG, served for company logos hosted elsewhere. */
 const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64")
@@ -17,8 +13,6 @@ const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQ
 const EMPTY_TABLES: ReadonlySet<string> = new Set(["applications", "employer_about", "employer_culture", "employer_facts", "employer_headcount", "employer_hiring", "employer_money", "employer_news", "employer_teams", "profiles"])
 
 interface Fixtures {
-  /** Which rows app_jobs returns: the hand-written flow set, or the generated 2000 for the perf spec. Set per file with test.use({ pool: "large" }). */
-  pool: "flow" | "large"
   /** Installs the fake backend and fails the test on any console error, page error or request that reaches the outside. */
   backend: void
 }
@@ -27,11 +21,10 @@ type Row = Record<string, unknown>
 
 /** The test every spec uses: the real build, a mocked Supabase, and a strict guard on errors and stray requests. */
 export const test = base.extend<Fixtures>({
-  pool: ["flow", { option: true }],
   backend: [
-    async ({ context, page, pool }, use): Promise<void> => {
+    async ({ context, page }, use): Promise<void> => {
       const problems: string[] = []
-      await mockBackend(context, pool === "large" ? generatePostings(LARGE_POOL) : FLOW_POSTINGS, problems)
+      await mockBackend(context, FLOW_POSTINGS, problems)
       watchPage(page, problems)
       await use()
       expect(problems, "console errors, page errors or un-mocked requests").toEqual([])

@@ -7,7 +7,6 @@ import { choicesFor } from "@/components/ViewSettings"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { removeColumn as removeColumnFrom } from "@/lib/columns"
 import { useData } from "@/lib/data"
-import { useNow } from "@/lib/use-now"
 import type { Standing } from "@/lib/engine"
 import { LEVELS, levelOf } from "@/lib/engine"
 import { INDUSTRIES, industryOf } from "@/lib/industries"
@@ -146,7 +145,6 @@ export function JobProperties({ post, st }: { post: Posting; st: Standing | null
   const data = useData()
   const { profile } = data
   const view = useViewConfig("table")
-  const now = useNow()
   const [menu, setMenu] = useState<boolean>(false)
   const [adding, setAdding] = useState<boolean>(false)
   const linked = data.people.filter((p) => p.jobId === post.id)
@@ -195,7 +193,7 @@ export function JobProperties({ post, st }: { post: Posting; st: Standing | null
       return /^\d{4}-\d{2}-\d{2}/.test(v) ? <span>{new Date(`${v.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span> : <span className="text-muted-foreground">Not known</span>
     })(),
     followup: (() => {
-      const f = followUpOf(data.applications.find((a) => a.posting_id === post.id), now, daysOr(data.profile.followUpDays, 7))
+      const f = followUpOf(data.applications.find((a) => a.posting_id === post.id), new Date(), daysOr(data.profile.followUpDays, 7))
 
       return f ? <span className={f.due ? "font-semibold text-red-600" : ""}>{followUpText(f)}</span> : <span className="text-muted-foreground">—</span>
     })(),

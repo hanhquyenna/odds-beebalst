@@ -9,7 +9,7 @@ const STORED = new Map<string, string>()
  * "ABN AMRO" must be the same company. Drops HTML codes, brackets, legal forms and generic words, and punctuation.
  */
 export function nameKey(name: string): string {
-  const key = name
+  return name
     .replace(/&amp;/gi, "&")
     .toLowerCase()
     .replace(/\([^)]*\)/g, " ")
@@ -17,8 +17,6 @@ export function nameKey(name: string): string {
     .replace(/\b(b v|bv|n v|nv|ltd|limited|gmbh|inc|llc|sa|ag|plc|bank|europe|europa|nederland|netherlands|holding|group|international|the|and|en)\b/g, " ")
     .replace(/\s*&\s*(co|company)\b/g, " ")
     .replace(/\s+/g, "")
-
-  return key
 }
 
 /** Keeps the database's logos, called by the data layer each time the jobs load. Looked up by the name as written, then by the loosened name. */
@@ -31,7 +29,5 @@ export function registerLogos(rows: ReadonlyArray<{ employer: string; logo: stri
 
 /** The database's logo for an employer, used by logoFor when the lists have none. */
 export function storedLogoFor(employer: string): string | undefined {
-  const key = nameKey(employer)
-
-  return STORED.get(employer.toLowerCase()) ?? (key ? STORED.get(key) : undefined)
+  return STORED.get(employer.toLowerCase()) ?? STORED.get(nameKey(employer) || "")
 }

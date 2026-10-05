@@ -53,13 +53,10 @@ function message(jobs: ReadonlyArray<Job>, day: string): { title: string; body: 
 
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" }
 
-/**
- * Right after someone turns notifications on: one message to their own devices, so they see at once that it works.
- * Called by the app with the person's sign-in; it can only ever reach that person's own devices.
- */
 /** The browser push services a real subscription points at. Anything else (an internal address, a host that never answers) is refused, since anyone can store an endpoint. */
 const PUSH_HOSTS = ["fcm.googleapis.com", "updates.push.services.mozilla.com", "push.apple.com", "notify.windows.com"]
 
+/** True for an https endpoint on one of the PUSH_HOSTS; both senders skip anything else. */
 function isPushEndpoint(endpoint: string): boolean {
   try {
     const url = new URL(endpoint)
@@ -70,6 +67,10 @@ function isPushEndpoint(endpoint: string): boolean {
   }
 }
 
+/**
+ * Right after someone turns notifications on: one message to their own devices, so they see at once that it works.
+ * Called by the app with the person's sign-in; it can only ever reach that person's own devices.
+ */
 async function welcome(req: Request): Promise<Response> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!
   const anon = Deno.env.get("SUPABASE_ANON_KEY")!

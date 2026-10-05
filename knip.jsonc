@@ -18,14 +18,5 @@
     // Deno specifiers in supabase/functions (jsr:@std/..., npm:web-push), resolved by Deno, not package.json.
     "jsr",
     "npm"
-  ],
-  // Everything fails the run, unused code included: dead code never gets a chance to pile up again.
-  "rules": {
-    "files": "error",
-    "dependencies": "error",
-    "devDependencies": "error",
-    "exports": "error",
-    "types": "error",
-    "duplicates": "error"
-  }
+  ]
 }

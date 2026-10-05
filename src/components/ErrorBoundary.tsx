@@ -9,7 +9,7 @@ interface State {
   failed: boolean
 }
 
-/** Wraps the whole app in main.tsx: a render crash or a lazy chunk that fails to load (an old tab after a deploy) shows a reload prompt instead of a blank page. */
+/** Wraps the whole app in main.tsx: a render crash shows a reload prompt instead of a blank page. */
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { failed: false }
 

@@ -12,6 +12,8 @@ import "@/index.css"
 const ICON_STYLE: IconProps = { color: "currentColor", size: "1em", weight: "bold", mirrored: false }
 
 startPush()
+// An open tab after a deploy asks for chunks that no longer exist: reload onto the new build instead of failing.
+window.addEventListener("vite:preloadError", () => window.location.reload())
 // A browser opened by a Home Screen app to sign in (?pair=…): keep the pair across the Google round trip.
 takePairFromUrl()
 
