@@ -113,7 +113,7 @@ Deno.serve(async (req) => {
       headers: admin,
       body: JSON.stringify({ email, password: newCode() + newCode(), email_confirm: true, user_metadata: { guest: true } }),
     })
-    if (!made.ok) return reply(500, { error: "Could not make a guest account.", detail: (await made.text()).slice(0, 200) })
+    if (!made.ok) return reply(500, { error: "Could not make a guest account." })
     const userId = (await made.json()).id as string
     await fetch(`${supabaseUrl}/rest/v1/guest_accounts`, { method: "POST", headers: admin, body: JSON.stringify({ user_id: userId, ip_hash: ipHash }) })
 
@@ -136,7 +136,7 @@ Deno.serve(async (req) => {
     if (owner === guest) return reply(200, { moved: {} })
 
     const done = await fetch(`${supabaseUrl}/rest/v1/rpc/adopt_guest`, { method: "POST", headers: admin, body: JSON.stringify({ guest, owner }) })
-    if (!done.ok) return reply(409, { error: "Could not move the guest account.", detail: (await done.text()).slice(0, 200) })
+    if (!done.ok) return reply(409, { error: "Could not move the guest account." })
 
     return reply(200, { moved: await done.json() })
   }
