@@ -280,13 +280,7 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
 
   // Tokens last an hour: without this, a tab left open keeps "saving" into 401s and the next load drops those edits.
   const signedIn = session !== null
-  useEffect(() => {
-    if (!signedIn) {
-      return
-    }
-
-    return keepSessionFresh(setSessionState)
-  }, [signedIn])
+  useEffect(() => (signedIn ? keepSessionFresh(setSessionState) : undefined), [signedIn])
 
   // Signing in brings the stored profile and applications down; they win over this browser's copy.
   useEffect(() => {

@@ -250,19 +250,9 @@ export function keepSessionFresh(onRefresh: (session: Session) => void): () => v
       return
     }
     // A failed refresh (offline, a sleeping laptop) is tried again on the next check; signing out is the server's call at the next load.
-    refreshing ??= refresh(stored)
-      .then((next) => {
-        // Signed out (or in as someone else) while the refresh was out: the answer belongs to a session that is gone.
-        if (loadSession()?.refresh_token !== stored.refresh_token) {
-          return
-        }
-        keep(next)
-        onRefresh(next)
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        refreshing = null
-      })
+    refreshing ??= refreshInBackground(stored, onRefresh).finally(() => {
+      refreshing = null
+    })
   }
   const timer = window.setInterval(check, 60_000)
   document.addEventListener("visibilitychange", check)
@@ -291,6 +281,21 @@ let refreshing: Promise<void> | null = null
 /** True within a minute of expiry, the margin both restore and the background check use. */
 function expiring(session: Session): boolean {
   return session.expires_at - 60 <= Math.floor(Date.now() / 1000)
+}
+
+/** One background refresh: stores and hands over the new session, unless the person signed out (or in as someone else) while it was out. */
+async function refreshInBackground(stored: Session, onRefresh: (session: Session) => void): Promise<void> {
+  let next: Session
+  try {
+    next = await refresh(stored)
+  } catch {
+    return
+  }
+  if (loadSession()?.refresh_token !== stored.refresh_token) {
+    return
+  }
+  keep(next)
+  onRefresh(next)
 }
 
 /** Trades the stored refresh token for a new session. The caller stores it. */
