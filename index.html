@@ -9,9 +9,8 @@
     <meta name="theme-color" content="#fdfcfb" />
     <!-- iPhones get a manifest without a start address, so the Home Screen app opens the address it was added from,
          which carries the one-time code that signs it in. Chosen here, before the page loads, so Safari reads the right one. -->
-    <script>
-      document.write('<link rel="manifest" href="/manifest' + (/iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1) ? "-ios" : "") + '.webmanifest" />')
-    </script>
+    <!-- External file, not inline: the Content-Security-Policy forbids inline scripts. -->
+    <script src="/manifest-pick.js"></script>
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="odds" />

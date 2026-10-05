@@ -32,7 +32,7 @@ jobs:
       ODDS_CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.ODDS_CLOUDFRONT_DISTRIBUTION_ID }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Validate required configuration
         run: |
@@ -46,7 +46,7 @@ jobs:
           done
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -54,6 +54,8 @@ jobs:
       # Vite inlines both of these into the bundle, so neither can be secret in
       # the cryptographic sense. The anon key lives in Actions secrets anyway, to
       # keep the project it points at out of a public repository.
+      # Paired with odds_supabase_url in infra terraform: that pins the same
+      # origin into the Content-Security-Policy, so change both together.
       - name: Build
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
@@ -61,7 +63,7 @@ jobs:
         run: bun run build
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
@@ -84,6 +86,16 @@ jobs:
             --exclude "assets/*" \
             --cache-control "no-cache, must-revalidate"
 
+      # S3 guesses the MIME type from the runner, so pin the manifests: iPhones
+      # only install the app from application/manifest+json.
+      - name: Pin manifest content type
+        run: |
+          aws s3 cp dist/ "s3://${ODDS_S3_BUCKET}" --recursive \
+            --exclude "*" --include "*.webmanifest" \
+            --content-type "application/manifest+json" \
+            --metadata-directive REPLACE \
+            --cache-control "no-cache, must-revalidate"
+
       # Everything, not just index.html: the unhashed files are the ones that
       # need it, and the hashed ones are never asked for under an old name.
       - name: Invalidate CloudFront cache
@@ -94,10 +106,12 @@ jobs:
 
       # End-to-end smoke: the site answers, ships the CSP, and the SPA
       # fallback serves the app on a deep link (sign-in callback route).
+      # No -f on the first probe: the http_code comparison is the decider,
+      # and -f would exit before it ever runs.
       - name: Smoke-test the deployment
         run: |
           set -euo pipefail
 
-          test "$(curl -sf -o /dev/null -w '%{http_code}' https://odds.beeblast.co/)" = "200"
-          curl -sf -sI https://odds.beeblast.co/ | grep -qi 'content-security-policy'
-          curl -sf -s https://odds.beeblast.co/auth/callback | grep -q '<div id="root">'
+          test "$(curl -s -o /dev/null -w '%{http_code}' https://odds.beeblast.co/)" = "200"
+          curl -sSI https://odds.beeblast.co/ | grep -qi 'content-security-policy'
+          curl -sSf https://odds.beeblast.co/auth/callback | grep -q '<div id="root">'
