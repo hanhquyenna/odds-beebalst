@@ -225,17 +225,13 @@ export async function restoreSession(): Promise<Session | null> {
   if (!stored) {
     return null
   }
-  if (stored.expires_at - 60 > Math.floor(Date.now() / 1000)) {
+  if (!expiring(stored)) {
     keep(stored)
 
     return stored
   }
   try {
-    const next = toSession(await call("token?grant_type=refresh_token", { refresh_token: stored.refresh_token }))
-    // A refresh rebuilds the session without the photo; keep the stored one so the header does not lose it.
-    if (next && !next.user.avatar) {
-      next.user.avatar = stored.user.avatar
-    }
+    const next = await refresh(stored)
     keep(next)
 
     return next
@@ -243,6 +239,38 @@ export async function restoreSession(): Promise<Session | null> {
     keep(null)
 
     return null
+  }
+}
+
+/** Keeps a signed-in tab's token valid: checks every minute and when the tab comes back, refreshing within a minute of expiry. data.tsx runs it while signed in; the returned function stops it. */
+export function keepSessionFresh(onRefresh: (session: Session) => void): () => void {
+  const check = (): void => {
+    const stored = loadSession()
+    if (!stored || !expiring(stored) || document.visibilityState === "hidden") {
+      return
+    }
+    // A failed refresh (offline, a sleeping laptop) is tried again on the next check; signing out is the server's call at the next load.
+    refreshing ??= refresh(stored)
+      .then((next) => {
+        // Signed out (or in as someone else) while the refresh was out: the answer belongs to a session that is gone.
+        if (loadSession()?.refresh_token !== stored.refresh_token) {
+          return
+        }
+        keep(next)
+        onRefresh(next)
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        refreshing = null
+      })
+  }
+  const timer = window.setInterval(check, 60_000)
+  document.addEventListener("visibilitychange", check)
+  check()
+
+  return () => {
+    window.clearInterval(timer)
+    document.removeEventListener("visibilitychange", check)
   }
 }
 
@@ -255,6 +283,26 @@ export async function signInWithTokenHash(tokenHash: string): Promise<Session> {
   keep(session)
 
   return session
+}
+
+/** The in-flight refresh, so overlapping checks never spend the same single-use refresh token twice. */
+let refreshing: Promise<void> | null = null
+
+/** True within a minute of expiry, the margin both restore and the background check use. */
+function expiring(session: Session): boolean {
+  return session.expires_at - 60 <= Math.floor(Date.now() / 1000)
+}
+
+/** Trades the stored refresh token for a new session. The caller stores it. */
+async function refresh(stored: Session): Promise<Session> {
+  const next = toSession(await call("token?grant_type=refresh_token", { refresh_token: stored.refresh_token }))
+  if (!next) {
+    throw new Error("Refresh failed")
+  }
+  // A refresh rebuilds the session without the photo; keep the stored one so the header does not lose it.
+  next.user.avatar ??= stored.user.avatar
+
+  return next
 }
 
 export function signOut(): void {

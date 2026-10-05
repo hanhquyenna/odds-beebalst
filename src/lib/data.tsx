@@ -1,6 +1,6 @@
 import { mergePool } from "@/lib/sources"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
-import { restoreSession, signOut as authSignOut, startGuestSession, type Session } from "@/lib/auth"
+import { keepSessionFresh, restoreSession, signOut as authSignOut, startGuestSession, type Session } from "@/lib/auth"
 import { computeShares, type CategoryShare } from "@/lib/engine"
 import { collectedOn } from "@/lib/format"
 import { todayIso } from "@/lib/tracker"
@@ -277,6 +277,16 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
       .then((guest) => guest && setSessionState(guest))
       .catch(() => undefined)
   }, [session, status, profile.linkedin])
+
+  // Tokens last an hour: without this, a tab left open keeps "saving" into 401s and the next load drops those edits.
+  const signedIn = session !== null
+  useEffect(() => {
+    if (!signedIn) {
+      return
+    }
+
+    return keepSessionFresh(setSessionState)
+  }, [signedIn])
 
   // Signing in brings the stored profile and applications down; they win over this browser's copy.
   useEffect(() => {
