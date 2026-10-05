@@ -247,11 +247,11 @@ export function PeopleTable({ people, onOpenPerson, onOpenJob, viewName, toolbar
 
   return (
     <div className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b-[1.5px] border-line px-4 py-2.5 text-sm">
+      <div className="no-scrollbar flex flex-nowrap items-center gap-3 overflow-x-auto border-b-[1.5px] border-line px-3 py-2.5 text-sm sm:flex-wrap sm:justify-between sm:px-4 [&>*]:shrink-0">
         <span className="text-muted-foreground">
           {total} {total === 1 ? "person" : "people"}
         </span>
-        <span className="flex flex-wrap items-center gap-2">
+        <span className="flex items-center gap-2 sm:flex-wrap [&>*]:shrink-0">
           {toolbar}
           <GroupByButton value={groupBy} groups={GROUPS} onChange={(key) => view.update({ groupBy: key })} />
         </span>
@@ -261,13 +261,13 @@ export function PeopleTable({ people, onOpenPerson, onOpenJob, viewName, toolbar
       {deleting ? <DeleteDialog count={selection.chosen.size} noun={{ one: "person", many: "people" }} onConfirm={() => removePeople(selection.chosen)} onCancel={() => setDeleting(null)} /> : null}
 
       <div className="max-h-[70vh] overflow-auto">
-        <table className="w-max min-w-full table-fixed border-separate border-spacing-0 text-sm">
+        <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-20 bg-card">
             <tr>
-              <th scope="col" className="sticky left-0 z-30 w-12 min-w-12 border-b-[1.5px] border-line bg-card px-2 py-2.5 text-center">
+              <th scope="col" className="sticky left-0 z-30 w-10 min-w-10 border-b-[1.5px] sm:w-12 sm:min-w-12 border-line bg-card px-2 py-2.5 text-center">
                 <AllMark checked={selection.all} some={selection.some} onToggle={selection.toggleAll} />
               </th>
-              <th scope="col" className="sticky left-12 z-30 w-96 border-b-[1.5px] border-line bg-card px-4 py-2.5 text-left">
+              <th scope="col" className="sticky left-10 z-30 w-40 border-b-[1.5px] border-line bg-card px-3 py-2.5 text-left sm:left-12 sm:w-96 sm:px-4">
                 {header("Name", "name")}
               </th>
               {columns.map((c) => (
@@ -311,10 +311,10 @@ export function PeopleTable({ people, onOpenPerson, onOpenJob, viewName, toolbar
                   ) : null}
                   {rows.map((p) => (
                     <tr key={p.id} className="group hover:bg-accent/40">
-                      <td className="sticky left-0 z-[15] w-12 min-w-12 border-b-[1.5px] border-line bg-card px-2 py-2.5 group-hover:bg-accent/40">
+                      <td className="sticky left-0 z-[15] w-10 min-w-10 border-b-[1.5px] sm:w-12 sm:min-w-12 border-line bg-card px-2 py-2.5 group-hover:bg-accent/40">
                         <RowMark n={numbers.get(p.id) ?? 0} label={`Choose ${p.name}`} checked={selection.chosen.has(p.id)} onToggle={() => selection.toggle(p.id)} />
                       </td>
-                      <td className="sticky left-12 z-[15] w-96 border-b-[1.5px] border-line bg-card px-4 py-2.5 group-hover:bg-accent/40">
+                      <td className="sticky left-10 z-[15] w-40 border-b-[1.5px] border-line bg-card px-3 py-2.5 group-hover:bg-accent/40 sm:left-12 sm:w-96 sm:px-4">
                         <span className="flex w-full items-center gap-2">
                           <PersonAvatar name={p.name} photo={p.photo} />
                           <input aria-label={`Name of ${p.name}`} placeholder="Name" value={p.name} onChange={(e) => put(p, { name: e.target.value })} className={`${field} min-w-0 flex-1 font-semibold`} />

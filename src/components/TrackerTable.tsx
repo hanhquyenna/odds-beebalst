@@ -272,11 +272,11 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, manage = true, 
 
   return (
     <div className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b-[1.5px] border-line px-4 py-2.5 text-sm">
+      <div className="no-scrollbar flex flex-nowrap items-center gap-3 overflow-x-auto border-b-[1.5px] border-line px-3 py-2.5 text-sm sm:flex-wrap sm:justify-between sm:px-4 [&>*]:shrink-0">
         <span className="text-muted-foreground">
           {lead ?? (showCount ? `${total} ${total === 1 ? "job" : "jobs"}` : null)}
         </span>
-        <span className="flex flex-wrap items-center gap-2">
+        <span className="flex items-center gap-2 sm:flex-wrap [&>*]:shrink-0">
           {toolbar}
           <GroupByButton value={groupBy} groups={GROUPS} onChange={(key) => view.update({ groupBy: key })} />
         </span>
@@ -286,13 +286,13 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, manage = true, 
       {deleting ? <DeleteDialog count={selection.chosen.size} noun={{ one: "job", many: "jobs" }} onConfirm={() => removeJobs(selection.chosen)} onCancel={() => setDeleting(null)} /> : null}
 
       <div className="max-h-[70vh] overflow-auto">
-        <table className="w-max min-w-full table-fixed border-separate border-spacing-0 text-sm">
+        <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-20 bg-card">
             <tr>
-              <th scope="col" className="sticky left-0 z-30 w-12 min-w-12 border-b-[1.5px] border-line bg-card px-2 py-2.5 text-center">
+              <th scope="col" className="sticky left-0 z-30 w-10 min-w-10 border-b-[1.5px] sm:w-12 sm:min-w-12 border-line bg-card px-2 py-2.5 text-center">
                 <AllMark checked={selection.all} some={selection.some} onToggle={selection.toggleAll} />
               </th>
-              <th scope="col" className="sticky left-12 z-30 w-96 border-b-[1.5px] border-line bg-card px-4 py-2.5 text-left">
+              <th scope="col" className="sticky left-10 z-30 w-40 border-b-[1.5px] border-line bg-card px-3 py-2.5 text-left sm:left-12 sm:w-96 sm:px-4">
                 {header("Job", "title")}
               </th>
               {columns.map((c) => (
@@ -339,10 +339,10 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, manage = true, 
                   ) : null}
                   {rows.map((post) => (
                     <tr key={post.id} className={`group hover:bg-accent/40 ${post.closed_at ? "opacity-70" : ""}`}>
-                      <td className="sticky left-0 z-[15] w-12 min-w-12 border-b-[1.5px] border-line bg-card px-2 py-2.5 group-hover:bg-accent/40">
+                      <td className="sticky left-0 z-[15] w-10 min-w-10 border-b-[1.5px] sm:w-12 sm:min-w-12 border-line bg-card px-2 py-2.5 group-hover:bg-accent/40">
                         <RowMark n={rowNumber(post)} label={`Choose ${post.title}`} checked={selection.chosen.has(post.id)} onToggle={() => selection.toggle(post.id)} />
                       </td>
-                      <td className="sticky left-12 z-[15] w-96 border-b-[1.5px] border-line bg-card px-4 py-2.5 group-hover:bg-accent/40">
+                      <td className="sticky left-10 z-[15] w-40 border-b-[1.5px] border-line bg-card px-3 py-2.5 group-hover:bg-accent/40 sm:left-12 sm:w-96 sm:px-4">
                         {editing === post.id ? (
                           <span className="flex w-full items-start gap-3">
                             <span className="flex size-9 shrink-0 items-center justify-center">
@@ -359,11 +359,12 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, manage = true, 
                         ) : (
                           <span className="flex w-full items-center gap-1">
                             <button type="button" onClick={() => onOpen(post)} className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left">
-                              <span className="flex size-9 shrink-0 items-center justify-center">
+                              {/* On a phone the pinned column is narrow: the title gets the room (two lines) and the logo waits for a wider screen. */}
+                              <span className="hidden size-9 shrink-0 items-center justify-center sm:flex">
                                 <CompanyLogo employer={post.employer} name={companyOf(post)} size={32} wide={1.3} url={post.url} />
                               </span>
                               <span className="flex min-w-0 flex-col">
-                                <span className="line-clamp-1 font-semibold">{titleOf(post)}</span>
+                                <span className="line-clamp-2 font-semibold whitespace-normal sm:line-clamp-1">{titleOf(post)}</span>
                                 <span className="line-clamp-1 text-muted-foreground">{companyOf(post)}</span>
                               </span>
                               {post.closed_at ? <span className="ml-auto shrink-0 rounded-md bg-red-600 px-1.5 py-0.5 text-xs font-medium text-white">Closed</span> : null}

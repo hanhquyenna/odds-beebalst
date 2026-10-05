@@ -46,7 +46,7 @@ export function ViewTabs({ views, active, onSelect, onAdd, onRename, onDuplicate
   const [renaming, setRenaming] = useState<string>("")
 
   return (
-    <div role="tablist" aria-label={`Views of your ${noun}`} className="-mx-1 flex items-end gap-1 overflow-x-auto border-b-[1.5px] px-1">
+    <div role="tablist" aria-label={`Views of your ${noun}`} className="no-scrollbar -mx-1 flex items-end gap-1 overflow-x-auto border-b-[1.5px] px-1">
       {views.map((v) => {
         const on = v.id === active.id
         const Icon = iconOf(v.layout)

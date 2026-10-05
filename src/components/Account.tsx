@@ -110,7 +110,7 @@ export function Account({ looking, onStartLooking, onStopLooking }: AccountProps
 
   const filterToggle = <FilterToggle open={filtersOpen} onToggle={() => setFiltersOpen(!filtersOpen)} count={activeCount(filters) + (isTrackerFilterOn(active.tracker) ? 1 : 0)} />
   const tools = (
-    <span className="flex flex-wrap items-center gap-2">
+    <span className="flex items-center gap-2 sm:flex-wrap [&>*]:shrink-0">
       <LayoutMenu subject={subject} layout={layout} onChange={chooseLayout} />
       {subject === "people" ? (
         layout === "calendar" ? null : <ViewControls view={view} {...peopleChoices(data.profile.peopleColumns ?? [])} properties={layout === "table" ? peopleChoices(data.profile.peopleColumns ?? []).properties : []} />
@@ -118,7 +118,10 @@ export function Account({ looking, onStartLooking, onStopLooking }: AccountProps
         <>
           <ViewControls view={view} {...choicesFor(layout === "board" ? "board" : "table", data.profile.columns)} properties={layout === "table" ? choicesFor("table", data.profile.columns).properties : []} />
           <ToolButton pressed={addPanel === "upload"} onClick={() => setAddPanel(addPanel === "upload" ? null : "upload")}>
-            <UploadIcon className="size-4" aria-hidden="true" /> Upload your own jobs
+            <UploadIcon className="size-4" aria-hidden="true" />
+            <span>
+              Upload<span className="hidden sm:inline"> your own jobs</span>
+            </span>
           </ToolButton>
         </>
       )}

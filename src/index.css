@@ -357,3 +357,11 @@
     animation-duration: 1ms;
   }
 }
+
+/* A row that scrolls sideways on a phone without showing a scrollbar (view tabs, the tool row over a table). */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
