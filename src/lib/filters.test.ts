@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { levelOf } from "@/lib/engine"
-import { DEFAULT_FILTERS, NO_FILTERS, STARTING_LEVELS, activeCount, applyFilters, isStartingLevel, normalizeFilters } from "@/lib/filters"
+import { guessFamily } from "@/lib/field"
+import { DEFAULT_FILTERS, NO_FILTERS, STARTING_LEVELS, activeCount, applyFilters, fieldOf, isStartingLevel, normalizeFilters } from "@/lib/filters"
 import type { Signals } from "@/lib/jobs"
 import { payOf } from "@/lib/spec"
 import type { Posting } from "@/lib/types"
@@ -267,5 +268,23 @@ describe("normalizeFilters", () => {
   test("a saved preference round-trips through JSON", () => {
     const f = { ...DEFAULT_FILTERS, industry: ["Banking"] as never }
     expect(normalizeFilters(JSON.parse(JSON.stringify(f)))).toEqual(f)
+  })
+})
+
+describe("fieldOf cache", () => {
+  test("a posting given a new title and skills in place is guessed again", () => {
+    const post = job({ title: "Backend Software Engineer", skills: ["python"] })
+    const before = fieldOf(post)
+    expect(before).toBe(guessFamily("Backend Software Engineer", ["python"]))
+    post.title = "Financial Accountant"
+    post.skills = ["ifrs"]
+    expect(fieldOf(post)).toBe(guessFamily("Financial Accountant", ["ifrs"]))
+    expect(fieldOf(post)).not.toBe(before)
+  })
+  test("Jev's reading wins over a cached guess", () => {
+    const post = job({ title: "Backend Software Engineer" })
+    fieldOf(post)
+    post.family = "Marketing and communications"
+    expect(fieldOf(post)).toBe("Marketing and communications")
   })
 })

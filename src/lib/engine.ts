@@ -10,8 +10,12 @@ import type { Band, Credit, DutchLevel, PayChoices, PermitRoute, Posting, Profil
 
 export const HOURS_PER_YEAR = 2080
 
+// One formatter for every euro amount: toLocaleString("en-NL") builds a new one on each call, which was half the cost of scoring a job.
+const EURO_FORMAT = new Intl.NumberFormat("en-NL")
+
+/** A whole-euro amount as shown everywhere ("€3,122"), or a dash when there is none. */
 export const eur = (n: number | null | undefined): string =>
-  n == null ? "—" : `€${Math.round(n).toLocaleString("en-NL")}`
+  n == null ? "—" : `€${EURO_FORMAT.format(Math.round(n))}`
 
 export const pct = (x: number | null | undefined, digits = 0): string =>
   x == null ? "—" : `${(100 * x).toFixed(digits)}%`
@@ -315,42 +319,22 @@ export interface CategoryShare {
 }
 
 export function computeShares(postings: Posting[]): Record<Posting["cat"], CategoryShare> {
-  const buckets: Record<Posting["cat"], Posting[]> = { finance_business: [], tech: [], other: [] }
-  for (const post of postings) {
-    buckets[post.cat]?.push(post)
-  }
   const out = {} as Record<Posting["cat"], CategoryShare>
   for (const cat of ["finance_business", "tech", "other"] as const) {
-    const ps = buckets[cat]
+    const ps = postings.filter((p) => p.cat === cat)
     const n = ps.length || 1
     const counts: Record<string, number> = {}
-    let dutchRequired = 0
-    let visaMention = 0
-    let asking5plus = 0
-    let junior = 0
     for (const p of ps) {
-      if (p.dutch_required) {
-        dutchRequired += 1
-      }
-      if (p.visa_mention) {
-        visaMention += 1
-      }
-      if ((p.years_min ?? 0) >= 5) {
-        asking5plus += 1
-      }
-      if (p.junior_title) {
-        junior += 1
-      }
       for (const s of p.skills) {
         counts[s] = (counts[s] ?? 0) + 1
       }
     }
     out[cat] = {
       n: ps.length,
-      dutchRequired: dutchRequired / n,
-      visaMention: visaMention / n,
-      asking5plus: asking5plus / n,
-      junior: junior / n,
+      dutchRequired: ps.filter((p) => p.dutch_required).length / n,
+      visaMention: ps.filter((p) => p.visa_mention).length / n,
+      asking5plus: ps.filter((p) => (p.years_min ?? 0) >= 5).length / n,
+      junior: ps.filter((p) => p.junior_title).length / n,
       skills: Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, v / n])),
     }
   }
@@ -455,20 +439,6 @@ export function hasCvData(profile: Profile): boolean {
   return profile.positions.length > 0 || profile.education.length > 0 || profile.skills.length > 0 || profile.cv.trim().length >= 20
 }
 
-/** The profile's own words as one lower-cased string (CV, roles, schools). The same profile object gives the same answer, so scoring hundreds of jobs builds it once; each job's skills are appended by the caller. */
-const minePrefixCache = new WeakMap<Profile, string>()
-
-function minePrefixOf(profile: Profile): string {
-  const hit = minePrefixCache.get(profile)
-  if (hit !== undefined) {
-    return hit
-  }
-  const made = [profile.cv, profile.positions.map((p) => `${p.Title ?? ""} ${p.Description ?? ""}`).join(" "), profile.education.map((e) => `${e["Degree Name"] ?? ""} ${e["Field Of Study"] ?? ""} ${e.Notes ?? ""}`).join(" ")].join(" ").toLowerCase()
-  minePrefixCache.set(profile, made)
-
-  return made
-}
-
 export function standing(
   post: Posting,
   profile: Profile,
@@ -555,7 +525,7 @@ export function standing(
   const checklist = post.skills.map((skill) => ({ skill, have: skills.has(skill), share: catShare?.skills[skill] ?? null }))
   const thin = (catShare?.n ?? 0) < 30
 
-  const mine = `${minePrefixOf(profile)} ${[...skills].join(" ").toLowerCase()}`
+  const mine = [profile.cv, profile.positions.map((p) => `${p.Title ?? ""} ${p.Description ?? ""}`).join(" "), profile.education.map((e) => `${e["Degree Name"] ?? ""} ${e["Field Of Study"] ?? ""} ${e.Notes ?? ""}`).join(" "), [...skills].join(" ")].join(" ").toLowerCase()
   const family = post.family ?? guessFamily(post.title_clean ?? post.title, post.skills)
   const fit = fitOf({ title: post.title_clean ?? post.title, level: levelOf(post), years, wanted: post.skills.map((name) => ({ name, tier: post.tiers?.[name] ?? "unspecified" })), have: (skill) => skills.has(skill), text: mine, field: fieldMatch(profile, skills, family), consistency: consistencyWith(profile, family), specificity: (w) => wordSpecificity(w, family), strength })
 
@@ -667,21 +637,7 @@ export function isInternship(p: Pick<Posting, "title" | "seniority"> & Partial<P
 
 const LEVEL_NAMES: ReadonlyArray<string> = ["Internship", "Entry", "Mid", "Senior", "Manager", "Director", "Not stated"]
 
-/** The level read from the posting's own fields and title. Pure in the posting, so one answer is kept per posting: filters and sorts ask for every row on every keystroke. */
-const levelCache = new WeakMap<object, Level>()
-
 export function levelOf(p: Posting): Level {
-  const hit = levelCache.get(p)
-  if (hit) {
-    return hit
-  }
-  const level = levelOfFresh(p)
-  levelCache.set(p, level)
-
-  return level
-}
-
-function levelOfFresh(p: Posting): Level {
   // The database view app_jobs works the level out with these same rules (supabase/migrations/20261003_app_jobs_view.sql), so its answer is the one used.
   if (p.level_view && LEVEL_NAMES.includes(p.level_view)) {
     return p.level_view
