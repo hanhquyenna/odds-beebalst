@@ -1,9 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from "react"
 import { Account } from "@/components/Account"
 import { JobListSkeleton } from "@/components/Skeleton"
-import { ProfilePage } from "@/components/ProfilePage"
 import { Footer } from "@/components/Footer"
-import { JobDetail } from "@/components/JobDetail"
 import { InstallGuide } from "@/components/InstallGuide"
 import { NewJobsBell } from "@/components/NewPlacesBell"
 import { NotifyPrompt } from "@/components/NotifyPrompt"
@@ -27,6 +25,10 @@ import { clearShooNext, forgetShooIdentity, isShooCallback } from "@/lib/shoo"
 // account needs neither.
 const SeekerJourney = lazy(() => import("@/components/SeekerJourney").then((module) => ({ default: module.SeekerJourney })))
 const SignIn = lazy(() => import("@/components/SignIn").then((module) => ({ default: module.SignIn })))
+// Lazy because they open after the first paint: a job opens from a list, and
+// settings open from the menu. Landing and the account never wait on them.
+const JobDetail = lazy(() => import("@/components/JobDetail").then((module) => ({ default: module.JobDetail })))
+const ProfilePage = lazy(() => import("@/components/ProfilePage").then((module) => ({ default: module.ProfilePage })))
 
 type View = "account" | "answers" | "journey" | "jobs" | "signin"
 
@@ -227,8 +229,10 @@ export default function App(): React.JSX.Element {
   // Back from Google: the callback URL has done its job, the page is home again.
   const shooReturn = isShooCallback(location.pathname)
 
-  function handleShooDone(next: "account" | "jobs" | "signin"): void {
-    history.replaceState({}, "", "/")
+  function handleShooDone(next: "account" | "jobs" | "signin", search: string): void {
+    // Back home, keeping whatever address the trip started from: a deep link
+    // (?open, ?install, a phone code) survives the Google round trip.
+    history.replaceState({}, "", `/${search}`)
     if (next === "jobs") {
       // A fresh sign-up: the answers are saved, the draft has done its job.
       clearDraft()
@@ -287,14 +291,16 @@ export default function App(): React.JSX.Element {
         ) : data.status === "error" ? (
           <p className="py-20 text-center text-destructive">Could not load the jobs: {data.error}</p>
         ) : sharedJobId ? (
-          <PublicJobRoute
-            id={sharedJobId}
-            onBack={closeSharedJob}
-            onUnlock={() => {
-              setFormEntry("intro")
-              leaveSharedJob("journey")
-            }}
-          />
+          <Suspense fallback={<JobListSkeleton />}>
+            <PublicJobRoute
+              id={sharedJobId}
+              onBack={closeSharedJob}
+              onUnlock={() => {
+                setFormEntry("intro")
+                leaveSharedJob("journey")
+              }}
+            />
+          </Suspense>
         ) : page ? (
           <StaticPageView page={page} onBack={closePage} onOpenPage={openPage} />
         ) : shooReturn ? (

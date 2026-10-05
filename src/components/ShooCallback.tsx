@@ -5,7 +5,7 @@ import { completeShooSignIn, takeShooNext } from "@/lib/shoo"
 import { useData } from "@/lib/data"
 
 interface ShooCallbackProps {
-  onDone: (next: "account" | "jobs" | "signin") => void
+  onDone: (next: "account" | "jobs" | "signin", search: string) => void
 }
 
 /** Landing spot for Shoo's /auth/callback redirect: trades the Google code for a session, then hands back control. */
@@ -40,7 +40,10 @@ export function ShooCallback({ onDone }: ShooCallbackProps): React.JSX.Element {
           return
         }
         data.setSession(real)
-        onDone(takeShooNext() === "jobs" ? "jobs" : "account")
+        // Read once, on the way that worked: a failure above leaves the
+        // destination stored, so a retry still lands where the trip started.
+        const taken = takeShooNext()
+        onDone(taken?.next === "jobs" ? "jobs" : "account", taken?.search ?? "")
       } catch (caught) {
         setFailure(caught instanceof Error ? caught.message : "Google sign-in failed.")
       }
@@ -57,7 +60,8 @@ export function ShooCallback({ onDone }: ShooCallbackProps): React.JSX.Element {
     try {
       await adoptGuest(before.current, stranded)
       data.setSession(stranded)
-      onDone(takeShooNext() === "jobs" ? "jobs" : "account")
+      const taken = takeShooNext()
+      onDone(taken?.next === "jobs" ? "jobs" : "account", taken?.search ?? "")
     } catch (caught) {
       setFailure(caught instanceof Error ? caught.message : "Could not move the guest account.")
       setStranded(null)
@@ -70,7 +74,8 @@ export function ShooCallback({ onDone }: ShooCallbackProps): React.JSX.Element {
       return
     }
     data.setSession(stranded)
-    onDone(takeShooNext() === "jobs" ? "jobs" : "account")
+    const taken = takeShooNext()
+    onDone(taken?.next === "jobs" ? "jobs" : "account", taken?.search ?? "")
   }
 
   if (stranded) {
@@ -103,7 +108,7 @@ export function ShooCallback({ onDone }: ShooCallbackProps): React.JSX.Element {
         >
           Try again
         </Button>
-        <Button type="button" variant="ghost" onClick={() => onDone("signin")} className="w-full cursor-pointer text-muted-foreground">
+        <Button type="button" variant="ghost" onClick={() => onDone("signin", "")} className="w-full cursor-pointer text-muted-foreground">
           Back to sign in
         </Button>
       </div>
