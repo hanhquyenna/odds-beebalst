@@ -155,10 +155,10 @@ Deno.serve(async (req) => {
 
   // The paid read. One ceiling for everyone together, counted in the same table the profile import uses.
   const since = new Date(Date.now() - 86_400_000).toISOString()
-  const counted = await fetch(`${base}/rest/v1/linkedin_imports?kind=eq.job&created_at=gte.${since}&select=id`, { headers: { ...rest, Prefer: "count=exact", Range: "0-0" } })
-  if (Number((counted.headers.get("content-range") ?? "*/0").split("/")[1] ?? 0) >= GLOBAL_LIMIT) return reply(429, { error: "Adding jobs is paused for today. Try again tomorrow." })
-  // Every paid read counts, failed or not: refunding failures let random job ids drive unmetered scraper runs.
+  // Counted before the check, so parallel requests all see each other; every paid read counts, failed or not.
   await fetch(`${base}/rest/v1/linkedin_imports`, { method: "POST", headers: { ...rest, "Content-Type": "application/json" }, body: JSON.stringify({ user_id: null, ip_hash: null, kind: "job", url: parsed.url }) })
+  const counted = await fetch(`${base}/rest/v1/linkedin_imports?kind=eq.job&created_at=gte.${since}&select=id`, { headers: { ...rest, Prefer: "count=exact", Range: "0-0" } })
+  if (Number((counted.headers.get("content-range") ?? "*/0").split("/")[1] ?? 0) > GLOBAL_LIMIT) return reply(429, { error: "Adding jobs is paused for today. Try again tomorrow." })
 
   // 3. The read.
   let item: JobDetails | undefined

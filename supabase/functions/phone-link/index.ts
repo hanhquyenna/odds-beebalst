@@ -21,7 +21,7 @@ const LIFETIME = { qr: 15, home: 30 } as const
 const HOURLY = 30
 
 /** Guest accounts one connection can make in a day. */
-const GUESTS_PER_DAY = 20
+const GUESTS_PER_DAY = 3
 
 /** A session for an account, made on the server: a sign-in link (nothing is emailed) exchanged at once. */
 async function sessionFor(supabaseUrl: string, anon: string, admin: Record<string, string>, email: string): Promise<unknown> {
@@ -52,6 +52,8 @@ Deno.serve(async (req) => {
   const anon = Deno.env.get("SUPABASE_ANON_KEY")!
   const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   const admin = { apikey: service, Authorization: `Bearer ${service}`, "Content-Type": "application/json" }
+  // Guest limits, pair limits and pair approval all key on the caller's network, hashed.
+  const ipHash = await sha256(`${(req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown"}|${service.slice(-16)}`)
   const body = (await req.json().catch(() => ({}))) as { action?: string; code?: string; kind?: string; guest_token?: string; id?: string; secret?: string }
 
   if (body.action === "create") {
@@ -99,8 +101,6 @@ Deno.serve(async (req) => {
   }
 
   if (body.action === "guest") {
-    const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown"
-    const ipHash = await sha256(`${ip}|${service.slice(-16)}`)
     const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
     const recent = await fetch(`${supabaseUrl}/rest/v1/guest_accounts?select=user_id&ip_hash=eq.${ipHash}&created_at=gte.${since}`, { headers: { ...admin, Prefer: "count=exact", Range: "0-0" } })
     const total = Number(recent.headers.get("content-range")?.split("/")[1] ?? 0)
@@ -142,8 +142,6 @@ Deno.serve(async (req) => {
   }
 
   if (body.action === "pair-start") {
-    const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown"
-    const ipHash = await sha256(`${ip}|${service.slice(-16)}`)
     const since = new Date(Date.now() - 3600 * 1000).toISOString()
     const recent = await fetch(`${supabaseUrl}/rest/v1/device_pairs?select=id&ip_hash=eq.${ipHash}&created_at=gte.${since}`, { headers: { ...admin, Prefer: "count=exact", Range: "0-0" } })
     if (Number(recent.headers.get("content-range")?.split("/")[1] ?? 0) >= HOURLY) return reply(429, { error: "Too many sign-in attempts. Try again later." })
@@ -163,14 +161,15 @@ Deno.serve(async (req) => {
     const userId = (await who.json()).id as string
     const id = typeof body.id === "string" && /^[A-Za-z0-9_-]{20,64}$/.test(body.id) ? body.id : ""
     if (!id) return reply(400, { error: "This sign-in link is not valid." })
+    // Only the network that started the pair may approve it: the app and its own browser share one, a phished link's victim does not.
     const now = new Date().toISOString()
-    const done = await fetch(`${supabaseUrl}/rest/v1/device_pairs?id=eq.${id}&user_id=is.null&expires_at=gt.${now}&select=id`, {
+    const done = await fetch(`${supabaseUrl}/rest/v1/device_pairs?id=eq.${id}&ip_hash=eq.${ipHash}&user_id=is.null&expires_at=gt.${now}&select=id`, {
       method: "PATCH",
       headers: { ...admin, Prefer: "return=representation" },
       body: JSON.stringify({ user_id: userId, approved_at: now }),
     })
     const rows = done.ok ? ((await done.json()) as unknown[]) : []
-    if (rows.length === 0) return reply(410, { error: "This sign-in has expired. Start again in the app." })
+    if (rows.length === 0) return reply(410, { error: "This sign-in has expired, or was started on another network. Start again in the app." })
 
     return reply(200, { approved: true })
   }
