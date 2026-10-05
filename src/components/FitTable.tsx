@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { useData } from "@/lib/data"
 import { standing } from "@/lib/engine"
 import { profileFields } from "@/lib/field"
+import { fitFilters, withFitLanguage } from "@/lib/fit-filters"
 import { openLinkedInImport } from "@/lib/open-profile"
 import type { Posting } from "@/lib/types"
 
@@ -56,8 +57,8 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
   const [editing, setEditing] = useState<boolean>(false)
 
   const fields = useMemo(() => profileFields(data.profile), [data.profile])
-  // Until a line of work is chosen in the preferences, it is the ones your profile points to.
-  const effective = useMemo(() => (filters.field.length > 0 || fields.length === 0 ? filters : { ...filters, field: fields }), [filters, fields])
+  // English unless a language is chosen, and until a line of work is chosen, the ones your profile points to (src/lib/fit-filters.ts, shared with the morning message).
+  const effective = useMemo(() => fitFilters(filters, data.profile, fields), [filters, data.profile, fields])
   const needsProfile = data.profile.positions.length === 0 && data.profile.education.length === 0
 
   const shown = useMemo(() => {
@@ -109,7 +110,7 @@ export function HearBackTable({ onOpen }: { onOpen: (post: Posting) => void }): 
     const applied = new Set(data.applications.map((a) => a.posting_id))
     const open = data.postings.filter((post) => !post.local && !post.closed_at && !data.saved.has(post.id) && !applied.has(post.id) && !data.passed.has(post.id))
     const rows: Array<{ post: Posting; mid: number }> = []
-    for (const post of applyFilters(open, filters, { signals: data.signals, reference: data.reference })) {
+    for (const post of applyFilters(open, withFitLanguage(filters), { signals: data.signals, reference: data.reference })) {
       const rate = standing(post, data.profile, data.reference, data.shares, undefined, data.referrals.has(post.id), strengthFor(post)).rate
       if (rate && !rate.thin) rows.push({ post, mid: rate.mid })
     }
@@ -130,7 +131,7 @@ export function HearBackTable({ onOpen }: { onOpen: (post: Posting) => void }): 
           <PencilIcon className="size-4" aria-hidden="true" />
         </button>
       </div>
-      {editing ? <PreferencesDialog filters={filters} onChange={saved.setFilters} onClose={() => setEditing(false)} /> : null}
+      {editing ? <PreferencesDialog filters={withFitLanguage(filters)} onChange={saved.setFilters} onClose={() => setEditing(false)} /> : null}
       {needsProfile ? <ImportPrompt what="the jobs you're most likely to hear back from" /> : shown.length === 0 ? <p className="text-sm text-muted-foreground">Nothing here fits your preferences. Loosen them with the pencil.</p> : <Tracker posts={shown} onOpen={onOpen} viewName={`${saved.configName}-hear` as `v:${string}`} rowLimit={rowLimit} footer={<MoreRow total={shown.length} step={step} setStep={setStep} />} dismissible />}
     </section>
   )
@@ -168,7 +169,7 @@ function PreferencesDialog({ filters, onChange, onClose }: { filters: Parameters
           <NotInterested />
         </div>
         <div className="flex items-center justify-between gap-2 border-t-[1.5px] px-5 py-3">
-          <button type="button" onClick={() => onChange({ ...DEFAULT_FILTERS, language: [] })} className="cursor-pointer text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground">
+          <button type="button" onClick={() => onChange({ ...DEFAULT_FILTERS })} className="cursor-pointer text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground">
             Reset preferences
           </button>
           <Button type="button" onClick={onClose} className="cursor-pointer">

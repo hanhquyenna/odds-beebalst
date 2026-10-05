@@ -1,12 +1,12 @@
 // Supabase Edge Function: the morning message. Runs from pg_cron; for every phone or browser that said yes to
 // notifications (table push_subscriptions) and whose own clock reads its send hour (8 by default), it counts the jobs
-// first found yesterday that pass that person's job preferences, with the app's own filters (match.js), and sends one
-// message: "5 new jobs fit you". Nothing is sent when nothing new fits.
+// first found yesterday that are in that person's "Jobs that fit you" (the app's own rule, bundled in match.js), and
+// sends one message: "5 new jobs fit you". Nothing is sent when nothing new fits.
 // Deploy:  scripts/build-morning-jobs.sh && supabase functions deploy morning-jobs --project-ref ukpmpyfcnbhngkgbnkxi --use-api --no-verify-jwt
 // Secrets (Edge Function secrets, never in a file): VAPID_KEYS, VAPID_CONTACT, MORNING_SECRET
 import * as webpush from "jsr:@negrel/webpush@0.5.0"
 // @ts-ignore: bundled from src/lib/filters.ts by scripts/build-morning-jobs.sh
-import { DEFAULT_FILTERS, activeCount, applyFilters, normalizeFilters } from "./match.js"
+import { applyFilters, savedFitFilters } from "./match.js"
 
 interface Sub {
   id: string
@@ -137,6 +137,10 @@ Deno.serve(async (req) => {
 
   const users = [...new Set(due.map((s) => s.user_id))]
   const profiles = await get<Array<{ user_id: string; data: Record<string, unknown> }>>(`profiles?select=user_id,data&user_id=in.(${users.join(",")})`)
+  // Jobs someone already applied to are not news for them.
+  const applied = await get<Array<{ user_id: string; posting_id: string }>>(`applications?select=user_id,posting_id&user_id=in.(${users.join(",")})`)
+  const appliedBy = new Map<string, Set<string>>()
+  for (const a of applied) appliedBy.set(a.user_id, (appliedBy.get(a.user_id) ?? new Set()).add(a.posting_id))
   const profileOf = new Map(profiles.map((p) => [p.user_id, p.data]))
 
   const vapidKeys = await webpush.importVapidKeys(JSON.parse(Deno.env.get("VAPID_KEYS")!), { extractable: false })
@@ -144,12 +148,13 @@ Deno.serve(async (req) => {
 
   const report: Array<{ user: string; jobs: number; status: string }> = []
   for (const sub of due) {
-    // The same rule as the bell: the person's saved preferences when they are on, otherwise the list's opening filters.
+    // Exactly "Jobs that fit you" in the app (src/lib/fit-filters.ts): the person's preferences, English unless they chose
+    // otherwise, their lines of work; without the jobs they dismissed or applied to.
     const profile = profileOf.get(sub.user_id) ?? {}
-    const prefs = profile.prefs ? normalizeFilters(profile.prefs) : null
-    const filters = profile.prefsOn && prefs && activeCount(prefs) > 0 ? prefs : DEFAULT_FILTERS
+    const filters = savedFitFilters(profile)
     const dismissed = new Set((profile.dismissed as string[] | undefined) ?? [])
-    const fits = (applyFilters(jobs, filters) as Job[]).filter((j) => !dismissed.has(j.id))
+    const done = appliedBy.get(sub.user_id) ?? new Set<string>()
+    const fits = (applyFilters(jobs, filters) as Job[]).filter((j) => !dismissed.has(j.id) && !done.has(j.id))
 
     if (fits.length === 0) {
       report.push({ user: sub.user_id, jobs: 0, status: "nothing new" })

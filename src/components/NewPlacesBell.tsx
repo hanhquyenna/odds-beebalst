@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useData } from "@/lib/data"
 import { standing } from "@/lib/engine"
-import { DEFAULT_FILTERS, activeCount, applyFilters, normalizeFilters } from "@/lib/filters"
+import { applyFilters } from "@/lib/filters"
+import { fitFilters } from "@/lib/fit-filters"
+import { useSavedViews } from "@/lib/use-saved-views"
 import { openInstallGuide, platformOf, promptInstall, turnOnNotifications, useHasPhone, usePush } from "@/lib/push"
 import { loadSeenRooms } from "@/lib/seen"
 
@@ -25,6 +27,7 @@ interface NewJobsBellProps {
  */
 export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.Element {
   const data = useData()
+  const fitView = useSavedViews("fit")
   const [open, setOpen] = useState<boolean>(false)
 
   const fresh = useMemo(() => {
@@ -37,17 +40,15 @@ export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.El
       return []
     }
 
-    // Only jobs the list itself would show: the person's saved preferences when they are on, otherwise the list's opening filters
-    // (internship, traineeship and entry, English). A new senior job or a job that needs Dutch is not news for them.
-    const prefs = data.profile.prefs ? normalizeFilters(data.profile.prefs) : null
-    const filters = data.profile.prefsOn && prefs && activeCount(prefs) > 0 ? prefs : DEFAULT_FILTERS
+    // The same jobs as "Jobs that fit you" and the morning message (src/lib/fit-filters.ts).
+    const filters = fitFilters({ ...fitView.active.filters, query: "" }, data.profile)
 
     return applyFilters(data.postings, filters, { signals: data.signals, reference: data.reference })
       .filter((post) => !seen.has(post.id) && !data.passed.has(post.id) && !data.saved.has(post.id))
       .filter((post) => standing(post, data.profile, data.reference!, data.shares!, undefined, data.referrals.has(post.id)).failing === 0)
     // refresh is a trigger: a visit to the jobs marks them seen, and the count must be taken again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.postings, data.passed, data.saved, data.profile, data.reference, data.shares, data.referrals, data.signals, refresh])
+  }, [data.postings, data.passed, data.saved, data.profile, data.reference, data.shares, data.referrals, data.signals, fitView.active, refresh])
 
   const count = fresh.length
   const push = usePush()

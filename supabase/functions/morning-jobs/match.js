@@ -105,7 +105,54 @@ function familyPosterior(tokens) {
 var titleTokens = (text) => words(text).map(stem);
 var skillTokens = (skills) => [...skills].map((s) => `skill:${s.toLowerCase()}`);
 var cache = new WeakMap;
+function itemsOf(profile) {
+  const hit = cache.get(profile);
+  if (hit) {
+    return hit;
+  }
+  const items = [];
+  for (const p of profile.positions) {
+    const post = familyPosterior(titleTokens(p.Title ?? ""));
+    if (post)
+      items.push(post);
+  }
+  for (const e of profile.education) {
+    const post = familyPosterior(titleTokens(`${e["Degree Name"] ?? ""} ${e["Field Of Study"] ?? ""}`));
+    if (post)
+      items.push(post);
+  }
+  cache.set(profile, items);
+  return items;
+}
 var FAMILIES = M.families;
+function profileFields(profile) {
+  const score = new Map;
+  const jobs = profile.positions.length;
+  const items = [...itemsOf(profile)];
+  items.forEach((post, i) => {
+    const top = Math.max(...post);
+    const family = M.families[post.indexOf(top)];
+    if (family === "Other" || top < 0.35)
+      return;
+    const weight = i < jobs ? 0.85 ** i : 0.6;
+    score.set(family, (score.get(family) ?? 0) + weight * top);
+  });
+  const bySkill = new Map;
+  for (const skill of profile.skills) {
+    const alone = familyPosterior(skillTokens([skill.Name ?? ""]));
+    if (!alone)
+      continue;
+    const top = Math.max(...alone);
+    const family = M.families[alone.indexOf(top)];
+    if (family !== "Other" && top >= 0.5)
+      bySkill.set(family, (bySkill.get(family) ?? 0) + 1);
+  }
+  for (const [family, n] of bySkill) {
+    if (n >= 2)
+      score.set(family, (score.get(family) ?? 0) + 0.4 * n);
+  }
+  return [...score.entries()].sort((x, y) => y[1] - x[1]).map(([family]) => family);
+}
 function guessFamily(title, skills) {
   const post = familyPosterior([...titleTokens(title), ...skillTokens(skills)]);
   if (!post) {
@@ -1890,7 +1937,6 @@ var POSTED_DAYS = { day: 1, week: 7, month: 30 };
 var LEVEL_OPTIONS = LEVELS.filter((level) => level !== "Not stated");
 var STARTING_LEVELS = ["Internship", "Entry"];
 var DEFAULT_FILTERS = { ...NO_FILTERS, level: [...STARTING_LEVELS], posted: "any", language: ["english"] };
-var sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
 function normalizeFilters(raw) {
   const r = raw && typeof raw === "object" ? raw : {};
   const list = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string" && x !== "") : typeof v === "string" && v !== "" ? [v] : [];
@@ -1999,15 +2045,92 @@ function applyFilters(posts, filters, env = {}) {
     return true;
   });
 }
-function activeCount(filters) {
-  const lists = [filters.field, filters.industry, sameSet(filters.level, STARTING_LEVELS) ? [] : filters.level, filters.type, filters.workplace, filters.city, filters.source].filter((each) => each.length > 0).length;
-  const language = filters.language.length === 1 && !sameSet(filters.language, DEFAULT_FILTERS.language) ? 1 : 0;
-  const single = language + (filters.minPay !== null ? 1 : 0);
-  return lists + single + (filters.sponsorOnly ? 1 : 0) + (filters.posted !== "any" && filters.posted !== DEFAULT_FILTERS.posted ? 1 : 0) + (filters.query.trim() ? 1 : 0);
+// src/lib/tracker.ts
+var NO_TRACKER_FILTER = { status: [], followUp: false, hideClosed: false };
+function normalizeTrackerFilter(raw) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  return { status: Array.isArray(r.status) ? r.status.filter((x) => typeof x === "string") : [], followUp: r.followUp === true, hideClosed: r.hideClosed === true };
+}
+
+// src/lib/saved-views.ts
+var SEED_VIEWS = [
+  { id: "all", name: "All jobs", layout: "table", filters: NO_FILTERS, tracker: NO_TRACKER_FILTER },
+  { id: "pipeline", name: "Pipeline", layout: "board", filters: NO_FILTERS, tracker: NO_TRACKER_FILTER },
+  { id: "calendar", name: "Calendar", layout: "calendar", filters: NO_FILTERS, tracker: NO_TRACKER_FILTER, dateKey: "applied" }
+];
+var FIT_SEED_VIEWS = [{ id: "fit", name: "Best fit", layout: "table", filters: { ...DEFAULT_FILTERS }, tracker: NO_TRACKER_FILTER }];
+var LAYOUTS = ["list", "table", "board", "calendar"];
+function normalizeViews(raw, seed = SEED_VIEWS) {
+  if (!Array.isArray(raw)) {
+    return seed.map((v) => ({ ...v }));
+  }
+  const seen = new Set;
+  const out = [];
+  for (const item of raw) {
+    const r = item && typeof item === "object" ? item : {};
+    const id = typeof r.id === "string" && r.id.trim() ? r.id : null;
+    const name = typeof r.name === "string" && r.name.trim() ? r.name.trim().slice(0, 40) : null;
+    if (!id || !name || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    out.push({
+      id,
+      name,
+      layout: LAYOUTS.includes(r.layout) ? r.layout : "table",
+      filters: normalizeFilters(r.filters),
+      tracker: normalizeTrackerFilter(r.tracker),
+      ...typeof r.dateKey === "string" ? { dateKey: r.dateKey } : {}
+    });
+  }
+  return out.length > 0 ? out : seed.map((v) => ({ ...v }));
+}
+
+// src/lib/types.ts
+var DEFAULT_PROFILE = {
+  permit: "other_non_eu",
+  birth: 1998,
+  abroad: 0,
+  origin: "non_eu",
+  dutch: "basic",
+  studying: null,
+  salary: "",
+  tailor: false,
+  cv: "",
+  positions: [],
+  education: [],
+  skills: [],
+  languages: [],
+  occ: "",
+  name: "",
+  headline: "",
+  place: "",
+  about: "",
+  avatar: "",
+  columns: [],
+  columnTypes: {},
+  notes: {},
+  people: [],
+  views: {},
+  onboarded: false,
+  prefs: null,
+  prefsOn: false
+};
+
+// src/lib/fit-filters.ts
+function withFitLanguage(filters) {
+  return filters.language.length === 0 ? { ...filters, language: [...DEFAULT_FILTERS.language] } : filters;
+}
+function fitFilters(filters, profile, fields = profileFields(profile)) {
+  const f = withFitLanguage(filters);
+  return f.field.length > 0 || fields.length === 0 ? f : { ...f, field: fields };
+}
+function savedFitFilters(saved) {
+  const profile = { ...DEFAULT_PROFILE, ...saved ?? {} };
+  const views = normalizeViews(profile.fitViews, FIT_SEED_VIEWS);
+  return fitFilters({ ...views[0].filters, query: "" }, profile);
 }
 export {
-  normalizeFilters,
-  applyFilters,
-  activeCount,
-  DEFAULT_FILTERS
+  savedFitFilters,
+  applyFilters
 };

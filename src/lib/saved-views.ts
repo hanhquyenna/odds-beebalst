@@ -14,7 +14,7 @@ export const SEED_VIEWS: ReadonlyArray<SavedView> = [
 ]
 
 /** The views of the jobs that fit you start as one table, the same as your own jobs: first jobs, best fit first (a job that needs Dutch ranks lower by itself). */
-export const FIT_SEED_VIEWS: ReadonlyArray<SavedView> = [{ id: "fit", name: "Best fit", layout: "table", filters: { ...DEFAULT_FILTERS, language: [] }, tracker: NO_TRACKER_FILTER }]
+export const FIT_SEED_VIEWS: ReadonlyArray<SavedView> = [{ id: "fit", name: "Best fit", layout: "table", filters: { ...DEFAULT_FILTERS }, tracker: NO_TRACKER_FILTER }]
 
 /** What a seed view starts with besides its filters. */
 export const SEED_CONFIG: Record<string, Partial<ViewConfig>> = {}
