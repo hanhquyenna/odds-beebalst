@@ -16,8 +16,8 @@ import {
   fetchPostings,
   fetchKeptPostings,
   fetchStoredLogos,
+  signalsOf,
   fetchReference,
-  fetchSignals,
   insertApplication,
   loadProfile,
   refreshAges,
@@ -39,7 +39,6 @@ const REFERRAL_KEY = "careersim.referrals"
 const PASSED_KEY = "careersim.passed"
 /** Cache keys (cache.ts) for the public reads a return visit paints from before the network answers. */
 const POOL_CACHE = "pool"
-const SIGNALS_CACHE = "signals"
 
 /** The public reads a visit starts from, kept together so a return visit can paint them in one go. */
 interface Pool {
@@ -74,8 +73,8 @@ export interface Data {
   sessionChecked: boolean
   error: string | null
   postings: Posting[]
-  /** How the work is done, from the posting text. Null until the server has answered; filters that need it wait. */
-  signals: Record<string, Signals> | null
+  /** How the work is done, from the posting text, by posting id. Comes with the postings. */
+  signals: Record<string, Signals>
   byId: Map<string, Posting>
   /** Jobs you kept that are no longer in the open pool (closed since): read separately so they stay in your list, marked closed. */
   keptExtra: Posting[]
@@ -135,7 +134,6 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
   const [alias, setAlias] = useState<Map<string, string>>(new Map())
   const [local, setLocal] = useState<Posting[]>(() => read<Posting[]>(LOCAL_POSTS_KEY, []))
   const [reference, setReference] = useState<Reference | null>(null)
-  const [signals, setSignals] = useState<Record<string, Signals> | null>(null)
   const [profile, setProfileState] = useState<Profile>(() => migrateProfile({ ...DEFAULT_PROFILE, ...read<Partial<Profile>>(PROFILE_KEY, {}) }))
   const [profileSaved, setProfileSaved] = useState<boolean>(false)
   const [session, setSessionState] = useState<Session | null>(null)
@@ -250,52 +248,8 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
     }
   }, [])
 
-  // What the postings' text says is found by the database with a search over every description, which is slow and can time out.
-  // So the answer is kept on this device against the state of the data (how many postings, how recent). A kept answer for older
-  // data is shown meanwhile, and the server is asked again, with a pause between tries, only when the data changes or a try fails.
-  const signalsStamp = useRef<string>("")
-  useEffect(() => {
-    if (status !== "ready") {
-      return
-    }
-    let live = true
-    const stamp = stampOf(remote)
-    if (signalsStamp.current === stamp) {
-      return
-    }
-    void (async () => {
-      const cached = await readCache<Record<string, Signals>>(SIGNALS_CACHE)
-      if (!live) {
-        return
-      }
-      if (cached) {
-        setSignals((now) => (cached.stamp === stamp || now === null ? cached.data : now))
-      }
-      if (cached?.stamp === stamp) {
-        signalsStamp.current = stamp
-
-        return
-      }
-      for (let attempt = 0; attempt < 3 && live; attempt++) {
-        try {
-          const found = await fetchSignals()
-          if (live) {
-            signalsStamp.current = stamp
-            setSignals(found)
-            void writeCache(SIGNALS_CACHE, stamp, found)
-          }
-
-          return
-        } catch {
-          await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)))
-        }
-      }
-    })()
-
-    return () => {
-      live = false
-    }
-  }, [status, remote])
+  // What each posting's text says about the work (hybrid, part-time...), worked out once per posting by the database.
+  const signals = useMemo(() => signalsOf(remote), [remote])
 
   const postings = useMemo(() => [...local, ...remote], [local, remote])
   // A job you saved or applied to can leave the open pool (it closed). It is fetched on its own, once, so it stays in your list.

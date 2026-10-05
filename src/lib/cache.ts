@@ -1,11 +1,11 @@
 /**
- * The last good answer of a slow public read (the job pool, its signals), kept in this browser's IndexedDB so a return visit paints at once
+ * The last good answer of a slow public read (the job pool), kept in this browser's IndexedDB so a return visit paints at once
  * and refreshes behind it. IndexedDB, not localStorage: the pool runs to several MB, past localStorage's quota. Every failure (a private
  * window, blocked or full storage, an old entry) reads as "nothing kept", and the app asks the network as on a first visit.
  */
 
 /** Raised when what is kept changes shape, so an older entry is ignored instead of misread. */
-export const CACHE_VERSION = 1
+export const CACHE_VERSION = 2
 
 const DB_NAME = "odds-cache"
 const STORE = "kv"
