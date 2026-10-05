@@ -204,7 +204,8 @@ export default function App(): React.JSX.Element {
 
   // The morning message opens odds at ?open=new-jobs: straight to the jobs, and the number on the icon is cleared.
   useEffect(() => {
-    if (data.status !== "ready") {
+    // Waits for the session too: the install steps hand the phone a sign-in link only once it is known.
+    if (data.status !== "ready" || !data.sessionChecked) {
       return
     }
     ;(navigator as Navigator & { clearAppBadge?: () => Promise<void> }).clearAppBadge?.().catch(() => undefined)
@@ -224,7 +225,7 @@ export default function App(): React.JSX.Element {
       showJobs()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.status])
+  }, [data.status, data.sessionChecked])
 
   function handleSaved(): void {
     // Straight to the jobs. Someone who has just answered wants those, not
@@ -330,7 +331,8 @@ export default function App(): React.JSX.Element {
           </Suspense>
         ) : shooReturn ? (
           <Suspense fallback={<JobListSkeleton />}>
-            <ShooCallback onDone={handleShooDone} />
+            {/* Waits for the stored session, so a guest's token is refreshed before it is handed over. */}
+            {data.sessionChecked ? <ShooCallback onDone={handleShooDone} /> : <JobListSkeleton />}
           </Suspense>
         ) : (
           <Suspense fallback={null}>

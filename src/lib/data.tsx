@@ -70,6 +70,8 @@ function write(key: string, value: unknown): void {
 
 export interface Data {
   status: "loading" | "ready" | "error"
+  /** True once the stored session (and any ?link= code) is restored. Cached jobs can be "ready" before it. */
+  sessionChecked: boolean
   error: string | null
   postings: Posting[]
   /** How the work is done, from the posting text. Null until the server has answered; filters that need it wait. */
@@ -595,16 +597,30 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
       }
       try {
         await insertApplication(session.user.id, post.id, fit)
-        const rows = await fetchApplications(byId)
-        const mine = rows.find((a) => a.posting_id === post.id)
-        if (mine && stage !== "applied") {
-          await updateStage(mine.id, stage)
-          mine.stage = stage
-        }
-        setApplications(rows)
       } catch {
         changeApps((prev) => prev.filter((a) => a.id !== entry.id))
         toast.error(`Could not log ${post.title}. Try again.`)
+
+        return
+      }
+      // The server has the row now. A move or removal made while it saved is applied to it, and a later failure keeps it.
+      try {
+        const rows = await fetchApplications(byId)
+        const mine = rows.find((a) => a.posting_id === post.id)
+        const local = appsRef.current.find((a) => a.id === entry.id)
+        if (mine && !local) {
+          await deleteApplication(mine.id)
+          setApplications(rows.filter((a) => a.id !== mine.id))
+
+          return
+        }
+        if (mine && local && local.stage !== mine.stage) {
+          await updateStage(mine.id, local.stage)
+          mine.stage = local.stage
+        }
+        setApplications(rows)
+      } catch {
+        toast.error(`Logged ${post.title}, but could not refresh the list. Reload to see it.`)
       }
     },
     [session, byId, changeApps],
@@ -638,7 +654,7 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
       try {
         await deleteApplication(id)
       } catch {
-        changeApps((prev) => [...prev.slice(0, at), before, ...prev.slice(at)])
+        changeApps((prev) => (prev.some((a) => a.id === id) ? prev : [...prev.slice(0, at), before, ...prev.slice(at)]))
         toast.error(`Could not remove ${before.title}. Try again.`)
       }
     },
@@ -655,6 +671,7 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
 
   const value: Data = {
     status: status,
+    sessionChecked: sessionChecked,
     refreshPostings: refreshPostings,
     error: error,
     postings: postings,
