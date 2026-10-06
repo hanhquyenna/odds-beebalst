@@ -385,7 +385,7 @@ export default function App(): React.JSX.Element {
             {view === "answers" && onboarded ? (
               <>
                 <ProfilePage onBack={() => setView("account")} onOpenDocuments={() => setView("documents")} />
-                <PhoneMore onOpenPage={openPage} signedIn={Boolean(data.session?.user.email) && !isGuestEmail(data.session?.user.email)} onSignIn={data.session?.user.email && !isGuestEmail(data.session.user.email) ? undefined : () => setView("signin")} onSignOut={handleSignOut} />
+                <PhoneMore session={data.session} onOpenPage={openPage} signedIn={Boolean(data.session?.user.email) && !isGuestEmail(data.session?.user.email)} onSignIn={data.session?.user.email && !isGuestEmail(data.session.user.email) ? undefined : () => setView("signin")} onSignOut={handleSignOut} />
               </>
             ) : null}
 

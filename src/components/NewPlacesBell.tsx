@@ -157,8 +157,8 @@ export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.El
   const [busy, setBusy] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const desktop = platformOf() === "desktop"
-  // After a LinkedIn import, until one of the person's phones gets the morning message, the bell asks for it.
-  const invite = Boolean(data.session && data.profile.linkedin) && !hasPhone && (push.state === "install" || push.state === "ask" || push.state === "blocked")
+  // Signed in: a Home Screen app that is not on yet always offers it (this phone, whatever other devices do); elsewhere the bell offers it until one of the person's phones gets the morning message.
+  const invite = Boolean(data.session) && (push.state === "ask" ? push.checked : !hasPhone && (push.state === "install" || push.state === "blocked"))
 
   async function addToPhone(): Promise<void> {
     // Android offers its own one-tap install; a computer shows the QR code and an iPhone the steps.

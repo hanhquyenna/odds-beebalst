@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { RowStatus } from "@/components/StatusPicker"
 import { JOB_GROUPS, groupJobs } from "@/components/job-groups"
-import { ChevronDownIcon } from "@/components/icons"
+import { BoardIcon, ChevronDownIcon } from "@/components/icons"
 import { usePhone } from "@/lib/use-phone"
 import { CompanyLogo } from "@/components/CompanyMark"
 import { ENDED, STEPS, moveJob, type Step } from "@/components/job-steps"
@@ -73,7 +73,6 @@ export function PipelineBoard({ onOpen, viewName, include }: { onOpen: (post: Po
   const countOf = (step: Step): number => cards.filter((c) => columnOf(c.step) === step).length
   // What the columns are: the steps unless this board was set to something else, so two boards can show the same jobs two ways.
   const columnsBy = view.config.groupBy && view.config.groupBy !== "status" ? view.config.groupBy : "status"
-  const picker = <ColumnsBy value={columnsBy} onChange={(key) => view.update({ groupBy: key })} />
 
   if (columnsBy !== "status") {
     const lanes = groupJobs(data, cards.map((c) => c.post), columnsBy)
@@ -81,7 +80,6 @@ export function PipelineBoard({ onOpen, viewName, include }: { onOpen: (post: Po
 
     return (
       <div className="flex flex-col gap-3">
-        {picker}
         <div className={onPhone ? "no-scrollbar -mx-5 flex snap-x snap-mandatory scroll-px-5 gap-3 overflow-x-auto px-5 pb-2" : "no-scrollbar flex gap-4 overflow-x-auto pb-2"}>
           {lanes.map((lane) => (
             <section key={lane.label} aria-label={`${lane.label}, ${lane.posts.length} jobs`} className={`flex shrink-0 snap-start flex-col gap-2 self-start rounded-2xl bg-secondary p-2 ${onPhone ? "w-[86%]" : "w-72"}`}>
@@ -109,7 +107,6 @@ export function PipelineBoard({ onOpen, viewName, include }: { onOpen: (post: Po
     // Each job is the same row as every other list; its status moves it to another step.
     return (
       <div className="flex flex-col gap-3">
-      {picker}
       <div className="no-scrollbar -mx-5 flex snap-x snap-mandatory scroll-px-5 gap-3 overflow-x-auto px-5 pb-2">
         {COLUMNS.map((column) => {
           const here = cards.filter((c) => columnOf(c.step) === column.step)
@@ -139,7 +136,6 @@ export function PipelineBoard({ onOpen, viewName, include }: { onOpen: (post: Po
 
   return (
     <div className="flex flex-col gap-4">
-      {picker}
       {/* On a tablet the board is one column at a time, chosen from this strip. A phone has its own board, above. */}
       <div role="tablist" aria-label="Steps" className="grid grid-cols-5 gap-1.5 max-md:hidden lg:hidden">
         {COLUMNS.map((column) => (
@@ -243,18 +239,22 @@ function JobCard({ card, onOpen, onMove }: { card: Card; onOpen: () => void; onM
   )
 }
 
-/** What a board's columns are, as in Notion: the steps of your search, or any other property of the jobs. */
-function ColumnsBy({ value, onChange }: { value: string; onChange: (key: string) => void }): React.JSX.Element {
+/**
+ * What a board's columns are, as in Notion: the steps of your search, or any other property of the jobs. It sits in the toolbar beside
+ * the layout; on a phone it is a compact pill (the choice only) so the whole toolbar stays on one line.
+ */
+export function ColumnsBy({ viewName }: { viewName: ViewName }): React.JSX.Element {
+  const view = useViewConfig(viewName)
+  const value = view.config.groupBy && view.config.groupBy !== "status" ? view.config.groupBy : "status"
   const label = JOB_GROUPS.find((g) => g.key === value)?.label ?? "Status"
 
   return (
-    <label className="relative flex w-fit items-center gap-1.5 text-sm">
-      <span className="text-muted-foreground">Columns by</span>
-      <span className="flex h-9 items-center gap-1.5 rounded-full border-[1.5px] bg-card px-3.5 font-semibold">
-        {label}
-        <ChevronDownIcon className="size-3.5 text-muted-foreground" aria-hidden="true" />
-      </span>
-      <select aria-label="Columns by" value={value} onChange={(e) => onChange(e.target.value)} className="absolute inset-0 size-full cursor-pointer opacity-0">
+    <label className="relative flex h-10 min-w-0 shrink! items-center gap-1.5 rounded-lg border-[1.5px] bg-card px-3 text-sm font-medium transition-colors duration-150 focus-within:ring-3 focus-within:ring-ring/50 hover:bg-accent max-md:gap-1 max-md:rounded-full max-md:px-3">
+      <BoardIcon className="size-4 shrink-0 max-md:hidden" aria-hidden="true" />
+      <span className="text-muted-foreground max-md:hidden">Columns by</span>
+      <span className="truncate font-semibold">{label}</span>
+      <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <select aria-label="Columns by" value={value} onChange={(e) => view.update({ groupBy: e.target.value })} className="absolute inset-0 size-full cursor-pointer opacity-0">
         {JOB_GROUPS.filter((g) => g.key !== "").map((g) => (
           <option key={g.key} value={g.key}>
             {g.label}

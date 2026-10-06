@@ -1,6 +1,8 @@
 import type { ReactNode } from "react"
 import type { StaticPage } from "@/lib/pages"
 import { prefetchOn } from "@/lib/prefetch"
+import { NotificationsRow } from "@/components/NotifyPrompt"
+import type { Session } from "@/lib/auth"
 import { BriefcaseIcon, ChevronRightIcon, FileTextIcon, HomeIcon, SignOutIcon, UserCircleIcon } from "@/components/icons"
 
 /** The places someone with an account lives. Anything else (a research page, a shared job) leaves none of them lit. */
@@ -76,11 +78,12 @@ export function AppTopBar({ onHome, wordmark, bell }: { onHome: () => void; word
 }
 
 /** Phone: what the account menu holds on a wider screen, as a settings list at the foot of the profile. */
-export function PhoneMore({ onOpenPage, onSignIn, onSignOut, signedIn }: { onOpenPage: (page: StaticPage) => void; onSignIn?: () => void; onSignOut: () => void; signedIn: boolean }): React.JSX.Element {
+export function PhoneMore({ onOpenPage, onSignIn, onSignOut, signedIn, session }: { onOpenPage: (page: StaticPage) => void; onSignIn?: () => void; onSignOut: () => void; signedIn: boolean; session: Session | null }): React.JSX.Element {
   const row = "flex w-full cursor-pointer items-center justify-between px-4 py-3.5 text-left text-[0.95rem] font-medium active:bg-accent"
 
   return (
     <div className="flex flex-col gap-6 md:hidden">
+      <NotificationsRow session={session} />
       <section aria-label="About odds" className="flex flex-col gap-2">
         <p className="px-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">About odds</p>
         <ul className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card">

@@ -54,6 +54,8 @@ interface InstallPromptEvent extends Event {
 
 let installPrompt: InstallPromptEvent | null = null
 let subscribed = false
+/** True once this device has said whether it is already subscribed, so nothing asks before the answer is in. */
+let checked = false
 const listeners = new Set<() => void>()
 const emit = (): void => listeners.forEach((l) => l())
 
@@ -74,9 +76,13 @@ export function startPush(): void {
       .then((reg) => reg.pushManager?.getSubscription())
       .then((sub) => {
         subscribed = Boolean(sub)
+        checked = true
         emit()
       })
-      .catch(() => undefined)
+      .catch(() => {
+        checked = true
+        emit()
+      })
   }
 }
 
@@ -101,25 +107,25 @@ function pushState(): PushState {
 
 let snapshot = ""
 function read(): string {
-  const next = `${pushState()}|${installPrompt ? 1 : 0}`
+  const next = `${pushState()}|${installPrompt ? 1 : 0}|${checked ? 1 : 0}`
   snapshot = next
 
   return snapshot
 }
 
 /** The push state and whether the browser offers a one-tap install, kept fresh. */
-export function usePush(): { state: PushState; canPrompt: boolean } {
+export function usePush(): { state: PushState; canPrompt: boolean; /** This device's own subscription has been looked up. */ checked: boolean } {
   const raw = useSyncExternalStore(
     (l) => {
       listeners.add(l)
       return () => listeners.delete(l)
     },
     read,
-    () => "unsupported|0",
+    () => "unsupported|0|0",
   )
-  const [state, prompt] = raw.split("|")
+  const [state, prompt, done] = raw.split("|")
 
-  return { state: state as PushState, canPrompt: prompt === "1" }
+  return { state: state as PushState, canPrompt: prompt === "1", checked: done === "1" }
 }
 
 /** Chrome's own install dialog (Android and computers). False when the browser did not offer one. */

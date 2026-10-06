@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { createPhoneLink, startGuestSession, type Session } from "@/lib/auth"
 import { useData } from "@/lib/data"
 import { useWaitingPair } from "@/lib/pairing"
-import { iosOtherBrowser, isInstalled, platformOf, turnOnNotifications, useHasPhone, usePush } from "@/lib/push"
+import { iosOtherBrowser, isInstalled, platformOf, turnOnNotifications, usePush } from "@/lib/push"
 
 const HOME_CODE = "odds:home-code"
 
@@ -61,7 +61,6 @@ export function useHomeScreenCode(session: Session | null): void {
 export function NotifyPrompt({ session }: { session: Session | null }): React.JSX.Element | null {
   const data = useData()
   const push = usePush()
-  const hasPhone = useHasPhone(session)
   const [hidden, setHidden] = useState<boolean>(false)
   const waitingPair = useWaitingPair()
   const [busy, setBusy] = useState<boolean>(false)
@@ -72,7 +71,8 @@ export function NotifyPrompt({ session }: { session: Session | null }): React.JS
     return null
   }
 
-  if (push.state !== "ask" || hasPhone) {
+  // Whether this phone gets notifications is about this phone only: another device of yours being on does not answer it.
+  if (push.state !== "ask" || !push.checked) {
     return null
   }
 
@@ -112,5 +112,74 @@ export function NotifyPrompt({ session }: { session: Session | null }): React.JS
         </button>
       </div>
     </div>
+  )
+}
+
+/**
+ * The way to notifications that is always there, at the foot of the profile on a phone: what they are on this phone,
+ * and the one tap that turns them on. The question the phone asks only comes in answer to that tap.
+ */
+export function NotificationsRow({ session }: { session: Session | null }): React.JSX.Element | null {
+  const data = useData()
+  const push = usePush()
+  const [busy, setBusy] = useState<boolean>(false)
+  const [error, setError] = useState<string | null>(null)
+
+  if (push.state === "unsupported") {
+    return null
+  }
+
+  async function turnOn(): Promise<void> {
+    setBusy(true)
+    setError(null)
+    try {
+      await turnOnNotifications(
+        session
+          ? session.user.id
+          : async () => {
+              const guest = await startGuestSession()
+              if (guest) data.setSession(guest)
+              return guest?.user.id ?? null
+            },
+      )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not turn on notifications.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const ios = platformOf() === "ios"
+  const status =
+    push.state === "on"
+      ? "On for this phone. New jobs that fit you arrive at 8 every morning."
+      : push.state === "blocked"
+        ? ios
+          ? "Off. Turn them on in Settings, Notifications, odds."
+          : "Off. Turn them on in your phone's settings for odds."
+        : push.state === "install"
+          ? ios
+            ? "Add odds to your Home Screen first: iPhones only send notifications to apps there."
+            : "Install odds first, then turn them on here."
+          : "Off on this phone."
+
+  return (
+    <section aria-label="Notifications" className="flex flex-col gap-2">
+      <p className="px-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Notifications</p>
+      <div className="flex items-center gap-3 rounded-xl border-[1.5px] border-line bg-card px-4 py-3.5">
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="text-[0.95rem] font-medium">New jobs every morning</span>
+          <span className="text-sm text-muted-foreground">{status}</span>
+          {error ? <span className="text-sm text-destructive">{error}</span> : null}
+        </span>
+        {push.state === "ask" ? (
+          <Button type="button" size="sm" disabled={busy || !push.checked} onClick={() => void turnOn()} className="shrink-0 cursor-pointer rounded-full px-4">
+            {busy ? "Turning on…" : "Turn on"}
+          </Button>
+        ) : push.state === "on" ? (
+          <span className="shrink-0 rounded-full bg-good px-2.5 py-1 text-xs font-semibold text-good-foreground">On</span>
+        ) : null}
+      </div>
+    </section>
   )
 }

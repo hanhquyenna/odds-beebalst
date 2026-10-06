@@ -16,7 +16,7 @@ import { usePeopleViews } from "@/lib/use-people-views"
 import { applyTrackerFilter, isTrackerFilterOn } from "@/lib/tracker"
 import { choicesFor, peopleChoices, ViewControls } from "@/components/ViewSettings"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { PipelineBoard } from "@/components/PipelineBoard"
+import { ColumnsBy, PipelineBoard } from "@/components/PipelineBoard"
 import { STEPS, stepOf } from "@/components/job-steps"
 import { AddJobs, Tracker, type AddPanel } from "@/components/Tracker"
 import { TrackerTable } from "@/components/TrackerTable"
@@ -151,8 +151,9 @@ export function Account({ looking, onStartLooking, onStopLooking }: AccountProps
 
   const filterToggle = <FilterToggle open={filtersOpen} onToggle={() => setFiltersOpen(!filtersOpen)} count={activeCount(filters) + (isTrackerFilterOn(active.tracker) ? 1 : 0)} />
   const tools = (
-    <span className="flex flex-wrap items-center gap-2 [&>*]:shrink-0">
+    <span className="flex flex-wrap items-center gap-2 max-md:min-w-0 max-md:shrink! max-md:flex-nowrap max-md:gap-1.5 [&>*]:shrink-0">
       <LayoutMenu subject={subject} layout={layout} onChange={chooseLayout} />
+      {subject === "jobs" && layout === "board" ? <ColumnsBy viewName={view} /> : null}
       {subject === "people" ? (
         layout === "calendar" ? null : <ViewControls view={view} {...peopleChoices(data.profile.peopleColumns ?? [])} properties={layout === "table" ? peopleChoices(data.profile.peopleColumns ?? []).properties : []} />
       ) : (
@@ -295,10 +296,10 @@ export function LayoutMenu({ subject, layout, onChange }: { subject: Subject; la
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger className="flex h-10 cursor-pointer items-center gap-2 rounded-lg border-[1.5px] bg-card px-3.5 text-sm font-medium transition-colors duration-150 hover:bg-accent max-md:rounded-full">
+      <PopoverTrigger className="flex h-10 cursor-pointer items-center gap-2 rounded-lg border-[1.5px] bg-card px-3.5 text-sm font-medium transition-colors duration-150 hover:bg-accent max-md:w-10 max-md:justify-center max-md:rounded-full max-md:px-0" aria-label={`Layout: ${current.label}`}>
         <current.Icon className="size-4" aria-hidden="true" />
-        {current.label}
-        <ChevronDownIcon className="size-3.5 text-muted-foreground" aria-hidden="true" />
+        <span className="max-md:sr-only">{current.label}</span>
+        <ChevronDownIcon className="size-3.5 text-muted-foreground max-md:hidden" aria-hidden="true" />
       </PopoverTrigger>
       <PopoverContent align="start" className="flex w-72 flex-col gap-0.5 p-1.5">
         {options.map((v) => (
