@@ -42,6 +42,15 @@ export function familyPosterior(tokens: ReadonlyArray<string>): number[] | null 
 }
 
 const titleTokens = (text: string): string[] => words(text).map(stem)
+
+/** The line of work one job title or degree points to, when one family clearly leads (at least `sure`); else null. */
+export function familyOfTitle(text: string, sure = 0.5): string | null {
+  const post = familyPosterior(titleTokens(text))
+  if (!post) return null
+  const best = post.indexOf(Math.max(...post))
+
+  return post[best] >= sure ? M.families[best] : null
+}
 const skillTokens = (skills: Iterable<string>): string[] => [...skills].map((s) => `skill:${s.toLowerCase()}`)
 
 /** One reading per job title and per degree, kept per profile so the thousands of jobs scored against it do not redo it. */
