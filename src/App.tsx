@@ -1,9 +1,8 @@
 import { Suspense, lazy, useEffect, useState } from "react"
 import { JobListSkeleton } from "@/components/Skeleton"
 import { Footer } from "@/components/Footer"
-import { AppSidebar, AppTopBar, BottomNav, PhoneMore, type ShellTab } from "@/components/AppShell"
+import type { ShellTab } from "@/components/AppShell"
 import { usePhone } from "@/lib/use-phone"
-import { NewJobsBell } from "@/components/NewPlacesBell"
 import { NotifyPrompt } from "@/components/NotifyPrompt"
 import { DevicePairing } from "@/components/DevicePairing"
 import { Button } from "@/components/ui/button"
@@ -21,6 +20,13 @@ import { prefetchOn } from "@/lib/prefetch"
 
 // Lazy because they carry the form schema. Someone coming back to their
 // account needs neither.
+// Lazy because only someone with an account sees them: the front page a visitor lands on never waits on the app's
+// own menus or the bell, and stays inside its size budget (e2e/lean.spec.ts).
+const AppSidebar = lazy(() => import("@/components/AppShell").then((module) => ({ default: module.AppSidebar })))
+const AppTopBar = lazy(() => import("@/components/AppShell").then((module) => ({ default: module.AppTopBar })))
+const BottomNav = lazy(() => import("@/components/AppShell").then((module) => ({ default: module.BottomNav })))
+const PhoneMore = lazy(() => import("@/components/AppShell").then((module) => ({ default: module.PhoneMore })))
+const NewJobsBell = lazy(() => import("@/components/NewPlacesBell").then((module) => ({ default: module.NewJobsBell })))
 const SeekerJourney = lazy(() => import("@/components/SeekerJourney").then((module) => ({ default: module.SeekerJourney })))
 const SignIn = lazy(() => import("@/components/SignIn").then((module) => ({ default: module.SignIn })))
 // Lazy because they open after the first paint: a job opens from a list, and
@@ -285,7 +291,12 @@ export default function App(): React.JSX.Element {
     }
   }
 
-  const bell = <NewJobsBell refresh={visits} onOpen={showJobs} />
+  // Holds the bell's place while it loads, so nothing beside it jumps.
+  const bell = (
+    <Suspense fallback={<span className="size-10 shrink-0" aria-hidden="true" />}>
+      <NewJobsBell refresh={visits} onOpen={showJobs} />
+    </Suspense>
+  )
   const accountMenu = (
     <AccountMenu email={isGuestEmail(data.session?.user.email) ? null : (data.session?.user.email ?? null)} guest={isGuestEmail(data.session?.user.email)} profileAvatar={data.profile.avatar || ""} sessionAvatar={data.session?.user.avatar || ""} name={data.profile.name} onDashboard={onboarded ? () => goTab("account") : undefined} onAnswers={() => goTab("answers")} onDocuments={onboarded ? () => goTab("documents") : undefined} onSignIn={() => leaveSharedJob("signin")} onSignOut={handleSignOut} />
   )
@@ -303,10 +314,10 @@ export default function App(): React.JSX.Element {
 
       {/* Stays at the top, solid brand orange, the same as the footer, so the two bookend the page. */}
       {shell ? (
-        <>
+        <Suspense fallback={null}>
           <AppSidebar active={activeTab} onNavigate={goTab} onOpenPage={openPage} onHome={() => goTab("account")} wordmark={<Wordmark />} bell={bell} account={accountMenu} loadPages={loadStaticPages} />
           <AppTopBar onHome={() => goTab("account")} wordmark={<Wordmark />} bell={bell} />
-        </>
+        </Suspense>
       ) : null}
       {shell ? null : (
       <header className={`sticky top-0 z-20 bg-brand text-foreground ${view === "signin" && !page ? "max-md:hidden" : ""}`}>
@@ -425,7 +436,11 @@ export default function App(): React.JSX.Element {
           <InstallGuide session={data.session} onClose={() => openInstallGuide(false)} />
         </Suspense>
       ) : null}
-      {shell ? <BottomNav active={activeTab} onNavigate={goTab} /> : null}
+      {shell ? (
+        <Suspense fallback={null}>
+          <BottomNav active={activeTab} onNavigate={goTab} />
+        </Suspense>
+      ) : null}
       <NotifyPrompt session={data.session} />
       <DevicePairing />
     </div>

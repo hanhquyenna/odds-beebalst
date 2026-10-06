@@ -6,7 +6,7 @@ const SEARCH = { name: "Search jobs, companies or places" }
 test("landing renders the open jobs from the backend", async ({ page }) => {
   await page.goto("/")
 
-  await expect(page.getByRole("heading", { level: 1, name: "a job search should feel human." })).toBeVisible()
+  await expect(page.getByRole("heading", { level: 1, name: "ever wondered your interview odds as an international student?" })).toBeVisible()
   await expect(page.getByRole("heading", { level: 2, name: `${DEFAULT_VISIBLE} internship, traineeship & entry jobs right now` })).toBeVisible()
   await expect(jobRows(page)).toHaveCount(DEFAULT_VISIBLE)
   // Newest first: the job posted yesterday leads.
@@ -116,7 +116,7 @@ test("the long-read pages load, from a link and from the address bar", async ({ 
   await expect(page).toHaveURL(/\/about$/)
   await expect(page.getByRole("heading", { level: 1, name: "A clearer way through a hard job search." })).toBeVisible()
   await page.goBack()
-  await expect(page.getByRole("heading", { level: 1, name: "a job search should feel human." })).toBeVisible()
+  await expect(page.getByRole("heading", { level: 1, name: "ever wondered your interview odds as an international student?" })).toBeVisible()
 })
 
 test("a return visit shows the jobs from the last visit before the backend answers", async ({ page }) => {
