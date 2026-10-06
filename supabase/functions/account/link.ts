@@ -106,8 +106,12 @@ export async function link(req: Request): Promise<Response> {
 
     const done = await fetch(`${supabaseUrl}/rest/v1/rpc/adopt_guest`, { method: "POST", headers: admin, body: JSON.stringify({ guest: guest, owner: owner }) })
     if (!done.ok) return reply(409, { error: "Could not move the guest account." })
+    const moved = (await done.json()) as Record<string, unknown>
+    // Documents move in their own step; a failure here must not undo the account move, so it is reported as 0 moved.
+    const docs = await fetch(`${supabaseUrl}/rest/v1/rpc/adopt_guest_documents`, { method: "POST", headers: admin, body: JSON.stringify({ guest: guest, owner: owner }) })
+    moved.documents = docs.ok ? await docs.json() : 0
 
-    return reply(200, { moved: await done.json() })
+    return reply(200, { moved })
   }
 
   if (body.action === "pair-start") {

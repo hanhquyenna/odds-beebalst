@@ -40,10 +40,10 @@ export function Tracker({ posts, onOpen, viewName, rowLimit, footer, dismissible
   }, [posts, view.config.sortKey, view.config.sortDir, profile, data.applications, data.reference, data.shares, data.referrals])
 
   return (
-    <div className="@container overflow-hidden rounded-xl border-[1.5px] border-line bg-card">
+    <div className="@container overflow-hidden rounded-xl border-[1.5px] border-line bg-card max-md:-mx-5 max-md:rounded-none max-md:border-x-0">
       <ul>
         {sorted.slice(0, rowLimit ?? sorted.length).map((post) => (
-          <li key={post.id} className="relative after:absolute after:right-0 after:bottom-0 after:left-4 after:h-px after:bg-border last:after:hidden @2xl:after:left-6">
+          <li key={post.id} className="relative after:absolute after:right-0 after:bottom-0 after:left-4 max-md:after:left-0 after:h-px after:bg-border last:after:hidden @2xl:after:left-6">
             <JobRow post={post} onOpen={() => onOpen(post)} status dismissible={dismissible} />
           </li>
         ))}

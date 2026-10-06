@@ -51,14 +51,14 @@ export function ViewControls({ view, properties, sorts, sortDefault }: { view: V
   const labels = directionLabels(key)
   // Properties that start hidden do not count as something changed until they are turned on.
   const hiddenCount = properties.filter((p) => !show(p.key) && !HIDDEN_AT_START.has(p.key)).length + (config.shown?.length ?? 0)
-  const button = "flex h-10 cursor-pointer items-center gap-2 rounded-lg border-[1.5px] bg-card px-3.5 text-sm font-medium transition-colors duration-150 hover:bg-accent"
+  const button = "flex h-10 cursor-pointer items-center gap-2 rounded-lg border-[1.5px] bg-card px-3.5 text-sm font-medium transition-colors duration-150 hover:bg-accent max-md:w-10 max-md:justify-center max-md:rounded-full max-md:px-0"
 
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Popover open={sortOpen} onOpenChange={setSortOpen}>
         <PopoverTrigger className={`${button} ${config.sortKey ? "border-brand bg-accent" : ""}`}>
           <SortIcon className="size-4" aria-hidden="true" />
-          {config.sortKey && active ? `${active.label}: ${labels[config.sortDir]}` : "Sort"}
+          <span className="max-md:sr-only">{config.sortKey && active ? `${active.label}: ${labels[config.sortDir]}` : "Sort"}</span>
         </PopoverTrigger>
         <PopoverContent align="start" className="flex w-72 max-w-[calc(100vw-2rem)] flex-col p-1.5">
           {sorts.map((s) => {
@@ -108,7 +108,7 @@ export function ViewControls({ view, properties, sorts, sortDefault }: { view: V
       <Popover open={propsOpen} onOpenChange={setPropsOpen}>
         <PopoverTrigger className={button}>
           <EyeIcon className="size-4" aria-hidden="true" />
-          Properties
+          <span className="max-md:sr-only">Properties</span>
         </PopoverTrigger>
         <PopoverContent align="start" className="flex w-64 flex-col gap-0.5 p-1.5">
           <p className="px-3 pt-1.5 pb-1 text-[0.8125rem] text-muted-foreground">Shown in this view</p>

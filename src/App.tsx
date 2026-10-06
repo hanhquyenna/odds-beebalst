@@ -1,6 +1,8 @@
 import { Suspense, lazy, useEffect, useState } from "react"
 import { JobListSkeleton } from "@/components/Skeleton"
 import { Footer } from "@/components/Footer"
+import { AppSidebar, AppTopBar, BottomNav, PhoneMore, type ShellTab } from "@/components/AppShell"
+import { usePhone } from "@/lib/use-phone"
 import { NewJobsBell } from "@/components/NewPlacesBell"
 import { NotifyPrompt } from "@/components/NotifyPrompt"
 import { DevicePairing } from "@/components/DevicePairing"
@@ -10,6 +12,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { useData } from "@/lib/data"
 import { pageFromPath, pathForPage, type StaticPage } from "@/lib/pages"
 import { clearSeenRooms, saveSeenRooms } from "@/lib/seen"
+import { useDocumentsSync } from "@/lib/use-documents"
 import { isGuestEmail } from "@/lib/auth"
 import { openInstallGuide, useInstallGuide } from "@/lib/push"
 import { clearDraft } from "@/lib/session"
@@ -23,6 +26,7 @@ const SignIn = lazy(() => import("@/components/SignIn").then((module) => ({ defa
 // Lazy because they open after the first paint: a job opens from a list, and
 // settings open from the menu. Landing and the account never wait on them.
 const JobDetail = lazy(() => import("@/components/JobDetail").then((module) => ({ default: module.JobDetail })))
+const Documents = lazy(() => import("@/components/Documents").then((module) => ({ default: module.Documents })))
 const ProfilePage = lazy(() => import("@/components/ProfilePage").then((module) => ({ default: module.ProfilePage })))
 // Lazy because it is one view among several: first-timers never load the
 // boards and tables until they have answers, and returning users wait on it
@@ -43,7 +47,7 @@ const OfferGate = lazy(() => import("@/components/OfferGate").then((module) => (
 const StatusColorsDialog = lazy(() => import("@/components/StatusColorsDialog").then((module) => ({ default: module.StatusColorsDialog })))
 const InstallGuide = lazy(() => import("@/components/InstallGuide").then((module) => ({ default: module.InstallGuide })))
 
-type View = "account" | "answers" | "journey" | "jobs" | "signin"
+type View = "account" | "answers" | "documents" | "journey" | "jobs" | "signin"
 
 /** The job id in a /job/<id> deep link. Null for any other path, or a malformed escape like /job/abc% that cannot be decoded. */
 function jobIdFromPath(pathname: string): string | null {
@@ -60,8 +64,10 @@ function jobIdFromPath(pathname: string): string | null {
 
 export default function App(): React.JSX.Element {
   const data = useData()
+  useDocumentsSync()
   const onboarded = data.profile.onboarded
   const installGuide = useInstallGuide()
+  const phone = usePhone()
   // With answers already given the account is coming, so the welcome screen
   // must not flash first.
   const [view, setView] = useState<View>(() => (onboarded ? "account" : "journey"))
@@ -261,9 +267,33 @@ export default function App(): React.JSX.Element {
     }
   }
 
+  // Someone with an account gets the app: a side menu on a laptop or iPad, a tab bar on a phone, no website header.
+  const shell = onboarded && !shooReturn && view !== "signin"
+  const activeTab: ShellTab | null = page || sharedJobId ? null : view === "account" || view === "jobs" || view === "documents" || view === "answers" ? view : null
+
+  function goTab(tab: ShellTab): void {
+    if (page || sharedJobId) {
+      history.pushState({}, "", "/")
+      setPage(null)
+      setSharedJobId(null)
+    }
+    window.scrollTo(0, 0)
+    if (tab === "jobs") {
+      showJobs()
+    } else {
+      setView(tab)
+    }
+  }
+
+  const bell = <NewJobsBell refresh={visits} onOpen={showJobs} />
+  const accountMenu = (
+    <AccountMenu email={isGuestEmail(data.session?.user.email) ? null : (data.session?.user.email ?? null)} guest={isGuestEmail(data.session?.user.email)} profileAvatar={data.profile.avatar || ""} sessionAvatar={data.session?.user.avatar || ""} name={data.profile.name} onDashboard={onboarded ? () => goTab("account") : undefined} onAnswers={() => goTab("answers")} onDocuments={onboarded ? () => goTab("documents") : undefined} onSignIn={() => leaveSharedJob("signin")} onSignOut={handleSignOut} />
+  )
+
   return (
-    <div className="flex min-h-svh flex-col bg-background text-foreground">
-      <Toaster position="top-center" closeButton />
+    <div className={`flex min-h-svh flex-col bg-background text-foreground ${shell ? "md:pl-60" : ""}`}>
+      {/* A phone gets its messages at the bottom, over the tab bar, where a thumb can swipe them away. */}
+      <Toaster position={phone && shell ? "bottom-center" : "top-center"} closeButton={!phone} mobileOffset={{ bottom: "calc(env(safe-area-inset-bottom) + 80px)" }} />
       {onboarded ? (
         <Suspense fallback={null}>
           <StatusColorsDialog />
@@ -272,7 +302,14 @@ export default function App(): React.JSX.Element {
       ) : null}
 
       {/* Stays at the top, solid brand orange, the same as the footer, so the two bookend the page. */}
-      <header className="sticky top-0 z-20 bg-brand text-foreground">
+      {shell ? (
+        <>
+          <AppSidebar active={activeTab} onNavigate={goTab} onOpenPage={openPage} onHome={() => goTab("account")} wordmark={<Wordmark />} bell={bell} account={accountMenu} loadPages={loadStaticPages} />
+          <AppTopBar onHome={() => goTab("account")} wordmark={<Wordmark />} bell={bell} />
+        </>
+      ) : null}
+      {shell ? null : (
+      <header className={`sticky top-0 z-20 bg-brand text-foreground ${view === "signin" && !page ? "max-md:hidden" : ""}`}>
         <div className={`mx-auto flex w-full ${column} flex-nowrap items-center justify-between gap-2.5 px-4 py-3 sm:gap-2 sm:px-6 sm:py-4`}>
           {/* The wordmark is the way home: the account for someone with answers
               saved, the front page for everyone else. */}
@@ -298,8 +335,8 @@ export default function App(): React.JSX.Element {
           </nav>
           {onboarded || data.session ? (
             <div className="flex shrink-0 items-center gap-1.5 sm:ml-2 sm:gap-2">
-              <NewJobsBell refresh={visits} onOpen={showJobs} />
-              <AccountMenu email={isGuestEmail(data.session?.user.email) ? null : (data.session?.user.email ?? null)} guest={isGuestEmail(data.session?.user.email)} profileAvatar={data.profile.avatar || ""} sessionAvatar={data.session?.user.avatar || ""} name={data.profile.name} onDashboard={onboarded ? () => setView("account") : undefined} onAnswers={() => setView("answers")} onSignIn={() => leaveSharedJob("signin")} onSignOut={handleSignOut} />
+              {bell}
+              {accountMenu}
             </div>
           ) : !page && !sharedJobId && view === "journey" ? (
             <Button type="button" variant="ghost" onClick={() => leaveSharedJob("signin")} className="h-9 shrink-0 cursor-pointer px-1.5 text-xs font-semibold text-foreground hover:bg-foreground/10 sm:px-3 sm:text-sm">
@@ -308,8 +345,9 @@ export default function App(): React.JSX.Element {
           ) : null}
         </div>
       </header>
+      )}
 
-      <main className={`mx-auto flex w-full ${page ? "max-w-5xl" : column} flex-1 flex-col px-5 pt-8 pb-7 sm:px-6`}>
+      <main className={`mx-auto flex w-full ${page ? "max-w-5xl" : column} flex-1 flex-col px-5 pt-8 sm:px-6 ${shell ? "pt-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pt-8 md:pb-7" : "pb-7"}`}>
         {data.status === "loading" ? (
           <JobListSkeleton />
         ) : data.status === "error" ? (
@@ -344,7 +382,18 @@ export default function App(): React.JSX.Element {
               </Suspense>
             ) : null}
 
-            {view === "answers" && onboarded ? <ProfilePage onBack={() => setView("account")} /> : null}
+            {view === "answers" && onboarded ? (
+              <>
+                <ProfilePage onBack={() => setView("account")} onOpenDocuments={() => setView("documents")} />
+                <PhoneMore onOpenPage={openPage} signedIn={Boolean(data.session?.user.email) && !isGuestEmail(data.session?.user.email)} onSignIn={data.session?.user.email && !isGuestEmail(data.session.user.email) ? undefined : () => setView("signin")} onSignOut={handleSignOut} />
+              </>
+            ) : null}
+
+            {view === "documents" && onboarded ? (
+              <Suspense fallback={null}>
+                <Documents onBack={() => setView("account")} onSignIn={() => setView("signin")} />
+              </Suspense>
+            ) : null}
 
             {(view === "answers" && !onboarded) || view === "journey" || ((view === "account" || view === "jobs") && !onboarded) ? (
               <SeekerJourney
@@ -365,13 +414,18 @@ export default function App(): React.JSX.Element {
           </Suspense>
         )}
 
-        {view !== "signin" || page ? <Footer onOpenPage={openPage} /> : null}
+        {view !== "signin" || page ? (
+          <div className={shell ? "hidden md:contents" : "contents"}>
+            <Footer onOpenPage={openPage} />
+          </div>
+        ) : null}
       </main>
       {installGuide ? (
         <Suspense fallback={null}>
           <InstallGuide session={data.session} onClose={() => openInstallGuide(false)} />
         </Suspense>
       ) : null}
+      {shell ? <BottomNav active={activeTab} onNavigate={goTab} /> : null}
       <NotifyPrompt session={data.session} />
       <DevicePairing />
     </div>
@@ -404,12 +458,13 @@ interface AccountMenuProps {
   name: string
   onDashboard?: () => void
   onAnswers: () => void
+  onDocuments?: () => void
   onSignIn: () => void
   onSignOut: () => void
 }
 
 /** The circle in the header: your photo once signed in, and the way to your answers and out. */
-function AccountMenu({ email, guest, profileAvatar, sessionAvatar, name, onDashboard, onAnswers, onSignIn, onSignOut }: AccountMenuProps): React.JSX.Element {
+function AccountMenu({ email, guest, profileAvatar, sessionAvatar, name, onDashboard, onAnswers, onDocuments, onSignIn, onSignOut }: AccountMenuProps): React.JSX.Element {
   // Controlled so choosing an item closes it; left open it covered the page it opened.
   const [open, setOpen] = useState<boolean>(false)
   // A dead photo URL falls through to the next source, then to the initial.
@@ -453,6 +508,11 @@ function AccountMenu({ email, guest, profileAvatar, sessionAvatar, name, onDashb
         <Button variant="ghost" onClick={() => choose(onAnswers)} className="cursor-pointer justify-start">
           Profile and settings
         </Button>
+        {onDocuments ? (
+          <Button variant="ghost" onClick={() => choose(onDocuments)} className="cursor-pointer justify-start">
+            Documents
+          </Button>
+        ) : null}
         {email ? null : (
           <Button variant="ghost" onClick={() => choose(onSignIn)} className="cursor-pointer justify-start">
             Continue with Google to keep it

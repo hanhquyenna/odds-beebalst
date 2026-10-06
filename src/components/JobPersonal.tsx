@@ -11,6 +11,7 @@ import { Section } from "@/components/Section"
 import { TIERS, TIER_LABEL, type Requirement, type Tier } from "@/lib/requirements"
 import { standardise, standardNames, standardTiers } from "@/lib/standard"
 import { useData } from "@/lib/data"
+import { useJobProfile } from "@/lib/use-documents"
 import { ladderStats, poolOf, rungOf } from "@/lib/ladder"
 import { derive, eur, isInternship, levelOf, type Level, payChoicesOf, netMonth, pct, point, standing, thresholdLines, type Standing, type WhatIf, NO_WHAT_IF } from "@/lib/engine"
 import { EXAMPLE_PROFILE } from "@/lib/example"
@@ -262,7 +263,8 @@ export function Recommendations({ post, base, whatIf, setWhatIf }: { post: Posti
   const ref = data.reference!
   const shares = data.shares!
   const referral = data.referrals.has(post.id)
-  const d = derive(data.profile)
+  const jobProfile = useJobProfile(post.id)
+  const d = derive(jobProfile)
   const active = whatIf.dutch || whatIf.degree || whatIf.student || whatIf.years > 0 || whatIf.skills.length > 0 || whatIf.tailor !== null
   const failed = (name: string): boolean => base.gates.find((g) => g.name === name)?.status === "fail"
   const [open, setOpen] = useState<string | null>(null)
@@ -272,7 +274,7 @@ export function Recommendations({ post, base, whatIf, setWhatIf }: { post: Posti
    * number only moves once the others are met too, and "No effect" when it does nothing. `gap` carries the "Needed" case so the reason can say why.
    */
   function worthOf(change: Partial<WhatIf>, asReferral = false): { badge: string; gap: boolean } {
-    const alt = standing(post, data.profile, ref, shares, { ...NO_WHAT_IF, ...change }, asReferral || referral, data.strengthFor(post))
+    const alt = standing(post, jobProfile, ref, shares, { ...NO_WHAT_IF, ...change }, asReferral || referral, data.strengthFor(post))
     if (base.rate && alt.rate && !base.rate.thin && !alt.rate.thin) {
       const gain = (alt.rate.mid - base.rate.mid) * 100
       if (Math.abs(gain) >= 0.05) {

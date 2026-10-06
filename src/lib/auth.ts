@@ -54,10 +54,25 @@ async function call(path: string, body: unknown): Promise<AuthResponse> {
   })
   const data = (await response.json().catch(() => ({}))) as AuthResponse
   if (!response.ok) {
-    throw new Error(data.error_description ?? data.msg ?? data.message ?? data.error ?? "Sign in failed")
+    throw new AuthRejected(data.error_description ?? data.msg ?? data.message ?? data.error ?? "Sign in failed", response.status)
   }
 
   return data
+}
+
+/** The auth server answered and said no (a used or revoked refresh token). Anything else, like no network, is not this. */
+class AuthRejected extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
+/** Only the server saying the login is no longer valid ends it; a failed trip (offline, a phone still waking up, a slow server) never does. */
+function rejected(caught: unknown): boolean {
+  return caught instanceof AuthRejected && caught.status >= 400 && caught.status < 500 && caught.status !== 408 && caught.status !== 429
 }
 
 function toSession(data: AuthResponse): Session | null {
@@ -235,11 +250,22 @@ export async function restoreSession(): Promise<Session | null> {
     keep(next)
 
     return next
-  } catch {
-    keep(null)
+  } catch (caught) {
+    if (rejected(caught)) {
+      keep(null)
 
-    return null
+      return null
+    }
+    // No answer: stay signed in with what is stored. keepSessionFresh tries again every minute and when the app comes back.
+    keep(stored)
+
+    return stored
   }
+}
+
+/** Asks the browser to keep this site's storage, so the saved sign-in is not cleared to free space. A no-op where it is not offered. */
+export function keepStorage(): void {
+  void navigator.storage?.persist?.().catch(() => false)
 }
 
 /** Keeps a signed-in tab's token valid: checks every minute and when the tab comes back, refreshing within a minute of expiry. data.tsx runs it while signed in; the returned function stops it. */

@@ -13,12 +13,23 @@ export function toCsv(headers: ReadonlyArray<string>, rows: ReadonlyArray<Readon
   return `﻿${[headers, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n")}\r\n`
 }
 
-/** Hands the file to the browser as a download. */
+/** Hands the file to the browser as a download. The Home Screen app cannot download, so there it goes to the share sheet (Save to Files, Mail, Excel). */
 export function downloadCsv(name: string, text: string): void {
+  const filename = name.endsWith(".csv") ? name : `${name}.csv`
+  const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean }
+  const standalone = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true
+  if (standalone && nav.share) {
+    const file = new File([text], filename, { type: "text/csv" })
+    if (nav.canShare?.({ files: [file] })) {
+      void nav.share({ files: [file], title: filename }).catch(() => undefined)
+
+      return
+    }
+  }
   const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }))
   const a = document.createElement("a")
   a.href = url
-  a.download = name.endsWith(".csv") ? name : `${name}.csv`
+  a.download = filename
   document.body.appendChild(a)
   a.click()
   a.remove()

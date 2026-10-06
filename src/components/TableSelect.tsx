@@ -114,9 +114,9 @@ export function BulkBar({ count, onExport, onDelete, onClear }: { count: number;
 /** The bar over a table: the count (or what stands in its place) on the left, the table's tools and Group by on the right. */
 export function TableBar({ lead, toolbar, groupBy, groups, onGroupBy }: { lead: React.ReactNode; toolbar: React.ReactNode; groupBy: string; groups: ReadonlyArray<{ key: string; label: string }>; onGroupBy: (key: string) => void }): React.JSX.Element {
   return (
-    <div className="no-scrollbar flex flex-nowrap items-center gap-3 overflow-x-auto border-b-[1.5px] border-line px-3 py-2.5 text-sm sm:flex-wrap sm:justify-between sm:px-4 [&>*]:shrink-0">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b-[1.5px] border-line px-4 py-2.5 text-sm">
       <span className="text-muted-foreground">{lead}</span>
-      <span className="flex items-center gap-2 sm:flex-wrap [&>*]:shrink-0">
+      <span className="flex min-w-0 flex-wrap items-center gap-2 [&>*]:shrink-0">
         {toolbar}
         <GroupByButton value={groupBy} groups={groups} onChange={onGroupBy} />
       </span>

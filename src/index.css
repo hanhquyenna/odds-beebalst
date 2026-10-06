@@ -101,6 +101,21 @@
   table {
     font-variant-numeric: tabular-nums;
     }
+  /* On a phone's Home Screen the page is an app: no grey tap flash, no rubber-band pull, no double-tap zoom, and buttons are not text to select. */
+  @media (display-mode: standalone) {
+    html, body {
+      overscroll-behavior-y: none;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+      }
+    button, nav, [role="tab"] {
+      -webkit-user-select: none;
+      user-select: none;
+      }
+    a, button, [role="button"], [role="tab"] {
+      touch-action: manipulation;
+      }
+    }
   ::selection {
     background: oklch(0.6 0.17 52 / 0.25);
     }
@@ -234,3 +249,42 @@
     display: none;
   }
 }
+
+/* The hero's two phrases start black and warm to orange, the second a beat after the first. Without motion they are simply orange. */
+@keyframes hero-warm { from { color: var(--foreground); } to { color: var(--brand); } }
+@media (prefers-reduced-motion: no-preference) {
+    .hero-warm {
+        animation: hero-warm 1.6s ease-in-out 0.6s both;
+    }
+    .hero-warm-late {
+        animation-delay: 1.6s;
+    }
+}
+
+/* iPhone zooms the page into any field under 16px when it is focused, and an app never jumps like that. */
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select {
+    font-size: 16px;
+  }
+}
+
+/* A phone is an app: a soft grey ground with white cards on it, and hairlines instead of drawn outlines. */
+@media (max-width: 767px) {
+  :root:not(.dark) {
+    --background: oklch(0.972 0.004 70);
+    --border: oklch(0.89 0.008 70);
+    --line: oklch(0.89 0.008 70);
+  }
+}
+
+/* The bell rings once when something new arrives. */
+@keyframes bell-shake {
+  0%, 100% { transform: rotate(0); }
+  15% { transform: rotate(14deg); }
+  30% { transform: rotate(-12deg); }
+  45% { transform: rotate(9deg); }
+  60% { transform: rotate(-6deg); }
+  75% { transform: rotate(3deg); }
+}
+.bell-shake { animation: bell-shake 0.9s ease-in-out; transform-origin: 50% 10%; }
+@media (prefers-reduced-motion: reduce) { .bell-shake { animation: none; } }

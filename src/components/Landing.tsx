@@ -58,18 +58,20 @@ export function Landing({ onStart, onSignIn, onOpenPage }: LandingProps): React.
       {/* The opening statement: white, no furniture. -mt-8 undoes the main's top padding. */}
       <section className="relative left-1/2 -mt-8 w-screen -translate-x-1/2 bg-background pt-16 pb-4 sm:pt-28 sm:pb-6">
         <div className="mx-auto w-full max-w-sm px-5 sm:max-w-2xl sm:px-6 lg:max-w-6xl lg:px-10">
-          <h1 className="max-w-4xl text-[clamp(3rem,8.5vw,8rem)] leading-[0.92] font-bold tracking-[-0.045em] text-balance">a job search should feel <span className="text-brand">human.</span>
+          <h1 className="max-w-5xl text-[clamp(2.5rem,6.5vw,6rem)] leading-[0.95] font-bold tracking-[-0.045em] text-balance">ever wondered your <span className="hero-warm text-brand">interview odds</span> as an <span className="hero-warm hero-warm-late text-brand">international student?</span>
             <img src={logoUrl} alt="" aria-hidden="true" className="ml-[0.15em] inline-block size-[0.82em] align-[-0.06em]" />
           </h1>
-          <div className="mt-8 flex flex-col items-start gap-10 sm:gap-14">
-            <Button onClick={onStart} className="h-11 cursor-pointer rounded-full px-7">
-              Start
-            </Button>
-            {signedIn ? null : (
-              <button type="button" onClick={onSignIn} className="cursor-pointer font-medium text-muted-foreground transition-colors hover:text-foreground">
-                Already with us? Sign in
-              </button>
-            )}
+          <div className="mt-16 flex flex-col items-start gap-28 sm:mt-24 sm:gap-40">
+            <div className="flex items-center gap-3">
+              <Button onClick={onStart} className="h-11 cursor-pointer rounded-full px-7">
+                Start
+              </Button>
+              {signedIn ? null : (
+                <Button variant="outline" onClick={onSignIn} className="h-11 cursor-pointer rounded-full px-7">
+                  Sign in
+                </Button>
+              )}
+            </div>
             <button
               type="button"
               onClick={() => document.getElementById("film")?.scrollIntoView({ behavior: "smooth", block: "center" })}

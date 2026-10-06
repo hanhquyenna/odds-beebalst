@@ -58,9 +58,9 @@ export function ViewTabs({ views, active, onSelect, onAdd, onRename, onDuplicate
               role="tab"
               aria-selected={on}
               onClick={() => onSelect(v.id)}
-              className={`flex cursor-pointer items-center gap-2 rounded-t-md px-3 py-2 text-sm whitespace-nowrap transition-colors duration-150 ${on ? "font-semibold text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
+              className={`flex cursor-pointer items-center gap-2 rounded-t-md px-2.5 py-2 text-sm whitespace-nowrap md:px-3 transition-colors duration-150 ${on ? "font-semibold text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
             >
-              <Icon className="size-4" aria-hidden="true" />
+              <Icon className="size-4 max-md:hidden" aria-hidden="true" />
               {v.name}
             </button>
             {on ? (
@@ -102,9 +102,9 @@ export function ViewTabs({ views, active, onSelect, onAdd, onRename, onDuplicate
       })}
 
       <Popover open={creating} onOpenChange={setCreating}>
-        <PopoverTrigger className="mb-0.5 flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground">
+        <PopoverTrigger aria-label="New view" className="mb-0.5 ml-auto flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground md:ml-0">
           <PlusIcon className="size-4" aria-hidden="true" />
-          New view
+          <span className="max-md:hidden">New view</span>
         </PopoverTrigger>
         <PopoverContent align="start" className="flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 p-3">
           <form

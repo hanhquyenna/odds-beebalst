@@ -138,25 +138,24 @@ export function SearchSummary(): React.JSX.Element {
   const offers = count("offer", "hired")
   // Each count wears the colour you gave its status (Edit colors, in the status menu), so the top of the page and the jobs below agree.
   const colors = statusColors(data.profile.statusColors)
-  const stats: Array<{ label: string; n: number; key: StatusKey; under: string }> = [
-    { label: "Saved", n: saved, key: "saved", under: "kept, not applied yet" },
-    { label: "Applied", n: count("applied"), key: "applied", under: total > 0 ? `${total} sent in all` : "none sent yet" },
-    { label: "Interviews", n: interviews, key: "interview", under: total > 0 ? `${interviews} of ${total} ${total === 1 ? "application" : "applications"}` : "after you apply" },
-    { label: "Offers", n: offers, key: "offer", under: interviews > 0 ? `${offers} of ${interviews} interviews` : "about 1 in 4 interviews" },
+  const stats: Array<{ label: string; n: number; key: StatusKey }> = [
+    { label: "Saved", n: saved, key: "saved" },
+    { label: "Applied", n: count("applied"), key: "applied" },
+    { label: "Interviews", n: interviews, key: "interview" },
+    { label: "Offers", n: offers, key: "offer" },
   ]
 
   return (
     <div className="flex flex-col gap-3">
-    <section aria-label="Your search" className="overflow-hidden rounded-2xl border-2 border-line bg-card shadow-sm">
-      <dl className="grid grid-cols-2 divide-x-[1.5px] divide-line sm:grid-cols-4">
-        {stats.map(({ label, n, key, under }, i) => (
-          <div key={label} className={`group relative flex flex-col gap-1 px-4 pt-5 pb-3 sm:px-5 ${i === 2 ? "max-sm:border-t-[1.5px] max-sm:border-line" : i === 3 ? "max-sm:border-t-[1.5px] max-sm:border-line" : ""}`}>
-            <span aria-hidden="true" style={{ backgroundColor: colors[key] }} className="absolute inset-x-0 top-0 h-1.5" />
-            <dd style={{ color: colors[key] }} className="text-4xl leading-none font-bold tracking-tight tabular-nums">
+    <section aria-label="Your search" className="overflow-hidden rounded-2xl border-2 border-line bg-card shadow-sm max-md:-mx-5 max-md:rounded-none max-md:border-x-0 max-md:border-y-[1.5px] max-md:shadow-none">
+      <dl className="grid grid-cols-4 divide-x-[1.5px] divide-line">
+        {stats.map(({ label, n, key }) => (
+          <div key={label} className="group relative flex flex-col gap-1 px-2.5 pt-4 pb-3 md:px-5 md:pt-5">
+            <span aria-hidden="true" style={{ backgroundColor: colors[key] }} className="absolute inset-x-0 top-0 h-1 md:h-1.5" />
+            <dd style={{ color: colors[key] }} className="text-2xl leading-none font-bold tracking-tight tabular-nums md:text-4xl">
               {n}
             </dd>
-            <dt className="text-sm font-semibold">{label}</dt>
-            <p className="text-xs text-muted-foreground">{under}</p>
+            <dt className="truncate text-xs font-semibold md:text-sm">{label}</dt>
             <button type="button" onClick={openStatusColors} className="absolute top-3 right-2 hidden cursor-pointer rounded-md bg-card px-1.5 py-0.5 text-xs font-medium underline underline-offset-4 shadow-sm group-hover:block focus:block">
               Edit colors
             </button>

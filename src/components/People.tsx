@@ -1,3 +1,4 @@
+import { usePhone } from "@/lib/use-phone"
 import { PersonAvatar } from "@/components/PersonAvatar"
 import { Suspense, lazy, useMemo, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
@@ -479,7 +480,9 @@ function PersonRow({ person, show, n }: { person: Person; show: (key: string) =>
 export function PeopleView({ onOpen, views, tools }: { onOpen: (post: Posting) => void; views: ReturnType<typeof usePeopleViews>; tools: React.ReactNode }): React.JSX.Element {
   const data = useData()
   const { active } = views
-  const layout = active.layout
+  const phone = usePhone()
+  // A table cannot fit a phone: the same people as a list.
+  const layout = phone && active.layout === "table" ? "list" : active.layout
   const view = useViewConfig(views.configName)
   const [details, setDetails] = useState<Person | null>(null)
   const days = useFollowDays()

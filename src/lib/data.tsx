@@ -2,7 +2,7 @@ import { mergePool } from "@/lib/sources"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { readCache, writeCache } from "@/lib/cache"
-import { keepSessionFresh, restoreSession, signOut as authSignOut, startGuestSession, type Session } from "@/lib/auth"
+import { keepSessionFresh, keepStorage, restoreSession, signOut as authSignOut, startGuestSession, type Session } from "@/lib/auth"
 import { computeShares, type CategoryShare } from "@/lib/engine"
 import { collectedOn } from "@/lib/format"
 import { todayIso } from "@/lib/tracker"
@@ -187,6 +187,8 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
           setSessionState(restored)
           setSessionChecked(true)
         }
+        // Signed in: ask the browser to keep this site's data, so the sign-in lasts.
+        if (restored) keepStorage()
       })
 
     return () => {

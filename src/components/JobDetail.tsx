@@ -10,7 +10,9 @@ import { JobProperties } from "@/components/JobProperties"
 import { Hint } from "@/components/Hint"
 import { CareerLadder, FitCard, LockedPersonal, PayCard, Recommendations, UspStrip } from "@/components/JobPersonal"
 import { Section } from "@/components/Section"
+import { JobDocuments } from "@/components/JobDocuments"
 import { useData } from "@/lib/data"
+import { useJobProfile } from "@/lib/use-documents"
 import { saved as notifySaved } from "@/lib/saved"
 import { isWhatIfActive, NO_WHAT_IF, standing, type WhatIf } from "@/lib/engine"
 import { stripMarkup } from "@/lib/format"
@@ -92,13 +94,15 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
   const referral = data.referrals.has(post.id)
   // How strong your saved profile reads for this job. Until something has been read (or if the reader is off) the chance shows without it.
   const strength = data.strengthFor(post)
+  // A CV put on this job is what this job's chance is worked out from; without one it is the main CV in the profile.
+  const profile = useJobProfile(post.id)
   const base = useMemo(
-    () => (data.reference && data.shares ? standing(job, data.profile, data.reference, data.shares, NO_WHAT_IF, referral, strength) : null),
-    [job, data.profile, data.reference, data.shares, referral, strength],
+    () => (data.reference && data.shares ? standing(job, profile, data.reference, data.shares, NO_WHAT_IF, referral, strength) : null),
+    [job, profile, data.reference, data.shares, referral, strength],
   )
   const st = useMemo(
-    () => (data.reference && data.shares ? standing(job, data.profile, data.reference, data.shares, whatIf, referral, strength) : null),
-    [job, data.profile, data.reference, data.shares, whatIf, referral, strength],
+    () => (data.reference && data.shares ? standing(job, profile, data.reference, data.shares, whatIf, referral, strength) : null),
+    [job, profile, data.reference, data.shares, whatIf, referral, strength],
   )
 
   const pay = payOf(post, data.reference)
@@ -158,6 +162,7 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
           <JobProperties post={job} st={st} />
           <UspStrip post={job} st={st} />
           <Recommendations post={job} base={base} whatIf={whatIf} setWhatIf={setWhatIf} />
+          <JobDocuments postingId={post.id} />
           <FitCard post={job} st={st} requirements={requirements} />
         </>
       )}

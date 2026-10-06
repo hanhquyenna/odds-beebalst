@@ -1,5 +1,5 @@
 import { ArrowLeftIcon, CameraIcon, PlusIcon, XIcon } from "@/components/icons"
-import { Suspense, lazy, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { readLinkedInExport } from "@/lib/csv"
 import { isGuestEmail } from "@/lib/auth"
@@ -11,7 +11,6 @@ import type { DutchLevel, Origin, Permit, Profile, Row } from "@/lib/types"
 
 // Lazy: the upload box (with its reader and parser) loads only where a CV
 // goes in, not with the profile page around it.
-const CvUpload = lazy(() => import("@/components/CvUpload").then((module) => ({ default: module.CvUpload })))
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
@@ -103,6 +102,7 @@ function EntryList({ rows, onChange, blank, summary, fields, noun }: ListProps):
 
 interface ProfilePageProps {
   onBack: () => void
+  onOpenDocuments: () => void
 }
 
 /**
@@ -110,13 +110,12 @@ interface ProfilePageProps {
  * roles, the degrees, the skills and languages. The job page checks each of
  * them against what that job asks for, so each section says what it is used for.
  */
-export function ProfilePage({ onBack }: ProfilePageProps): React.JSX.Element {
+export function ProfilePage({ onBack, onOpenDocuments }: ProfilePageProps): React.JSX.Element {
   const data = useData()
   const p = data.profile
   // A guest address is a placeholder, never the person's email: hide it everywhere.
   const displayEmail = data.session && !isGuestEmail(data.session.user.email) ? data.session.user.email : null
   const pictureInput = useRef<HTMLInputElement>(null)
-  const [cvNote, setCvNote] = useState<string | null>(null)
   const [skill, setSkill] = useState<string>("")
   const [problem, setProblem] = useState<string | null>(null)
   const [imported, setImported] = useState<string | null>(null)
@@ -157,7 +156,7 @@ export function ProfilePage({ onBack }: ProfilePageProps): React.JSX.Element {
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5 pb-16">
-      <button type="button" onClick={onBack} className="flex w-fit cursor-pointer items-center gap-1 text-sm font-medium text-primary">
+      <button type="button" onClick={onBack} className="max-md:hidden flex w-fit cursor-pointer items-center gap-1 text-sm font-medium text-primary">
         <ArrowLeftIcon className="size-4" aria-hidden="true" /> Dashboard
       </button>
 
@@ -362,35 +361,10 @@ export function ProfilePage({ onBack }: ProfilePageProps): React.JSX.Element {
         </div>
       </Section>
 
-      <Section id="profile-cv" title="Your CV" hint="Upload it and the chance on every job is worked out from it, together with the roles, degrees and skills above.">
-        <Suspense fallback={null}>
-          <CvUpload
-            text={p.cv}
-            name={p.cvName}
-            source={p.linkedin ? "Text from your LinkedIn" : undefined}
-            note={cvNote}
-            onChange={(cv, cvName, uploaded) => {
-              if (!uploaded) {
-                data.setProfile({ ...p, cv, cvName })
-                setCvNote(null)
-
-                return
-              }
-              // The parser loads on first use, so it stays out of the page until then.
-              void import("@/lib/cv-parse").then(
-                ({ describeFilled, fillFromCv }) => {
-                  // A chosen file also fills the roles, degrees and skills that are still empty, so the CV alone is enough to be judged.
-                  const f = fillFromCv(p, cv)
-                  data.setProfile({ ...p, cv, cvName, ...f.patch })
-                  setCvNote(describeFilled(f.filled, p.positions.length + p.education.length + p.skills.length > 0))
-                },
-                () => {
-                  data.setProfile({ ...p, cv, cvName })
-                },
-              )
-            }}
-          />
-        </Suspense>
+      <Section id="profile-cv" title="Your CV" hint="Your CVs and cover letters now live in Documents. The main CV there is what the chance on every job is worked out from, together with the roles, degrees and skills above.">
+        <Button variant="outline" onClick={onOpenDocuments} className="cursor-pointer">
+          Open Documents
+        </Button>
       </Section>
     </div>
   )

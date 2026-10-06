@@ -83,3 +83,50 @@ describe("keepSessionFresh", () => {
     expect(store.has(STORE)).toBe(false)
   })
 })
+
+describe("restoreSession", () => {
+  const real = globalThis.fetch
+  beforeEach(() => {
+    store.clear()
+    Object.assign(globalThis.window, { location: { search: "", pathname: "/", hash: "" }, matchMedia: () => ({ matches: false }) })
+  })
+
+  async function restoreWith(answer: () => Promise<Response>): Promise<{ access_token: string; refresh_token: string } | null> {
+    globalThis.fetch = answer as typeof fetch
+    try {
+      const { restoreSession } = await import("@/lib/auth")
+
+      return await restoreSession()
+    } finally {
+      globalThis.fetch = real
+    }
+  }
+
+  test("stays signed in when the refresh cannot reach the server (offline, a phone waking up)", async () => {
+    storeSession(-100)
+    const restored = await restoreWith(() => Promise.reject(new TypeError("Failed to fetch")))
+    expect(restored?.refresh_token).toBe("r1")
+    expect(store.has(STORE)).toBe(true)
+  })
+
+  test("stays signed in when the server is down", async () => {
+    storeSession(-100)
+    const restored = await restoreWith(async () => new Response("{}", { status: 503 }))
+    expect(restored?.refresh_token).toBe("r1")
+    expect(store.has(STORE)).toBe(true)
+  })
+
+  test("signs out only when the server rejects the login", async () => {
+    storeSession(-100)
+    const restored = await restoreWith(async () => new Response(JSON.stringify({ error: "invalid_grant", error_description: "Invalid Refresh Token" }), { status: 400 }))
+    expect(restored).toBeNull()
+    expect(store.has(STORE)).toBe(false)
+  })
+
+  test("takes the new session when the refresh works", async () => {
+    storeSession(-100)
+    const restored = await restoreWith(async () => new Response(JSON.stringify({ access_token: "fresh", refresh_token: "r2", expires_in: 3600, user: { id: "u1", email: "a@b.c" } })))
+    expect(restored?.access_token).toBe("fresh")
+    expect(JSON.parse(store.get(STORE) ?? "{}").refresh_token).toBe("r2")
+  })
+})

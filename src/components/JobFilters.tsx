@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { BadgeCheckIcon, CheckIcon, ChevronDownIcon, PlusIcon, SearchIcon, XIcon } from "@/components/icons"
+import { BadgeCheckIcon, CheckIcon, ChevronDownIcon, PlusIcon, SearchIcon, XIcon, FunnelIcon } from "@/components/icons"
 import { useData } from "@/lib/data"
 import { cityOf, JOB_TYPES, WORKPLACES, type JobType, type Workplace } from "@/lib/job-facts"
 import { cn } from "cn"
@@ -69,7 +69,7 @@ export function JobFilters({ filters, onChange, trailing, extra, open, search = 
           onChange={(e) => onChange({ ...filters, query: e.target.value })}
           placeholder="Search jobs, companies or places"
           aria-label="Search jobs, companies or places"
-          className="h-12 w-full rounded-xl border-[1.5px] bg-background pr-10 pl-11 text-base text-foreground transition-colors duration-150 placeholder:text-muted-foreground focus:border-ring focus:outline-none [&::-webkit-search-cancel-button]:hidden"
+          className="h-12 w-full rounded-xl border-[1.5px] bg-background max-md:bg-card pr-10 pl-11 text-base text-foreground transition-colors duration-150 placeholder:text-muted-foreground focus:border-ring focus:outline-none [&::-webkit-search-cancel-button]:hidden"
         />
         {filters.query ? (
           <button type="button" aria-label="Clear the search" onClick={() => onChange({ ...filters, query: "" })} className="absolute top-1/2 right-2.5 flex size-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground">
@@ -79,9 +79,9 @@ export function JobFilters({ filters, onChange, trailing, extra, open, search = 
       </div>
       ) : null}
 
-      <div className={`flex flex-wrap items-center gap-2 ${open === false ? "hidden" : ""}`}>
+      <div className={`flex-wrap items-center gap-2 max-md:grid-cols-2 ${open === false ? "hidden" : "flex max-md:grid"}`}>
         {defs.filter((d) => d.always || shown(d)).map((d) => (
-          <span key={d.key} className="flex items-center gap-1">
+          <span key={d.key} className="flex min-w-0 items-center gap-1 max-md:first:col-span-2 max-md:[&>:first-child]:min-w-0 max-md:[&>:first-child]:flex-1 max-md:[&>:first-child]:justify-between">
             {d.node}
             {!d.always ? (
               <button type="button" aria-label={`Remove the ${d.label} filter`} onClick={() => remove(d)} className="flex size-7 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground">
@@ -93,7 +93,7 @@ export function JobFilters({ filters, onChange, trailing, extra, open, search = 
         {extra}
         {rest.length > 0 ? (
           <Popover open={menu} onOpenChange={setMenu}>
-            <PopoverTrigger className={cn(buttonVariants({ variant: "outline" }), "h-10 cursor-pointer gap-1.5 border-dashed px-3 font-medium")}>
+            <PopoverTrigger className={cn(buttonVariants({ variant: "outline" }), "h-10 cursor-pointer gap-1.5 border-dashed px-3 font-medium max-md:w-full")}>
               <PlusIcon className="size-4" aria-hidden="true" />
               Filter
             </PopoverTrigger>
@@ -115,11 +115,11 @@ export function JobFilters({ filters, onChange, trailing, extra, open, search = 
           </Popover>
         ) : null}
         {active > 0 ? (
-          <Button type="button" variant="ghost" onClick={() => { onChange(DEFAULT_FILTERS); setAdded([]) }} className="h-10 cursor-pointer text-inherit hover:bg-transparent hover:opacity-70">
+          <Button type="button" variant="ghost" onClick={() => { onChange(DEFAULT_FILTERS); setAdded([]) }} className="h-10 cursor-pointer text-inherit hover:bg-transparent hover:opacity-70 max-md:w-full">
             Clear filters
           </Button>
         ) : null}
-        {trailing ? <span className="sm:ml-auto">{trailing}</span> : null}
+        {trailing ? <span className="min-w-0 sm:ml-auto max-md:[&>*]:w-full max-md:[&>*]:justify-between">{trailing}</span> : null}
       </div>
     </div>
   )
@@ -225,7 +225,7 @@ function Pick({ items, label, onChange, value, rest = ANY }: PickProps): React.J
     <Select items={items} value={value} onValueChange={(next) => onChange(next ?? ANY)}>
       <SelectTrigger
         aria-label={label}
-        className={cn(buttonVariants({ variant: "outline" }), "h-10 data-[size=default]:h-10 cursor-pointer gap-2 border-border bg-background px-3 font-medium", value !== rest && "border-brand bg-accent")}
+        className={cn(buttonVariants({ variant: "outline" }), "h-10 data-[size=default]:h-10 cursor-pointer gap-2 border-border bg-background px-3 font-medium max-md:bg-card", value !== rest && "border-brand bg-accent")}
       >
         <SelectValue />
       </SelectTrigger>
@@ -268,7 +268,7 @@ export function MultiPick({ label, any, items, value, onChange, rest = [], restL
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         aria-label={`${label}: ${shown}`}
-        className={cn(buttonVariants({ variant: "outline" }), "h-10 max-w-64 cursor-pointer gap-2 border-border bg-background px-3 font-medium", !atRest && value.length > 0 && "border-brand bg-accent")}
+        className={cn(buttonVariants({ variant: "outline" }), "h-10 max-w-64 cursor-pointer gap-2 border-border bg-background px-3 font-medium max-md:bg-card max-md:max-w-none", !atRest && value.length > 0 && "border-brand bg-accent")}
       >
         <span className="truncate">{shown}</span>
         <ChevronDownIcon aria-hidden="true" className="pointer-events-none size-4 text-muted-foreground" />
@@ -304,7 +304,8 @@ export function MultiPick({ label, any, items, value, onChange, rest = [], restL
 /** The underlined "Filter" that folds the row of filters away and brings it back, with how many are set. It sits in the bar with the layout and sort buttons. */
 export function FilterToggle({ open, onToggle, count }: { open: boolean; onToggle: () => void; count: number }): React.JSX.Element {
   return (
-    <button type="button" aria-expanded={open} onClick={onToggle} className="flex cursor-pointer items-center gap-1 text-sm underline underline-offset-4 hover:text-foreground">
+    <button type="button" aria-expanded={open} onClick={onToggle} className={`flex cursor-pointer items-center gap-1 text-sm underline underline-offset-4 hover:text-foreground max-md:h-10 max-md:gap-1.5 max-md:rounded-full max-md:border-[1.5px] max-md:px-4 max-md:font-medium max-md:no-underline ${open || count > 0 ? "max-md:border-foreground max-md:bg-foreground max-md:text-background" : "max-md:bg-card"}`}>
+      <FunnelIcon className="size-4 md:hidden" aria-hidden="true" />
       Filter{count > 0 ? ` (${count})` : ""}
       <ChevronDownIcon className={`size-3.5 transition-transform duration-150 ${open ? "rotate-180" : ""}`} aria-hidden="true" />
     </button>

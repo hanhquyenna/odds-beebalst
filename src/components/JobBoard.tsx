@@ -1,4 +1,4 @@
-import { BookmarkIcon, XIcon } from "@/components/icons"
+import { BookmarkIcon, ChevronLeftIcon, XIcon } from "@/components/icons"
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react"
 import { setDrawerClose } from "@/lib/drawer"
 import { createPortal } from "react-dom"
@@ -81,7 +81,7 @@ export function JobBoard({ groups, locked, empty, selected, onSelect }: JobBoard
 
   return (
     <>
-      <div ref={top} {...prefetchOn(loadJobDetail)} className="@container scroll-mt-20 overflow-hidden rounded-xl border-[1.5px] bg-card text-foreground">
+      <div ref={top} {...prefetchOn(loadJobDetail)} className="@container scroll-mt-20 overflow-hidden rounded-xl border-[1.5px] bg-card text-foreground max-md:-mx-5 max-md:rounded-none max-md:border-x-0">
         {visibleGroups.map((group) => {
           const visible = group.jobs
 
@@ -90,7 +90,7 @@ export function JobBoard({ groups, locked, empty, selected, onSelect }: JobBoard
               {group.label ? <h3 className="border-b-[1.5px] bg-secondary/60 px-4 py-2.5 text-sm font-semibold @2xl:px-6">{group.label}</h3> : null}
               <ul>
                 {visible.map((post) => (
-                  <li key={post.id} className="relative after:absolute after:right-0 after:bottom-0 after:left-4 after:h-px after:bg-border last:after:hidden @2xl:after:left-6">
+                  <li key={post.id} className="relative after:absolute after:right-0 after:bottom-0 after:left-4 max-md:after:left-0 after:h-px after:bg-border last:after:hidden @2xl:after:left-6">
                     <JobRow post={post} onOpen={() => setOpen(post)} />
                   </li>
                 ))}
@@ -155,7 +155,7 @@ export function JobRow({ post, onOpen, status, dismissible }: JobRowProps): Reac
   const posted = post.local || (post.source === "linkedin_user" && post.days_open === null) ? null : formatAge(post)
 
   return (
-    <div className={`relative flex items-center gap-4 border-l-4 px-3 py-4 transition-colors duration-150 hover:bg-accent/60 @2xl:px-5 ${flying ? `row-fly-${flying}` : ""} ${post.dutch_required ? "border-brand bg-brand/[0.04]" : "border-transparent"}`}>
+    <div className={`relative flex items-center gap-4 border-l-4 px-3 py-4 max-md:pl-4 max-md:pr-4 transition-colors duration-150 hover:bg-accent/60 @2xl:px-5 ${flying ? `row-fly-${flying}` : ""} ${post.dutch_required ? "border-brand bg-brand/[0.04]" : "border-transparent"}`}>
       <div className={`flex min-w-0 flex-1 flex-col pr-12 ${status ? "@lg:pr-48" : ""}`}>
         <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 cursor-pointer items-center gap-4 text-left after:absolute after:inset-0 after:content-['']">
           <span className="flex size-12 shrink-0 items-center justify-center">
@@ -296,9 +296,14 @@ export function JobDrawer({ post, locked, onClose, onSwitch }: JobDrawerProps): 
         aria-label={`${post.title} at ${post.employer_display}`}
         className="absolute inset-y-0 right-0 flex w-full max-w-[46rem] flex-col overflow-y-auto bg-background shadow-2xl animate-in slide-in-from-right duration-300"
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b-[1.5px] bg-background px-4 py-3 sm:px-6">
-          <span className="text-sm font-medium text-muted-foreground">Job</span>
-          <button type="button" aria-label="Close" onClick={() => closeRef()} className="flex size-9 cursor-pointer items-center justify-center rounded-full border-[1.5px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b-[1.5px] bg-background/95 px-2 pt-[calc(env(safe-area-inset-top)+0.375rem)] pb-1.5 backdrop-blur md:px-6 md:py-3">
+          {/* A phone goes back the way it came in, like any app; a wider screen closes the panel. */}
+          <button type="button" onClick={() => closeRef()} className="flex h-10 cursor-pointer items-center gap-0.5 rounded-full pr-3 pl-1 text-[0.95rem] font-semibold text-brand-ink md:hidden">
+            <ChevronLeftIcon weight="bold" className="size-5" aria-hidden="true" />
+            Back
+          </button>
+          <span className="hidden text-sm font-medium text-muted-foreground md:inline">Job</span>
+          <button type="button" aria-label="Close" onClick={() => closeRef()} className="hidden size-9 cursor-pointer items-center justify-center rounded-full border-[1.5px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground md:flex">
             <XIcon className="size-4" aria-hidden="true" />
           </button>
         </div>

@@ -51,3 +51,4 @@ public/outreach/*.bak
 
 # Output of scripts/validate-linkedin.ts: review, apply, do not commit
 CLOSE_LINKEDIN_*.sql
+research-data/

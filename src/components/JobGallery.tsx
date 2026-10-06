@@ -28,7 +28,7 @@ export function JobGallery(): React.JSX.Element {
   const hasPrefs = Boolean(saved && activeCount(saved) > 0)
   const on = Boolean(data.profile.prefsOn) && hasPrefs
   // The board is closed with its cross and brought back from the link beside the job count, so this page holds both.
-  const [noticeClosed, setNoticeClosed] = useRemembered("odds:jobs-notice-closed", false)
+  const [noticeClosed, setNoticeClosed] = useRemembered("odds:jobs-notice-closed", window.matchMedia("(max-width: 767px)").matches)
   const [editOpen, setEditOpen] = useState<boolean>(false)
   // With preferences switched on the list opens with them loaded, as the same filters.
   const [filters, setFilters] = useState<Filters>(on && saved ? saved : DEFAULT_FILTERS)
@@ -101,7 +101,7 @@ export function JobGallery(): React.JSX.Element {
 
       <JobsNotice closed={noticeClosed} onClose={() => setNoticeClosed(true)} />
 
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border-[1.5px] bg-card px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border-[1.5px] bg-card px-4 py-3 max-md:hidden">
         <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
         <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
           <input type="checkbox" checked={on} onChange={(e) => toggle(e.target.checked)} className="size-4 accent-[var(--brand)]" />

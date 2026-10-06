@@ -20,18 +20,12 @@ import { sortJobs } from "@/lib/sort"
 import { FOLLOW_UP_DAYS, appliedOn } from "@/lib/tracker"
 import { payOf } from "@/lib/spec"
 import { useViewConfig } from "@/lib/views"
+import { JOB_GROUPS, groupJobs } from "@/components/job-groups"
+import { usePhone } from "@/lib/use-phone"
 import type { Posting, PropertyType, ViewName } from "@/lib/types"
 
 /** What the table can be grouped by. */
-const GROUPS: ReadonlyArray<{ key: string; label: string }> = [
-  { key: "", label: "No grouping" },
-  { key: "status", label: "Status" },
-  { key: "open", label: "Still open" },
-  { key: "company", label: "Company" },
-  { key: "level", label: "Level" },
-  { key: "industry", label: "Industry" },
-  { key: "location", label: "Location" },
-]
+const GROUPS = JOB_GROUPS
 
 /** The sort a property's header stands for (sort.ts), where it differs from its own name. */
 const SORT_OF: Record<string, string> = { posted: "newest" }
@@ -73,6 +67,7 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, lead }: { posts
   const view = useViewConfig(viewName)
   const [deleting, setDeleting] = useState<"chosen" | null>(null)
   const followDays = daysOr(profile.followUpDays, FOLLOW_UP_DAYS)
+  const phone = usePhone()
   const [editing, setEditing] = useState<string | null>(null)
   const { sortKey, sortDir } = view.config
   const groupBy = view.config.groupBy ?? ""
@@ -161,36 +156,12 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, lead }: { posts
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts, sortKey, sortDir, profile, data.applications, data.reference, data.shares, data.referrals])
 
-  const groupOf = (post: Posting): string => {
-    switch (groupBy) {
-      case "status":
-        return STEPS.find((c) => c.step === stepOf(data, post))?.title ?? "Saved"
-      case "open":
-        return post.closed_at ? "Closed" : "Open"
-      case "company":
-        return post.employer_display
-      case "level":
-        return levelOf(post)
-      case "industry":
-        return industryOf(post) ?? "No industry"
-      case "location":
-        return placeOf(post.region)
-      default:
-        return ""
-    }
-  }
-  const order = (label: string): number => (groupBy === "status" ? STEPS.findIndex((c) => c.title === label) : groupBy === "level" ? LEVELS.indexOf(label as (typeof LEVELS)[number]) : groupBy === "open" ? (label === "Open" ? 0 : 1) : 0)
   const groups = useMemo(() => {
     if (!groupBy) {
       return [{ label: "", posts: sorted }]
     }
-    const map = new Map<string, Posting[]>()
-    for (const post of sorted) {
-      const label = groupOf(post)
-      map.set(label, [...(map.get(label) ?? []), post])
-    }
 
-    return [...map.entries()].sort((a, b) => order(a[0]) - order(b[0]) || a[0].localeCompare(b[0])).map(([label, list]) => ({ label, posts: list }))
+    return groupJobs(data, sorted, groupBy)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sorted, groupBy, data.applications])
 
@@ -266,12 +237,60 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, lead }: { posts
   const rowNumber = (post: Posting): number => numbers.get(post.id) ?? 0
 
   return (
-    <div className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card">
+    <div className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card max-md:-mx-5 max-md:rounded-none max-md:border-x-0">
       <TableBar lead={lead} toolbar={toolbar} groupBy={groupBy} groups={GROUPS} onGroupBy={(key) => view.update({ groupBy: key })} />
 
       {selection.some ? <BulkBar count={selection.chosen.size} onExport={() => exportRows(selection.chosen)} onDelete={() => setDeleting("chosen")} onClear={selection.clear} /> : null}
       {deleting ? <DeleteDialog count={selection.chosen.size} noun={{ one: "job", many: "jobs" }} onConfirm={() => removeJobs(selection.chosen)} onCancel={() => setDeleting(null)} /> : null}
 
+      {phone ? (
+        // A phone gets the table it can hold: the job, its status and your chance, the full width of the screen. Every other property is one tap away, inside the job.
+        <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
+          <thead>
+            <tr>
+              <th scope="col" className="border-b-[1.5px] border-line py-2.5 pl-4 text-left">{header("Job", "title")}</th>
+              <th scope="col" className="w-[7.25rem] border-b-[1.5px] border-line px-1 py-2.5 text-left">{header("Status", "status")}</th>
+              <th scope="col" className="w-[4.5rem] border-b-[1.5px] border-line py-2.5 pr-4 text-right">
+                <span className="flex justify-end">{header("Chance", "chance")}</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((g) => (
+              <Fragment key={g.label || "all"}>
+                {g.label ? (
+                  <tr>
+                    <th colSpan={3} scope="colgroup" className="border-b-[1.5px] border-line bg-secondary/60 px-4 py-2 text-left text-xs font-semibold">
+                      {g.label} <span className="font-medium text-muted-foreground tabular-nums">{g.posts.length}</span>
+                    </th>
+                  </tr>
+                ) : null}
+                {g.posts.map((post) => (
+                  <tr key={post.id} className={post.closed_at ? "opacity-60" : ""}>
+                    <td className="border-b-[1.5px] border-line py-3 pl-4 align-middle">
+                      <button type="button" onClick={() => onOpen(post)} className="flex w-full min-w-0 cursor-pointer items-center gap-2.5 text-left">
+                        <span className="flex w-8 shrink-0 justify-center">
+                          <CompanyLogo employer={post.employer} name={post.employer_display} size={28} wide={1.2} url={post.url} />
+                        </span>
+                        <span className="flex min-w-0 flex-col">
+                          <span className="line-clamp-2 text-[0.85rem] leading-snug font-semibold">{titleOf(post)}</span>
+                          <span className="truncate text-xs text-muted-foreground">{companyOf(post)}</span>
+                        </span>
+                      </button>
+                    </td>
+                    <td className="border-b-[1.5px] border-line px-1 py-3 align-middle [&>span]:w-full [&>span]:pl-2.5 [&>span]:text-[0.8125rem]">
+                      <RowStatus post={post} />
+                    </td>
+                    <td className="border-b-[1.5px] border-line py-3 pr-4 text-right align-middle text-[0.8125rem] font-semibold tabular-nums">
+                      <ChanceTd post={post} />
+                    </td>
+                  </tr>
+                ))}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+      ) : (
       <div className="max-h-[70vh] overflow-auto">
         <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-20 bg-card">
@@ -363,7 +382,7 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, lead }: { posts
           </tbody>
         </table>
       </div>
-
+      )}
     </div>
   )
 }
