@@ -2,7 +2,7 @@
 // (set it first: window.__Q = ["stage","werkstudent"]) and fills window.__cards2 = { jobkey: [title, company, place, publishedMs] }. Poll window.__crawlDone.
 // It stops itself on a 429 or a captcha: never retry at once, leave it for the next hour.
 window.__cards2 = window.__cards2 || {}; window.__crawlLog = []; window.__crawlDone = false;
-(async () => {
+void (async () => {
   const KEEP = /(intern\b|internship|stage|stagi|afstudeer|werkstudent|working student|trainee|graduate|junior|starter|meewerk|young professional|studentwork|student\b)/i
   const DROP = /(courier|cleaner|schoonmaak|orderpicker|warehouse|expedition|horeca|\bkok\b|zwem|verpleeg|tandarts|hovenier|bezorg|\(m\/w\/d\)|\bphd\b|samsung|pedagogisch|verzorgende|beauty|zzp|winkelassist|front office manager|sofy|accommodation)/i
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms + Math.random() * ms * 0.5))

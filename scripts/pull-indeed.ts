@@ -87,7 +87,7 @@ for (const d of details) {
   })
   rows.push(row)
   bump("to add")
-  console.log(`  + ${row.title} | ${row.employer} | ${row.region}`)
+  console.log(`  + ${String(row.title)} | ${String(row.employer)} | ${String(row.region)}`)
 }
 console.log("result:", tally)
 if (dry || rows.length === 0) {

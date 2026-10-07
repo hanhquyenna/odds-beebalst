@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
  * What we found out about an employer beyond its postings, from public sources only: the IND register of recognised sponsors,
  * GLEIF (legal entities and owners), Wikidata (founded, staff, money, listing), GDELT (news of the last three months, labelled)
  * and the Great Place to Work NL list. Built by research-data/companies (06_merge.py, 07_export_app.py) into
- * public/companies/enriched.json; every fact there names its source. Loaded once, the first time a company is opened.
+ * public/companies (index.json and one file per company); every fact there names its source.
  */
 export interface Money {
   amount: number
@@ -67,19 +67,48 @@ export const INSIGHT_GROUPS: ReadonlyArray<{ key: keyof Omit<CompanyInsights, "o
   { key: "worth_knowing", title: "Worth knowing" },
 ]
 
-let all: Promise<Record<string, CompanyProfile>> | null = null
+/**
+ * The data comes in two parts (research-data/companies/07_export_app.py): public/companies/index.json, small, with what lists need
+ * (sponsor, size, type, owner country, layoff headlines), and one file per company, public/companies/c/<hash>.json, fetched only
+ * when that company is opened. The hash is FNV-1a of the employer key, the same function the export uses.
+ */
+export function companyFile(employer: string): string {
+  let h = 0x811c9dc5
+  for (const b of new TextEncoder().encode(employer)) {
+    h ^= b
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
 
-/** Every profile, fetched once per visit. An empty map when the file is missing or unreadable: the page then shows what it showed before. */
+  return `/companies/c/${h.toString(16).padStart(8, "0")}.json`
+}
+
+let index: Promise<Record<string, CompanyProfile>> | null = null
+const one = new Map<string, Promise<CompanyProfile | null>>()
+
+/** What every list needs about every company, fetched once per visit. Empty when the file is missing: the page then shows what it showed before. */
 export function loadCompanyProfiles(): Promise<Record<string, CompanyProfile>> {
-  all ??= fetch("/companies/enriched.json")
+  index ??= fetch("/companies/index.json")
     .then((r) => (r.ok ? (r.json() as Promise<{ companies: Record<string, CompanyProfile> }>) : { companies: {} }))
     .then((d) => d.companies ?? {})
     .catch(() => ({}))
 
-  return all
+  return index
 }
 
-/** Every profile at once, for lists. Empty until the file has loaded. */
+/** Everything about one company, fetched the first time it is opened. Null when there is none. */
+export function loadCompanyProfile(employer: string): Promise<CompanyProfile | null> {
+  let p = one.get(employer)
+  if (!p) {
+    p = fetch(companyFile(employer))
+      .then((r) => (r.ok ? (r.json() as Promise<CompanyProfile>) : null))
+      .catch(() => null)
+    one.set(employer, p)
+  }
+
+  return p
+}
+
+/** Every company's list facts at once. Empty until the index has loaded. */
 export function useCompanyProfiles(): Record<string, CompanyProfile> {
   const [all, setAll] = useState<Record<string, CompanyProfile>>({})
   useEffect(() => {
@@ -108,11 +137,12 @@ export function typeTag(p: CompanyProfile | undefined): string | null {
 }
 
 export function useCompanyProfile(employer: string): CompanyProfile | null {
-  const [profile, setProfile] = useState<CompanyProfile | null>(null)
+  // Kept with the employer it belongs to, so a job at another company never shows the last one's facts while its own load.
+  const [state, setState] = useState<{ employer: string; profile: CompanyProfile | null } | null>(null)
   useEffect(() => {
     let live = true
-    void loadCompanyProfiles().then((m) => {
-      if (live) setProfile(m[employer] ?? null)
+    void loadCompanyProfile(employer).then((profile) => {
+      if (live) setState({ employer, profile })
     })
 
     return () => {
@@ -120,7 +150,7 @@ export function useCompanyProfile(employer: string): CompanyProfile | null {
     }
   }, [employer])
 
-  return profile
+  return state?.employer === employer ? state.profile : null
 }
 
 export const NEWS_LABEL: Record<NewsLabel, string> = {
