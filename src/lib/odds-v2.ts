@@ -34,9 +34,15 @@ interface Effect {
   /** The callback rate in the study's reference group. */
   at: number
 }
+const stepMemo = new WeakMap<Effect, number>()
 export function step(e: Effect): number {
+  const hit = stepMemo.get(e)
+  if (hit !== undefined) return hit
   const odds = (e.at / (1 - e.at)) * e.or
-  return phiInv(odds / (1 + odds)) - phiInv(e.at)
+  const z = phiInv(odds / (1 + odds)) - phiInv(e.at)
+  stepMemo.set(e, z)
+
+  return z
 }
 
 /**
@@ -117,9 +123,17 @@ const DEGREE_FAMILY: ReadonlyArray<[RegExp, string]> = [
   [/medicine|biolog|health|pharma|life science/i, "Healthcare & life sciences"],
 ]
 
+const degreeMemo = new Map<string, string | null>()
 export function degreeFamily(text: string): string | null {
-  for (const [re, fam] of DEGREE_FAMILY) if (re.test(text)) return fam
-  return familyOfTitle(text, 0.3)
+  const hit = degreeMemo.get(text)
+  if (hit !== undefined) return hit
+  let fam: string | null = null
+  for (const [re, f] of DEGREE_FAMILY) if (re.test(text)) { fam = f; break }
+  fam ??= familyOfTitle(text, 0.3)
+  if (degreeMemo.size > 10_000) degreeMemo.clear()
+  degreeMemo.set(text, fam)
+
+  return fam
 }
 
 /** How many apply and how many are invited, when the posting does not say. Interviews per role: about 6-10 first conversations (Ashby 2026). */
@@ -204,13 +218,33 @@ export function phiInv(p: number): number {
 }
 
 /** The chance for strength z in a pile of N applicants with k interviews. */
+const thresholdMemo = new Map<string, number>()
 export function chanceIn(z: number, pile: Pile, noise = NOISE): number {
-  const T = phiInv(1 - pile.interviews / pile.applicants) * Math.sqrt(1 + noise * noise)
+  // The bar a pile sets depends only on its size and noise; a few dozen sizes cover every job.
+  const key = `${pile.interviews}/${pile.applicants}/${noise}`
+  let T = thresholdMemo.get(key)
+  if (T === undefined) {
+    T = phiInv(1 - pile.interviews / pile.applicants) * Math.sqrt(1 + noise * noise)
+    if (thresholdMemo.size > 10_000) thresholdMemo.clear()
+    thresholdMemo.set(key, T)
+  }
   return 1 - phi((T - z) / noise)
 }
 
 /** How a past role relates to the job: the same title, or the same line of work read from either side, counts as the same. */
+const relevanceMemo = new Map<string, Relevance>()
 function roleRelevance(title: string, post: Posting, jobFamily: string | null): Relevance {
+  const key = `${title}\u0000${post.title}\u0000${jobFamily ?? ""}`
+  const hit = relevanceMemo.get(key)
+  if (hit) return hit
+  const r = roleRelevanceFresh(title, post, jobFamily)
+  if (relevanceMemo.size > 50_000) relevanceMemo.clear()
+  relevanceMemo.set(key, r)
+
+  return r
+}
+
+function roleRelevanceFresh(title: string, post: Posting, jobFamily: string | null): Relevance {
   const norm = (x: string): string => x.toLowerCase().replace(/[^a-z ]/g, " ").replace(/\b(junior|senior|medior|intern|trainee|stagiair)\b/g, " ").replace(/\s+/g, " ").trim()
   if (norm(title) && norm(title) === norm(post.title)) return "same"
   const fam = familyOfTitle(title, 0.3)

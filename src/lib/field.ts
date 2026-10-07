@@ -44,7 +44,21 @@ export function familyPosterior(tokens: ReadonlyArray<string>): number[] | null 
 const titleTokens = (text: string): string[] => words(text).map(stem)
 
 /** The line of work one job title or degree points to, when one family clearly leads (at least `sure`); else null. */
+const familyMemo = new Map<string, string | null>()
+
 export function familyOfTitle(text: string, sure = 0.5): string | null {
+  // Thousands of jobs ask about the same few titles: each title and threshold is read once.
+  const key = `${sure}\u0000${text}`
+  const hit = familyMemo.get(key)
+  if (hit !== undefined) return hit
+  const found = familyOfTitleFresh(text, sure)
+  if (familyMemo.size > 50_000) familyMemo.clear()
+  familyMemo.set(key, found)
+
+  return found
+}
+
+function familyOfTitleFresh(text: string, sure: number): string | null {
   const post = familyPosterior(titleTokens(text))
   if (!post) return null
   const best = post.indexOf(Math.max(...post))

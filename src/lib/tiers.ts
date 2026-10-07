@@ -31,8 +31,21 @@ function wholeName(name: string): string {
   return name.replace(/[,()]/g, " ").replace(SUFFIX, " ").replace(/^the\s+/, "").replace(/\s+/g, " ").trim().replace(/\s*(&|and)$/, "")
 }
 
-/** The tier of an employer named on a CV or a posting. Size is the LinkedIn employee count when it is known. */
+/** The tier of an employer named on a CV or a posting, remembered per name. Size is the LinkedIn employee count when it is known. */
+const tierMemo = new Map<string, EmployerTier>()
+
 export function employerTier(name: string | null | undefined, employees?: number | null): EmployerTier {
+  const key = `${employees ?? ""}\u0000${name ?? ""}`
+  const hit = tierMemo.get(key)
+  if (hit) return hit
+  const tier = employerTierFresh(name, employees)
+  if (tierMemo.size > 50_000) tierMemo.clear()
+  tierMemo.set(key, tier)
+
+  return tier
+}
+
+function employerTierFresh(name: string | null | undefined, employees?: number | null): EmployerTier {
   // What is in brackets ("formerly Philips Domestic Appliances") describes the name; it is not the name.
   const n = (name ?? "").toLowerCase().replace(/\([^)]*\)/g, " ").replace(/&amp;/g, "&").trim()
   if (n && (DISTINCT.some((re) => re.test(n)) || WHOLE.has(wholeName(n)))) return "elite"
