@@ -71,10 +71,11 @@ export const EFFECTS = {
   euNonNative: { or: 0.88, at: 0.46 },
   /** All work experience from outside the EU: Oreopoulos 2011 own fit 0.72 [0.57, 0.91]. */
   foreignExperienceOnly: { or: 0.72, at: 0.1 },
-  /** Language: lowest vs near-native in the host language, Carlsson, Eriksson & Rooth 2023 (Sweden) own fit 1.9; matters most where the ad asks for it. */
-  dutchNoneWhereRequired: { or: 1 / 1.9, at: 0.147 },
-  dutchBasicWhereRequired: { or: 1 / 1.4, at: 0.147 },
-  dutchNoneElsewhere: { or: 1 / 1.15, at: 0.147 },
+  /** Language level in the host language (Sweden, 3,153 applications to 17 occupations). */
+  // Graded against near-native (Carlsson, Eriksson & Rooth 2023, occupation fixed: L2 1.39, L3 1.74, L4 1.91 vs L1), measured at L4's 14.7%.
+  dutchNone: { or: 1 / 1.91, at: 0.147 },
+  dutchBasic: { or: 1.39 / 1.91, at: 0.147 },
+  dutchProfessional: { or: 1.74 / 1.91, at: 0.147 },
   /** A referral: Ashby 2026 screen pass 52% vs 35%. */
   referral: { or: 1.49, at: 0.35 },
   /** A cover letter tailored to the job: ResumeGo 2020 (vendor test, weakest evidence). */
@@ -88,6 +89,15 @@ export const EFFECTS = {
   /** A second relevant internship: Kessler et al. about half the value of the top-internship upgrade. */
   secondInternship: { or: 1.15, at: 0.17 },
 } satisfies Record<string, Effect>
+
+/** The share of the Dutch gap kept on a job that does not ask for Dutch. Our assumption: the second learning round found no extra gap where the ad asks for the language, and a recruiter sees little of it in an English application. */
+const DUTCH_NOT_ASKED_SHARE = 0.3
+
+/** The most listed skills can move strength either way (our assumption). */
+const SKILL_SPAN = 0.2
+
+/** The years a level usually means when a posting does not say: our reading of Dutch job ads (junior 0-2, medior 2-5, senior 5+). */
+const LEVEL_YEARS: Partial<Record<NonNullable<Posting["level_view"]>, number>> = { Mid: 2, Senior: 5, Manager: 5, Director: 8 }
 
 /** Each extra year of relevant full-time work above what is asked adds a little, up to three years (Nunley et al.: post-graduation in-field job +25%). */
 const YEAR_STEP = 0.08
@@ -131,9 +141,13 @@ export function pileFor(post: Posting, employerTierOfPost: EmployerTier, employe
 }
 
 export interface Part {
+  /** Which factor this is, so a backtest can weigh each one (research-data/backtest/learn.py). */
+  key: string
   label: string
-  /** Step on the strength scale. */
+  /** Step on the strength scale, after the learned multiplier. */
   z: number
+  /** The step from the study alone, before the multiplier learned from the experiments. */
+  study: number
   source: string
 }
 
@@ -152,6 +166,15 @@ export interface OddsV2 {
 export interface V2Context {
   referral?: boolean
   tailored?: boolean
+  /** What-ifs from the job page: more years in this line of work, skills you would add, a degree you would get. */
+  /**
+   * The track record read from the saved profile (strength.ts: standing, recognition and grades, already weighted by how close each
+   * item is to this job). It is the same signal as an employer's name, read more widely, so it competes with it: the stronger counts.
+   */
+  record?: { value: number; detail: string } | null
+  extraYears?: number
+  extraSkills?: ReadonlyArray<string>
+  assumeDegree?: boolean
   /** The posting employer's LinkedIn employee count and average applicants, when known (employer_facts, employer_hiring). */
   employerEmployees?: number | null
   employerAvgApplicants?: number | null
@@ -202,11 +225,30 @@ function roleRelevance(title: string, post: Posting, jobFamily: string | null): 
 const isInternshipTitle = (t: string): boolean => /intern|stagiair|werkstudent|trainee|placement|stage\b/i.test(t)
 const isStudentJob = (t: string): boolean => /barista|cashier|waiter|waitress|bartender|server|retail assistant|store assistant|shop assistant|kassa|bezorger|delivery|cleaner|horeca|sales assistant/i.test(t)
 
+/**
+ * Multipliers on the study values, learned from 34,549 real applications in three field experiments (GEMM, five countries;
+ * Oreopoulos, Canada; Carlsson et al., Sweden) on training splits only, with each study value as the prior
+ * (research-data/backtest/learn.py). 1 means the data agreed with the study. Factors the experiments do not vary keep 1.
+ */
+export const LEARNED: Record<string, number> = {
+  relevance: 1.05,
+  years: 0.69,
+  degreeInField: 0.83,
+  nonEu: 1.19,
+  euNonNative: 1.51,
+  underqualified: 0.67,
+  overqualified: 0.63,
+  foreignDegree: 1.0,
+  foreignExperienceOnly: 1.48,
+  prestige: 0.4,
+  dutch: 0.81,
+}
+
 /** The parts of a person's strength for one job. */
 export function strengthParts(post: Posting, profile: Profile, ctx: V2Context = {}): Part[] {
   const base = derive(profile)
   const jobFamily = post.family ?? familyOfTitle(post.title, 0.3)
-  const parts: Part[] = []
+  const parts: Array<Omit<Part, "study">> = []
 
   // 1. The most relevant role, by line of work and kind (job, internship, job for money).
   let best = { worth: 0, role: null as null | { title: string; company: string; years: number }, rel: "none" as Relevance | "none", kind: "job" as keyof typeof KIND_WORTH }
@@ -227,6 +269,7 @@ export function strengthParts(post: Posting, profile: Profile, ctx: V2Context = 
   let worth = best.worth
   if (firstJob && degreeIn) worth = Math.max(worth, 0.55)
   parts.push({
+    key: "relevance",
     label: best.role ? `Most relevant: ${best.role.title}${best.role.company ? ` at ${best.role.company}` : ""} (${best.rel === "same" ? "same line of work" : best.rel === "adjacent" ? "a neighbouring line of work" : "another line of work"})` : degreeIn ? "Degree in this line of work, no work in it yet" : "No work in this line of work yet",
     z: RELEVANCE_FLOOR + RELEVANCE_SPAN * worth,
     source: "Mihut 2022; Thijssen et al. 2019; Nunley et al. 2016",
@@ -246,50 +289,88 @@ export function strengthParts(post: Posting, profile: Profile, ctx: V2Context = 
       prestigeRole = `${r.company}${same ? "" : " (other line of work)"}`
     }
   }
-  if (prestige > 0) parts.push({ label: `Known employer: ${prestigeRole}`, z: prestige, source: "Kessler, Low & Sullivan 2019; Oreopoulos 2011" })
+  if (ctx.record) {
+    // value runs from 0.4 (nothing stands out) to 0.9; the top of it is worth the same as an elite name in this line of work.
+    const fromRecord = PRESTIGE.elite * Math.max(0, Math.min(1, (ctx.record.value - 0.4) / 0.5))
+    if (fromRecord > prestige) {
+      prestige = fromRecord
+      prestigeRole = ctx.record.detail
+    }
+  }
+  if (prestige > 0) parts.push({ key: "prestige", label: `Known name or record: ${prestigeRole}`, z: prestige, source: "Kessler, Low & Sullivan 2019; Oreopoulos 2011" })
 
+  relevantYears += ctx.extraYears ?? 0
+  const years = base.years + (ctx.extraYears ?? 0)
   // 3. Years of relevant full-time work beyond what is asked.
   const asked = post.years_min ?? (firstJob ? 0 : 2)
   const extra = Math.min(YEAR_CAP, Math.max(0, relevantYears - asked))
-  if (extra > 0) parts.push({ label: `${extra.toFixed(1)} more years in this line of work than asked`, z: YEAR_STEP * extra, source: "Nunley et al. 2016" })
-  if (relevantInternships >= 2) parts.push({ label: "A second internship in this line of work", z: step(EFFECTS.secondInternship), source: "Kessler, Low & Sullivan 2019" })
+  if (extra > 0) parts.push({ key: "years", label: `${extra.toFixed(1)} more years in this line of work than asked`, z: YEAR_STEP * extra, source: "Nunley et al. 2016" })
+  if (relevantInternships >= 2) parts.push({ key: "secondInternship", label: "A second internship in this line of work", z: step(EFFECTS.secondInternship), source: "Kessler, Low & Sullivan 2019" })
 
   // 4. Under- and overqualified.
-  if (post.years_min && base.years < post.years_min) {
+  // A posting that names no years still has a level; a senior job without a number is not open to someone with one year.
+  const implied = post.years_min ?? (post.level_view ? LEVEL_YEARS[post.level_view] ?? null : null)
+  const fromLevel = post.years_min == null && implied !== null
+  if (implied && years < implied) {
     // GEMM's 0.53 is the average underqualified applicant; the step is scaled from 0.4x (barely short) to 1.2x (nothing of what is asked).
     // The second backtest put 0.6 + short at 0.44x the callbacks against 0.60x observed, so the scale was lowered.
-    const short = Math.min(1, (post.years_min - base.years) / post.years_min)
-    parts.push({ label: `Asks for ${post.years_min}+ years, you have ${base.years.toFixed(1)}`, z: step(EFFECTS.underqualified) * (0.4 + 0.8 * short), source: "GEMM (own fit, Dutch applications); scaled by how far short, our assumption" })
-  } else if (post.years_min !== null && post.years_min !== undefined && base.years > 2 * post.years_min + 4) {
-    parts.push({ label: "Much more experience than asked", z: step(EFFECTS.overqualified), source: "Baert & Verhaest 2019" })
+    const short = Math.min(1, (implied - years) / implied)
+    parts.push({ key: "underqualified", label: fromLevel ? `A ${post.level_view?.toLowerCase()} job (usually ${implied}+ years), you have ${years.toFixed(1)}` : `Asks for ${implied}+ years, you have ${years.toFixed(1)}`, z: step(EFFECTS.underqualified) * (0.4 + 0.8 * short), source: "GEMM (own fit, Dutch applications); scaled by how far short, our assumption" })
+  } else if (post.years_min !== null && post.years_min !== undefined && years > 2 * post.years_min + 4) {
+    parts.push({ key: "overqualified", label: "Much more experience than asked", z: step(EFFECTS.overqualified), source: "Baert & Verhaest 2019" })
   }
 
   // 5. Degree.
-  if (degreeIn) parts.push({ label: "Degree in this line of work", z: step(EFFECTS.degreeInField), source: "Humburg & van der Velden 2015 (direction); our size" })
+  if (degreeIn) parts.push({ key: "degreeInField", label: "Degree in this line of work", z: step(EFFECTS.degreeInField), source: "Humburg & van der Velden 2015 (direction); our size" })
   const rank = { bachelor: 1, master: 2, phd: 3 } as Record<string, number>
-  if (post.degree_asked && (rank[base.degree] ?? 0) < rank[post.degree_asked]) parts.push({ label: `Asks for a ${post.degree_asked}`, z: step(EFFECTS.degreeBelowAsked), source: "GEMM underqualified, halved" })
+  const myDegree = ctx.assumeDegree ? Math.max(rank[base.degree] ?? 0, 2) : (rank[base.degree] ?? 0)
+  if (post.degree_asked && myDegree < rank[post.degree_asked]) parts.push({ key: "degreeBelowAsked", label: `Asks for a ${post.degree_asked}`, z: step(EFFECTS.degreeBelowAsked), source: "GEMM underqualified, halved" })
+
+  // 5b. The skills the posting names, weighted by how much it insists (must 1, strong 0.7, optional 0.4, nice 0.2). Only where it names
+  // at least three. No field experiment varies listed skills, so this is our assumption and kept small: up to +-0.2.
+  if (post.skills.length >= 3) {
+    const have = new Set([...base.skills, ...(ctx.extraSkills ?? [])].map((x) => x.toLowerCase()))
+    const weight = { must: 1, strong: 0.7, optional: 0.4, nice: 0.2, unspecified: 0.6 } as Record<string, number>
+    let got = 0
+    let all = 0
+    for (const sk of post.skills) {
+      const w = weight[post.tiers?.[sk] ?? "unspecified"] ?? 0.6
+      all += w
+      if (have.has(sk.toLowerCase())) got += w
+    }
+    const cover = all > 0 ? got / all : 0.5
+    parts.push({ key: "skills", label: `Skills the job names: ${Math.round(cover * 100)}% covered`, z: SKILL_SPAN * (cover - 0.5) * 2, source: "Our assumption (no experiment varies listed skills)" })
+  }
 
   // 6. Origin and where the experience is from (field experiments measure what a recruiter infers from a name and a CV).
-  if (profile.origin === "non_eu") parts.push({ label: "Non-EU background", z: step(EFFECTS.nonEu), source: "Lippens, Vermeiren & Baert 2023; GEMM" })
-  else if (profile.origin === "eu_non_native") parts.push({ label: "EU background, not Dutch", z: step(EFFECTS.euNonNative), source: "GEMM" })
-  if (profile.origin === "non_eu" && profile.education.length > 0 && !base.dutchDegree) parts.push({ label: "Degree from outside the Netherlands", z: step(EFFECTS.foreignDegree), source: "Oreopoulos 2011" })
-  if (base.share.nonEu > 0.99 && base.roles.length > 0) parts.push({ label: "All work experience outside the EU", z: step(EFFECTS.foreignExperienceOnly), source: "Oreopoulos 2011" })
+  if (profile.origin === "non_eu") parts.push({ key: "nonEu", label: "Non-EU background", z: step(EFFECTS.nonEu), source: "Lippens, Vermeiren & Baert 2023; GEMM" })
+  else if (profile.origin === "eu_non_native") parts.push({ key: "euNonNative", label: "EU background, not Dutch", z: step(EFFECTS.euNonNative), source: "GEMM" })
+  if (profile.origin === "non_eu" && profile.education.length > 0 && !base.dutchDegree) parts.push({ key: "foreignDegree", label: "Degree from outside the Netherlands", z: step(EFFECTS.foreignDegree), source: "Oreopoulos 2011" })
+  if (base.share.nonEu > 0.99 && base.roles.length > 0) parts.push({ key: "foreignExperienceOnly", label: "All work experience outside the EU", z: step(EFFECTS.foreignExperienceOnly), source: "Oreopoulos 2011" })
 
   // 7. Dutch.
   const dutch = profile.dutch
-  if (post.dutch_required) {
-    if (dutch === "none") parts.push({ label: "The job asks for Dutch; you have none", z: step(EFFECTS.dutchNoneWhereRequired), source: "Carlsson, Eriksson & Rooth 2023" })
-    else if (dutch === "basic") parts.push({ label: "The job asks for Dutch; yours is basic", z: step(EFFECTS.dutchBasicWhereRequired), source: "Carlsson, Eriksson & Rooth 2023" })
-  } else if (dutch === "none") {
-    parts.push({ label: "No Dutch", z: step(EFFECTS.dutchNoneElsewhere), source: "Carlsson, Eriksson & Rooth 2023 (smaller where not asked)" })
+  const level = dutch === "none" ? EFFECTS.dutchNone : dutch === "basic" ? EFFECTS.dutchBasic : dutch === "professional" ? EFFECTS.dutchProfessional : null
+  if (level) {
+    const name = dutch === "none" ? "No Dutch" : dutch === "basic" ? "Basic Dutch" : "Professional (not native) Dutch"
+    // The experiment varied language a recruiter could see in the application itself. Where the job asks for Dutch it shows; on an
+    // English-language job it mostly does not, so only a share of the gap is kept there (our assumption; nothing tests it).
+    if (post.dutch_required) parts.push({ key: "dutch", label: `${name}; the job asks for Dutch`, z: step(level), source: "Carlsson, Eriksson & Rooth 2023" })
+    else parts.push({ key: "dutchNotAsked", label: name, z: step(level) * DUTCH_NOT_ASKED_SHARE, source: "Carlsson, Eriksson & Rooth 2023, scaled down for an English-language job (our assumption)" })
   }
 
   // 8. What you do for this one application.
-  if (ctx.referral) parts.push({ label: "A referral", z: step(EFFECTS.referral), source: "Ashby 2026" })
-  if (ctx.tailored) parts.push({ label: "A cover letter written for this job", z: step(EFFECTS.tailored), source: "ResumeGo 2020" })
+  if (ctx.referral) parts.push({ key: "referral", label: "A referral", z: step(EFFECTS.referral), source: "Ashby 2026" })
+  if (ctx.tailored) parts.push({ key: "tailored", label: "A cover letter written for this job", z: step(EFFECTS.tailored), source: "ResumeGo 2020" })
 
-  return parts
+  return parts.map((p) => ({ ...p, study: p.z, z: p.z * (LEARNED[p.key] ?? 1) }))
 }
+
+/**
+ * Nobody is ever told 0%. Field experiments find a few callbacks even for CVs far from the job (Mihut 2022: 3.9% for "transferable"
+ * experience), so a chance is never shown below half a percent (a soft floor), and no single missing thing is a gate.
+ */
+export const FLOOR = 0.005
 
 export function oddsV2(post: Posting, profile: Profile, ctx: V2Context = {}): OddsV2 {
   const parts = strengthParts(post, profile, ctx)
@@ -303,5 +384,9 @@ export function oddsV2(post: Posting, profile: Profile, ctx: V2Context = {}): Od
   const high = chanceIn(z + 0.3, smaller)
   const percentile = 1 - phi(z / Math.sqrt(1)) // share of the pool stronger than you, before noise
 
-  return { p, low, high, strength: z, pile, percentile, parts }
+  // A soft floor: shown = FLOOR + raw * (0.99 - FLOOR). Nobody sees 0%, and every improvement still moves the number (a hard
+  // clamp left people at the floor with nothing a referral could change: the "always a way up" test caught it).
+  const floor = (x: number): number => (Number.isFinite(x) ? FLOOR + Math.min(1, Math.max(0, x)) * (0.99 - FLOOR) : FLOOR)
+
+  return { p: floor(p), low: floor(Math.min(low, p)), high: floor(Math.max(high, p)), strength: z, pile, percentile, parts }
 }

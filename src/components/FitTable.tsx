@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { FilterEditor } from "@/components/JobFilters"
 import { PencilIcon, XIcon } from "@/components/icons"
-import { Tracker } from "@/components/Tracker"
+import { JobRow } from "@/components/JobBoard"
 import { DEFAULT_FILTERS, applyFilters, type JobFilters } from "@/lib/filters"
 import { useSavedViews } from "@/lib/use-saved-views"
 import { Button } from "@/components/ui/button"
@@ -10,6 +10,9 @@ import { standing } from "@/lib/engine"
 import { profileFields } from "@/lib/field"
 import { fitFilters, withFitLanguage } from "@/lib/fit-filters"
 import { openLinkedInImport } from "@/lib/open-profile"
+import { oddsV2 } from "@/lib/odds-v2"
+import { stretches, tailor } from "@/lib/tailor"
+import { useCompanyProfiles } from "@/lib/company-profile"
 import type { Posting } from "@/lib/types"
 
 /** How many rows are shown at each step: a first look, a longer one, then everything. */
@@ -45,73 +48,89 @@ function MoreRow({ total, step, setStep }: { total: number; step: 0 | 1 | 2; set
 }
 
 /**
- * The open jobs that fit you, from your profile the way a CV would be read. With no preferences chosen, the lines of work are the ones your profile points to (finance, data,
- * marketing and so on, from your job titles and degrees), and the newest jobs come first. Your preferences (the pencil) narrow it further. Jobs you have kept, applied to or
- * dismissed are left out. Five show first; "Show more" makes it twenty, and "Show all" everything.
+ * Jobs tailored to you: your preferences and the lines of work your profile points to, together with jobs like the ones you saved or
+ * applied to and the roles on your own CV, ranked by what you are into, then the newest, then your interview chance (src/lib/tailor.ts). Each row says why it is here. Where you saved jobs in a line of work
+ * your profile does not reach yet, a line says so and what would change it. Jobs you kept, applied to or dismissed are left out.
+ * Five show first; "Show more" makes it twenty, and "Show all" everything.
  */
 export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React.JSX.Element | null {
   const data = useData()
   const saved = useSavedViews("fit")
   const { filters } = saved
   const [step, setStep] = useState<0 | 1 | 2>(0)
+  const profiles = useCompanyProfiles()
 
   const fields = useMemo(() => profileFields(data.profile), [data.profile])
   // English unless a language is chosen, and until a line of work is chosen, the ones your profile points to (src/lib/fit-filters.ts, shared with the morning message).
   const effective = useMemo(() => fitFilters(filters, data.profile, fields), [filters, data.profile, fields])
   const needsProfile = data.profile.positions.length === 0 && data.profile.education.length === 0
-
-  const shown = useMemo(() => {
-    // Newest first; a job with no posting date goes last.
-    return [...applyFilters(notYours({ postings: data.postings, applications: data.applications, saved: data.saved, passed: data.passed }), effective, { signals: data.signals, reference: data.reference })].sort((x, y) => (x.days_open ?? 1e9) - (y.days_open ?? 1e9) || x.title.localeCompare(y.title))
-  }, [data.postings, data.saved, data.applications, data.passed, data.signals, data.reference, effective])
-
-  if (!data.reference) return null
-  const rowLimit = step === 2 ? shown.length : STEPS[step]
-  const footer = <MoreRow total={shown.length} step={step} setStep={setStep} />
-
-  return (
-    <FitSection label="Jobs that fit you" heading="Jobs that fit you" what="the jobs that fit you" filters={effective} onChange={saved.setFilters} needsProfile={needsProfile} empty={shown.length === 0}>
-      <Tracker posts={shown} onOpen={onOpen} viewName={saved.configName} rowLimit={rowLimit} footer={footer} dismissible />
-    </FitSection>
-  )
-}
-
-/**
- * The open jobs where you are most likely to hear back: the same list, the same preferences, but ordered by your interview chance, the highest first, and the newest first among equals.
- * Jobs you have kept, applied to or dismissed are left out.
- */
-export function HearBackTable({ onOpen }: { onOpen: (post: Posting) => void }): React.JSX.Element | null {
-  const data = useData()
-  const saved = useSavedViews("fit")
-  const { filters } = saved
-  const [step, setStep] = useState<0 | 1 | 2>(0)
-  const needsProfile = data.profile.positions.length === 0 && data.profile.education.length === 0
   const { strengthFor } = data
 
-  const shown = useMemo(() => {
-    if (!data.reference || !data.shares || needsProfile) return []
-    const rows: Array<{ post: Posting; mid: number }> = []
-    for (const post of applyFilters(notYours({ postings: data.postings, applications: data.applications, saved: data.saved, passed: data.passed }), withFitLanguage(filters), { signals: data.signals, reference: data.reference })) {
-      const rate = standing(post, data.profile, data.reference, data.shares, undefined, data.referrals.has(post.id), strengthFor(post)).rate
-      if (rate && !rate.thin) rows.push({ post, mid: rate.mid })
-    }
-    // The highest chance first; among equals, the newest.
-    rows.sort((x, y) => y.mid - x.mid || (x.post.days_open ?? 1e9) - (y.post.days_open ?? 1e9) || x.post.title.localeCompare(y.post.title))
+  const { rows, stretch } = useMemo(() => {
+    if (!data.reference || !data.shares || needsProfile) return { rows: [], stretch: [] }
+    const ref = data.reference
+    const shares = data.shares
+    const pool = notYours({ postings: data.postings, applications: data.applications, saved: data.saved, passed: data.passed })
+    const ctx = { signals: data.signals, reference: ref }
+    const fitting = new Set(applyFilters(pool, effective, ctx).map((p) => p.id))
+    const applied = new Set(data.applications.map((a) => a.posting_id))
+    const mine = [...data.postings, ...data.keptExtra].filter((p) => data.saved.has(p.id) || applied.has(p.id))
+    const memo = new Map<string, number>()
+    const chanceOf = (post: Posting): number => {
+      let c = memo.get(post.id)
+      if (c === undefined) {
+        c = standing(post, data.profile, ref, shares, undefined, data.referrals.has(post.id), strengthFor(post)).rate?.mid ?? 0
+        memo.set(post.id, c)
+      }
 
-    return rows.map((r) => r.post)
-  }, [data.postings, data.profile, data.reference, data.shares, data.referrals, data.saved, data.applications, data.passed, data.signals, strengthFor, filters, needsProfile])
+      return c
+    }
+    const liftOf = (post: Posting): string | null => {
+      const top = oddsV2(post, data.profile, { record: strengthFor(post) }).parts.filter((x) => x.z > 0.05).sort((a, b) => b.z - a.z)[0]
+
+      return top ? top.label.replace(/^Most relevant: /, "").replace(/ \((same|a neighbouring|another) line of work\)$/, "") : null
+    }
+    // Your own choices (language, level, place) still hold; only the automatic lines of work are widened by what you saved.
+    const candidates = applyFilters(pool, withFitLanguage(filters), ctx)
+
+    const own = [...data.profile.positions.map((p) => p.Title ?? ""), data.profile.headline].filter((t) => t.trim() !== "")
+
+    return { rows: tailor({ candidates, fitting, saved: mine, chanceOf, profiles, liftOf, own }), stretch: stretches(mine, chanceOf) }
+  }, [data.postings, data.keptExtra, data.profile, data.reference, data.shares, data.referrals, data.saved, data.applications, data.passed, data.signals, strengthFor, effective, filters, profiles, needsProfile])
 
   if (!data.reference) return null
-  const rowLimit = step === 2 ? shown.length : STEPS[step]
+  const rowLimit = step === 2 ? rows.length : STEPS[step]
 
   return (
-    <FitSection label="Jobs you are most likely to hear back from" heading="Jobs you're most likely to hear back" what="the jobs you're most likely to hear back from" filters={filters} onChange={saved.setFilters} needsProfile={needsProfile} empty={shown.length === 0}>
-      <Tracker posts={shown} onOpen={onOpen} viewName={`${saved.configName}-hear` as `v:${string}`} rowLimit={rowLimit} footer={<MoreRow total={shown.length} step={step} setStep={setStep} />} dismissible />
+    <FitSection label="Jobs tailored to you" heading="Jobs tailored to you" what="the jobs tailored to you" filters={effective} onChange={saved.setFilters} needsProfile={needsProfile} empty={rows.length === 0}>
+      {stretch.length > 0 ? (
+        <p className="rounded-xl border-[1.5px] border-dashed border-line bg-secondary/30 px-4 py-2.5 text-sm">
+          Your saved {list(stretch.map((x) => familyWord(x.family)))} jobs: your chance is about {Math.max(1, Math.round(Math.min(...stretch.map((x) => x.chance)) * 100))}–{Math.max(1, Math.round(Math.max(...stretch.map((x) => x.chance)) * 100))}%, because nothing on your profile is in {stretch.length === 1 ? "it" : "them"} yet. A project, course or side job there would change that.
+        </p>
+      ) : null}
+      <ul className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card max-md:-mx-5 max-md:rounded-none max-md:border-x-0">
+        {rows.slice(0, rowLimit).map((r) => (
+          <li key={r.post.id} className="relative after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border last:after:hidden md:after:left-4">
+            <JobRow post={r.post} onOpen={() => onOpen(r.post)} note={r.note} dismissible />
+          </li>
+        ))}
+      </ul>
+      <MoreRow total={rows.length} step={step} setStep={setStep} />
     </FitSection>
   )
 }
 
-/** One of the two job lists: its heading with the pencil for your preferences, then the jobs, or the import prompt until a profile is in. */
+/** "design", "IT", "operations": the first word of a line of work, as it reads in a sentence. */
+const familyWord = (f: string): string => {
+  const w = f.split(" & ")[0].split(",")[0]
+
+  return w === w.toUpperCase() ? w : w.toLowerCase()
+}
+
+/** "a, b and c". */
+const list = (xs: string[]): string => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`)
+
+/** The tailored list's heading with the pencil for your preferences, then the jobs, or the import prompt until a profile is in. */
 function FitSection({ label, heading, what, filters, onChange, needsProfile, empty, children }: { label: string; heading: string; what: string; filters: JobFilters; onChange: (next: JobFilters) => void; needsProfile: boolean; empty: boolean; children: React.ReactNode }): React.JSX.Element {
   const [editing, setEditing] = useState<boolean>(false)
 

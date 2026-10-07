@@ -1,3 +1,4 @@
+import { oddsV2 } from "@/lib/odds-v2"
 import { degreeOf } from "@/lib/degree"
 import { monthIndex } from "@/lib/months"
 import { consistencyWith, fieldMatch, guessFamily, wordSpecificity } from "@/lib/field"
@@ -532,55 +533,22 @@ export function standing(
   let rate: Standing["rate"] = null
   // No hard gates: the chance is worked out from your profile whatever the posting asks for. What it asks and you have not ticked is shown beside it, and ticking it is a recommendation.
   if (!needsProfile) {
-    const start = FACTORS.base[post.cat] ?? FACTORS.base.other
-    let low: number = start.low.value
-    let high: number = start.high.value
-    const baseLow = low
-    const baseHigh = high
+    // Interview chance v2 (odds-v2.ts): where you land in the pile of applicants, each part from a field experiment and checked
+    // against 34,549 real applications (research-data/backtest). The what-ifs on the job page feed it the same way.
+    const v2 = oddsV2(post, whatIf.dutch ? { ...profile, dutch } : profile, {
+      referral: hasReferral,
+      tailored: tailor,
+      record: strength,
+      extraYears: whatIf.years,
+      extraSkills: whatIf.skills,
+      assumeDegree: whatIf.degree,
+    })
+    const sign = (z: number): string => (z >= 0 ? "stronger" : "weaker")
     const lines: RateLine[] = [
-      { label: `Base, low end: ${start.low.how}`, source: "Ashby 2026 · SmartRecruiters 2025" },
-      { label: `Base, high end: ${start.high.how}`, source: post.cat === "other" ? "SmartRecruiters 2025" : "Ashby Talent Trends 2026" },
+      { label: `About ${Math.round(v2.pile.applicants)} people apply and about ${v2.pile.interviews} are invited${v2.pile.source === "posting" ? " (the posting shows the count)" : v2.pile.source === "employer" ? " (this employer's average)" : " (typical for an employer like this)"}`, source: "Greenhouse 2026 · Ashby 2026" },
+      ...v2.parts.map((p) => ({ label: `${p.label}: ${sign(p.z)} by ${Math.abs(p.z).toFixed(2)}`, source: p.source })),
     ]
-    if (profile.origin !== "dutch") {
-      low *= FACTORS.originAll
-      high *= FACTORS.originGraduate
-      lines.push({ label: "Non-native background: ×0.76 across all job levels (low end), ×0.93 for graduate-level jobs (high end)", source: "Thijssen et al. 2021 · SCP 2010 (Dutch field experiments)" })
-      if (base.share.nonEu > 0.5) {
-        low *= FACTORS.foreignExperience
-        lines.push({ label: "Work experience mostly outside the EU: ×0.88, low end only (overlaps with the line above)", source: "Mathematica audit study, not Dutch" })
-      }
-    }
-    if (base.internship) {
-      low *= FACTORS.internship
-      high *= FACTORS.internship
-      lines.push({ label: "Internship on your profile: ×1.126", source: "Baert et al. 2021 (Belgium)" })
-    }
-    if (tailor) {
-      high *= FACTORS.tailored
-      lines.push({ label: "Tailored application: ×1.31, high end only (weakest evidence)", source: "ResumeGo 2020 (US vendor test)" })
-    }
-    if (hasReferral) {
-      low *= FACTORS.referral
-      high *= FACTORS.referral
-      lines.push({ label: "Referral at this employer: ×1.49", source: "Ashby 2026 (global)" })
-    }
-    if (fit) {
-      // Everything above is who you are. This is how well you fit this job. An average applicant sits at
-      // 0.4; a CV that fits as the Dutch field experiments' applications did lands at their rates, and a
-      // poor fit falls by up to the 30% gap Bertrand and Mullainathan found. How far along the way you are is our scale.
-      const t = (fit.score - FACTORS.fitAverage) / (1 - FACTORS.fitAverage)
-      const up = (end: number, anchor: number): number => (t >= 0 ? (anchor / end) ** t : FACTORS.skillMatch ** (fit.score / FACTORS.fitAverage - 1))
-      low *= up(baseLow, FACTORS.fitted.low)
-      high *= up(baseHigh, FACTORS.fitted.high)
-      high = Math.min(high, FACTORS.fitted.high)
-      low = Math.min(low, high)
-      const detail = fit.parts.map((q) => `${q.label.toLowerCase()} ${q.detail}`).join("; ")
-      lines.push({
-        label: `Fit with this job: ${Math.round(fit.score * 100)}% (${detail}). An average applicant is 40%; a CV built to fit the vacancy got 18% to 54% in Dutch field experiments, and a poor fit about 30% less than average. Where you land between is our scale`,
-        source: "Thijssen, Coenders & Lancee 2019 (NL field experiment) · Bertrand & Mullainathan 2004",
-      })
-    }
-    rate = { low, mid: middle(low, high), high, lines, thin }
+    rate = { low: v2.low, mid: v2.p, high: v2.high, lines, thin }
   }
 
   return { gates, failing, checklist, have: checklist.filter((c) => c.have).length, total: checklist.length, band: view, rate, fit, needsProfile }

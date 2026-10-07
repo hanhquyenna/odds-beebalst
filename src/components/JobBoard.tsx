@@ -6,6 +6,7 @@ import { CompanyLogo } from "@/components/CompanyMark"
 import { RowStatus } from "@/components/StatusPicker"
 import { Button } from "@/components/ui/button"
 import { SourceCorner } from "@/components/SourceChips"
+import { useHearBack } from "@/lib/use-hear-back"
 import { useData } from "@/lib/data"
 import { DEFAULT_FILTERS } from "@/lib/filters"
 import { useApplyFilter } from "@/lib/filter-bus"
@@ -134,6 +135,8 @@ interface JobRowProps {
   status?: boolean
   /** Shows an X to say you are not interested: the job goes and is not recommended again. */
   dismissible?: boolean
+  /** A short line on why this job is shown here ("Like your saved MUFG internship: finance, internship, Amsterdam"). */
+  note?: string
 }
 
 /**
@@ -141,8 +144,9 @@ interface JobRowProps {
  * it went up. Everything else is inside. The whole row opens the job; the
  * bookmark saves it.
  */
-export function JobRow({ post, onOpen, status, dismissible }: JobRowProps): React.JSX.Element {
+export function JobRow({ post, onOpen, status, dismissible, note }: JobRowProps): React.JSX.Element {
   const data = useData()
+  const hearBack = useHearBack(post)
   const kept = data.saved.has(post.id) || data.applications.some((a) => a.posting_id === post.id)
   const [asking, setAsking] = useState<boolean>(false)
   // The way a row leaves: it jumps down to the jobs that fit you when you take it off your list, up to your list when you save it, and aside when you dismiss it. The change is made as it goes.
@@ -163,7 +167,15 @@ export function JobRow({ post, onOpen, status, dismissible }: JobRowProps): Reac
           </span>
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="line-clamp-2 text-base leading-snug font-semibold">{post.title}</span>
-            <span className="truncate text-[0.95rem]">{post.employer_display}</span>
+            <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.95rem]">
+              <span className="truncate">{post.employer_display}</span>
+              {hearBack ? (
+                <span title={hearBack.reason} className="inline-flex shrink-0 items-center gap-1 rounded-md border-[1.5px] border-good-foreground/40 bg-good-foreground/10 px-1.5 py-px text-xs font-semibold text-good-foreground">
+                  <span aria-hidden="true">★</span> Most likely to hear back
+                </span>
+              ) : null}
+            </span>
+            {note ? <span className="line-clamp-2 text-sm text-muted-foreground">{note}</span> : null}
             <span className="truncate text-sm text-muted-foreground">{formatPlace(post.region)}</span>
             {post.closed_at ? <span className="w-fit rounded-md bg-red-600 px-2 py-0.5 text-xs font-medium text-white">Closed</span> : null}
             {post.dutch_required ? <span className="w-fit rounded-md border-[1.5px] border-brand/60 bg-brand/10 px-2 py-0.5 text-xs font-medium">Dutch needed</span> : null}

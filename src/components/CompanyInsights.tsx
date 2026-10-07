@@ -7,6 +7,7 @@ import { fieldOf } from "@/lib/filters"
 import { CompanyLogo } from "@/components/CompanyMark"
 import { fetchEmployerAbout, fetchEmployerFacts, fetchEmployerHiring, fetchEmployerInsights, fetchEmployerNews, type EmployerNewsItem, type EmployerFacts, type EmployerHiring, type EmployerInsights } from "@/lib/jobs"
 import { formatPlace } from "@/lib/format"
+import { INSIGHT_GROUPS, internationalVerdict, moneyLine, NEWS_LABEL, useCompanyProfile, type NewsLabel } from "@/lib/company-profile"
 import type { Posting } from "@/lib/types"
 
 /** Other jobs at the same employer, last on the page. Each opens in the same panel. */
@@ -84,6 +85,8 @@ export function AboutCompany({ post }: { post: Posting }): React.JSX.Element {
   const [insights, setInsights] = useState<EmployerInsights | null>(null)
   const [hiring, setHiring] = useState<EmployerHiring | null>(null)
   const [news, setNews] = useState<EmployerNewsItem[]>([])
+  // Public facts found beyond the postings (IND, GLEIF, Wikidata, GDELT): each row below says where it came from.
+  const profile = useCompanyProfile(post.employer)
   useEffect(() => {
     let live = true
     void Promise.all([fetchEmployerAbout(post.employer), fetchEmployerFacts(post.employer), fetchEmployerInsights(post.employer), fetchEmployerHiring(post.employer), fetchEmployerNews(post.employer)]).then(([a, f, i, h, n]) => {
@@ -105,6 +108,10 @@ export function AboutCompany({ post }: { post: Posting }): React.JSX.Element {
   const places = [...new Set(mine.map((p) => formatPlace(p.region).split(",")[0].trim()).filter((x) => x && x !== "Location not stated"))].slice(0, 3)
   const industry = industryOf(post)
   const text = facts?.description ? FIRST_SENTENCES(facts.description) : about?.about ?? null
+  const sponsor = profile?.sponsor ?? post.ind_sponsor
+  const verdict = profile ? internationalVerdict(profile) : null
+  const signals = (Object.entries(profile?.newsCounts ?? {}) as Array<[NewsLabel, number]>).filter(([k]) => k !== "results" && k !== "leadership")
+  const headlines = profile?.news ?? []
   const mine0 = fieldOf(post)
   // What the open jobs say about hiring here, in plain sentences. A sentence appears only when there is something true to say.
   const hiringLines: string[] = []
@@ -141,6 +148,31 @@ export function AboutCompany({ post }: { post: Posting }): React.JSX.Element {
 
   return (
     <Section title={`About ${post.employer_display}`}>
+      {profile?.insights ? (
+        <div className="mb-6 flex flex-col gap-4">
+          {profile.insights.one_liner ? <p className="text-[1.05rem] leading-relaxed font-medium">{profile.insights.one_liner}</p> : null}
+          <div className="grid gap-4 sm:grid-cols-2">
+            {INSIGHT_GROUPS.map(({ key, title }) => {
+              const items = profile.insights?.[key] ?? []
+              if (items.length === 0) return null
+
+              return (
+                <div key={key} className={`rounded-lg border-[1.5px] px-4 py-3 ${key === "worth_knowing" ? "border-brand/40 bg-brand/5" : "bg-card"}`}>
+                  <h3 className="text-base font-bold tracking-tight">{title}</h3>
+                  <ul className="mt-2 flex flex-col gap-2 text-[0.95rem] leading-snug">
+                    {items.map((it) => (
+                      <li key={it.text}>
+                        {it.text} <span className="text-xs text-muted-foreground">({it.source})</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )
+            })}
+          </div>
+          <p className="text-xs text-muted-foreground">Written by odds from the sources named after each line: the IND register, company filings and registers, the company's own pages, its job postings and the news. Check what matters to you.</p>
+        </div>
+      ) : null}
       <div className="flow-root">
         <aside aria-label={`Facts about ${post.employer_display}`} className={`mb-4 w-full overflow-hidden rounded-lg border-[1.5px] bg-secondary/30 text-sm ${text ? "sm:float-right sm:mb-2 sm:ml-6 sm:w-72" : "sm:max-w-sm"}`}>
           <div className="flex flex-col items-center gap-2 border-b-[1.5px] bg-secondary/60 px-3 py-4">
@@ -148,10 +180,22 @@ export function AboutCompany({ post }: { post: Posting }): React.JSX.Element {
             <p className="text-center text-base font-semibold">{facts?.name ?? post.employer_display}</p>
           </div>
           <dl>
-            {facts?.founded_year ? <Row label="Founded">{facts.founded_year}</Row> : null}
+            {facts?.founded_year || profile?.founded ? <Row label="Founded">{facts?.founded_year ?? profile?.founded}</Row> : null}
             {industry ? <Row label="Industry">{industry}</Row> : null}
-            {facts?.company_type ? <Row label="Type">{facts.company_type}</Row> : null}
-            {facts?.headquarters ? <Row label="Headquarters">{facts.headquarters}</Row> : null}
+            {profile?.type ? <Row label="Type">{profile.type[0].toUpperCase() + profile.type.slice(1)}</Row> : facts?.company_type ? <Row label="Type">{facts.company_type}</Row> : null}
+            {profile?.ownerGroup && !profile.ownerGroup.toLowerCase().includes(post.employer_display.toLowerCase().split(" ")[0]) ? (
+              <Row label="Owned by">
+                {profile.ownerGroup}
+                {profile.ownerCountry ? <span className="text-muted-foreground"> ({profile.ownerCountry})</span> : null}
+              </Row>
+            ) : profile?.parent ? <Row label="Part of">{profile.parent}</Row> : null}
+            {facts?.headquarters || profile?.hq ? <Row label="Headquarters">{facts?.headquarters ?? profile?.hq}</Row> : null}
+            {!facts?.employees && profile?.employees ? (
+              <Row label="Employees">
+                {Math.round(profile.employees).toLocaleString("en-US")}
+                {profile.employeesSource ? <span className="text-muted-foreground"> ({profile.employeesSource})</span> : null}
+              </Row>
+            ) : null}
             {facts?.employees ? (
               <Row label="Employees">
                 {facts.employees.toLocaleString("en-US")}
@@ -163,6 +207,10 @@ export function AboutCompany({ post }: { post: Posting }): React.JSX.Element {
                 {moneyText(m.amount, m.currency)} <span className="text-muted-foreground">({m.year})</span>
               </Row>
             ))}
+            {!(insights?.money ?? []).some((m) => m.kind === "revenue") && profile?.revenue ? <Row label="Revenue">{moneyLine(profile.revenue)}</Row> : null}
+            {!(insights?.money ?? []).some((m) => m.kind === "net_profit") && profile?.profit ? <Row label="Net profit">{moneyLine(profile.profit)}</Row> : null}
+            {profile?.listedOn?.length ? <Row label="Listed on">{profile.listedOn.join(", ")}</Row> : null}
+            {profile?.ceo ? <Row label="CEO">{profile.ceo}</Row> : null}
             {growth !== null && older ? <Row label="Change">{`${growth > 0 ? "+" : ""}${growth}% since ${day(older.read_on)}`}</Row> : null}
             {site ? (
               <Row label="Website">
@@ -172,7 +220,18 @@ export function AboutCompany({ post }: { post: Posting }): React.JSX.Element {
               </Row>
             ) : null}
             <Row label="Open here">{`${mine.length} ${mine.length === 1 ? "job" : "jobs"}${places.length ? ` in ${places.join(", ")}` : ""}`}</Row>
-            {post.ind_sponsor ? <Row label="Visa sponsor">Yes, on the IND list of recognised sponsors</Row> : null}
+            <Row label="Visa sponsor">
+              {sponsor ? "Yes, on the IND list of recognised sponsors" : profile ? "Not on the IND list of recognised sponsors" : "Not known"}
+              {sponsor && profile?.sponsorEntities?.length ? <span className="block text-xs text-muted-foreground">as {profile.sponsorEntities.slice(0, 2).join(", ")}</span> : null}
+            </Row>
+            {profile?.gptw2026 ? <Row label="Award">Great Place to Work, Netherlands 2026</Row> : null}
+            {profile?.wikipedia ? (
+              <Row label="Read more">
+                <a href={profile.wikipedia} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">
+                  Wikipedia
+                </a>
+              </Row>
+            ) : null}
             {facts?.top_schools?.length ? <Row label="Universities">{first(facts.top_schools, 3)}</Row> : null}
             {facts?.top_functions?.length ? <Row label="Biggest teams">{first(facts.top_functions, 3)}</Row> : null}
           </dl>
@@ -182,6 +241,44 @@ export function AboutCompany({ post }: { post: Posting }): React.JSX.Element {
             <p className="text-[0.95rem] leading-relaxed">{text}</p>
             {about && !facts?.description && about.source === "odds" ? <p className="mt-2 text-xs text-muted-foreground">Written by odds, not by the company.</p> : null}
           </>
+        ) : null}
+        {verdict ? (
+          <div className="mt-5">
+            <h3 className="text-base font-bold tracking-tight">For international applicants</h3>
+            <p className="mt-1.5 text-[0.95rem] leading-relaxed">{verdict}</p>
+            <p className="mt-1 text-xs text-muted-foreground">From the IND register of recognised sponsors and the jobs we hold today.</p>
+          </div>
+        ) : null}
+        {signals.length > 0 || headlines.length > 0 ? (
+          <div className="mt-5">
+            <h3 className="text-base font-bold tracking-tight">The last three months</h3>
+            {signals.length > 0 ? (
+              <ul className="mt-2 flex flex-wrap gap-1.5">
+                {signals.map(([k, n]) => (
+                  <li key={k} className={`rounded-md border-[1.5px] px-2 py-0.5 text-xs font-medium ${k === "layoffs_reorg" || k === "legal_trouble" ? "border-red-600/40 bg-red-600/10" : "border-good-foreground/30 bg-good-foreground/10"}`}>
+                    {NEWS_LABEL[k]}: {n} {n === 1 ? "headline" : "headlines"}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {headlines.length > 0 ? (
+              <ul className="mt-2 flex flex-col gap-2 text-[0.95rem] leading-snug">
+                {headlines.slice(0, 5).map((h) => (
+                  <li key={h.url}>
+                    <a href={h.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4 hover:text-brand">
+                      {h.title}
+                    </a>
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · {h.site ?? ""}
+                      {h.date ? `, ${day(`${h.date.slice(0, 4)}-${h.date.slice(4, 6)}-${h.date.slice(6, 8)}`)}` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <p className="mt-1 text-xs text-muted-foreground">Headlines found by GDELT and sorted by keywords, so a label can be wrong; read the article.</p>
+          </div>
         ) : null}
         {hiringLines.length > 0 ? (
           <div className="mt-5">
@@ -241,6 +338,7 @@ export function AboutCompany({ post }: { post: Posting }): React.JSX.Element {
             <p className="mt-2 text-xs text-muted-foreground">From their job postings.</p>
           </div>
         ) : null}
+              {profile?.sources?.length ? <p className="mt-5 text-xs text-muted-foreground">Sources: {profile.sources.map((x) => x.split(",")[0].split(" (")[0]).join(" · ")}.</p> : null}
       </div>
     </Section>
   )

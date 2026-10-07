@@ -10,23 +10,32 @@
  */
 export type EmployerTier = "elite" | "large" | "mid" | "small" | "unknown"
 
-const ELITE: ReadonlyArray<RegExp> = [
+/** Names distinctive enough to count wherever they appear in a company name ("Goldman Sachs International", "Deloitte Consulting"). */
+const DISTINCT: ReadonlyArray<RegExp> = [
   // Banks and asset managers
-  /goldman sachs/, /j\.?\s?p\.?\s?morgan|jpmorgan/, /morgan stanley/, /bank of america|merrill lynch/, /\bciti(group|bank)?\b/, /barclays/, /deutsche bank/,
-  /\bubs\b/, /credit suisse/, /bnp paribas/, /hsbc/, /lazard/, /rothschild/, /evercore/, /blackrock/, /blackstone/, /\bkkr\b/,
+  /goldman sachs/, /\bj\.?\s?p\.?\s?morgan|jpmorgan/, /morgan stanley/, /bank of america|merrill lynch/, /citigroup|citibank/, /barclays/, /deutsche bank/,
+  /credit suisse/, /bnp paribas/, /\bhsbc\b/, /\blazard\b/, /rothschild/, /evercore/, /blackrock/, /^blackstone\b|blackstone group/, /\bkkr\b/,
   // Strategy and Big 4
-  /mckinsey/, /boston consulting|\bbcg\b/, /\bbain\b/, /deloitte/, /pwc|pricewaterhouse/, /\bey\b|ernst & young|ernst and young/, /kpmg/,
+  /mckinsey/, /boston consulting group/, /deloitte/, /\bpwc\b|pricewaterhouse/, /ernst (&|and) young/, /\bkpmg\b/,
   // Tech platforms
-  /\bgoogle\b|alphabet/, /\bmeta\b|facebook/, /amazon|\baws\b/, /\bapple\b/, /microsoft/, /netflix/, /nvidia/, /openai/, /anthropic/, /stripe/, /spotify/,
+  /\bgoogle\b|\balphabet inc/, /facebook/, /amazon web services/, /microsoft/, /netflix/, /nvidia/, /openai/, /anthropic/, /spotify/,
   // Amsterdam trading and Dutch names that carry weight
-  /optiver/, /\bimc\b/, /flow traders/, /\bda vinci\b/, /jane street/, /citadel/, /\basml\b/, /adyen/, /booking\.com|booking holdings/, /\bshell\b/,
-  /unilever/, /philips/, /\bing\b|ing bank|ing group/, /abn amro/, /rabobank/, /heineken/, /\bmollie\b/,
+  /optiver/, /flow traders/, /jane street/, /\basml\b/, /\badyen\b/, /booking\.com|booking holdings/, /unilever/, /\bphilips\b/, /abn amro/, /rabobank/, /heineken/,
 ]
+/** Names that are also ordinary words or short letters: they count only as the whole company name ("Shell" yes, "Shell Shock Studios" no). */
+const WHOLE = new Set(["shell", "apple", "meta", "meta platforms", "amazon", "bain", "bain & company", "bcg", "ey", "ing", "ing bank", "ing group", "citi", "ubs", "imc", "imc trading", "da vinci", "da vinci derivatives", "citadel", "citadel securities", "stripe", "mollie", "aws"])
+/** Legal forms and place words dropped before comparing a whole name. */
+const SUFFIX = /\b(n\.?v\.?|b\.?v\.?|plc|ltd|limited|inc|llc|gmbh|ag|s\.?a\.?|corp(oration)?|company|co|holdings?|international|global|europe|emea|nederland|netherlands|the netherlands|uk|us|usa)\b\.?/g
+
+function wholeName(name: string): string {
+  return name.replace(/[,()]/g, " ").replace(SUFFIX, " ").replace(/^the\s+/, "").replace(/\s+/g, " ").trim().replace(/\s*(&|and)$/, "")
+}
 
 /** The tier of an employer named on a CV or a posting. Size is the LinkedIn employee count when it is known. */
 export function employerTier(name: string | null | undefined, employees?: number | null): EmployerTier {
-  const n = (name ?? "").toLowerCase().trim()
-  if (n && ELITE.some((re) => re.test(n))) return "elite"
+  // What is in brackets ("formerly Philips Domestic Appliances") describes the name; it is not the name.
+  const n = (name ?? "").toLowerCase().replace(/\([^)]*\)/g, " ").replace(/&amp;/g, "&").trim()
+  if (n && (DISTINCT.some((re) => re.test(n)) || WHOLE.has(wholeName(n)))) return "elite"
   if (typeof employees === "number") {
     if (employees >= 5000) return "large"
     if (employees >= 200) return "mid"

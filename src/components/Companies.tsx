@@ -8,6 +8,7 @@ import { ChevronLeftIcon, ChevronRightIcon, SearchIcon, XIcon } from "@/componen
 import { useData } from "@/lib/data"
 import { formatPlace } from "@/lib/format"
 import { industryOf } from "@/lib/industries"
+import { typeTag, useCompanyProfiles, type CompanyProfile } from "@/lib/company-profile"
 import type { Person, Posting } from "@/lib/types"
 
 /** One employer, with everything of yours that touches it: its open jobs, the ones you kept or applied to, and the people you know there. */
@@ -21,6 +22,8 @@ export interface Company {
   industry: string | null
   city: string | null
   sponsor: boolean
+  /** What public sources say about it (company-profile.ts), when found. */
+  profile?: CompanyProfile
   /** A job to read the employer's facts from. Absent for a company known only from your people. */
   sample: Posting | null
 }
@@ -31,6 +34,7 @@ const norm = (s: string): string => s.trim().toLowerCase()
 /** Every company in the job pool and in your own search, linked to its jobs and people. Yours come first, then the most open jobs. */
 export function useCompanies(): Company[] {
   const data = useData()
+  const profiles = useCompanyProfiles()
 
   return useMemo(() => {
     const applied = new Set(data.applications.map((a) => a.posting_id))
@@ -64,6 +68,9 @@ export function useCompanies(): Company[] {
       ;(byKey.get(key) ?? ensure(key, person.company.trim(), null)).people.push(person)
     }
     for (const c of byKey.values()) {
+      c.profile = profiles[c.key]
+      // The IND register read for this company is the fuller answer; a posting's own flag still counts.
+      c.sponsor ||= c.profile?.sponsor ?? false
       const sample = c.open[0] ?? c.yours[0] ?? c.sample
       c.sample = sample
       c.industry = sample ? industryOf(sample) : null
@@ -77,7 +84,7 @@ export function useCompanies(): Company[] {
     const mine = (c: Company): number => c.yours.length + c.people.length
 
     return [...byKey.values()].sort((a, b) => Number(mine(b) > 0) - Number(mine(a) > 0) || b.open.length - a.open.length || a.name.localeCompare(b.name))
-  }, [data.postings, data.keptExtra, data.saved, data.applications, data.people])
+  }, [data.postings, data.keptExtra, data.saved, data.applications, data.people, profiles])
 }
 
 /** The list of companies: a search, then one row each, edge to edge on a phone like every other list. Pressing a row opens the company's card. */
@@ -167,9 +174,12 @@ function CompanyRow({ company: c, onOpen }: { company: Company; onOpen: () => vo
           <span className="line-clamp-2 text-base leading-snug font-semibold">{c.name}</span>
           {c.industry ? <span className="truncate text-[0.95rem]">{c.industry}</span> : null}
           {c.city ? <span className="truncate text-sm text-muted-foreground">{c.city}</span> : null}
-          {c.sponsor || saved > 0 || applied > 0 || c.people.length > 0 ? (
+          {c.sponsor || saved > 0 || applied > 0 || c.people.length > 0 || c.profile ? (
             <span className="flex flex-wrap gap-1.5 py-0.5">
               {c.sponsor ? <Tag brand>Visa sponsor</Tag> : null}
+              {c.profile?.sizeBand ? <Tag>{c.profile.sizeBand} staff</Tag> : null}
+              {typeTag(c.profile) ? <Tag>{typeTag(c.profile)}</Tag> : null}
+              {c.profile?.newsCounts?.layoffs_reorg ? <Tag warn>Layoffs in the news</Tag> : null}
               {saved > 0 ? <Tag>{saved} saved</Tag> : null}
               {applied > 0 ? <Tag>{applied} applied</Tag> : null}
               {c.people.length > 0 ? <Tag>{c.people.length} {c.people.length === 1 ? "person" : "people"}</Tag> : null}
@@ -184,8 +194,8 @@ function CompanyRow({ company: c, onOpen }: { company: Company; onOpen: () => vo
 }
 
 /** The small square tag the job rows use ("Dutch needed"): orange for what matters to a visa, plain for counts of yours. */
-function Tag({ brand, children }: { brand?: boolean; children: React.ReactNode }): React.JSX.Element {
-  return <span className={`w-fit rounded-md border-[1.5px] px-2 py-0.5 text-xs font-medium ${brand ? "border-brand/60 bg-brand/10" : "border-line bg-secondary/60"}`}>{children}</span>
+function Tag({ brand, warn, children }: { brand?: boolean; warn?: boolean; children: React.ReactNode }): React.JSX.Element {
+  return <span className={`w-fit rounded-md border-[1.5px] px-2 py-0.5 text-xs font-medium ${brand ? "border-brand/60 bg-brand/10" : warn ? "border-red-600/40 bg-red-600/10" : "border-line bg-secondary/60"}`}>{children}</span>
 }
 
 function useAppliedCount(c: Company): number {

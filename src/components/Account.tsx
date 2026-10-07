@@ -6,7 +6,6 @@ import { BoardIcon, BookmarkIcon, BuildingsIcon, CalendarIcon, DownloadIcon, Imp
 import { SearchSummary } from "@/components/InterviewMeter"
 import type { ViewLayout, ViewName } from "@/lib/types"
 import { ViewTabs, LAYOUT_CHOICES } from "@/components/ViewTabs"
-import { FitTable, HearBackTable } from "@/components/FitTable"
 import { ToolBar, ToolButton } from "@/components/ToolBar"
 import { TrackerFilters } from "@/components/TrackerFilterBar"
 import { TrackerCalendar } from "@/components/TrackerCalendar"
@@ -226,8 +225,6 @@ export function Account({ looking, onStartLooking, onStopLooking }: AccountProps
           )}
         </section>
 
-        {subject === "jobs" ? <FitTable onOpen={setRevisit} /> : null}
-        {subject === "jobs" ? <HearBackTable onOpen={setRevisit} /> : null}
       </div>
 
       {revisit ? (

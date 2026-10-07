@@ -38,13 +38,13 @@ export const JOBS = {
 /** [person, job, lowest acceptable %, highest acceptable %, why] */
 export const EXPECT: Array<[keyof typeof PEOPLE, keyof typeof JOBS, number, number, string]> = [
   ["gsAnalyst", "startupFinance", 50, 90, "Top relevant pedigree into a small, less sought-after pile"],
-  ["gsAnalyst", "eliteBankAnalyst", 10, 50, "Same pedigree, but the most sought-after pile there is"],
+  ["gsAnalyst", "eliteBankAnalyst", 5, 50, "Same pedigree, but the most sought-after pile there is (judgement; lowered from 10% after 34k applications put a famous name at 0.4x the study value)"],
   ["midFinanceIntern", "midFinanceEntry", 8, 35, "Relevant internship, ordinary employer, typical pile (matched CV 19-38%)"],
   ["freshFinanceGrad", "financeIntern", 5, 30, "Finance master's, no experience, internship"],
   ["freshFinanceGrad", "eliteBankAnalyst", 0, 4, "No experience into the hardest pile"],
   ["barista", "big4Audit", 0, 3, "Unrelated work and degree"],
   ["googleSwe", "scaleupSwe", 25, 85, "Relevant big-tech engineer into a scale-up, non-EU background and degree (no study gives this case; range is judgement, widened after the backtest)"],
-  ["googleSweDutchEu", "scaleupSwe", 45, 90, "Same, Dutch background and native Dutch"],
+  ["googleSweDutchEu", "scaleupSwe", 35, 90, "Same, Dutch background and native Dutch (judgement; lowered from 45% for the same reason)"],
   ["googleSwe", "scaleupMarketing", 0, 12, "Big name, other line of work: prestige alone does little"],
   ["mckinseyMarketingToFinance", "startupFinance", 2, 25, "Elite name, adjacent work"],
   ["gsAnalyst", "seniorFinance", 2, 35, "Asks 7+ years, has 3 (no study measures large shortfalls; range is judgement, widened after the backtest)"],

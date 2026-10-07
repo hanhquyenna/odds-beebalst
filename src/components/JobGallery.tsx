@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
-import { JobBoard } from "@/components/JobBoard"
+import { JobBoard, JobDrawer } from "@/components/JobBoard"
+import { FitTable } from "@/components/FitTable"
 import { FilterEditor, JobFilters } from "@/components/JobFilters"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -30,6 +31,8 @@ export function JobGallery(): React.JSX.Element {
   // The board is closed with its cross and brought back from the link beside the job count, so this page holds both.
   const [noticeClosed, setNoticeClosed] = useRemembered("odds:jobs-notice-closed", window.matchMedia("(max-width: 767px)").matches)
   const [editOpen, setEditOpen] = useState<boolean>(false)
+  // A job opened from the tailored list, shown in the same drawer as everywhere else.
+  const [opened, setOpened] = useState<Posting | null>(null)
   // With preferences switched on the list opens with them loaded, as the same filters.
   const [filters, setFilters] = useState<Filters>(on && saved ? saved : DEFAULT_FILTERS)
   const [sort, setSort] = useStoredChoice<JobSortKey>("odds:jobs-sort", JOB_SORTS.map((s) => s.key), "newest")
@@ -83,6 +86,12 @@ export function JobGallery(): React.JSX.Element {
   return (
     <FilterBus value={(patch) => setFilters((f) => ({ ...f, ...patch }))}>
     <div className="flex w-full flex-col gap-6">
+      {/* What is picked for you comes first; every job, with your chance on each, follows. */}
+      <div className="-mt-10">
+        <FitTable onOpen={setOpened} />
+      </div>
+      {opened ? <JobDrawer post={opened} onClose={() => setOpened(null)} onSwitch={setOpened} /> : null}
+      <h2 className="mt-4 text-xl font-semibold tracking-tight">All jobs</h2>
       <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
         <p className="text-xl font-semibold tracking-tight text-balance">
           {filtered && total === 0 ? "Nothing left with these filters." : on ? headline(groups.matches.length, groups.outliers.length) : `${total.toLocaleString()} jobs`}
@@ -142,7 +151,7 @@ export function JobGallery(): React.JSX.Element {
         groups={
           on
             ? [
-                { label: `Jobs that fit you (${groups.matches.length.toLocaleString()})`, jobs: groups.matches },
+                { label: `Match your preferences (${groups.matches.length.toLocaleString()})`, jobs: groups.matches },
                 { label: `Close, if you want to stretch (${groups.outliers.length.toLocaleString()})`, jobs: groups.outliers },
               ]
             : [{ jobs: groups.matches }]
