@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { logoFor, monogram } from "@/lib/companies"
+import { useAutoLogosReady } from "@/lib/stored-logos"
 
 interface CompanyLogoProps {
   employer: string
@@ -18,6 +19,8 @@ interface CompanyLogoProps {
  * is behind it. With no logo on file, the company's own site icon is used when the job link gives one; with neither, or a picture that fails to load, its initials show in a soft circle of the same size.
  */
 export function CompanyLogo({ employer, name, size, wide, url }: CompanyLogoProps): React.JSX.Element {
+  // Redraws once the later logo lists have loaded (stored-logos.ts).
+  useAutoLogosReady()
   const src = logoFor(employer, url)
   const [failed, setFailed] = useState<boolean>(false)
 

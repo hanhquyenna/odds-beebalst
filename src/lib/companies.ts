@@ -1,5 +1,5 @@
 import local from "@/lib/company-logos-local.json"
-import { nameKey, storedLogoFor } from "@/lib/stored-logos"
+import { autoLogoFor, loadAutoLogos, nameKey, storedLogoFor } from "@/lib/stored-logos"
 
 /** Employer to logo: a cut-out under /logos, or the source picture when it could not be cut out. Written by scripts/make_logos.py. */
 const LOCAL: Record<string, string> = local
@@ -11,6 +11,8 @@ for (const [name, file] of Object.entries(LOCAL)) {
   BY_LOWER.set(name.toLowerCase(), file)
   BY_KEY.set(nameKey(name), file)
 }
+
+const favicon = (domain: string): string => `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`
 
 /**
  * The employer's logo with its background cut out, so it can float on the page
@@ -28,9 +30,18 @@ export function logoFor(employer: string, url?: string | null): string | null {
   if (stored) {
     return stored
   }
+  // Not in the main lists: ask the later ones (loaded now if they are not yet).
+  loadAutoLogos()
+  const later = autoLogoFor(employer)
+  if (later.file) {
+    return later.file
+  }
+  if (later.site) {
+    return favicon(later.site)
+  }
   const domain = url ? siteDomain(url) : null
 
-  return domain ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128` : null
+  return domain ? favicon(domain) : null
 }
 
 /** Sites that list other companies' jobs: their icon is theirs, not the employer's. */
