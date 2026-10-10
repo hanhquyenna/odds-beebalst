@@ -68,8 +68,21 @@ async function bridgeActionLink(idToken: string): Promise<string> {
   return body.action_link
 }
 
-/** Runs on /auth/callback: trades the Shoo code for a Supabase session. */
-export async function completeShooSignIn(): Promise<Session> {
+let finishing: Promise<Session> | null = null
+
+/**
+ * Runs on /auth/callback: trades the Shoo code for a Supabase session. The code works once, so a second call while the first is
+ * running (a remount, or a dev hot reload) shares it instead of finding the code gone and reporting a cancelled sign-in.
+ */
+export function completeShooSignIn(): Promise<Session> {
+  finishing ??= finishShooSignIn().finally(() => {
+    finishing = null
+  })
+
+  return finishing
+}
+
+async function finishShooSignIn(): Promise<Session> {
   const auth = await shoo()
   let idToken: string
   try {

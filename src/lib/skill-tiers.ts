@@ -25,7 +25,8 @@ export function skillTiersFor(body: string, jev: ReadonlyArray<{ text: string; t
  */
 export function withSkillTiers<T extends Posting>(post: T): T {
   const t = post.skill_tiers
-  if (!t || typeof t !== "object") return post
+  // A job added from LinkedIn or Indeed can arrive with no skills read yet (null): it counts as none, never as a crash.
+  if (!t || typeof t !== "object") return Array.isArray(post.skills) ? post : { ...post, skills: [] }
   const tiers: Record<string, Tier> = {}
   for (const [name, tier] of Object.entries(t)) if (tier) tiers[name] = tier
 

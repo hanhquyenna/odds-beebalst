@@ -325,7 +325,7 @@ export function computeShares(postings: Posting[]): Record<Posting["cat"], Categ
     const n = ps.length || 1
     const counts: Record<string, number> = {}
     for (const p of ps) {
-      for (const s of p.skills) {
+      for (const s of p.skills ?? []) {
         counts[s] = (counts[s] ?? 0) + 1
       }
     }
