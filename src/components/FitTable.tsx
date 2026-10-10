@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react"
 import { FilterEditor } from "@/components/JobFilters"
-import { PencilIcon, XIcon } from "@/components/icons"
+import { ChevronDownIcon, ChevronUpIcon, PencilIcon, PlusIcon, XIcon } from "@/components/icons"
 import { JobRow } from "@/components/JobBoard"
-import { DEFAULT_FILTERS, applyFilters, type JobFilters } from "@/lib/filters"
+import { DEFAULT_FILTERS, FIELD_OPTIONS, applyFilters, type JobFilters } from "@/lib/filters"
 import { useSavedViews } from "@/lib/use-saved-views"
 import { Button } from "@/components/ui/button"
 import { useData, type Data } from "@/lib/data"
@@ -95,7 +95,7 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
 
     const own = [...data.profile.positions.map((p) => p.Title ?? ""), data.profile.headline].filter((t) => t.trim() !== "")
 
-    return { rows: tailor({ candidates, fitting, saved: mine, chanceOf, profiles, liftOf, own }), stretch: stretches(mine, chanceOf) }
+    return { rows: tailor({ candidates, fitting, saved: mine, chanceOf, profiles, liftOf, own, fieldOrder: filters.field }), stretch: stretches(mine, chanceOf) }
   }, [data.postings, data.keptExtra, data.profile, data.reference, data.shares, data.referrals, data.saved, data.applications, data.passed, data.signals, strengthFor, effective, filters, profiles, needsProfile])
 
   if (!data.reference) return null
@@ -176,7 +176,8 @@ function PreferencesDialog({ filters, onChange, onClose }: { filters: JobFilters
         </div>
         <div className="overflow-y-auto px-5 py-4">
           <p className="mb-4 text-sm text-muted-foreground">These help tailor the jobs that fit you.</p>
-          <FilterEditor filters={filters} onChange={onChange} />
+          <FieldRanking value={filters.field} onChange={(field) => onChange({ ...filters, field })} />
+          <FilterEditor filters={filters} onChange={onChange} hide={["field"]} />
           <NotInterested />
         </div>
         <div className="flex items-center justify-between gap-2 border-t-[1.5px] px-5 py-3">
@@ -188,6 +189,57 @@ function PreferencesDialog({ filters, onChange, onClose }: { filters: JobFilters
           </Button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** How many lines of work you can rank. */
+const MAX_FIELDS = 3
+
+/** Up to three lines of work, in your order: the list shows only these, your first choice first. Empty means the ones your profile points to. */
+function FieldRanking({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }): React.JSX.Element {
+  const move = (i: number, by: -1 | 1): void => {
+    const next = [...value]
+    ;[next[i], next[i + by]] = [next[i + by], next[i]]
+    onChange(next)
+  }
+  const left = FIELD_OPTIONS.filter((f) => !value.includes(f))
+  const button = "flex size-7 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+
+  return (
+    <div className="mb-4 rounded-xl border-[1.5px] bg-secondary/30 p-3">
+      <p className="text-sm font-medium">Your job fields, in order</p>
+      <p className="mb-2 text-xs text-muted-foreground">Pick up to {MAX_FIELDS}. The list shows only these, the first one on top.</p>
+      <ol className="flex flex-col gap-1.5">
+        {value.map((f, i) => (
+          <li key={f} className="flex items-center gap-2 rounded-lg border-[1.5px] bg-card px-3 py-1.5 text-sm">
+            <span className="w-4 font-semibold tabular-nums text-brand">{i + 1}</span>
+            <span className="min-w-0 flex-1 truncate">{f}</span>
+            <button type="button" aria-label={`Move ${f} up`} disabled={i === 0} onClick={() => move(i, -1)} className={button}>
+              <ChevronUpIcon className="size-3.5" aria-hidden="true" />
+            </button>
+            <button type="button" aria-label={`Move ${f} down`} disabled={i === value.length - 1} onClick={() => move(i, 1)} className={button}>
+              <ChevronDownIcon className="size-3.5" aria-hidden="true" />
+            </button>
+            <button type="button" aria-label={`Remove ${f}`} onClick={() => onChange(value.filter((x) => x !== f))} className={button}>
+              <XIcon className="size-3.5" aria-hidden="true" />
+            </button>
+          </li>
+        ))}
+      </ol>
+      {value.length < MAX_FIELDS ? (
+        <label className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+          <PlusIcon className="size-4" aria-hidden="true" />
+          <select value="" onChange={(e) => e.target.value && onChange([...value, e.target.value])} aria-label="Add a job field" className="h-9 min-w-0 flex-1 cursor-pointer rounded-lg border-[1.5px] bg-card px-2 text-sm text-foreground">
+            <option value="">{value.length === 0 ? "Add your first job field" : "Add another"}</option>
+            {left.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
     </div>
   )
 }
@@ -220,7 +272,7 @@ function NotInterested(): React.JSX.Element | null {
 }
 
 /** The open jobs that are not yours yet: not kept, applied to or dismissed, and not added by you. */
-function notYours(data: Pick<Data, "postings" | "applications" | "saved" | "passed">): Posting[] {
+export function notYours(data: Pick<Data, "postings" | "applications" | "saved" | "passed">): Posting[] {
   const applied = new Set(data.applications.map((a) => a.posting_id))
 
   return data.postings.filter((post) => !post.local && !post.closed_at && !data.saved.has(post.id) && !applied.has(post.id) && !data.passed.has(post.id))

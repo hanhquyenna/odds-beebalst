@@ -19,6 +19,8 @@ import { ColumnsBy, PipelineBoard } from "@/components/PipelineBoard"
 import { STEPS, stepOf } from "@/components/job-steps"
 import { AddJobs, Tracker, type AddPanel } from "@/components/Tracker"
 import { TrackerTable } from "@/components/TrackerTable"
+import { SimilarJobs } from "@/components/SimilarJobs"
+import { ClaudePromo } from "@/components/ClaudeGuide"
 import { Button } from "@/components/ui/button"
 import { JobListSkeleton } from "@/components/Skeleton"
 import { useData } from "@/lib/data"
@@ -45,13 +47,15 @@ interface AccountProps {
   onEdit: () => void
   onStartLooking: () => void
   onStopLooking: () => void
+  /** Opens the page on using odds inside Claude. */
+  onOpenClaude?: () => void
 }
 
 /**
  * The account's own page: the jobs you kept, where you applied, and what we
  * read from you. The big button goes to the jobs that fit.
  */
-export function Account({ looking, onStartLooking, onStopLooking }: AccountProps): React.JSX.Element {
+export function Account({ looking, onStartLooking, onStopLooking, onOpenClaude }: AccountProps): React.JSX.Element {
   const data = useData()
   const saved = useSavedViews()
   const { active, filters, configName } = saved
@@ -176,6 +180,8 @@ export function Account({ looking, onStartLooking, onStopLooking }: AccountProps
 
         <SearchSummary />
 
+        {onOpenClaude ? <ClaudePromo onOpen={onOpenClaude} /> : null}
+
         <section aria-label="Your jobs" className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3 max-md:hidden">
             <div className="flex flex-wrap items-center gap-2">
@@ -221,6 +227,7 @@ export function Account({ looking, onStartLooking, onStopLooking }: AccountProps
                 <Tracker posts={shown} onOpen={setRevisit} viewName={configName} />
               )}
               <AddJobs panel={addPanel} setPanel={setAddPanel} />
+              {kept.length > 0 ? <SimilarJobs onOpen={setRevisit} /> : null}
             </>
           )}
         </section>

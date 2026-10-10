@@ -523,6 +523,20 @@ export function PayCard({ post, st }: { post: Posting; st: Standing }): React.JS
     )
   }
 
+  if (allowance.basis === "Stated") {
+    return (
+      <Section title="Pay and career path">
+        <p className="flex flex-wrap items-center gap-x-2 text-2xl leading-tight font-semibold tracking-tight tabular-nums">
+          {allowance.text}
+          <span className="text-base font-normal text-muted-foreground">{allowance.perHour ? "an hour" : "a month"}</span>
+          <Hint label="About this pay">Stated by the employer in this posting, before tax.</Hint>
+        </p>
+        {post.glassdoor ? <p className="mt-2 text-sm text-muted-foreground">Glassdoor cross-check: {post.glassdoor.reports} employee salary reports, read {post.glassdoor.readOn}. This is a benchmark, not the employer’s offer.</p> : null}
+        <CareerPath />
+      </Section>
+    )
+  }
+
   const p25 = Math.round(view.grossMonth.p25 / 10) * 10
   const p50 = Math.round(view.grossMonth.p50 / 10) * 10
   const p75 = Math.round(view.grossMonth.p75 / 10) * 10
@@ -558,6 +572,7 @@ export function PayCard({ post, st }: { post: Posting; st: Standing }): React.JS
           <li>
             <b>Sponsor</b> · {post.ind_sponsor ? `on the IND register as "${post.ind_sponsor_name}"` : "not on the IND register"}
           </li>
+          {post.glassdoor ? <li><b>Glassdoor check</b> · {post.glassdoor.reports} employee salary reports, read {post.glassdoor.readOn}; benchmark only</li> : null}
         </ul>
         <ul className="mt-3 border-t-[1.5px]">
           {thresholdLines(view, data.profile, ref).map((t) => (

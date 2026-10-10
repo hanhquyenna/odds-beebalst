@@ -1,3 +1,4 @@
+import { ClaudeProfileRow } from "@/components/ClaudeGuide"
 import { ArrowLeftIcon, CameraIcon, PlusIcon, XIcon } from "@/components/icons"
 import { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -103,6 +104,7 @@ function EntryList({ rows, onChange, blank, summary, fields, noun }: ListProps):
 interface ProfilePageProps {
   onBack: () => void
   onOpenDocuments: () => void
+  onOpenClaude?: () => void
 }
 
 /**
@@ -110,7 +112,7 @@ interface ProfilePageProps {
  * roles, the degrees, the skills and languages. The job page checks each of
  * them against what that job asks for, so each section says what it is used for.
  */
-export function ProfilePage({ onBack, onOpenDocuments }: ProfilePageProps): React.JSX.Element {
+export function ProfilePage({ onBack, onOpenDocuments, onOpenClaude }: ProfilePageProps): React.JSX.Element {
   const data = useData()
   const p = data.profile
   // A guest address is a placeholder, never the person's email: hide it everywhere.
@@ -366,6 +368,12 @@ export function ProfilePage({ onBack, onOpenDocuments }: ProfilePageProps): Reac
           Open Documents
         </Button>
       </Section>
+
+      {onOpenClaude ? (
+        <Section id="profile-claude" title="Use odds in Claude" hint="Ask Claude about jobs in your own words. It searches the same jobs you see here and works out your chances the same way.">
+          <ClaudeProfileRow onOpen={onOpenClaude} />
+        </Section>
+      ) : null}
     </div>
   )
 }

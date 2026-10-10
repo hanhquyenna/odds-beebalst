@@ -116,6 +116,11 @@ describe("payOf", () => {
   test("a monthly figure is written the same way", () => {
     expect(payOf(job({ pay_posted: "€ 3.891 - € 5.188" }), null).text).toBe("€3.890 – €5.190")
   })
+  test("an entry job uses the younger-worker band for a typical estimate", () => {
+    const ref = { bands: { "0311": { code: "0311", label: "marketing", year: 2024, p25_hourly: 22.8, p50_hourly: 30.4, p75_hourly: 40.1, employees_k: null, cagr_2013_2024: null, cagr_2019_2024: null } }, ageFactors: {}, tax: null, transitions: {} } as never
+    const p = job({ level_view: "Entry", cat: "other", cbs_group: "0311" })
+    expect(payOf(p, ref).text).toBe("€2.950 – €5.200")
+  })
   test("a range wider than three times its low end is ignored", () => {
     expect(payOf(job({ pay_posted: "€ 50.000 tot € 500.000" }), null).basis).toBe("Not known")
     const intern = payOf(job({ title: "Marketing Internship", pay_posted: null }), null)

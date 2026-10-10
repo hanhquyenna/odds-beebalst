@@ -212,7 +212,6 @@ function useAppliedCount(c: Company): number {
 function CompanyCard({ company: c, onClose }: { company: Company; onClose: () => void }): React.JSX.Element {
   const data = useData()
   const [job, setJob] = useState<Posting | null>(null)
-  const applied = useAppliedCount(c)
 
   useEffect(() => {
     const previous = document.body.style.overflow
@@ -234,13 +233,6 @@ function CompanyCard({ company: c, onClose }: { company: Company; onClose: () =>
 
   const yoursIds = new Set(c.yours.map((p) => p.id))
   const otherOpen = c.open.filter((p) => !yoursIds.has(p.id))
-  const stats = [
-    { label: "Open jobs", n: c.open.length },
-    { label: "Saved", n: c.yours.length - applied },
-    { label: "Applied", n: applied },
-    { label: "People", n: c.people.length },
-  ]
-
   return createPortal(
     <div className="fixed inset-0 z-40 text-foreground">
       <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 cursor-default bg-[oklch(0.2_0.03_265_/_0.5)] animate-in fade-in duration-200" />
@@ -264,18 +256,8 @@ function CompanyCard({ company: c, onClose }: { company: Company; onClose: () =>
             <div className="flex min-w-0 flex-col gap-1">
               <h2 className="text-2xl leading-tight font-bold tracking-tight">{c.name}</h2>
               <p className="text-sm text-muted-foreground">{[c.industry, c.city].filter(Boolean).join(" · ") || "Industry not known"}</p>
-              {c.sponsor ? <span className="w-fit rounded-full bg-brand/15 px-2 py-0.5 text-xs font-semibold text-brand-ink">Recognised visa sponsor (IND)</span> : null}
             </div>
           </header>
-
-          <dl className="grid grid-cols-4 overflow-hidden rounded-xl border-[1.5px] border-line bg-card max-md:-mx-5 max-md:rounded-none max-md:border-x-0">
-            {stats.map((s) => (
-              <div key={s.label} className="flex flex-col gap-0.5 border-l-[1.5px] border-line px-3 py-3 first:border-l-0">
-                <dd className="text-2xl leading-none font-bold tabular-nums">{s.n}</dd>
-                <dt className="truncate text-xs font-semibold text-muted-foreground">{s.label}</dt>
-              </div>
-            ))}
-          </dl>
 
           {c.sample ? <AboutCompany post={c.sample} /> : null}
 

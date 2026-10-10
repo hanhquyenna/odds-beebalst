@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
 import { BookmarkIcon } from "@/components/icons"
 import { KeyFacts } from "@/components/Tag"
-import { AboutCompany, MoreAtEmployer } from "@/components/CompanyInsights"
+import { MoreAtEmployer } from "@/components/CompanyInsights"
+import { CompanySection, PastHires, ReviewsSection } from "@/components/JobCompany"
+import { CompanyResearch } from "@/components/CompanyResearch"
 import { PostingText } from "@/components/PostingText"
 import { SourceLinks } from "@/components/SourceChips"
 import { StatusPicker } from "@/components/StatusPicker"
@@ -167,11 +169,17 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
         </>
       )}
 
+      <PastHires post={post} />
+
       {body !== "" ? (
         <Section title="About the job">{body ? <PostingText body={body} /> : <p className="text-sm text-muted-foreground">Loading the posting…</p>}</Section>
       ) : null}
 
-      <AboutCompany post={post} />
+      <CompanySection post={post} />
+
+      <CompanyResearch post={post} />
+
+      <ReviewsSection post={post} />
 
       {st ? <PayCard post={post} st={st} /> : null}
 

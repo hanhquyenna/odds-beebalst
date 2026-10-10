@@ -8,6 +8,7 @@
  * not through "intern"), then the line of work, the level, the city, and the kind of company (size and type, from company-profile.ts).
  * A shared line of work alone is not enough: the first try matched a procurement consultant to a warehouse job through "operations".
  */
+import { fieldOf } from "@/lib/filters"
 import { stem, words } from "@/lib/fit"
 import type { CompanyProfile } from "@/lib/company-profile"
 import type { Posting } from "@/lib/types"
@@ -56,7 +57,7 @@ export function likeness(saved: Posting, job: Posting, profiles: Record<string, 
   }
   if (overlap > 0 && !why.includes("same company")) why.unshift(shared.slice(0, 2).join(" "))
 
-  return { score, why, anchored: overlap > 0 || saved.employer === job.employer }
+  return { score, why: [...new Set(why)], anchored: overlap > 0 || saved.employer === job.employer }
 }
 
 /** Similar enough to suggest: shares title words or the company, and enough else besides. */
@@ -92,6 +93,8 @@ export interface TailorInput {
   liftOf: (post: Posting) => string | null
   /** The titles of your own roles and your headline: a job named like your own work is one you are into. */
   own?: ReadonlyArray<string>
+  /** The lines of work you ranked, first choice first. When given, a job in your first choice comes before one in your second, and so on. */
+  fieldOrder?: ReadonlyArray<string>
   /** Today, for closing dates (tests pass a fixed day). */
   today?: Date
 }
@@ -127,9 +130,9 @@ function ownMatch(post: Posting, own: ReadonlyArray<Set<string>>): { share: numb
   return best
 }
 
-export function tailor({ candidates, fitting, saved, chanceOf, profiles, liftOf, own = [], today = new Date() }: TailorInput): Tailored[] {
+export function tailor({ candidates, fitting, saved, chanceOf, profiles, liftOf, own = [], fieldOrder = [], today = new Date() }: TailorInput): Tailored[] {
   const ownSets = own.map(titleWords)
-  const scored: Array<Tailored & { interest: Interest; fresh: number }> = []
+  const scored: Array<Tailored & { interest: Interest; fresh: number; rank: number }> = []
   for (const post of candidates) {
     if (pastDeadline(post, today)) continue
     let best: { s: Posting; l: Likeness } | null = null
@@ -148,12 +151,13 @@ export function tailor({ candidates, fitting, saved, chanceOf, profiles, liftOf,
         : lift
           ? `Fits your background: ${lift}`
           : "Fits your preferences"
-    scored.push({ post, chance: chanceOf(post), note, interest, fresh: freshness(post) })
+    const at = fieldOrder.length > 0 ? fieldOrder.indexOf(fieldOf(post) ?? "") : -1
+    scored.push({ post, chance: chanceOf(post), note, interest, fresh: freshness(post), rank: at < 0 ? fieldOrder.length : at })
   }
 
-  // What you are into, then the newest, then your chance.
+  // Your ranked lines of work first, then what you are into, then the newest, then your chance.
   return scored
-    .sort((x, y) => y.interest - x.interest || x.fresh - y.fresh || y.chance - x.chance || (x.post.days_open ?? 1e9) - (y.post.days_open ?? 1e9))
+    .sort((x, y) => x.rank - y.rank || y.interest - x.interest || x.fresh - y.fresh || y.chance - x.chance || (x.post.days_open ?? 1e9) - (y.post.days_open ?? 1e9))
     .map(({ post, chance, note }) => ({ post, chance, note }))
 }
 
@@ -177,4 +181,71 @@ export function stretches(saved: Posting[], chanceOf: (post: Posting) => number)
   }
 
   return [...by.entries()].map(([family, e]) => ({ family, chance: e.sum / e.n, titles: e.titles.slice(0, 2) }))
+}
+
+export interface Similar {
+  post: Posting
+  note: string
+}
+
+/**
+ * Jobs like the ones you saved, a few of them, in the same mix as your saved list: if two thirds of what you saved is finance and one third is
+ * marketing, about two thirds of the suggestions are finance-like and one third marketing-like. Each saved line of work gets slots in proportion to
+ * how much of your list it is (every line you saved in gets at least one when there is room), each slot goes to the job most like one you saved there,
+ * and a line with nothing like it gives its slots to the others. Jobs you saved, applied to or dismissed, and jobs past their closing date, are left out.
+ */
+export function similarMix(saved: ReadonlyArray<Posting>, candidates: ReadonlyArray<Posting>, profiles: Record<string, CompanyProfile>, count = 5, today = new Date()): Similar[] {
+  const have = new Set(saved.map((s) => s.id))
+  const groups = new Map<string, Posting[]>()
+  for (const s of saved) groups.set(s.family ?? "", [...(groups.get(s.family ?? "") ?? []), s])
+  if (groups.size === 0) return []
+
+  // For each open job, the saved job it is most like, and the line of work that saved job is in.
+  const best = new Map<string, { job: Posting; like: Likeness; group: string }>()
+  for (const job of candidates) {
+    if (have.has(job.id) || pastDeadline(job, today)) continue
+    for (const [group, list] of groups) {
+      for (const s of list) {
+        const like = likeness(s, job, profiles)
+        if (!isLike(like)) continue
+        const now = best.get(job.id)
+        if (!now || like.score > now.like.score) best.set(job.id, { job, like, group })
+      }
+    }
+  }
+  const byGroup = new Map<string, Array<{ job: Posting; like: Likeness; s: Posting }>>()
+  for (const { job, like, group } of best.values()) {
+    const s = (groups.get(group) ?? []).reduce((a, b) => (likeness(b, job, profiles).score > likeness(a, job, profiles).score ? b : a))
+    byGroup.set(group, [...(byGroup.get(group) ?? []), { job, like, s }])
+  }
+  for (const list of byGroup.values()) list.sort((x, y) => y.like.score - x.like.score || freshness(x.job) - freshness(y.job))
+
+  // Slots in proportion to the saved list (largest remainder), a line with nothing like it gives its slots away.
+  const live = [...groups.entries()].filter(([g]) => (byGroup.get(g)?.length ?? 0) > 0)
+  const total = live.reduce((n, [, l]) => n + l.length, 0)
+  const want = new Map<string, number>()
+  const exact = live.map(([g, l]) => ({ g, x: (l.length / total) * count }))
+  for (const e of exact) want.set(e.g, Math.floor(e.x))
+  let left = count - [...want.values()].reduce((a, b) => a + b, 0)
+  for (const e of [...exact].sort((a, b) => b.x - Math.floor(b.x) - (a.x - Math.floor(a.x)))) {
+    if (left <= 0) break
+    want.set(e.g, (want.get(e.g) ?? 0) + 1)
+    left -= 1
+  }
+  const out: Similar[] = []
+  const used = new Set<string>()
+  const take = (g: string, n: number): void => {
+    for (const x of byGroup.get(g) ?? []) {
+      if (n <= 0 || out.length >= count) return
+      if (used.has(x.job.id)) continue
+      used.add(x.job.id)
+      out.push({ post: x.job, note: `Like the ${shortTitle(x.s.title)} at ${shortName(x.s.employer_display)} you saved: ${x.like.why.slice(0, 3).join(", ")}` })
+      n -= 1
+    }
+  }
+  for (const [g] of live) take(g, want.get(g) ?? 0)
+  // Slots a line could not fill go to the lines with the most saved jobs that still have something.
+  for (const [g] of [...live].sort((a, b) => b[1].length - a[1].length)) take(g, count - out.length)
+
+  return out
 }

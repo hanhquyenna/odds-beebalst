@@ -16,6 +16,25 @@ const VIEW_COLUMNS = ",level_view,kept_id,pick_rank,role_kind,work_signals"
 /** Pages fetched at once after the first: a few in parallel instead of one after another, so the list arrives sooner. */
 const PARALLEL_PAGES = 4
 
+const comparisonKey = (value: string | null | undefined): string => (value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "")
+
+type GlassdoorPay = { employer: string; position: string; reports: number; pay_min: number | null; pay_max: number | null; unit: string | null; read_on: string }
+
+async function attachGlassdoor(rows: Posting[]): Promise<void> {
+  const { data, error } = await supabase.from("employer_glassdoor_pay").select("employer,position,reports,pay_min,pay_max,unit,read_on")
+  if (error) {
+    // Glassdoor is a secondary validation source; a missing table or a blocked read must never hide jobs.
+    return
+  }
+  const byKey = new Map((data as GlassdoorPay[]).map((g) => [`${comparisonKey(g.employer)}|${comparisonKey(g.position)}`, g]))
+  for (const post of rows) {
+    const g = byKey.get(`${comparisonKey(post.employer)}|${comparisonKey(post.title)}`)
+    if (g) {
+      post.glassdoor = { position: g.position, reports: g.reports, payMin: g.pay_min, payMax: g.pay_max, unit: g.unit, readOn: g.read_on }
+    }
+  }
+}
+
 /**
  * One table or view, a thousand rows at a time. The first page settles the columns; the rest come several at once.
  * Null when it does not exist (the view is not there yet).
@@ -63,6 +82,7 @@ export async function fetchPostings(): Promise<Posting[]> {
 
   // Posts the reader of the text found to be no real job (an advert, a list of links) stay out of every list.
   const pool = all.filter((p) => (p.usable == null || p.usable >= 0.5) && !p.closed_at).map((p) => withSkillTiers(p))
+  await attachGlassdoor(pool)
   // Where the text plainly asks for Dutch and the first reading missed it, Dutch is required.
   for (const p of pool) {
     if (!p.dutch_required && (p.dutch_jev ?? 0) >= 0.8) {
@@ -257,17 +277,6 @@ export function signalsOf(posts: Posting[]): Record<string, Signals> {
   return out
 }
 
-/** What an employer says it is: its own paragraph from one of its postings, or a short description written by odds. Null when there is none. */
-export async function fetchEmployerAbout(employer: string): Promise<{ about: string; source: "posting" | "odds" } | null> {
-  const { data, error } = await supabase.from("employer_about").select("about,source").eq("employer", employer).maybeSingle()
-  if (error || !data) {
-    return null
-  }
-  const row = data
-
-  return { about: row.about, source: row.source === "odds" ? "odds" : "posting" }
-}
-
 export interface EmployerFacts {
   name: string | null
   description: string | null
@@ -330,57 +339,3 @@ export async function fetchKeptPostings(ids: ReadonlyArray<string>): Promise<Pos
   return out.map((p) => withSkillTiers(p))
 }
 
-export interface EmployerInsights {
-  culture: { heading: string; about: string } | null
-  teams: Array<{ family: string; heading: string | null; about: string | null; tasks: string[] }>
-  money: Array<{ kind: "revenue" | "net_profit" | "market_value" | "total_assets"; amount: number; currency: string; year: number }>
-}
-
-/** What an employer says about its culture and what its teams do (from its own postings), and the money figures it has published (from Wikidata). Each part is empty when there is none. */
-export async function fetchEmployerInsights(employer: string): Promise<EmployerInsights> {
-  const [culture, teams, money] = await Promise.all([
-    supabase.from("employer_culture").select("heading,about").eq("employer", employer).maybeSingle(),
-    supabase.from("employer_teams").select("family,heading,about,tasks").eq("employer", employer),
-    supabase.from("employer_money").select("kind,amount,currency,year").eq("employer", employer),
-  ])
-  const rows = (teams.data ?? []) as Array<{ family: string; heading: string | null; about: string | null; tasks: string[] | null }>
-
-  return {
-    culture: culture.error || !culture.data ? null : culture.data,
-    teams: rows.map((t) => ({ ...t, tasks: t.tasks ?? [] })),
-    money: money.error ? [] : (money.data ?? []),
-  }
-}
-
-export interface EmployerHiring {
-  open_jobs: number
-  first_jobs: number
-  no_dutch_jobs: number
-  visa_mentions: number
-  avg_applicants: number | null
-  pay_stated: number
-  cities: Array<{ name: string; n: number }>
-  fields: Array<{ name: string; n: number }>
-  skills: Array<{ name: string; n: number }>
-}
-
-/** What this employer's open jobs say about hiring there, worked out live in the database (the view employer_hiring). */
-export async function fetchEmployerHiring(employer: string): Promise<EmployerHiring | null> {
-  const { data, error } = await supabase.from("employer_hiring").select("open_jobs,first_jobs,no_dutch_jobs,visa_mentions,avg_applicants,pay_stated,cities,fields,skills").eq("employer", employer).maybeSingle()
-
-  return error || !data ? null : data
-}
-
-export interface EmployerNewsItem {
-  title: string
-  url: string
-  site: string | null
-  published: string | null
-}
-
-/** The latest headlines that name the employer (GDELT), newest first. Empty when there are none. */
-export async function fetchEmployerNews(employer: string): Promise<EmployerNewsItem[]> {
-  const { data, error } = await supabase.from("employer_news").select("title,url,site,published").eq("employer", employer).order("published", { ascending: false, nullsFirst: false }).limit(3)
-
-  return error ? [] : (data ?? [])
-}

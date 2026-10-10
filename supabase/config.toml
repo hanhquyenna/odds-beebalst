@@ -17,3 +17,9 @@ verify_jwt = true
 # token themselves (welcome, people).
 [functions.jobs]
 verify_jwt = false
+
+# The MCP server for Claude and other AI clients. Without a key it reads only what the app shows before sign-in and writes nothing.
+# With a person's private link (?key=, checked by the function itself against mcp_keys) it also reads and writes that person's own
+# documents, saved jobs and applications. Nothing paid is called, so no Supabase token is asked of the caller.
+[functions.mcp]
+verify_jwt = false

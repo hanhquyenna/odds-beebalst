@@ -166,8 +166,14 @@ export function applyFilters<T extends Posting>(posts: ReadonlyArray<T>, filters
   // Split once for the whole list: lower-casing and stripping accents per posting was most of the cost of a keystroke.
   const words = plain(filters.query).split(/\s+/).filter(Boolean)
 
+  // A job past its own closing date is gone, whatever the board still shows: left out of every list. Compared as dates, so it stays up on its last day.
+  const today = new Date().toISOString().slice(0, 10)
+
   // Cheapest checks first, so a posting that fails a ticked box never pays for the text search or the derived facts.
   return posts.filter((post) => {
+    if (post.valid_through && /^\d{4}-\d{2}-\d{2}/.test(post.valid_through) && post.valid_through.slice(0, 10) < today) {
+      return false
+    }
     if (filters.sponsorOnly && !post.ind_sponsor) {
       return false
     }

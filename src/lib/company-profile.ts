@@ -60,13 +60,6 @@ export interface CompanyInsights {
   worth_knowing?: Insight[]
 }
 
-export const INSIGHT_GROUPS: ReadonlyArray<{ key: keyof Omit<CompanyInsights, "one_liner">; title: string }> = [
-  { key: "culture", title: "Culture" },
-  { key: "open", title: "Open to internationals" },
-  { key: "growth", title: "Growth" },
-  { key: "worth_knowing", title: "Worth knowing" },
-]
-
 /**
  * The data comes in two parts (research-data/companies/07_export_app.py): public/companies/index.json, small, with what lists need
  * (sponsor, size, type, owner country, layoff headlines), and one file per company, public/companies/c/<hash>.json, fetched only
@@ -163,22 +156,3 @@ export const NEWS_LABEL: Record<NewsLabel, string> = {
   leadership: "Leadership changes",
 }
 
-/** "€1.2 billion (2024)", in the currency it was reported in. */
-export function moneyLine(m: Money): string {
-  const sym: Record<string, string> = { euro: "€", "United States dollar": "$", "pound sterling": "£", "Swiss franc": "CHF ", "Japanese yen": "¥", "Swedish krona": "SEK ", "Danish krone": "DKK ", "Norwegian krone": "NOK ", "renminbi": "CN¥" }
-  const s = m.currency ? (sym[m.currency] ?? `${m.currency} `) : ""
-  const a = Math.abs(m.amount)
-  const v = a >= 1e9 ? `${(m.amount / 1e9).toFixed(1)} billion` : a >= 1e6 ? `${Math.round(m.amount / 1e6)} million` : Math.round(m.amount).toLocaleString("en-US")
-
-  return `${s}${v}${m.year ? ` (${m.year})` : ""}`
-}
-
-/** One plain sentence on how open the employer looks to someone from abroad, from what its postings and the IND register say. */
-export function internationalVerdict(p: CompanyProfile): string | null {
-  if (!p.intl) return null
-  const noDutch = Math.round(p.intl.no_dutch_share * 100)
-  if (p.sponsor && noDutch >= 80) return "Open to internationals: a recognised visa sponsor, and most of its jobs here don't need Dutch."
-  if (p.sponsor) return `A recognised visa sponsor, but ${100 - noDutch}% of its jobs here ask for Dutch.`
-  if (noDutch >= 80) return "Most of its jobs here don't need Dutch, but it is not on the IND sponsor list: from outside the EU, check how it would get you a permit."
-  return "Not on the IND sponsor list, and many of its jobs here ask for Dutch."
-}

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { hearBackFor, LIFT, TOP_SHARE } from "@/lib/hear-back"
 import { oddsV2 } from "@/lib/odds-v2"
 import { JOBS, PEOPLE, job } from "@/lib/odds-v2.personas"
-import { isLike, likeness, shortName, shortTitle, stretches, tailor } from "@/lib/tailor"
+import { isLike, likeness, shortName, shortTitle, similarMix, stretches, tailor } from "@/lib/tailor"
 import { DEFAULT_PROFILE, type Posting } from "@/lib/types"
 
 const pool: Posting[] = Array.from({ length: 200 }, (_, i) =>
@@ -91,5 +91,30 @@ describe("jobs tailored to you", () => {
     expect(shortTitle("2027 MUFG 6 month Amsterdam internship: Japanese Corporate Banking")).toBe("MUFG Amsterdam internship")
     expect(shortTitle("Senior Financial Analyst (m/f/d)")).toBe("Senior Financial Analyst")
     expect(shortName("MUFG Bank (Europe) N.V.")).toBe("MUFG Bank")
+  })
+})
+
+describe("similarMix", () => {
+  const mk = (id: string, title: string, family: string, employer = "Acme"): Posting => job({ id, title, family, employer, level_view: "Entry", region: "Amsterdam" })
+  const saved = [mk("s1", "Finance Analyst", "Finance"), mk("s2", "Finance Controller", "Finance"), mk("s3", "Marketing Manager", "Marketing")]
+  const open = [
+    ...["A", "B", "C", "D"].map((x, i) => mk(`f${i}`, `Finance Business Partner ${x}`, "Finance", `Fin${x}`)),
+    ...["A", "B", "C"].map((x, i) => mk(`m${i}`, `Marketing Specialist ${x}`, "Marketing", `Mkt${x}`)),
+  ]
+
+  test("follows the mix of what you saved: two finance for every marketing", () => {
+    const out = similarMix(saved, open, {}, 3)
+    expect(out.filter((s) => s.post.family === "Finance")).toHaveLength(2)
+    expect(out.filter((s) => s.post.family === "Marketing")).toHaveLength(1)
+  })
+
+  test("never suggests a saved job, and gives unused slots to the other line", () => {
+    const out = similarMix(saved, [...open.filter((p) => p.family === "Finance"), saved[0]], {}, 5)
+    expect(out.every((s) => !["s1", "s2", "s3"].includes(s.post.id))).toBe(true)
+    expect(out).toHaveLength(4)
+  })
+
+  test("nothing saved, nothing suggested", () => {
+    expect(similarMix([], open, {})).toEqual([])
   })
 })

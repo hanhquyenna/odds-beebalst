@@ -648,6 +648,12 @@ export function levelOf(p: Posting): Level {
 // ---------------------------------------------------------------- pasted postings
 
 const YEARS = /(\d{1,2})\s*\+?\s*(?:-\s*\d{1,2}\s*)?(?:years?|yrs?|jaar)/gi
+/** A posting counts only when it offers, or clearly discusses offering, immigration sponsorship. */
+export function mentionsVisaSponsorship(text: string): boolean {
+  const positive = /\b(?:visa\s+sponsor(?:ship|ed|ing)?|sponsor(?:s|ed|ing)?\s+(?:your|the|a)?\s*visa|sponsor(?:s|ed|ing)?\s+(?:your|the|a)?\s*work\s+permit|(?:visa|work\s+permit)\s+(?:support|assistance|provided|available)|(?:sponsorship|sponsor(?:ship)?)\s+(?:is\s+)?(?:available|provided|offered))\b/i
+  const negative = /\b(?:do(?:es)?\s+not|do(?:es)?n'?t|did\s+not|cannot|can\s*not|can't|unable\s+to|without|no)\s+(?:(?:provide|offer|give)\s+)?(?:visa\s+sponsorship|sponsorship|sponsor(?:ship)?)\b|\b(?:not\s+(?:able|eligible)\s+to|must\s+already\s+(?:have|hold))\s+(?:provide\s+)?(?:a\s+)?(?:valid\s+)?(?:visa|work\s+permit|right\s+to\s+work|sponsor(?:ship)?)\b/i
+  return positive.test(text) && !negative.test(text)
+}
 const CROSSWALK: Array<[RegExp, string]> = [
   [/\baccountant\b|\baudit/i, "0411"],
   [/financial controller|finance controller|controller/i, "0412"],
@@ -681,7 +687,7 @@ export function extractPosting(title: string, text: string): Partial<Posting> {
   return {
     years_min: years.length ? Math.min(...years) : null,
     dutch_required: dutch,
-    visa_mention: /\b(visa|sponsorship|sponsor|relocation|work permit|30% ruling|highly skilled migrant|kennismigrant)\b/i.test(text),
+    visa_mention: mentionsVisaSponsorship(text),
     junior_title: /\b(junior|graduate|trainee|starter|entry|intern|associate|werkstudent)\b/i.test(title),
     degree_asked: degree,
     skills: Object.entries(SKILLS).filter(([, pattern]) => pattern.test(text.toLowerCase())).map(([name]) => name),
@@ -689,4 +695,3 @@ export function extractPosting(title: string, text: string): Partial<Posting> {
     cat: code ? occupationCategory(code) : "other",
   }
 }
-

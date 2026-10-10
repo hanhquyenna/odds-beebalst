@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { cumulative, isInternship, levelOf, middle, netMonth, point } from "@/lib/engine"
+import { cumulative, isInternship, levelOf, mentionsVisaSponsorship, middle, netMonth, point } from "@/lib/engine"
 import { formatHourly } from "@/lib/format"
 import { payMid, payOf, TRAINEE_PAY } from "@/lib/spec"
 import type { Posting } from "@/lib/types"
@@ -174,4 +174,17 @@ describe("hourly pay is shown as an hourly rate", () => {
 test("a working student with no stated pay gets no figure, not an internship allowance", () => {
   const post = { id: "w2", title: "Working Student Marketing", seniority: null, role_kind: "working_student", pay_posted: null } as unknown as Posting
   expect(payOf(post, null).text).toBeNull()
+})
+
+describe("visa sponsorship signal", () => {
+  test("requires an offer of sponsorship or work-permit support", () => {
+    expect(mentionsVisaSponsorship("We offer visa sponsorship for this role.")).toBe(true)
+    expect(mentionsVisaSponsorship("Relocation support and work permit assistance are available.")).toBe(true)
+  })
+  test("does not treat generic international language as sponsorship", () => {
+    expect(mentionsVisaSponsorship("We are an international company with colleagues from many countries.")).toBe(false)
+    expect(mentionsVisaSponsorship("You must already have the right to work in the Netherlands.")).toBe(false)
+    expect(mentionsVisaSponsorship("We do not provide visa sponsorship.")).toBe(false)
+    expect(mentionsVisaSponsorship("We don't offer visa sponsorship for this role.")).toBe(false)
+  })
 })

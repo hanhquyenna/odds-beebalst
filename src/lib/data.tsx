@@ -26,7 +26,9 @@ import {
   type Reference,
   type Signals,
 } from "@/lib/jobs"
-import { registerLogos } from "@/lib/stored-logos"
+import { logoFor } from "@/lib/companies"
+import { mergeSaved, pushSaved } from "@/lib/saved-sync"
+import { loadAutoLogos, registerLogos, useAutoLogosReady } from "@/lib/stored-logos"
 import { DEFAULT_PROFILE, type Application, type PastSearch, type Person, type Posting, type Profile } from "@/lib/types"
 
 const PROFILE_KEY = "careersim.profile"
@@ -253,7 +255,13 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
   // What each posting's text says about the work (hybrid, part-time...), worked out once per posting by the database.
   const signals = useMemo(() => signalsOf(remote), [remote])
 
-  const postings = useMemo(() => [...local, ...remote], [local, remote])
+  // A job whose employer has no logo anywhere (our lists, the employer's own site, the job link) is left out: it shows as a bare circle of letters and is nearly always a thin, unverifiable listing.
+  // Jobs you saved or applied to are fetched on their own below, so they stay in your list. Until the later logo lists have loaded, nothing is hidden.
+  const logosReady = useAutoLogosReady()
+  useEffect(() => loadAutoLogos(), [])
+  // odds is for international students: a job that asks for Dutch is never in any list, whatever the filters say. (A job you saved before stays, fetched on its own below.)
+  const withLogo = useMemo(() => remote.filter((p) => !p.dutch_required && (!logosReady || logoFor(p.employer, p.url) !== null)), [remote, logosReady])
+  const postings = useMemo(() => [...local, ...withLogo], [local, withLogo])
   // A job you saved or applied to can leave the open pool (it closed). It is fetched on its own, once, so it stays in your list.
   const [keptExtra, setKeptExtra] = useState<Posting[]>([])
   const askedFor = useRef<Set<string>>(new Set())
@@ -405,6 +413,7 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
     [session, refreshFacts],
   )
 
+  const signedInId = session?.user.id ?? null
   const toggleSaved = useCallback((id: string): void => {
     setSaved((prev) => {
       const next = new Set(prev)
@@ -412,10 +421,11 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
         next.add(id)
       }
       write(SAVED_KEY, [...next])
+      if (signedInId) pushSaved(id, next.has(id))
 
       return next
     })
-  }, [])
+  }, [signedInId])
 
   const setSaved_ = useCallback((id: string, on: boolean): void => {
     setSaved((prev) => {
@@ -426,10 +436,25 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
         next.delete(id)
       }
       write(SAVED_KEY, [...next])
+      if (signedInId) pushSaved(id, on)
 
       return next
     })
-  }, [])
+  }, [signedInId])
+
+  // Signing in brings the account's saved jobs down and copies this browser's up, once per account.
+  const savedMerged = useRef<string | null>(null)
+  useEffect(() => {
+    if (!signedInId || savedMerged.current === signedInId) return
+    savedMerged.current = signedInId
+    void mergeSaved(saved).then((all) => {
+      if (!all) return
+      write(SAVED_KEY, [...all])
+      setSaved(all)
+    })
+    // Once per sign-in: the list at that moment is what gets merged; later changes are pushed one by one above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedInId])
 
   const setPassed = useCallback((id: string, on: boolean): void => {
     // A job you pass on is also kept with the profile, so it stays passed on any device and is never recommended again.

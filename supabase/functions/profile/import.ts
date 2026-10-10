@@ -4,6 +4,7 @@
 
 import { imageDataUrl, ipHash, reply, userFromRequest } from "../_shared/http.ts"
 import { isUsable, normaliseProfile, type Json } from "../_shared/linkedin-profile.ts"
+import { toLinkedInUrl } from "../_shared/linkedin-url.ts"
 
 const APIFY_ACTOR = "harvestapi~linkedin-profile-scraper"
 // Cost guard for the paid scraper ($4 per 1,000 profiles, so $0.004 each). The limits can be changed without a deploy, by setting the
@@ -11,7 +12,6 @@ const APIFY_ACTOR = "harvestapi~linkedin-profile-scraper"
 const DAILY_LIMIT = limit("DAILY_LIMIT", 20)
 const ANON_LIMIT = limit("ANON_LIMIT", 10)
 const GLOBAL_LIMIT = limit("GLOBAL_LIMIT", 300)
-const URL_RE = /^https:\/\/([a-z]{2,3}\.)?linkedin\.com\/in\/[A-Za-z0-9%_-]{3,100}\/?(\?.*)?$/
 
 /** Reads one LinkedIn profile through the paid scraper, within the daily limits, and answers { profile }. */
 export async function importProfile(req: Request): Promise<Response> {
@@ -26,14 +26,16 @@ export async function importProfile(req: Request): Promise<Response> {
   const userId = (await userFromRequest(req))?.id ?? null
   const ip = await ipHash(req)
 
-  let url = ""
+  let sent = ""
   try {
-    const sent = ((await req.json()) as Json).url
-    url = typeof sent === "string" ? sent.trim() : ""
+    const body = ((await req.json()) as Json).url
+    sent = typeof body === "string" ? body : ""
   } catch {
     return reply(400, { error: "Send { url }." })
   }
-  if (!URL_RE.test(url)) return reply(422, { error: "Paste the link to your LinkedIn profile, like https://www.linkedin.com/in/your-name" })
+  // Whatever was pasted (no https, a country site, tracking, a page inside the profile, words around it) is made into the one form the scraper takes.
+  const url = toLinkedInUrl(sent)
+  if (!url) return reply(422, { error: "Paste the link to your LinkedIn profile, like https://www.linkedin.com/in/your-name" })
 
   // Paid scraper: a few imports per person a day, and a ceiling for everyone together.
   const since = new Date(Date.now() - 86_400_000).toISOString()
@@ -56,6 +58,11 @@ export async function importProfile(req: Request): Promise<Response> {
     body: JSON.stringify({ profileScraperMode: "Profile details no email ($4 per 1k)", queries: [url] }),
   })
   if (!run.ok) {
+    // The reason is for the function log (Dashboard → Edge Functions → profile → Logs), never for the visitor: 401 token refused, 402 out of credit or over the usage limit, 403 not allowed to run this scraper, 429 too many runs, 400 the input format changed.
+    console.error(`apify ${APIFY_ACTOR}: ${run.status} ${(await run.text().catch(() => "")).slice(0, 300)}`)
+    // A paid-account problem is ours to fix, not a reason for the person to retry.
+    if (run.status === 401 || run.status === 402 || run.status === 403) return reply(503, { error: "LinkedIn import is paused for now. Please try again later." })
+
     return reply(502, { error: "LinkedIn did not answer. Try again in a minute." })
   }
   const items = (await run.json()) as unknown[]

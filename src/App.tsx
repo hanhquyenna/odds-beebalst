@@ -34,6 +34,7 @@ const SignIn = lazy(() => import("@/components/SignIn").then((module) => ({ defa
 const JobDetail = lazy(() => import("@/components/JobDetail").then((module) => ({ default: module.JobDetail })))
 const Documents = lazy(() => import("@/components/Documents").then((module) => ({ default: module.Documents })))
 const ProfilePage = lazy(() => import("@/components/ProfilePage").then((module) => ({ default: module.ProfilePage })))
+const ClaudePage = lazy(() => import("@/components/ClaudeGuide").then((module) => ({ default: module.ClaudePage })))
 // Lazy because it is one view among several: first-timers never load the
 // boards and tables until they have answers, and returning users wait on it
 // behind a skeleton.
@@ -53,7 +54,7 @@ const OfferGate = lazy(() => import("@/components/OfferGate").then((module) => (
 const StatusColorsDialog = lazy(() => import("@/components/StatusColorsDialog").then((module) => ({ default: module.StatusColorsDialog })))
 const InstallGuide = lazy(() => import("@/components/InstallGuide").then((module) => ({ default: module.InstallGuide })))
 
-type View = "account" | "answers" | "documents" | "journey" | "jobs" | "signin"
+type View = "account" | "answers" | "claude" | "documents" | "journey" | "jobs" | "signin"
 
 /** The job id in a /job/<id> deep link. Null for any other path, or a malformed escape like /job/abc% that cannot be decoded. */
 function jobIdFromPath(pathname: string): string | null {
@@ -108,7 +109,7 @@ export default function App(): React.JSX.Element {
   // with them so the wordmark stays over the content.
   // The front page is a web page, not a form, so it gets the widest column.
   const [landing, setLanding] = useState<boolean>(false)
-  const wide = view === "account" || view === "jobs" || (view === "answers" && onboarded)
+  const wide = view === "account" || view === "jobs" || view === "claude" || (view === "answers" && onboarded)
   const column = page
   ? "max-w-sm sm:max-w-2xl lg:max-w-5xl"
   : sharedJobId
@@ -275,7 +276,7 @@ export default function App(): React.JSX.Element {
 
   // Someone with an account gets the app: a side menu on a laptop or iPad, a tab bar on a phone, no website header.
   const shell = onboarded && !shooReturn && view !== "signin"
-  const activeTab: ShellTab | null = page || sharedJobId ? null : view === "account" || view === "jobs" || view === "documents" || view === "answers" ? view : null
+  const activeTab: ShellTab | null = page || sharedJobId ? null : view === "account" || view === "jobs" || view === "documents" || view === "claude" || view === "answers" ? view : null
 
   function goTab(tab: ShellTab): void {
     if (page || sharedJobId) {
@@ -389,16 +390,18 @@ export default function App(): React.JSX.Element {
 
             {(view === "account" || view === "jobs") && onboarded ? (
               <Suspense fallback={<JobListSkeleton />}>
-                <Account looking={view === "jobs"} onEdit={() => setView("answers")} onStartLooking={showJobs} onStopLooking={() => setView("account")} />
+                <Account looking={view === "jobs"} onEdit={() => setView("answers")} onStartLooking={showJobs} onStopLooking={() => setView("account")} onOpenClaude={() => goTab("claude")} />
               </Suspense>
             ) : null}
 
             {view === "answers" && onboarded ? (
               <>
-                <ProfilePage onBack={() => setView("account")} onOpenDocuments={() => setView("documents")} />
+                <ProfilePage onBack={() => setView("account")} onOpenDocuments={() => setView("documents")} onOpenClaude={() => goTab("claude")} />
                 <PhoneMore session={data.session} onOpenPage={openPage} signedIn={Boolean(data.session?.user.email) && !isGuestEmail(data.session?.user.email)} onSignIn={data.session?.user.email && !isGuestEmail(data.session.user.email) ? undefined : () => setView("signin")} onSignOut={handleSignOut} />
               </>
             ) : null}
+
+            {view === "claude" && onboarded ? <ClaudePage onBack={() => setView("account")} onSignIn={() => setView("signin")} /> : null}
 
             {view === "documents" && onboarded ? (
               <Suspense fallback={null}>

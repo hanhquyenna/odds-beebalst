@@ -188,12 +188,13 @@ function useFilterDefs(filters: Filters, onChange: (next: Filters) => void): Def
   ]
 
   // Job type is hidden for now. The filter and its logic stay in place, so it can come back by removing this line.
-  return defs.filter((d) => d.key !== "type")
+  // Language is not offered either: jobs that need Dutch never reach the pool (data.tsx).
+  return defs.filter((d) => d.key !== "type" && d.key !== "language")
 }
 
 /** All the filters in one place, one labelled row each, for setting job preferences. */
-export function FilterEditor({ filters, onChange }: { filters: Filters; onChange: (next: Filters) => void }): React.JSX.Element {
-  const defs = useFilterDefs(filters, onChange)
+export function FilterEditor({ filters, onChange, hide = [] }: { filters: Filters; onChange: (next: Filters) => void; /** Rows drawn elsewhere by the caller, by key. */ hide?: ReadonlyArray<string> }): React.JSX.Element {
+  const defs = useFilterDefs(filters, onChange).filter((d) => !hide.includes(d.key))
 
   return (
     <div className="flex flex-col gap-3">

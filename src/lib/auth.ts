@@ -184,11 +184,12 @@ export async function adoptGuest(previous: Session | null, real: Session): Promi
  * Signing a Home Screen app in through the browser (it cannot finish a Google sign-in itself). The app starts a pair
  * and keeps its secret; the browser approves it once signed in; the app then collects its session.
  */
-async function pairCall(body: Record<string, unknown>, accessToken?: string): Promise<Response> {
+async function pairCall(body: Record<string, unknown>, accessToken?: string, timeoutMs?: number): Promise<Response> {
   return fetch(`${SUPABASE_URL}/functions/v1/account`, {
     method: "POST",
     headers: { apikey: ANON_KEY, "Content-Type": "application/json", ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
     body: JSON.stringify(body),
+    signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
   })
 }
 
@@ -212,14 +213,19 @@ export async function approveDevicePair(session: Session, id: string, code: stri
 
 /** The session once the browser has approved, "waiting" before that, null when the pair is gone (expired or used). */
 export async function claimDevicePair(id: string, secret: string): Promise<Session | "waiting" | null> {
-  const response = await pairCall({ action: "pair-claim", id, secret })
-  if (response.status === 202) {
+  // A request cut off while the Home Screen app sleeps never settles, which would stop every later check: give up on it after
+  // a while, and treat a failure that is not the pair's own (no network, the server busy) as "keep waiting", never "start over".
+  const response = await pairCall({ action: "pair-claim", id, secret }, undefined, 15_000).catch(() => null)
+  if (!response || response.status === 202 || response.status >= 500) {
     return "waiting"
   }
   if (!response.ok) {
     return null
   }
-  const session = toSession((await response.json()) as AuthResponse)
+  const session = toSession((await response.json().catch(() => ({}))) as AuthResponse)
+  if (!session) {
+    return "waiting"
+  }
   keep(session)
 
   return session

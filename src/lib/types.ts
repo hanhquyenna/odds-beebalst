@@ -39,6 +39,8 @@ export interface Posting {
   degree_asked: "phd" | "master" | "bachelor" | null
   skills: string[]
   pay_posted: string | null
+  /** A position-level Glassdoor benchmark, kept as a secondary check rather than an offer. */
+  glassdoor?: { position: string; reports: number; payMin: number | null; payMax: number | null; unit: string | null; readOn: string }
   applicants: number | null
   applicants_text: string | null
   valid_through: string | null

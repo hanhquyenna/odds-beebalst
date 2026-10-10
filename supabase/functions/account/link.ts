@@ -157,25 +157,29 @@ export async function link(req: Request): Promise<Response> {
     const now = new Date().toISOString()
     const found = (await (await fetch(`${supabaseUrl}/rest/v1/device_pairs?id=eq.${id}&select=secret_hash,user_id,expires_at,claimed_at`, { headers: admin })).json()) as Array<{ secret_hash: string; user_id: string | null; expires_at: string; claimed_at: string | null }>
     const pair = found[0]
-    if (!pair || pair.claimed_at || pair.expires_at <= now) return reply(410, { error: "This sign-in has expired. Start again." })
+    if (!pair || pair.expires_at <= now) return reply(410, { error: "This sign-in has expired. Start again." })
     if (pair.secret_hash !== (await sha256(secret))) return reply(403, { error: "Not allowed." })
     if (!pair.user_id) return reply(202, { waiting: true })
 
-    // Claimed once: only if still unclaimed, in the same step.
-    const taken = await fetch(`${supabaseUrl}/rest/v1/device_pairs?id=eq.${id}&claimed_at=is.null&select=user_id`, { method: "PATCH", headers: { ...admin, Prefer: "return=representation" }, body: JSON.stringify({ claimed_at: now }) })
-    const rows = taken.ok ? ((await taken.json()) as Array<{ user_id: string }>) : []
-    if (rows.length === 0) return reply(410, { error: "This sign-in has already been used." })
-    const user = await fetch(`${supabaseUrl}/auth/v1/admin/users/${rows[0].user_id}`, { headers: admin })
+    // The first claim marks the pair. A Home Screen app is put to sleep while the person is in the browser, so its answer can be
+    // lost after this point: the same secret may collect the session again for two minutes, and then the pair is spent.
+    if (pair.claimed_at && Date.now() - Date.parse(pair.claimed_at) > CLAIM_GRACE_MS) return reply(410, { error: "This sign-in has already been used." })
+    if (!pair.claimed_at) await fetch(`${supabaseUrl}/rest/v1/device_pairs?id=eq.${id}&claimed_at=is.null`, { method: "PATCH", headers: admin, body: JSON.stringify({ claimed_at: now }) })
+    const user = await fetch(`${supabaseUrl}/auth/v1/admin/users/${pair.user_id}`, { headers: admin })
     const email = user.ok ? ((await user.json()).email as string | undefined) : undefined
     if (!email) return reply(404, { error: "Account not found." })
     const session = await sessionFor(supabaseUrl, anon, admin, email)
-    if (!session) return reply(500, { error: "Could not sign you in." })
+    // A failure here is the server's, not the person's: say so with 503 so the app keeps trying instead of starting over.
+    if (!session) return reply(503, { error: "Could not sign you in yet." })
 
     return reply(200, session)
   }
 
   return reply(400, { error: "Unknown action." })
 }
+
+/** How long after the first claim the same secret may collect the session again (the app's answer can be lost when it is put to sleep). */
+const CLAIM_GRACE_MS = 2 * 60 * 1000
 
 /** A random URL-safe code of 32 characters. */
 function newCode(): string {

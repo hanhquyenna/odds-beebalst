@@ -30,6 +30,13 @@ const INTERN_MARKET = internPay.market
 const INTERN_POSTINGS = internPay.postings as unknown as Record<string, [number, number]>
 const INTERN_EMPLOYERS = internPay.employers as unknown as Record<string, { low: number | null; high: number | null; postings: number }>
 
+// CBS age factors for 25–30-year-olds. Entry jobs are usually shown to recent
+// graduates, while the occupation bands cover workers of every age. Without
+// this adjustment a marketing entry job inherits the full-career €4.3k–€7.5k
+// band, which is not a useful starting-pay estimate.
+const ENTRY_AGE_FACTOR: Record<Posting["cat"], number> = { finance_business: 0.675, tech: 0.708, other: 0.691 }
+const isEntry = (post: Posting): boolean => post.level_view === "Entry" || post.role_kind === "entry_job"
+
 export function allowanceOf(post: Posting): { low: number; high: number; source: AllowanceSource } {
   const own = INTERN_POSTINGS[post.id]
   if (own) {
@@ -107,8 +114,9 @@ export function payOf(post: Posting, reference: Reference | null): Pay {
   const band = reference && post.cbs_group ? reference.bands[post.cbs_group] : null
   if (band) {
     const month = (hourly: number): number => nearest((hourly * 2080 * 1.08) / 12, 50)
+    const factor = isEntry(post) ? ENTRY_AGE_FACTOR[post.cat] : 1
 
-    return { text: range(month(Number(band.p25_hourly)), month(Number(band.p75_hourly))), source: "Typical for this kind of job", basis: "Typical" }
+    return { text: range(month(Number(band.p25_hourly) * factor), month(Number(band.p75_hourly) * factor)), source: "Typical for this kind of job", basis: "Typical" }
   }
 
   return { text: null, source: null, basis: "Not known" }
@@ -138,5 +146,5 @@ export function payMid(post: Posting, reference: Reference | null): { month: num
   }
   const band = reference && post.cbs_group ? reference.bands[post.cbs_group] : null
 
-  return band ? { month: (Number(band.p50_hourly) * 2080 * 1.08) / 12, basis: "Typical" } : null
+  return band ? { month: (Number(band.p50_hourly) * 2080 * 1.08 * (isEntry(post) ? ENTRY_AGE_FACTOR[post.cat] : 1)) / 12, basis: "Typical" } : null
 }

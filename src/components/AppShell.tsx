@@ -3,10 +3,10 @@ import type { StaticPage } from "@/lib/pages"
 import { prefetchOn } from "@/lib/prefetch"
 import { NotificationsRow } from "@/components/NotifyPrompt"
 import type { Session } from "@/lib/auth"
-import { BriefcaseIcon, ChevronRightIcon, FileTextIcon, HomeIcon, SignOutIcon, UserCircleIcon } from "@/components/icons"
+import { BriefcaseIcon, ChevronRightIcon, FileTextIcon, HomeIcon, SignOutIcon, MessageIcon, UserCircleIcon } from "@/components/icons"
 
 /** The places someone with an account lives. Anything else (a research page, a shared job) leaves none of them lit. */
-export type ShellTab = "account" | "jobs" | "documents" | "answers"
+export type ShellTab = "account" | "jobs" | "documents" | "claude" | "answers"
 
 interface ShellNav {
   active: ShellTab | null
@@ -17,6 +17,7 @@ const TABS: ReadonlyArray<{ tab: ShellTab; label: string; icon: typeof HomeIcon 
   { tab: "account", label: "Home", icon: HomeIcon },
   { tab: "jobs", label: "Jobs", icon: BriefcaseIcon },
   { tab: "documents", label: "Documents", icon: FileTextIcon },
+  { tab: "claude", label: "Claude", icon: MessageIcon },
   { tab: "answers", label: "Profile", icon: UserCircleIcon },
 ]
 
