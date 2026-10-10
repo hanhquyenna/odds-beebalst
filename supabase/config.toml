@@ -23,3 +23,8 @@ verify_jwt = false
 # documents, saved jobs and applications. Nothing paid is called, so no Supabase token is asked of the caller.
 [functions.mcp]
 verify_jwt = false
+
+# Google Drive for documents. Google's redirect back (/drive/callback) carries no sign-in, so the function checks the caller on
+# every other route itself.
+[functions.drive]
+verify_jwt = false

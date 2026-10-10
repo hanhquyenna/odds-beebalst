@@ -16,6 +16,10 @@ export interface Doc {
   body: string
   isMain: boolean
   createdAt: string
+  /** The original file is in the person's Google Drive (odds/CVs or odds/Cover letters), not kept by odds. */
+  inDrive?: boolean
+  /** Its id in their Drive, to open it there. */
+  driveFileId?: string | null
 }
 
 export interface JobLink {
@@ -108,3 +112,26 @@ export function jobsUsing(s: Store, documentId: string): string[] {
 }
 
 export const mainCv = (s: Store): Doc | undefined => s.docs.find((d) => d.kind === "cv" && d.isMain)
+
+const CONTACT = /@|https?:\/\/|www\.|linkedin|github\.com|\+?\d[\d\s().-]{7,}\d/i
+
+/**
+ * What a document is about, in a line: its opening text without the name and contact lines a CV starts with (those say who,
+ * not what). Cut at a word, about two lines long. Empty when the file had no text.
+ */
+export function previewOf(body: string, max = 160): string {
+  const lines = body.split(/\r?\n/).map((l) => l.replace(/\s+/g, " ").trim()).filter((l) => l.length > 0 && !CONTACT.test(l))
+  // A first line of one to four words with no full stop is the person's name (or "Curriculum Vitae"): skip it.
+  if (lines.length > 1 && lines[0].split(" ").length <= 4 && !/[.,:;!?]/.test(lines[0])) lines.shift()
+  const text = lines.join(" · ")
+  if (text.length <= max) return text
+  const cut = text.slice(0, max)
+
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), max - 20)).replace(/[\s·,;:-]+$/, "")}…`
+}
+
+/** How long the text is, in words. */
+export const wordCount = (body: string): number => body.split(/\s+/).filter(Boolean).length
+
+/** The file's page in Google Drive. */
+export const driveFileUrl = (id: string): string => `https://drive.google.com/file/d/${encodeURIComponent(id)}/view`

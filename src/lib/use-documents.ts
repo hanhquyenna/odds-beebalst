@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 import { useData } from "@/lib/data"
 import type { Profile } from "@/lib/types"
 import { attachedTo, mainCv, type DocKind } from "@/lib/document-model"
-import { addDocument, loadDocuments, signOutDocuments, useDocumentStore, type Added } from "@/lib/documents"
+import { addDocument, loadDocuments, signOutDocuments, syncWithDrive, useDocumentStore, type Added } from "@/lib/documents"
+import { loadDrive, useDrive } from "@/lib/drive"
 
 /**
  * Mounted once. Loads the signed-in person's documents, and keeps the profile's CV text equal to the main CV: the chance on
@@ -17,7 +18,17 @@ export function useDocumentsSync(): void {
   useEffect(() => {
     if (userId) void loadDocuments(userId)
     else signOutDocuments()
+    void loadDrive(userId)
   }, [userId])
+
+  // Once per sign-in, when both are known: move anything not yet in Drive and read again what was changed there.
+  const drive = useDrive()
+  const synced = useRef<string | null>(null)
+  useEffect(() => {
+    if (!userId || store.status !== "ready" || drive.status !== "on" || synced.current === userId) return
+    synced.current = userId
+    void syncWithDrive()
+  }, [userId, store.status, drive.status])
 
   const main = mainCv(store)
   const { profile, profileSaved, setProfile } = data

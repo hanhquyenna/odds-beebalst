@@ -8,6 +8,7 @@
  */
 import { useSyncExternalStore } from "react"
 import { currentAccessToken, ANON_KEY, SUPABASE_URL, supabase } from "@/lib/supabase"
+import { driveFile, driveState, renameInDrive, syncDrive, trashInDrive } from "@/lib/drive"
 import { DocumentError, MAX_DOCUMENTS, MAX_NAME, explain, freeName, mimeOf, nameFromFile, sha256Hex, type Doc, type DocKind, type Store } from "@/lib/document-model"
 
 const EMPTY: Store = { userId: null, status: "idle", docs: [], links: [] }
@@ -30,7 +31,7 @@ export function useDocumentStore(): Store {
   )
 }
 
-const COLUMNS = "id,kind,name,file_name,mime,size_bytes,body,is_main,created_at"
+const COLUMNS = "id,kind,name,file_name,mime,size_bytes,body,is_main,created_at,drive_file_id"
 
 interface Row {
   id: string
@@ -42,9 +43,10 @@ interface Row {
   body: string
   is_main: boolean
   created_at: string
+  drive_file_id?: string | null
 }
 
-const toDoc = (r: Row): Doc => ({ id: r.id, kind: r.kind, name: r.name, fileName: r.file_name, mime: r.mime, size: r.size_bytes, body: r.body, isMain: r.is_main, createdAt: r.created_at })
+const toDoc = (r: Row): Doc => ({ id: r.id, kind: r.kind, name: r.name, fileName: r.file_name, mime: r.mime, size: r.size_bytes, body: r.body, isMain: r.is_main, createdAt: r.created_at, inDrive: Boolean(r.drive_file_id), driveFileId: r.drive_file_id ?? null })
 
 const byAge = (a: Doc, b: Doc): number => a.createdAt.localeCompare(b.createdAt)
 
@@ -155,6 +157,8 @@ export async function addDocument(file: File, kind: DocKind, wanted?: string): P
 
   const doc = toDoc(inserted.data as Row)
   set({ ...store, docs: [...store.docs, doc].sort(byAge) })
+  // With Drive connected the file goes on into their odds folder there; it is already safe here if that fails.
+  if (driveState().status === "on") void syncWithDrive()
 
   return { doc, becameMain: main }
 }
@@ -168,6 +172,7 @@ export async function renameDocument(id: string, wanted: string): Promise<void> 
   const r = await supabase.from("documents").update({ name }).eq("id", id)
   if (r.error) throw explain(r.error)
   set({ ...store, docs: store.docs.map((d) => (d.id === id ? { ...d, name } : d)) })
+  if (doc.inDrive) renameInDrive(id)
 }
 
 export async function makeMain(id: string): Promise<void> {
@@ -185,6 +190,7 @@ export async function removeDocument(id: string): Promise<Doc | null> {
   if (!doc) return null
   const row = await supabase.from("documents").select("path").eq("id", id).single()
   // The file first: the read and delete rules follow the row, so once the row is gone the file could not be removed.
+  if (doc.inDrive) await trashInDrive(id)
   if (!row.error) await removeFile((row.data as { path: string }).path)
   const r = await supabase.from("documents").delete().eq("id", id)
   if (r.error) throw explain(r.error)
@@ -216,12 +222,22 @@ export async function detachDocument(postingId: string, kind: DocKind): Promise<
 
 /** Gives the person the original file back, exactly as uploaded. */
 export async function downloadDocument(id: string): Promise<void> {
-  const row = await supabase.from("documents").select("path,file_name").eq("id", id).single()
+  const row = await supabase.from("documents").select("path,file_name,drive_file_id").eq("id", id).single()
   if (row.error) throw new DocumentError("We could not find that file.")
-  const { path, file_name } = row.data as { path: string; file_name: string }
-  const r = await fetch(objectUrl(path, true), { headers: { apikey: ANON_KEY, Authorization: `Bearer ${token()}` } })
-  if (!r.ok) throw new DocumentError("We could not download that file. Try again.")
-  const url = URL.createObjectURL(await r.blob())
+  const { path, file_name, drive_file_id } = row.data as { path: string; file_name: string; drive_file_id: string | null }
+  let blob: Blob
+  if (drive_file_id) {
+    try {
+      blob = await driveFile(id)
+    } catch (err) {
+      throw new DocumentError(err instanceof Error ? err.message : "We could not get that file from your Drive.")
+    }
+  } else {
+    const r = await fetch(objectUrl(path, true), { headers: { apikey: ANON_KEY, Authorization: `Bearer ${token()}` } })
+    if (!r.ok) throw new DocumentError("We could not download that file. Try again.")
+    blob = await r.blob()
+  }
+  const url = URL.createObjectURL(blob)
   const a = document.createElement("a")
   a.href = url
   a.download = file_name
@@ -229,3 +245,44 @@ export async function downloadDocument(id: string): Promise<void> {
   setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }
 
+/**
+ * Keeps odds and their Drive the same: files not yet in Drive are moved there, and a file changed in Drive (they edited their
+ * CV there) is read again, so its text, and the chance worked out from it, follow. One sync at a time.
+ */
+let syncing: Promise<void> | null = null
+export function syncWithDrive(): Promise<void> {
+  syncing ??= runSync().finally(() => {
+    syncing = null
+  })
+
+  return syncing
+}
+
+async function runSync(): Promise<void> {
+  const userId = store.userId
+  const result = await syncDrive().catch(() => null)
+  if (!result || !userId || store.userId !== userId) return
+  // Moved files now have their Drive ids: read the list again so "Open in Drive" points at them.
+  if (result.moved > 0) await loadDocuments(userId)
+  if (result.changed.length === 0) return
+  const { readCvFile } = await import("@/lib/cv-file")
+  for (const change of result.changed) {
+    const doc = store.docs.find((d) => d.id === change.id)
+    if (!doc) continue
+    try {
+      const file = new File([await driveFile(doc.id)], doc.fileName, { type: doc.mime })
+      const body = (await readCvFile(file)).text
+      const hash = await sha256Hex(await file.arrayBuffer())
+      const r = await supabase.from("documents").update({ body, content_hash: hash, size_bytes: file.size, drive_md5: change.md5 }).eq("id", doc.id)
+      if (r.error) {
+        // Same file as another document now: keep the old text, but stop reading it again on every visit.
+        await supabase.from("documents").update({ drive_md5: change.md5 }).eq("id", doc.id)
+        continue
+      }
+      if (store.userId !== userId) return
+      set({ ...store, docs: store.docs.map((d) => (d.id === doc.id ? { ...d, body, size: file.size } : d)) })
+    } catch {
+      // Unreadable now (a Google Doc saved over it, a broken file): the text from before stays.
+    }
+  }
+}

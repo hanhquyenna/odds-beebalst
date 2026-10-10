@@ -8,6 +8,7 @@
 // Every one of those reads and writes is filtered by the user id the key belongs to. Nothing calls a paid service (no Apify, no models).
 // @ts-ignore: bundled from src/lib by scripts/build-mcp-core.sh
 import * as core from "./core.js"
+import { pushIfConnected } from "../_shared/drive.ts"
 
 const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"]
 /** Public endpoint: what one request may ask for, so no single call can make the server do much work. */
@@ -505,6 +506,9 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
       return failed("Could not save the file. Try again.")
     }
     if (args.job_id) await svc(env, "job_documents", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: uid, posting_id: args.job_id, kind: "cover_letter", document_id: id }) }).catch(() => undefined)
+    // With their Google Drive connected, the letter goes on into odds/Cover letters there; if Drive fails it stays in the bucket
+    // and the app's next sync moves it.
+    await pushIfConnected(uid, id).catch(() => undefined)
 
     return text({ saved: true, document_id: id, name: args.name, attached_to: args.job_id ?? null, note: "It is in their odds Documents now." })
   }

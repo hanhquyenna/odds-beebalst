@@ -3,11 +3,14 @@ import { JobListSkeleton } from "@/components/Skeleton"
 import { Footer } from "@/components/Footer"
 import type { ShellTab } from "@/components/AppShell"
 import { usePhone } from "@/lib/use-phone"
+import { AddToPhonePrompt } from "@/components/AddToPhonePrompt"
 import { NotifyPrompt } from "@/components/NotifyPrompt"
 import { DevicePairing } from "@/components/DevicePairing"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Toaster } from "@/components/ui/sonner"
+import { toast } from "sonner"
+import { takeDriveReturn } from "@/lib/drive"
 import { useData } from "@/lib/data"
 import { pageFromPath, pathForPage, type StaticPage } from "@/lib/pages"
 import { clearSeenRooms, saveSeenRooms } from "@/lib/seen"
@@ -96,6 +99,16 @@ export default function App(): React.JSX.Element {
 
     return () => window.removeEventListener("popstate", onPop)
   }, [])
+
+  // Back from Google's Drive consent screen (/?drive=...): straight to Documents, saying how it went.
+  useEffect(() => {
+    if (!onboarded || !data.session) return
+    const outcome = takeDriveReturn()
+    if (!outcome) return
+    setView("documents")
+    if (outcome === "connected") toast.success("Google Drive is connected. Your files are in the odds folder there.")
+    else if (outcome === "failed") toast.error("Google Drive did not connect. Try again.")
+  }, [onboarded, data.session])
 
   // Signing in brings a saved profile down with it: from then on this is someone's account.
   useEffect(() => {
@@ -401,7 +414,7 @@ export default function App(): React.JSX.Element {
               </>
             ) : null}
 
-            {view === "claude" && onboarded ? <ClaudePage onBack={() => setView("account")} onSignIn={() => setView("signin")} /> : null}
+            {view === "claude" && onboarded ? <ClaudePage onBack={() => setView("account")} onSignIn={() => setView("signin")} onDocuments={() => setView("documents")} onJobs={showJobs} /> : null}
 
             {view === "documents" && onboarded ? (
               <Suspense fallback={null}>
@@ -444,6 +457,7 @@ export default function App(): React.JSX.Element {
           <BottomNav active={activeTab} onNavigate={goTab} />
         </Suspense>
       ) : null}
+      <AddToPhonePrompt active={shell && Boolean(data.session) && data.status === "ready" && !installGuide} />
       <NotifyPrompt session={data.session} />
       <DevicePairing />
     </div>

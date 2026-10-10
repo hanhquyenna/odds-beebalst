@@ -5,14 +5,14 @@ const FUNCTIONS = new URL("../../supabase/functions/", import.meta.url)
 const CONFIG = new URL("../../supabase/config.toml", import.meta.url)
 
 describe("backend shape", () => {
-  test("four Edge Functions (account, jobs, profile, and the public read-only mcp), each set up in config.toml and nothing else", () => {
+  test("five Edge Functions (account, drive, jobs, profile, and the mcp server), each set up in config.toml and nothing else", () => {
     const folders = readdirSync(FUNCTIONS, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && !entry.name.startsWith("_"))
       .map((entry) => entry.name)
       .sort()
     const configured = [...readFileSync(CONFIG, "utf8").matchAll(/^\[functions\.([\w-]+)\]/gm)].map((match) => String(match[1])).sort()
 
-    expect(folders).toEqual(["account", "jobs", "mcp", "profile"])
+    expect(folders).toEqual(["account", "drive", "jobs", "mcp", "profile"])
     expect(configured).toEqual(folders)
   })
 })

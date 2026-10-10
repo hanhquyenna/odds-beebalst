@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { MAX_NAME, attachedTo, explain, freeName, jobsUsing, mainCv, mimeOf, nameFromFile, problemText, DocumentError, type Doc } from "@/lib/document-model"
+import { MAX_NAME, attachedTo, explain, freeName, jobsUsing, mainCv, mimeOf, nameFromFile, previewOf, problemText, wordCount, DocumentError, type Doc } from "@/lib/document-model"
 
 const doc = (over: Partial<Doc>): Doc => ({ id: "d1", kind: "cv", name: "Finance v1", fileName: "cv.pdf", mime: "application/pdf", size: 1000, body: "text", isMain: false, createdAt: "2026-10-06T10:00:00Z", ...over })
 const state = (docs: Doc[], links: Array<{ postingId: string; kind: "cv" | "cover_letter"; documentId: string }>): Parameters<typeof attachedTo>[0] => ({ userId: "u", status: "ready", docs, links })
@@ -65,5 +65,28 @@ describe("what is on a job", () => {
     expect(jobsUsing(s, "b")).toEqual(["p1", "p2"])
     expect(jobsUsing(s, "a")).toEqual([])
     expect(mainCv(s)?.id).toBe("a")
+  })
+})
+
+describe("what a document is about", () => {
+  test("skips the name and the contact lines a CV opens with", () => {
+    const cv = "Jane Doe\njane@doe.nl · +31 6 1234 5678\nlinkedin.com/in/janedoe\nFinance graduate with two internships in audit.\nSkills: Excel, SQL"
+    expect(previewOf(cv)).toBe("Finance graduate with two internships in audit. · Skills: Excel, SQL")
+  })
+
+  test("a letter keeps its first line", () => {
+    expect(previewOf("Dear hiring team,\nI am applying for the analyst role.")).toBe("Dear hiring team, · I am applying for the analyst role.")
+  })
+
+  test("long text is cut at a word, with an ellipsis", () => {
+    const out = previewOf("Summary. " + "word ".repeat(80), 40)
+    expect(out.endsWith("…")).toBe(true)
+    expect(out.length).toBeLessThanOrEqual(41)
+    expect(out).not.toMatch(/wor…$/)
+  })
+
+  test("no text, no preview; words are counted", () => {
+    expect(previewOf("")).toBe("")
+    expect(wordCount(" one two\nthree ")).toBe(3)
   })
 })
