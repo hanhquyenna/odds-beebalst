@@ -150,6 +150,33 @@ export function driveName(doc: Pick<DocRow, "name" | "file_name">): string {
   return doc.name.toLowerCase().endsWith(ext.toLowerCase()) ? doc.name : `${doc.name}${ext}`
 }
 
+/**
+ * The document name a Drive file name stands for: without the file's own extension, spaces tidied, at most 80 characters.
+ * Null when it says nothing new (the same name, or empty), so only a real rename in Drive is taken over.
+ */
+export function nameFromDrive(driveFileName: string | undefined, doc: Pick<DocRow, "name" | "file_name">): string | null {
+  if (!driveFileName) return null
+  const ext = /\.[a-z0-9]{1,5}$/i.exec(doc.file_name)?.[0] ?? ""
+  const bare = ext && driveFileName.toLowerCase().endsWith(ext.toLowerCase()) ? driveFileName.slice(0, -ext.length) : driveFileName
+  const name = bare.replace(/\s+/g, " ").trim().slice(0, 80)
+  if (!name || driveFileName === driveName(doc) || name === doc.name) return null
+
+  return name
+}
+
+/** What a sync must do for one document, from what Drive says about its file now. */
+export type Difference = { missing: true } | { changedMd5?: string; renamedTo?: string }
+
+export function compareWithDrive(doc: Pick<DocRow, "name" | "file_name" | "drive_md5">, meta: DriveMeta | null): Difference {
+  if (meta === null || meta.trashed) return { missing: true }
+  const out: { changedMd5?: string; renamedTo?: string } = {}
+  if (meta.md5Checksum && meta.md5Checksum !== doc.drive_md5) out.changedMd5 = meta.md5Checksum
+  const renamed = nameFromDrive(meta.name, doc)
+  if (renamed) out.renamedTo = renamed
+
+  return out
+}
+
 async function uploadTo(token: string, folder: string, name: string, mime: string, bytes: Uint8Array): Promise<{ id: string; md5Checksum?: string }> {
   const boundary = `odds${crypto.randomUUID()}`
   const head = new TextEncoder().encode(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name, parents: [folder] })}\r\n--${boundary}\r\nContent-Type: ${mime}\r\n\r\n`)
@@ -165,13 +192,14 @@ async function uploadTo(token: string, folder: string, name: string, mime: strin
 }
 
 export interface DriveMeta {
+  name?: string
   md5Checksum?: string
   trashed?: boolean
 }
 
 /** What Drive has for a file now, or null when it is gone (deleted for good, or no longer the app's to see). */
 export async function metaOf(token: string, fileId: string): Promise<DriveMeta | null> {
-  const r = await g(token, `${DRIVE}/${encodeURIComponent(fileId)}?fields=md5Checksum,trashed`)
+  const r = await g(token, `${DRIVE}/${encodeURIComponent(fileId)}?fields=name,md5Checksum,trashed`)
   if (r.status === 404 || r.status === 403) return null
   if (!r.ok) throw new Error(`Drive file: ${r.status}`)
 
@@ -267,4 +295,46 @@ export async function pushIfConnected(uid: string, docId: string): Promise<void>
   const [doc] = await docsOf(env, uid, docId)
   if (!doc) return
   await pushDoc(env, link, await accessFor(env, link), doc)
+}
+
+export interface SyncOutcome {
+  moved: number
+  changed: Array<{ id: string; md5: string }>
+  missing: string[]
+  renamed: Array<{ id: string; name: string }>
+}
+
+/**
+ * One sync for a connected person: files not yet in Drive are moved there; then every Drive file is checked. An edited file is
+ * reported (the browser reads it again: it has the readers), a deleted one is reported, and a rename in Drive becomes the
+ * document's name. When that name is already taken by another document, the Drive file gets the odds name back instead.
+ */
+export async function syncDocs(env: DriveEnv, link: DriveLink, token: string): Promise<SyncOutcome> {
+  const moved = await pushAll(env, link, token)
+  const out: SyncOutcome = { moved, changed: [], missing: [], renamed: [] }
+  for (const doc of await docsOf(env, link.user_id)) {
+    if (!doc.drive_file_id) continue
+    let meta: DriveMeta | null
+    try {
+      meta = await metaOf(token, doc.drive_file_id)
+    } catch {
+      continue
+    }
+    const diff = compareWithDrive(doc, meta)
+    if ("missing" in diff) {
+      out.missing.push(doc.id)
+      continue
+    }
+    if (diff.changedMd5) out.changed.push({ id: doc.id, md5: diff.changedMd5 })
+    if (diff.renamedTo) {
+      try {
+        await svc(env, `documents?id=eq.${doc.id}&user_id=eq.${link.user_id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ name: diff.renamedTo }) })
+        out.renamed.push({ id: doc.id, name: diff.renamedTo })
+      } catch {
+        await renameIn(token, doc.drive_file_id, driveName(doc)).catch(() => undefined)
+      }
+    }
+  }
+
+  return out
 }

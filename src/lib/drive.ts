@@ -93,6 +93,8 @@ export interface SyncResult {
   moved: number
   /** Files changed in Drive since odds last read them, with Drive's checksum now. */
   changed: Array<{ id: string; md5: string }>
+  /** Files renamed in Drive: their documents carry the new name now. */
+  renamed: Array<{ id: string; name: string }>
 }
 
 /** Moves anything not yet in Drive, and finds what changed or went missing there. Null when Drive is not connected. */
@@ -104,10 +106,10 @@ export async function syncDrive(): Promise<SyncResult | null> {
 
     return null
   }
-  const out = (await r.json()) as { email: string | null; folder: string; moved: number; changed: SyncResult["changed"]; missing: string[] }
+  const out = (await r.json()) as { email: string | null; folder: string; moved: number; changed: SyncResult["changed"]; renamed?: SyncResult["renamed"]; missing: string[] }
   set({ ...state, status: "on", email: out.email, folder: out.folder, missing: new Set(out.missing) })
 
-  return { moved: out.moved, changed: out.changed }
+  return { moved: out.moved, changed: out.changed, renamed: out.renamed ?? [] }
 }
 
 /** The original file from their Drive. */

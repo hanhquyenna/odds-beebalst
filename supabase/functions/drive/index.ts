@@ -1,7 +1,7 @@
 // Edge Function `drive`: a person's own Google Drive as the place their documents' files are kept (../_shared/drive.ts).
 //   POST /drive/start       { returnTo }  the Google consent address to send the browser to
 //   GET  /drive/callback    Google comes back here: keeps the link, makes the folders, moves the files, back to the app
-//   POST /drive/sync        moves anything still in the bucket, and says which files changed or went missing in Drive
+//   POST /drive/sync        moves anything still in the bucket; takes over renames made in Drive; says which files changed or went missing there
 //   POST /drive/file        { id }  the original file, from Drive
 //   POST /drive/rename      { id }  gives the Drive file the document's current name
 //   POST /drive/trash       { id }  puts the Drive file in the Drive bin (before the document row is deleted)
@@ -21,13 +21,13 @@ import {
   ensureFolders,
   googleToken,
   linkOf,
-  metaOf,
   pullAll,
   pushAll,
   redirectUri,
   renameIn,
   revokeGoogle,
   svc,
+  syncDocs,
   trashIn,
   type DriveEnv,
   type DriveLink,
@@ -195,18 +195,9 @@ const sync = signedIn(async (ctx) => {
   if (folders.root_id !== link.root_id || folders.cv_folder_id !== link.cv_folder_id || folders.letter_folder_id !== link.letter_folder_id) {
     await svc(ctx.env, `drive_links?user_id=eq.${link.user_id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify(folders) })
   }
-  const moved = await pushAll(ctx.env, fresh, token)
-  const changed: Array<{ id: string; md5: string }> = []
-  const missing: string[] = []
-  for (const doc of await docsOf(ctx.env, link.user_id)) {
-    if (!doc.drive_file_id) continue
-    const meta = await metaOf(token, doc.drive_file_id).catch(() => undefined)
-    if (meta === undefined) continue
-    if (meta === null || meta.trashed) missing.push(doc.id)
-    else if (meta.md5Checksum && meta.md5Checksum !== doc.drive_md5) changed.push({ id: doc.id, md5: meta.md5Checksum })
-  }
+  const outcome = await syncDocs(ctx.env, fresh, token)
 
-  return reply(200, { connected: true, email: link.email, folder: `https://drive.google.com/drive/folders/${fresh.root_id}`, moved, changed, missing })
+  return reply(200, { connected: true, email: link.email, folder: `https://drive.google.com/drive/folders/${fresh.root_id}`, ...outcome })
 })
 
 const file = signedIn(async (ctx) => {

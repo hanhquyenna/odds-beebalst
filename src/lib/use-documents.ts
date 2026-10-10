@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useMemo } from "react"
 import { useData } from "@/lib/data"
 import type { Profile } from "@/lib/types"
 import { attachedTo, mainCv, type DocKind } from "@/lib/document-model"
 import { addDocument, loadDocuments, signOutDocuments, syncWithDrive, useDocumentStore, type Added } from "@/lib/documents"
 import { loadDrive, useDrive } from "@/lib/drive"
+
+const DRIVE_SYNC_GAP_MS = 30_000
 
 /**
  * Mounted once. Loads the signed-in person's documents, and keeps the profile's CV text equal to the main CV: the chance on
@@ -21,14 +23,27 @@ export function useDocumentsSync(): void {
     void loadDrive(userId)
   }, [userId])
 
-  // Once per sign-in, when both are known: move anything not yet in Drive and read again what was changed there.
+  // With Drive connected: a sync once both are known, then again whenever they come back to this tab (they may have just
+  // edited or renamed a file in Drive), at most every half minute.
   const drive = useDrive()
-  const synced = useRef<string | null>(null)
+  const ready = Boolean(userId) && store.status === "ready" && drive.status === "on"
   useEffect(() => {
-    if (!userId || store.status !== "ready" || drive.status !== "on" || synced.current === userId) return
-    synced.current = userId
-    void syncWithDrive()
-  }, [userId, store.status, drive.status])
+    if (!ready) return
+    let last = 0
+    const run = (): void => {
+      if (document.visibilityState !== "visible" || Date.now() - last < DRIVE_SYNC_GAP_MS) return
+      last = Date.now()
+      void syncWithDrive()
+    }
+    run()
+    document.addEventListener("visibilitychange", run)
+    window.addEventListener("focus", run)
+
+    return () => {
+      document.removeEventListener("visibilitychange", run)
+      window.removeEventListener("focus", run)
+    }
+  }, [ready, userId])
 
   const main = mainCv(store)
   const { profile, profileSaved, setProfile } = data

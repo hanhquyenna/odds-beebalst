@@ -246,8 +246,9 @@ export async function downloadDocument(id: string): Promise<void> {
 }
 
 /**
- * Keeps odds and their Drive the same: files not yet in Drive are moved there, and a file changed in Drive (they edited their
- * CV there) is read again, so its text, and the chance worked out from it, follow. One sync at a time.
+ * Keeps odds and their Drive the same, both ways: files not yet in Drive are moved there, a file renamed in Drive takes that
+ * name here, and a file changed in Drive (they edited their CV there) is read again, so its text, and the chance worked out
+ * from it, follow. One sync at a time.
  */
 let syncing: Promise<void> | null = null
 export function syncWithDrive(): Promise<void> {
@@ -264,6 +265,10 @@ async function runSync(): Promise<void> {
   if (!result || !userId || store.userId !== userId) return
   // Moved files now have their Drive ids: read the list again so "Open in Drive" points at them.
   if (result.moved > 0) await loadDocuments(userId)
+  if (result.renamed.length > 0 && store.userId === userId) {
+    const names = new Map(result.renamed.map((r) => [r.id, r.name]))
+    set({ ...store, docs: store.docs.map((d) => (names.has(d.id) ? { ...d, name: names.get(d.id)! } : d)) })
+  }
   if (result.changed.length === 0) return
   const { readCvFile } = await import("@/lib/cv-file")
   for (const change of result.changed) {
