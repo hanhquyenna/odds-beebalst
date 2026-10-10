@@ -33,15 +33,9 @@ test("search and filters narrow the list to the matching jobs", async ({ page })
   await page.getByRole("button", { name: "Clear the search" }).click()
   await expect(jobRows(page)).toHaveCount(DEFAULT_VISIBLE)
 
-  // Allowing jobs that need Dutch brings the Rabobank controller in; the senior job stays out on level.
-  await page.getByRole("button", { name: "Language: English" }).click()
-  await page.getByRole("checkbox", { name: "Dutch needed" }).click()
-  await expect(page.getByRole("heading", { level: 2, name: `${DEFAULT_VISIBLE + 1} internship, traineeship & entry jobs right now` })).toBeVisible()
-  // The list shows ten at a time.
-  await page.keyboard.press("Escape")
-  await page.getByRole("button", { name: "Show more (1 left)" }).click()
-  await expect(jobRows(page)).toHaveCount(DEFAULT_VISIBLE + 1)
-  await expect(jobRows(page).filter({ hasText: "Junior Business Controller" })).toHaveCount(1)
+  // Jobs that need Dutch never reach the list (odds is for international students), and no filter brings them in.
+  await expect(page.getByRole("button", { name: /^Language/ })).toHaveCount(0)
+  await expect(jobRows(page).filter({ hasText: "Junior Business Controller" })).toHaveCount(0)
   await expect(jobRows(page).filter({ hasText: "Senior Data Engineer" })).toHaveCount(0)
 })
 
@@ -51,7 +45,8 @@ test("opening a job shows its detail, text included", async ({ page }) => {
 
   const detail = page.getByRole("dialog")
   await expect(detail.getByRole("heading", { name: "Junior Financial Analyst" })).toBeVisible()
-  await expect(detail.getByText("€3.600 – €4.200")).toBeVisible()
+  // The stated pay, at the top of the job (the pay card further down repeats it).
+  await expect(detail.getByText("€3.600 – €4.200", { exact: true })).toBeVisible()
   // The posting text comes from its own request (postings.body).
   await expect(detail.getByText("help close the books every month")).toBeVisible()
   await shot(page, "desktop-job-detail")

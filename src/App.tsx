@@ -3,7 +3,6 @@ import { JobListSkeleton } from "@/components/Skeleton"
 import { Footer } from "@/components/Footer"
 import type { ShellTab } from "@/components/AppShell"
 import { usePhone } from "@/lib/use-phone"
-import { AddToPhonePrompt } from "@/components/AddToPhonePrompt"
 import { NotifyPrompt } from "@/components/NotifyPrompt"
 import { DevicePairing } from "@/components/DevicePairing"
 import { Button } from "@/components/ui/button"
@@ -16,7 +15,7 @@ import { pageFromPath, pathForPage, type StaticPage } from "@/lib/pages"
 import { clearSeenRooms, saveSeenRooms } from "@/lib/seen"
 import { useDocumentsSync } from "@/lib/use-documents"
 import { isGuestEmail } from "@/lib/auth"
-import { openInstallGuide, useInstallGuide } from "@/lib/push"
+import { isInstalled, openInstallGuide, platformOf, useInstallGuide } from "@/lib/push"
 import { clearDraft } from "@/lib/session"
 import { clearShooNext, forgetShooIdentity, isShooCallback } from "@/lib/shoo"
 import { prefetchOn } from "@/lib/prefetch"
@@ -37,6 +36,7 @@ const SignIn = lazy(() => import("@/components/SignIn").then((module) => ({ defa
 const JobDetail = lazy(() => import("@/components/JobDetail").then((module) => ({ default: module.JobDetail })))
 const Documents = lazy(() => import("@/components/Documents").then((module) => ({ default: module.Documents })))
 const ProfilePage = lazy(() => import("@/components/ProfilePage").then((module) => ({ default: module.ProfilePage })))
+const AddToPhonePrompt = lazy(() => import("@/components/AddToPhonePrompt").then((module) => ({ default: module.AddToPhonePrompt })))
 const ClaudePage = lazy(() => import("@/components/ClaudeGuide").then((module) => ({ default: module.ClaudePage })))
 // Lazy because it is one view among several: first-timers never load the
 // boards and tables until they have answers, and returning users wait on it
@@ -457,7 +457,12 @@ export default function App(): React.JSX.Element {
           <BottomNav active={activeTab} onNavigate={goTab} />
         </Suspense>
       ) : null}
-      <AddToPhonePrompt active={shell && Boolean(data.session) && data.status === "ready" && !installGuide} />
+      {/* Loaded only for a signed-in person on a phone browser, so the landing never carries the phone drawing. */}
+      {shell && data.session && data.status === "ready" && !installGuide && platformOf() !== "desktop" && !isInstalled() ? (
+        <Suspense fallback={null}>
+          <AddToPhonePrompt active />
+        </Suspense>
+      ) : null}
       <NotifyPrompt session={data.session} />
       <DevicePairing />
     </div>

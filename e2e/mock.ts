@@ -10,7 +10,10 @@ export const SUPABASE_ORIGIN = "http://supabase.test"
 const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64")
 
 /** Public tables the app reads that have no rows in these fixtures: answered with an empty list, like PostgREST does. */
-const EMPTY_TABLES: ReadonlySet<string> = new Set(["applications", "employer_about", "employer_culture", "employer_facts", "employer_headcount", "employer_hiring", "employer_money", "employer_news", "employer_teams", "profiles"])
+const EMPTY_TABLES: ReadonlySet<string> = new Set(["applications", "employer_about", "employer_culture", "employer_facts", "employer_glassdoor_pay", "employer_headcount", "employer_hiring", "employer_money", "employer_news", "employer_teams", "profiles"])
+
+/** Functions the job page calls about its employer: these fixtures know nothing about any employer, as for one we have no data on. */
+const EMPTY_RPCS: ReadonlySet<string> = new Set(["rpc/job_company", "rpc/company_research"])
 
 interface Fixtures {
   /** Installs the fake backend and fails the test on any console error, page error or request that reaches the outside. */
@@ -77,6 +80,11 @@ async function mockBackend(context: BrowserContext, postings: Posting[], problem
 async function serveSupabase(route: Route, url: URL, postings: Posting[], problems: string[]): Promise<void> {
   const request = route.request()
   const table = url.pathname.startsWith("/rest/v1/") ? url.pathname.slice("/rest/v1/".length) : null
+  if (table !== null && request.method() === "POST" && EMPTY_RPCS.has(table)) {
+    await route.fulfill({ status: 200, contentType: "application/json", body: "null" })
+
+    return
+  }
   const rows = table !== null && request.method() === "GET" ? rowsFor(table, url, postings) : null
   if (rows === null) {
     problems.push(`un-mocked Supabase call: ${request.method()} ${url.pathname}${url.search}`)
