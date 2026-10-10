@@ -288,3 +288,15 @@
 }
 .bell-shake { animation: bell-shake 0.9s ease-in-out; transform-origin: 50% 10%; }
 @media (prefers-reduced-motion: reduce) { .bell-shake { animation: none; } }
+
+/* The "Put odds on your phone" card: the backdrop fades, the sheet slides up, the phone rises into place. */
+@keyframes phone-prompt-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes phone-prompt-sheet { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes phone-prompt-rise { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes phone-prompt-pop { from { opacity: 0; transform: translateY(16px) scale(0.94); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: no-preference) {
+  .phone-prompt-fade { animation: phone-prompt-fade 0.25s ease-out; }
+  .phone-prompt-sheet { animation: phone-prompt-sheet 0.4s cubic-bezier(0.22, 1, 0.36, 1); }
+  .phone-prompt-rise { animation: phone-prompt-rise 0.6s 0.15s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .phone-prompt-pop { animation: phone-prompt-pop 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+}
