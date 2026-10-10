@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs"
 import { gzipSync } from "node:zlib"
 import { expect, jobRows, test } from "./mock"
 
-// Measured 5 Oct 2026 (279 kB) + about 5%. Counts every script and stylesheet the landing page really fetches, lazy chunks included.
-const MAX_LANDING_GZIP_KB = 293
+// Measured 10 Oct 2026 (303 kB: the logo lists that hide jobs without a logo, saved jobs kept with the account, Documents with
+// Google Drive) + about 2%. Counts every script and stylesheet the landing page really fetches, lazy chunks included. The next
+// saving: load Documents and Drive only once someone is signed in.
+const MAX_LANDING_GZIP_KB = 310
 
 test("landing stays lean: under budget, no function calls, the job drawer waits for a click", async ({ page }) => {
   const assets: string[] = []

@@ -26,7 +26,6 @@ import {
   type Reference,
   type Signals,
 } from "@/lib/jobs"
-import { logoFor } from "@/lib/companies"
 import { mergeSaved, pushSaved } from "@/lib/saved-sync"
 import { loadAutoLogos, registerLogos, useAutoLogosReady } from "@/lib/stored-logos"
 import { DEFAULT_PROFILE, type Application, type PastSearch, type Person, type Posting, type Profile } from "@/lib/types"
@@ -257,10 +256,16 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
 
   // A job whose employer has no logo anywhere (our lists, the employer's own site, the job link) is left out: it shows as a bare circle of letters and is nearly always a thin, unverifiable listing.
   // Jobs you saved or applied to are fetched on their own below, so they stay in your list. Until the later logo lists have loaded, nothing is hidden.
-  const logosReady = useAutoLogosReady()
+  const autoLogosReady = useAutoLogosReady()
   useEffect(() => loadAutoLogos(), [])
+  // The logo lists are large, so they load after the first paint rather than with it; nothing is hidden until they are here.
+  const [logoFor, setLogoFor] = useState<((employer: string, url?: string | null) => string | null) | null>(null)
+  useEffect(() => {
+    void import("@/lib/companies").then((m) => setLogoFor(() => m.logoFor))
+  }, [])
+  const logosReady = autoLogosReady && logoFor !== null
   // odds is for international students: a job that asks for Dutch is never in any list, whatever the filters say. (A job you saved before stays, fetched on its own below.)
-  const withLogo = useMemo(() => remote.filter((p) => !p.dutch_required && (!logosReady || logoFor(p.employer, p.url) !== null)), [remote, logosReady])
+  const withLogo = useMemo(() => remote.filter((p) => !p.dutch_required && (!logosReady || logoFor(p.employer, p.url) !== null)), [remote, logosReady, logoFor])
   const postings = useMemo(() => [...local, ...withLogo], [local, withLogo])
   // A job you saved or applied to can leave the open pool (it closed). It is fetched on its own, once, so it stays in your list.
   const [keptExtra, setKeptExtra] = useState<Posting[]>([])
