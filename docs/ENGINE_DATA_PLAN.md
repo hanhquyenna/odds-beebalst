@@ -49,18 +49,29 @@ reports, not training data.
       Possible refinement later: L = 18 when the same job is also on a Workday board.
 
 ### B. LinkedIn Job Postings 2023-24 (pile size and growth curve)
-- [ ] B1. Download to `research-data/linkedin-postings/` (git-ignored, as all of research-data/). Source: OpenML dataset 45952
+- [x] B1. Download to `research-data/linkedin-postings/` (git-ignored, as all of research-data/). Source: OpenML dataset 45952
       "Linkedin_Job_Postings" (copy of Kaggle arshkon "LinkedIn Job Postings 2023-2024" postings.csv), licence CC BY-SA,
       https://openml.org/data/v1/download/22120395/Linkedin_Job_Postings.arff, 521,840,572 bytes, 123,849 rows, 28 columns.
       Download started 2026-10-11 (slow, ~1 MB/s). If it is incomplete, rerun:
       `curl -L -C - -o research-data/linkedin-postings/Linkedin_Job_Postings.arff <url above>`.
       Analysis script: `scripts/research/linkedin_postings.py` (reads the ARFF, writes `research-data/linkedin-postings/summary.json`).
-- [ ] B2. Profile it: rows with `applies`, distribution of applies (median, p75, p90) by experience level (Internship, Entry level),
+- [x] B2. Profile it: rows with `applies`, distribution of applies (median, p75, p90) by experience level (Internship, Entry level),
       company size, remote, and whether the job is Easy Apply (`application_type`) vs off-site.
-- [ ] B3. Cross-sectional growth curve: applies vs age at scrape (scrape time − original listed time), fit cumulative
+- [x] B3. Cross-sectional growth curve: applies vs age at scrape (scrape time − original listed time), fit cumulative
       F(t) = (t/L)^a pooled and by level; compare with sqrt (a = 0.5) and research priors (a 0.4-0.5, L 14).
-- [ ] B4. Easy Apply vs off-site ratio of applies (supports the channel multiplier ×2.8 / ×1.9 in the report, or not).
-- [ ] B5. Write results here; propose new parameters for `projectedApplicants()` / `pileFor()`.
+- [x] B4. Easy Apply vs off-site ratio of applies (supports the channel multiplier ×2.8 / ×1.9 in the report, or not).
+- [x] B5. Results (2026-10-11, file 447,784,124 of 521,840,572 bytes = 106,919 of 123,849 rows read; 22,613 with `applies`;
+      summary in research-data/linkedin-postings/summary.json):
+      * Applies are small: median Internship 2 (p75 6, p90 18.6, n=335), Entry level 2 (p75 4, p90 12, n=3,399), all levels 2-4.
+        Mostly small US postings; NOT representative of big Dutch internships. Do not use as a pile-size prior for NL.
+      * Growth with age: flat (median 2-4 at every age 0-30 days; log-log exponent ≈ -0.06 all, -0.11 entry/intern).
+        The cross-section cannot measure growth: read time is estimated (max listed_time), re-listings, early-closing popular
+        postings missing from old ages. **No change to the sqrt curve from this data.**
+      * Channel: applies per view (views ≥ 10): Offsite 0.105 (n=7,508), Easy Apply 0.154 (n=1,487), Complex onsite 0.171 (n=9,447).
+        For the same interest LinkedIn counts ~60-70% as much on off-site jobs: supports a channel multiplier for off-site counts
+        (report: ×1.9 off-site vs ×2.8 Easy Apply as totals; the ratio here only bounds the click-vs-submit gap).
+      * Decision: keep `projectedApplicants()` as is. Next data for the curve must be panels (same postings read repeatedly):
+        log our own reads with timestamps (plan step E / research report calibration item 2).
 
 ### C. More field-experiment data (profile strength)
 - [ ] C1. Deming et al. 2016: unzip `research-data/deming/deming.zip`, map columns to the engine's parts like `export_gemm.py`.
@@ -101,3 +112,5 @@ reports, not training data.
 - 2026-10-11: B1 download running; analysis script written and tested on a partial file (scripts/research/linkedin_postings.py,
   stdlib only; times are 'YYYY-MM-DD HH:MM:SS' strings, missing = '?'). C2 needs Kien to download from openICPSR (login).
   Next: when the .arff is 521,840,572 bytes, run the script (B2-B4), then write results under B5.
+- 2026-10-11: B done (see B5): dataset cannot calibrate growth (flat cross-section); channel ratio supports an off-site multiplier.
+  Next options: D4 (staleness in the chance), panel logging of our own applicant counts, C1 (Deming data), C2 when Kien downloads Kline.
