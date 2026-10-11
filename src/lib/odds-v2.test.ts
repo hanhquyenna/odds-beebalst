@@ -233,7 +233,7 @@ describe("a posting's applicant count is a floor, not the final pile", () => {
     const early = oddsV2(job({ ...JOBS.midFinanceEntry, applicants: 48, posted_on: "2026-09-28", fetched_at: "2026-09-30T08:00:00Z" }), PEOPLE.gsAnalyst)
     const late = oddsV2(job({ ...JOBS.midFinanceEntry, applicants: 48, posted_on: "2026-09-01", fetched_at: "2026-09-29T08:00:00Z" }), PEOPLE.gsAnalyst)
     expect(early.p).toBeLessThan(late.p)
-    expect(early.pile.seen).toEqual({ count: 48, daysAfterPosting: 2 })
+    expect(early.pile.seen).toEqual({ count: 48, daysAfterPosting: 2, reading: "exact" })
   })
 })
 
@@ -279,16 +279,30 @@ describe("still reviewing (old postings)", () => {
 describe("odds-v2: a count seen on one site is not the whole pile", () => {
   const at = (n: number): number => pileFor(job({ ...JOBS.midFinanceEntry, applicants: n, posted_on: null, fetched_at: null }), "mid").applicants
 
-  test("the pile is the count times the other channels, pulled towards the typical pile", () => {
-    expect(at(40)).toBeGreaterThan(40 * OTHER_CHANNELS)
-    expect(at(40)).toBeLessThan(150)
+  test("a stated count is carried to the whole pile: times the other channels, only lightly pulled towards the prior", () => {
+    expect(at(100)).toBeGreaterThan(150)
+    expect(at(100)).toBeLessThan(260)
     expect(at(1000)).toBeLessThan(1000 * OTHER_CHANNELS)
-    expect(at(1000)).toBeGreaterThan(150)
+    expect(at(1000)).toBeGreaterThan(1500)
   })
 
-  test("a tiny count no longer means a tiny pile", () => {
-    expect(at(5)).toBeGreaterThan(30)
-    expect(oddsV2(job({ ...JOBS.financeIntern, applicants: 5 }), PEOPLE.gsAnalyst).p).toBeLessThan(0.9)
+  test("'first 25 applicants' is a ceiling, not a count of 25, and 'over 200' is a floor", () => {
+    const base = { ...JOBS.midFinanceEntry, posted_on: null, fetched_at: null }
+    const exact25 = pileFor(job({ ...base, applicants: 25, applicants_text: "25 applicants" }), "mid").applicants
+    const firstTwentyFive = pileFor(job({ ...base, applicants: 25, applicants_text: "Be among the first 25 applicants" }), "mid").applicants
+    const over200 = pileFor(job({ ...base, applicants: 200, applicants_text: "Over 200 applicants" }), "mid").applicants
+    const exact200 = pileFor(job({ ...base, applicants: 200, applicants_text: "200 applicants" }), "mid").applicants
+    expect(firstTwentyFive).toBeLessThan(exact25)
+    expect(over200).toBeGreaterThan(exact200)
+  })
+
+  test("the pile follows the line of work: software draws more than HR at the same employer and level", () => {
+    const at = (family: string): number => pileFor(job({ ...JOBS.midFinanceEntry, family, applicants: null, posted_on: null, fetched_at: null }), "mid").applicants
+    expect(at("Software engineering")).toBeGreaterThan(at("HR & recruiting") * 1.5)
+  })
+
+  test("a famous employer's pile is never below the elite floor", () => {
+    expect(pileFor(job({ ...JOBS.eliteBankAnalyst, applicants: null }), "elite").applicants).toBeGreaterThanOrEqual(600)
   })
 })
 

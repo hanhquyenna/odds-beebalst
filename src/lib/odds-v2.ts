@@ -17,6 +17,7 @@
  */
 import { derive } from "@/lib/engine"
 import { familyOfTitle } from "@/lib/field"
+import { countAtRead, priorMean, readingOf } from "@/lib/pile-prior"
 import { relevanceOf, type Relevance } from "@/lib/strength"
 import { employerTier, type EmployerTier } from "@/lib/tiers"
 import type { Posting, Profile } from "@/lib/types"
@@ -158,7 +159,7 @@ export interface Pile {
   /** Where the numbers came from, for the explanation. */
   source: "posting" | "employer" | "typical"
   /** For a count read off the posting: what it said, and how many days after posting it was read. */
-  seen?: { count: number; daysAfterPosting: number }
+  seen?: { count: number; daysAfterPosting: number; reading: "lt" | "gt" | "exact" }
 }
 
 /** How long a posting stays open: the median from postings that closed (28 days, n = 506; a quarter stay over 43). */
@@ -237,24 +238,35 @@ export function projectedApplicants(count: number, post: Pick<Posting, "posted_o
  * LinkedIn dataset's applies-per-view ratio (off-site about 60-70% of Easy Apply) bound it; 2 is taken, an assumption like the square root above.
  */
 export const OTHER_CHANNELS = 2
-/** How much of the pile comes from the count the posting shows (the rest from the typical pile), on the log scale. An assumption: nothing here measures it. */
-const COUNT_WEIGHT = 0.5
-
-/** Typical applications per posting (Greenhouse 2026: 183 in Europe), scaled by how sought-after the employer is. */
+/** The least a famous employer's posting is taken to draw. Judgement: the readings cannot see past 200, and a famous name has drawn tens of thousands. */
+const ELITE_PILE = 600
+/**
+ * The pile: what one site shows (a count, a bound like "first 25 applicants", or nothing) read against a prior learned per line of work, level and
+ * employer size (pile-prior.ts), carried forward to the end of the posting's life, then times the other channels.
+ */
 export function pileFor(post: Posting, employerTierOfPost: EmployerTier, employerAvgApplicants?: number | null, now = Date.now()): Pile {
   const interviews = /intern|stage|stagiair/i.test(post.title) ? 10 : 8
-  const byTier: Record<EmployerTier, number> = { elite: 600, large: 220, mid: 150, small: 60, unknown: 180 }
-  if (typeof post.applicants === "number" && post.applicants > 0) {
-    const projected = projectedApplicants(post.applicants, post, now)
-    // What one site shows says little about the whole pile, least of all a count read early: it is pulled halfway (on the log scale) towards the typical pile for the employer.
-    const seen = projected.applicants * OTHER_CHANNELS
-    const pulled = Math.round(Math.exp((1 - COUNT_WEIGHT) * Math.log(byTier[employerTierOfPost]) + COUNT_WEIGHT * Math.log(seen)))
-
-    return { applicants: Math.max(pulled, interviews + 1), interviews, source: "posting", seen: { count: post.applicants, daysAfterPosting: projected.daysAfterPosting } }
+  const posted = dayOf(post.posted_on)
+  const read = dayOf(post.fetched_at)
+  const age = posted !== null && read !== null && read >= posted ? Math.max(1, read - posted) : TYPICAL_READ_AGE_DAYS
+  const level = post.level_view ?? (isInternshipTitle(post.title) ? "Internship" : null)
+  const mean = priorMean(post.family, level, employerTierOfPost, age)
+  const hasCount = typeof post.applicants === "number" && post.applicants > 0
+  if (!hasCount && typeof employerAvgApplicants === "number" && employerAvgApplicants > 0) {
+    return { applicants: Math.max(Math.round(employerAvgApplicants * OTHER_CHANNELS), interviews + 1), interviews, source: "employer" }
   }
-  if (typeof employerAvgApplicants === "number" && employerAvgApplicants > 0) return { applicants: Math.max(Math.round(employerAvgApplicants * OTHER_CHANNELS), interviews + 1), interviews, source: "employer" }
+  const atRead = countAtRead(hasCount ? (post.applicants as number) : null, readingOf(post.applicants_text), mean)
+  const projected = projectedApplicants(Math.max(1, Math.round(atRead)), post, now)
 
-  return { applicants: byTier[employerTierOfPost], interviews, source: "typical" }
+  // The sites show nothing past "200+", so what they teach about the most sought-after employers is a lower bound: those keep the pile set from the 34k-application result (ELITE_PILE).
+  const floor = employerTierOfPost === "elite" ? ELITE_PILE : interviews + 1
+
+  return {
+    applicants: Math.max(Math.round(projected.applicants * OTHER_CHANNELS), floor),
+    interviews,
+    source: hasCount ? "posting" : "typical",
+    ...(hasCount ? { seen: { count: post.applicants as number, daysAfterPosting: projected.daysAfterPosting, reading: readingOf(post.applicants_text) } } : {}),
+  }
 }
 
 export interface Part {

@@ -282,6 +282,83 @@ function guessFamily(title, skills) {
   const best = Math.max(...post);
   return best >= 0.6 ? M.families[post.indexOf(best)] : null;
 }
+// src/lib/pile-prior.json
+var pile_prior_default = {
+  lambda: 3,
+  sigma: 1.205,
+  effects: {
+    intercept: 3.554,
+    logage: 0.293,
+    "family:AI and machine learning": 0.207,
+    "family:Consulting & strategy": 0.069,
+    "family:Customer support & service": -0.47,
+    "family:Data, analytics & AI": 0.591,
+    "family:Design & UX": -0.349,
+    "family:Finance & accounting": 0.272,
+    "family:HR & recruiting": -0.559,
+    "family:Hardware & engineering": -0.294,
+    "family:Healthcare & life sciences": 0.173,
+    "family:IT, cloud & security": -0.208,
+    "family:Marketing & communications": -0.241,
+    "family:Operations & supply chain": 0.003,
+    "family:Other": 0.282,
+    "family:Product & project management": 0.33,
+    "family:Research & academia": -0.356,
+    "family:Risk, compliance & legal": 0.275,
+    "family:Sales & account management": -0.393,
+    "family:Software engineering": 0.637,
+    "family:Unknown": 0.026,
+    "level:Director": 0.05,
+    "level:Entry": 0.055,
+    "level:Internship": -0.698,
+    "level:Manager": 0.087,
+    "level:Mid": 0.392,
+    "level:Not stated": -0.095,
+    "level:Senior": 0.205,
+    "tier:elite": 0.322,
+    "tier:large": 0.274,
+    "tier:mid": 0.13,
+    "tier:small": 0.047,
+    "tier:unknown": -0.778
+  },
+  cv: {
+    chosen: 3,
+    heldout_loglik: -3638,
+    pooled_loglik: -3808
+  }
+};
+
+// src/lib/pile-prior.ts
+var SIGMA = pile_prior_default.sigma;
+var EFFECTS = pile_prior_default.effects;
+var COUNT_NOISE = 0.35;
+var pdf = (z) => Math.exp(-(z * z) / 2) / Math.sqrt(2 * Math.PI);
+function cdf(z) {
+  const x = Math.abs(z) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * x);
+  const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return z >= 0 ? 0.5 * (1 + y) : 0.5 * (1 - y);
+}
+function priorMean(family, level, tier, ageDays) {
+  return (EFFECTS.intercept ?? 0) + (EFFECTS.logage ?? 0) * Math.log1p(Math.min(60, Math.max(0, ageDays))) + (EFFECTS[`family:${family || "Unknown"}`] ?? 0) + (EFFECTS[`level:${level || "Not stated"}`] ?? 0) + (EFFECTS[`tier:${tier}`] ?? 0);
+}
+function readingOf(text) {
+  return /first 25/i.test(text ?? "") ? "lt" : /over 200/i.test(text ?? "") ? "gt" : "exact";
+}
+function countAtRead(count, reading, mean) {
+  if (count === null)
+    return Math.exp(mean);
+  if (reading === "exact") {
+    const w = SIGMA ** 2 / (SIGMA ** 2 + COUNT_NOISE ** 2);
+    return Math.exp(w * Math.log(count) + (1 - w) * mean);
+  }
+  if (reading === "lt") {
+    const a = (Math.log(25) - mean) / SIGMA;
+    return Math.exp(mean - SIGMA * pdf(a) / Math.max(0.000000001, cdf(a)));
+  }
+  const a = (Math.log(200) - mean) / SIGMA;
+  return Math.exp(mean + SIGMA * pdf(a) / Math.max(0.000000001, 1 - cdf(a)));
+}
 
 // src/lib/strength.ts
 var NEIGHBOURS = [
@@ -400,7 +477,7 @@ var PRESTIGE = { elite: 0.15, large: 0.07, mid: 0, small: 0, unknown: 0 };
 var PRESTIGE_OFF_FIELD = 0.4;
 var ELITE_SAME_LINE = 0.15;
 var SECOND_INTERNSHIP = 0.127;
-var EFFECTS = {
+var EFFECTS2 = {
   underqualified: { or: 0.53, at: 0.46 },
   overqualified: { or: 0.85, at: 0.12 },
   nonEu: { or: 0.66, at: 0.3 },
@@ -488,19 +565,27 @@ function projectedApplicants(count, post, now = Date.now()) {
   return { applicants: Math.round(count * factor), daysAfterPosting: age };
 }
 var OTHER_CHANNELS = 2;
-var COUNT_WEIGHT = 0.5;
+var ELITE_PILE = 600;
 function pileFor(post, employerTierOfPost, employerAvgApplicants, now = Date.now()) {
   const interviews = /intern|stage|stagiair/i.test(post.title) ? 10 : 8;
-  const byTier = { elite: 600, large: 220, mid: 150, small: 60, unknown: 180 };
-  if (typeof post.applicants === "number" && post.applicants > 0) {
-    const projected = projectedApplicants(post.applicants, post, now);
-    const seen = projected.applicants * OTHER_CHANNELS;
-    const pulled = Math.round(Math.exp((1 - COUNT_WEIGHT) * Math.log(byTier[employerTierOfPost]) + COUNT_WEIGHT * Math.log(seen)));
-    return { applicants: Math.max(pulled, interviews + 1), interviews, source: "posting", seen: { count: post.applicants, daysAfterPosting: projected.daysAfterPosting } };
-  }
-  if (typeof employerAvgApplicants === "number" && employerAvgApplicants > 0)
+  const posted = dayOf(post.posted_on);
+  const read = dayOf(post.fetched_at);
+  const age = posted !== null && read !== null && read >= posted ? Math.max(1, read - posted) : TYPICAL_READ_AGE_DAYS;
+  const level = post.level_view ?? (isInternshipTitle(post.title) ? "Internship" : null);
+  const mean = priorMean(post.family, level, employerTierOfPost, age);
+  const hasCount = typeof post.applicants === "number" && post.applicants > 0;
+  if (!hasCount && typeof employerAvgApplicants === "number" && employerAvgApplicants > 0) {
     return { applicants: Math.max(Math.round(employerAvgApplicants * OTHER_CHANNELS), interviews + 1), interviews, source: "employer" };
-  return { applicants: byTier[employerTierOfPost], interviews, source: "typical" };
+  }
+  const atRead = countAtRead(hasCount ? post.applicants : null, readingOf(post.applicants_text), mean);
+  const projected = projectedApplicants(Math.max(1, Math.round(atRead)), post, now);
+  const floor = employerTierOfPost === "elite" ? ELITE_PILE : interviews + 1;
+  return {
+    applicants: Math.max(Math.round(projected.applicants * OTHER_CHANNELS), floor),
+    interviews,
+    source: hasCount ? "posting" : "typical",
+    ...hasCount ? { seen: { count: post.applicants, daysAfterPosting: projected.daysAfterPosting, reading: readingOf(post.applicants_text) } } : {}
+  };
 }
 function phi(x) {
   const t = 1 / (1 + 0.2316419 * Math.abs(x));
@@ -646,16 +731,16 @@ function strengthParts(post, profile, ctx = {}) {
   if (implied && years < implied) {
     const short = Math.min(1, (implied - years) / implied);
     const scale = implied >= SENIOR_YEARS ? 0.8 + 3 * short + 9 * short * short : implied > 2 ? 0.4 + 0.8 * short : 0.25 + 0.5 * short;
-    parts.push({ key: "underqualified", label: fromLevel ? `A ${post.level_view?.toLowerCase()} job (usually ${implied}+ years), you have ${years.toFixed(1)}` : `Asks for ${implied}+ years, you have ${years.toFixed(1)}`, z: step(EFFECTS.underqualified) * scale, source: "GEMM (own fit, Dutch applications); scaled by level and how far short, our judgement" });
+    parts.push({ key: "underqualified", label: fromLevel ? `A ${post.level_view?.toLowerCase()} job (usually ${implied}+ years), you have ${years.toFixed(1)}` : `Asks for ${implied}+ years, you have ${years.toFixed(1)}`, z: step(EFFECTS2.underqualified) * scale, source: "GEMM (own fit, Dutch applications); scaled by level and how far short, our judgement" });
   } else if (post.years_min !== null && post.years_min !== undefined && years > 2 * post.years_min + 4) {
-    parts.push({ key: "overqualified", label: "Much more experience than asked", z: step(EFFECTS.overqualified), source: "Baert & Verhaest 2019" });
+    parts.push({ key: "overqualified", label: "Much more experience than asked", z: step(EFFECTS2.overqualified), source: "Baert & Verhaest 2019" });
   }
   if (degreeIn)
-    parts.push({ key: "degreeInField", label: "Degree in this line of work", z: step(EFFECTS.degreeInField), source: "Humburg & van der Velden 2015 (direction); our size" });
+    parts.push({ key: "degreeInField", label: "Degree in this line of work", z: step(EFFECTS2.degreeInField), source: "Humburg & van der Velden 2015 (direction); our size" });
   const rank = { bachelor: 1, master: 2, phd: 3 };
   const myDegree = ctx.assumeDegree ? Math.max(rank[base.degree] ?? 0, 2) : rank[base.degree] ?? 0;
   if (post.degree_asked && myDegree < rank[post.degree_asked])
-    parts.push({ key: "degreeBelowAsked", label: `Asks for a ${post.degree_asked}`, z: step(EFFECTS.degreeBelowAsked), source: "GEMM underqualified, halved" });
+    parts.push({ key: "degreeBelowAsked", label: `Asks for a ${post.degree_asked}`, z: step(EFFECTS2.degreeBelowAsked), source: "GEMM underqualified, halved" });
   if (post.skills.length >= 3) {
     const have = new Set([...base.skills, ...ctx.extraSkills ?? []].map((x) => x.toLowerCase()));
     const weight = { must: 1, strong: 0.7, optional: 0.4, nice: 0.2, unspecified: 0.6 };
@@ -671,15 +756,15 @@ function strengthParts(post, profile, ctx = {}) {
     parts.push({ key: "skills", label: `Skills the job names: ${Math.round(cover * 100)}% covered`, z: SKILL_SPAN * (cover - 0.5) * 2, source: "Our assumption (no experiment varies listed skills)" });
   }
   if (profile.origin === "non_eu")
-    parts.push({ key: "nonEu", label: "Non-EU background", z: step(EFFECTS.nonEu), source: "Lippens, Vermeiren & Baert 2023; GEMM" });
+    parts.push({ key: "nonEu", label: "Non-EU background", z: step(EFFECTS2.nonEu), source: "Lippens, Vermeiren & Baert 2023; GEMM" });
   else if (profile.origin === "eu_non_native")
-    parts.push({ key: "euNonNative", label: "EU background, not Dutch", z: step(EFFECTS.euNonNative), source: "GEMM" });
+    parts.push({ key: "euNonNative", label: "EU background, not Dutch", z: step(EFFECTS2.euNonNative), source: "GEMM" });
   if (profile.origin === "non_eu" && profile.education.length > 0 && !base.dutchDegree)
-    parts.push({ key: "foreignDegree", label: "Degree from outside the Netherlands", z: step(EFFECTS.foreignDegree), source: "Oreopoulos 2011" });
+    parts.push({ key: "foreignDegree", label: "Degree from outside the Netherlands", z: step(EFFECTS2.foreignDegree), source: "Oreopoulos 2011" });
   if (base.share.nonEu > 0.99 && base.roles.length > 0)
-    parts.push({ key: "foreignExperienceOnly", label: "All work experience outside the EU", z: step(EFFECTS.foreignExperienceOnly), source: "Oreopoulos 2011" });
+    parts.push({ key: "foreignExperienceOnly", label: "All work experience outside the EU", z: step(EFFECTS2.foreignExperienceOnly), source: "Oreopoulos 2011" });
   const dutch = profile.dutch;
-  const level = dutch === "none" ? EFFECTS.dutchNone : dutch === "basic" ? EFFECTS.dutchBasic : dutch === "professional" ? EFFECTS.dutchProfessional : null;
+  const level = dutch === "none" ? EFFECTS2.dutchNone : dutch === "basic" ? EFFECTS2.dutchBasic : dutch === "professional" ? EFFECTS2.dutchProfessional : null;
   if (level) {
     const name = dutch === "none" ? "No Dutch" : dutch === "basic" ? "Basic Dutch" : "Professional (not native) Dutch";
     if (post.dutch_required)
@@ -688,9 +773,9 @@ function strengthParts(post, profile, ctx = {}) {
       parts.push({ key: "dutchNotAsked", label: name, z: step(level) * DUTCH_NOT_ASKED_SHARE, source: "Carlsson, Eriksson & Rooth 2023, scaled down for an English-language job (our assumption)" });
   }
   if (ctx.referral)
-    parts.push({ key: "referral", label: "A referral", z: step(EFFECTS.referral), source: "Ashby 2026" });
+    parts.push({ key: "referral", label: "A referral", z: step(EFFECTS2.referral), source: "Ashby 2026" });
   if (ctx.tailored)
-    parts.push({ key: "tailored", label: "A cover letter written for this job", z: step(EFFECTS.tailored), source: "ResumeGo 2020" });
+    parts.push({ key: "tailored", label: "A cover letter written for this job", z: step(EFFECTS2.tailored), source: "ResumeGo 2020" });
   return parts.map((p) => ({ ...p, study: p.z, z: p.z * (LEARNED[p.key] ?? 1) }));
 }
 var FLOOR = 0.005;
@@ -1282,7 +1367,7 @@ function standing(post, profile, ref, shares, whatIf = NO_WHAT_IF, referral = fa
     });
     const sign = (z) => z >= 0 ? "stronger" : "weaker";
     const lines = [
-      { label: `About ${Math.round(v2.pile.applicants)} people apply and about ${v2.pile.interviews} are invited${v2.pile.seen ? ` (the posting showed ${v2.pile.seen.count} ${v2.pile.seen.daysAfterPosting === 1 ? "a day" : `${v2.pile.seen.daysAfterPosting} days`} after it went up; more apply while it is open, and not everyone applies there)` : v2.pile.source === "employer" ? " (this employer's average)" : " (typical for an employer like this)"}`, source: "Greenhouse 2026 · Ashby 2026" },
+      { label: `About ${Math.round(v2.pile.applicants)} people apply and about ${v2.pile.interviews} are invited${v2.pile.seen ? ` (the posting showed ${v2.pile.seen.reading === "lt" ? "fewer than 25" : v2.pile.seen.reading === "gt" ? "more than 200" : v2.pile.seen.count} ${v2.pile.seen.daysAfterPosting === 1 ? "a day" : `${v2.pile.seen.daysAfterPosting} days`} after it went up; more apply while it is open, and not everyone applies there)` : v2.pile.source === "employer" ? " (this employer's average)" : " (typical for this line of work, level and employer size, from the postings we read)"}`, source: "Greenhouse 2026 · Ashby 2026 · our own LinkedIn readings" },
       ...v2.parts.map((p) => ({ label: `${p.label}: ${sign(p.z)} by ${Math.abs(p.z).toFixed(2)}`, source: p.source })),
       ...v2.reviewing < 1 ? [{ label: `The posting is ${post.days_open} days old, so the employer may have stopped reading: the chance is taken down to ${Math.round(v2.reviewing * 100)}% of what it would be on a new posting`, source: "How long Dutch postings stay up (odds, 2,529 postings)" }] : []
     ];
@@ -3542,7 +3627,7 @@ function hearBackFor(postings, profile, referrals, record) {
 }
 
 // src/lib/outcome-snapshot.ts
-var SNAPSHOT_MODEL = "odds-v2.5-capped";
+var SNAPSHOT_MODEL = "odds-v2.6-pile-prior";
 var round = (x, digits = 4) => Math.round(x * 10 ** digits) / 10 ** digits;
 function chanceSnapshot(post, profile, ctx = {}) {
   const v2 = oddsV2(post, profile, ctx);
