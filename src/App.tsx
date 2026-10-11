@@ -466,7 +466,7 @@ export default function App(): React.JSX.Element {
       {/* Loaded only for a signed-in person on a phone browser, so the landing never carries the phone drawing. */}
       {shell && data.session && data.status === "ready" && !installGuide && platformOf() !== "desktop" && !isInstalled() ? (
         <Suspense fallback={null}>
-          <AddToPhonePrompt active valueSeen={data.saved.size > 0 || data.applications.length > 0} />
+          <AddToPhonePrompt active />
         </Suspense>
       ) : null}
       <NotifyPrompt session={data.session} />

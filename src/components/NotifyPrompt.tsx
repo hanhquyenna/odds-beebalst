@@ -1,9 +1,12 @@
-import { useEffect, useState } from "react"
+import { lazy, Suspense, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { createPhoneLink, startGuestSession, type Session } from "@/lib/auth"
 import { useData } from "@/lib/data"
 import { useWaitingPair } from "@/lib/pairing"
 import { iosOtherBrowser, isInstalled, platformOf, turnOnNotifications, usePush } from "@/lib/push"
+
+// The phone drawings are heavy and only this panel needs them: loaded when it is shown.
+const NotifySheet = lazy(() => import("@/components/NotifySheet").then((m) => ({ default: m.NotifySheet })))
 
 const HOME_CODE = "odds:home-code"
 
@@ -99,19 +102,9 @@ export function NotifyPrompt({ session }: { session: Session | null }): React.JS
 
 
   return (
-    <div role="presentation" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div role="dialog" aria-modal="true" aria-label="Turn on notifications" className="flex w-full max-w-sm flex-col gap-3 rounded-xl border-[1.5px] bg-card p-5 text-center shadow-lg">
-        <h2 className="text-lg font-semibold tracking-tight">Turn on notifications</h2>
-        <p className="text-sm text-muted-foreground">Get the new jobs that fit you at 8 every morning.</p>
-        <Button type="button" size="lg" disabled={busy} onClick={() => void turnOn()} className="cursor-pointer">
-          {busy ? "Turning on…" : "Turn on notifications"}
-        </Button>
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        <button type="button" onClick={() => setHidden(true)} className="cursor-pointer text-sm text-muted-foreground underline underline-offset-4">
-          Not now
-        </button>
-      </div>
-    </div>
+    <Suspense fallback={null}>
+      <NotifySheet busy={busy} error={error} onTurnOn={() => void turnOn()} onClose={() => setHidden(true)} />
+    </Suspense>
   )
 }
 
