@@ -149,17 +149,6 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   )
 }
 
-/** One number with what it is, the way a finance page shows a company: big value, small label, year and source under it. */
-function Tile({ label, value, note }: { label: string; value: string; note?: string | null }): React.JSX.Element {
-  return (
-    <div className={`${card} min-w-0 px-4 py-3`}>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-0.5 truncate text-xl font-semibold tabular-nums tracking-tight">{value}</p>
-      {note ? <p className="mt-0.5 text-xs text-muted-foreground">{note}</p> : null}
-    </div>
-  )
-}
-
 /**
  * The company for someone deciding whether to apply: what it is in its own words, how big and how valuable it is, whether it is growing,
  * and what has happened to it lately. Facts as scraped: its LinkedIn page, Wikidata, GLEIF, the IND register, news, and our own count of its jobs.
@@ -216,15 +205,13 @@ export function CompanySection({ post }: { post: Posting }): React.JSX.Element |
         </p>
       ) : null}
 
-      {tiles.length > 0 ? (
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {tiles.map((t) => (
-            <Tile key={t.label} label={t.label} value={t.value} note={t.note} />
-          ))}
-        </div>
-      ) : null}
-
       <dl className={`${card} mt-4 px-4 py-1 text-sm`}>
+        {tiles.map((t) => (
+          <Fact key={t.label} label={t.label}>
+            {t.value}
+            {t.note ? <span className="ml-2 text-xs font-normal text-muted-foreground">{t.note}</span> : null}
+          </Fact>
+        ))}
         {f?.industry ?? file?.industry?.[0] ? <Fact label="Industry">{f?.industry ?? file?.industry?.[0]}</Fact> : null}
         {f?.type ? <Fact label="Company type">{f.type}</Fact> : null}
         {(file?.listedOn ?? extra?.listedOn ?? []).length > 0 ? <Fact label="Listed on">{[...new Set(file?.listedOn ?? extra?.listedOn ?? [])].join(", ")}</Fact> : null}
