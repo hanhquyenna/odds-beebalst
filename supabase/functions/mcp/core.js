@@ -146,7 +146,8 @@ function familyPosterior(tokens) {
   const sum = exp.reduce((a, b) => a + b, 0);
   return exp.map((e) => e / sum);
 }
-var titleTokens = (text) => words(text).map(stem);
+var ALIAS = Object.fromEntries(["teach", "teacher", "teaching", "tutor", "lectur", "lecturer", "instructor", "docent", "leraar", "onderwijs", "educator"].map((w) => [stem(w), stem("postdoc")]));
+var titleTokens = (text) => words(text).map(stem).map((t) => ALIAS[t] ?? t);
 var familyMemo = new Map;
 function familyOfTitle(text, sure = 0.5) {
   const key = `${sure}\x00${text}`;
@@ -446,10 +447,30 @@ function degreeFamily(text) {
   degreeMemo.set(text, fam);
   return fam;
 }
-function pileFor(post, employerTierOfPost, employerAvgApplicants) {
+var POSTING_LIFE_DAYS = 28;
+var TYPICAL_READ_AGE_DAYS = 9;
+var DAY = 86400000;
+var dayOf = (iso) => {
+  const t = iso ? Date.parse(iso.length === 10 ? `${iso}T00:00:00Z` : iso) : Number.NaN;
+  return Number.isFinite(t) ? Math.floor(t / DAY) : null;
+};
+function projectedApplicants(count, post, now = Date.now()) {
+  const posted = dayOf(post.posted_on);
+  const read = dayOf(post.fetched_at);
+  if (read === null)
+    return { applicants: count, daysAfterPosting: 0 };
+  const today = Math.floor(now / DAY);
+  const age = posted !== null && read >= posted ? Math.max(1, read - posted) : TYPICAL_READ_AGE_DAYS;
+  const open = posted !== null ? Math.max(POSTING_LIFE_DAYS, today - posted) : POSTING_LIFE_DAYS;
+  const factor = Math.min(6, Math.max(1, Math.sqrt(Math.min(60, open) / age)));
+  return { applicants: Math.round(count * factor), daysAfterPosting: age };
+}
+function pileFor(post, employerTierOfPost, employerAvgApplicants, now = Date.now()) {
   const interviews = /intern|stage|stagiair/i.test(post.title) ? 10 : 8;
-  if (typeof post.applicants === "number" && post.applicants > 0)
-    return { applicants: Math.max(post.applicants, interviews + 1), interviews, source: "posting" };
+  if (typeof post.applicants === "number" && post.applicants > 0) {
+    const projected = projectedApplicants(post.applicants, post, now);
+    return { applicants: Math.max(projected.applicants, interviews + 1), interviews, source: "posting", seen: { count: post.applicants, daysAfterPosting: projected.daysAfterPosting } };
+  }
   if (typeof employerAvgApplicants === "number" && employerAvgApplicants > 0)
     return { applicants: Math.max(employerAvgApplicants, interviews + 1), interviews, source: "employer" };
   const byTier = { elite: 600, large: 220, mid: 150, small: 60, unknown: 180 };
@@ -1211,7 +1232,7 @@ function standing(post, profile, ref, shares, whatIf = NO_WHAT_IF, referral = fa
     });
     const sign = (z) => z >= 0 ? "stronger" : "weaker";
     const lines = [
-      { label: `About ${Math.round(v2.pile.applicants)} people apply and about ${v2.pile.interviews} are invited${v2.pile.source === "posting" ? " (the posting shows the count)" : v2.pile.source === "employer" ? " (this employer's average)" : " (typical for an employer like this)"}`, source: "Greenhouse 2026 · Ashby 2026" },
+      { label: `About ${Math.round(v2.pile.applicants)} people apply and about ${v2.pile.interviews} are invited${v2.pile.seen ? ` (the posting showed ${v2.pile.seen.count} ${v2.pile.seen.daysAfterPosting === 1 ? "a day" : `${v2.pile.seen.daysAfterPosting} days`} after it went up; more apply while it is open, and not everyone applies there)` : v2.pile.source === "employer" ? " (this employer's average)" : " (typical for an employer like this)"}`, source: "Greenhouse 2026 · Ashby 2026" },
       ...v2.parts.map((p) => ({ label: `${p.label}: ${sign(p.z)} by ${Math.abs(p.z).toFixed(2)}`, source: p.source }))
     ];
     rate = { low: v2.low, mid: v2.p, high: v2.high, lines, thin };
@@ -3064,7 +3085,57 @@ function withSkillTiers(post) {
 }
 
 // src/lib/tailor.ts
-var GENERIC = new Set(["intern", "internship", "stage", "stagiair", "junior", "senior", "medior", "trainee", "graduate", "working", "student", "werkstudent", "the", "and", "of", "for", "in", "a", "to", "m", "f", "d", "x", "all", "gender", "genders", "2026", "2027", "month", "months", "start", "programme", "program", "netherlands", "amsterdam", "nl"].map(stem));
+var GENERIC = new Set([
+  "intern",
+  "internship",
+  "stage",
+  "stagiair",
+  "junior",
+  "senior",
+  "medior",
+  "trainee",
+  "graduate",
+  "working",
+  "student",
+  "werkstudent",
+  "the",
+  "and",
+  "of",
+  "for",
+  "in",
+  "a",
+  "to",
+  "m",
+  "f",
+  "d",
+  "x",
+  "all",
+  "gender",
+  "genders",
+  "2026",
+  "2027",
+  "month",
+  "months",
+  "start",
+  "programme",
+  "program",
+  "netherlands",
+  "amsterdam",
+  "nl",
+  "assistant",
+  "associate",
+  "coordinator",
+  "officer",
+  "member",
+  "support",
+  "team",
+  "general",
+  "office",
+  "employee",
+  "staff",
+  "medewerker",
+  "assistent"
+].map(stem));
 var titleWords = (t) => new Set(words(t.replace(/\([^)]*\)/g, " ")).map(stem).filter((w) => w.length > 2 && !GENERIC.has(w)));
 var city = (p) => (p.region ?? "").split(/[,;]/)[0].trim().toLowerCase();
 function likeness(saved, job, profiles) {

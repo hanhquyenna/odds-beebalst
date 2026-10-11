@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { chanceIn, FLOOR, oddsV2, phi, phiInv } from "@/lib/odds-v2"
+import { chanceIn, FLOOR, oddsV2, phi, phiInv, projectedApplicants } from "@/lib/odds-v2"
 import { EXPECT, JOBS, PEOPLE, job } from "@/lib/odds-v2.personas"
 import { employerTier } from "@/lib/tiers"
 
@@ -193,5 +193,41 @@ describe("odds-v2: edge cases", () => {
         expect(p.key.length).toBeGreaterThan(0)
         expect(p.source.length).toBeGreaterThan(0)
       }
+  })
+})
+
+describe("a posting's applicant count is a floor, not the final pile", () => {
+  const now = Date.parse("2026-10-11T12:00:00Z")
+
+  test("a count read two days after posting is carried forward to a typical posting's life", () => {
+    // 48 read on day 2 of a posting still open on day 13: about 48 × √(28 / 2), not 48.
+    const p = projectedApplicants(48, { posted_on: "2026-09-28", fetched_at: "2026-09-30T08:00:00Z" }, now)
+    expect(p.daysAfterPosting).toBe(2)
+    expect(p.applicants).toBe(Math.round(48 * Math.sqrt(28 / 2)))
+  })
+
+  test("a count read late barely moves, and it never goes down", () => {
+    expect(projectedApplicants(200, { posted_on: "2026-09-01", fetched_at: "2026-09-29T08:00:00Z" }, now).applicants).toBeGreaterThanOrEqual(200)
+    expect(projectedApplicants(200, { posted_on: "2026-09-01", fetched_at: "2026-09-29T08:00:00Z" }, now).applicants).toBeLessThan(260)
+  })
+
+  test("read on a known day but no posting date: as a typical posting read on day 9", () => {
+    expect(projectedApplicants(90, { posted_on: null, fetched_at: "2026-10-01T08:00:00Z" }, now).applicants).toBe(Math.round(90 * Math.sqrt(28 / 9)))
+  })
+
+  test("no idea when it was read (typed in by hand): the count is taken as it stands", () => {
+    expect(projectedApplicants(90, { posted_on: null, fetched_at: null }, now).applicants).toBe(90)
+  })
+
+  test("a posting open past its usual life keeps gathering, up to a cap", () => {
+    const old = projectedApplicants(10, { posted_on: "2026-07-01", fetched_at: "2026-07-02T08:00:00Z" }, now)
+    expect(old.applicants).toBe(60)
+  })
+
+  test("the chance falls when the same count was read earlier in the posting's life", () => {
+    const early = oddsV2(job({ ...JOBS.midFinanceEntry, applicants: 48, posted_on: "2026-09-28", fetched_at: "2026-09-30T08:00:00Z" }), PEOPLE.gsAnalyst)
+    const late = oddsV2(job({ ...JOBS.midFinanceEntry, applicants: 48, posted_on: "2026-09-01", fetched_at: "2026-09-29T08:00:00Z" }), PEOPLE.gsAnalyst)
+    expect(early.p).toBeLessThan(late.p)
+    expect(early.pile.seen).toEqual({ count: 48, daysAfterPosting: 2 })
   })
 })

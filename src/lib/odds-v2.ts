@@ -142,12 +142,50 @@ export interface Pile {
   interviews: number
   /** Where the numbers came from, for the explanation. */
   source: "posting" | "employer" | "typical"
+  /** For a count read off the posting: what it said, and how many days after posting it was read. */
+  seen?: { count: number; daysAfterPosting: number }
+}
+
+/** How long a posting stays open: the median from postings that closed (28 days, n = 506; a quarter stay over 43). */
+const POSTING_LIFE_DAYS = 28
+/** How many days after posting a count is usually read (median 9, n = 350), for a count with no dates. */
+const TYPICAL_READ_AGE_DAYS = 9
+const DAY = 86_400_000
+
+const dayOf = (iso: string | null | undefined): number | null => {
+  const t = iso ? Date.parse(iso.length === 10 ? `${iso}T00:00:00Z` : iso) : Number.NaN
+
+  return Number.isFinite(t) ? Math.floor(t / DAY) : null
+}
+
+/**
+ * The count a posting shows ("48 applicants") is how many had applied when it was read, and only through that site: a floor,
+ * never the final pile. People keep applying while it is open, most of them early, so the count is carried forward to the end of
+ * a typical posting's life (or today, if it is still open past that) as count × √(days open / days old when read). The square
+ * root is an assumption, not a measurement: it says applications slow down, so a count read on day 2 of 28 grows about 3.7×
+ * and one read on day 20 hardly at all.
+ */
+export function projectedApplicants(count: number, post: Pick<Posting, "posted_on" | "fetched_at">, now = Date.now()): { applicants: number; daysAfterPosting: number } {
+  const posted = dayOf(post.posted_on)
+  const read = dayOf(post.fetched_at)
+  // No idea when it was read (a job typed in by hand, a fixture): the count is all there is, taken as it stands.
+  if (read === null) return { applicants: count, daysAfterPosting: 0 }
+  const today = Math.floor(now / DAY)
+  const age = posted !== null && read >= posted ? Math.max(1, read - posted) : TYPICAL_READ_AGE_DAYS
+  const open = posted !== null ? Math.max(POSTING_LIFE_DAYS, today - posted) : POSTING_LIFE_DAYS
+  const factor = Math.min(6, Math.max(1, Math.sqrt(Math.min(60, open) / age)))
+
+  return { applicants: Math.round(count * factor), daysAfterPosting: age }
 }
 
 /** Typical applications per posting (Greenhouse 2026: 183 in Europe), scaled by how sought-after the employer is. */
-export function pileFor(post: Posting, employerTierOfPost: EmployerTier, employerAvgApplicants?: number | null): Pile {
+export function pileFor(post: Posting, employerTierOfPost: EmployerTier, employerAvgApplicants?: number | null, now = Date.now()): Pile {
   const interviews = /intern|stage|stagiair/i.test(post.title) ? 10 : 8
-  if (typeof post.applicants === "number" && post.applicants > 0) return { applicants: Math.max(post.applicants, interviews + 1), interviews, source: "posting" }
+  if (typeof post.applicants === "number" && post.applicants > 0) {
+    const projected = projectedApplicants(post.applicants, post, now)
+
+    return { applicants: Math.max(projected.applicants, interviews + 1), interviews, source: "posting", seen: { count: post.applicants, daysAfterPosting: projected.daysAfterPosting } }
+  }
   if (typeof employerAvgApplicants === "number" && employerAvgApplicants > 0) return { applicants: Math.max(employerAvgApplicants, interviews + 1), interviews, source: "employer" }
   const byTier: Record<EmployerTier, number> = { elite: 600, large: 220, mid: 150, small: 60, unknown: 180 }
 
