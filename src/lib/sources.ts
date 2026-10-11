@@ -23,7 +23,21 @@ const EMPLOYER_SYSTEMS = new Set(["workday", "greenhouse", "ashby", "smartrecrui
 const RANK = (ats: string): number => (EMPLOYER_SYSTEMS.has(ats) ? 0 : ats === "academictransfer" ? 1 : ats === "magnet.me" ? 2 : ats === "indeed" ? 3 : ats === "glassdoor" ? 4 : 5)
 
 export function sourceOf(p: Pick<Posting, "ats" | "url">): JobSource {
-  const ats = (p.ats ?? "").toLowerCase()
+  const recorded = (p.ats ?? "").toLowerCase()
+  let fromUrl = ""
+  if (!recorded || recorded === "other") {
+    try {
+      const host = new URL(p.url ?? "").hostname.toLowerCase().replace(/^www\./, "")
+      if (host === "linkedin.com" || host.endsWith(".linkedin.com")) fromUrl = "linkedin"
+      else if (host === "magnet.me" || host.endsWith(".magnet.me")) fromUrl = "magnet.me"
+      else if (host === "indeed.com" || host.endsWith(".indeed.com")) fromUrl = "indeed"
+      else if (host === "glassdoor.com" || host.endsWith(".glassdoor.com")) fromUrl = "glassdoor"
+      else if (host === "academictransfer.com" || host.endsWith(".academictransfer.com")) fromUrl = "academictransfer"
+    } catch {
+      // Keep the stored source label when the URL is missing or malformed.
+    }
+  }
+  const ats = fromUrl || recorded
 
   return { name: NAMES[ats] ?? (EMPLOYER_SYSTEMS.has(ats) ? "Employer site" : "Other"), url: p.url, ats }
 }

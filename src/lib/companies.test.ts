@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { logoFor, monogram, siteDomain } from "@/lib/companies"
+import { fallbackLogoCandidatesFor, logoFor, monogram, siteDomain } from "@/lib/companies"
 import { nameKey } from "@/lib/stored-logos"
 
 describe("logos for any job", () => {
@@ -18,6 +18,11 @@ describe("logos for any job", () => {
     expect(logoFor("Zzz Unknown BV", "https://careers.zzz-unknown.com/job/1")).toContain("zzz-unknown.com")
     expect(logoFor("Zzz Unknown BV", "https://www.indeed.com/viewjob?jk=1")).toBeNull()
     expect(monogram("Zzz Unknown BV")).toBe("ZU")
+  })
+  test("a saved employer logo can fall back to the employer's own site", () => {
+    const fallbacks = fallbackLogoCandidatesFor("Panda International", "https://www.linkedin.com/jobs/view/1")
+    expect(fallbacks[0]).toContain("panda-int.com")
+    expect(fallbacks[1]).toContain("panda-int.com")
   })
   test("the same company under a slightly different name finds its logo", () => {
     expect(nameKey("McKinsey &amp; Company")).toBe(nameKey("McKinsey & Company"))

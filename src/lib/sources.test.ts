@@ -11,6 +11,11 @@ describe("sources", () => {
     expect(sourceOf({ ats: "workday", url: null }).name).toBe("Employer site")
     expect(sourceOf({ ats: "greenhouse", url: null }).name).toBe("Employer site")
   })
+  test("recognizes supported job boards from their URL when the source field is blank or generic", () => {
+    expect(sourceOf({ ats: "", url: "https://nl.indeed.com/viewjob?jk=123" }).name).toBe("Indeed")
+    expect(sourceOf({ ats: "other", url: "https://www.glassdoor.com/job-listing/example" }).name).toBe("Glassdoor")
+    expect(sourceOf({ ats: null, url: "https://magnet.me/en/opportunity/1/example" }).name).toBe("Magnet.me")
+  })
   test("the same job is the same employer, title and city, whatever the platform writes", () => {
     expect(jobKey(post({ region: "Heerlen, NL" }))).toBe(jobKey(post({ region: "Heerlen, Limburg, Netherlands" })))
     expect(jobKey(post({ title: "Financial  Analyst!" }))).toBe(jobKey(post({})))

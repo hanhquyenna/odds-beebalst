@@ -44,14 +44,13 @@ export function storedLogoFor(employer: string): string | undefined {
  */
 const AUTO = new Map<string, string>()
 const SITE = new Map<string, string>()
-let started = false
+let loading: Promise<void> | null = null
 let ready = false
 const listeners = new Set<() => void>()
 
-export function loadAutoLogos(): void {
-  if (started) return
-  started = true
-  void Promise.all([import("@/lib/company-logos-auto.json"), import("@/lib/company-domains.json")]).then(([files, domains]) => {
+export function loadAutoLogos(): Promise<void> {
+  if (loading) return loading
+  loading = Promise.all([import("@/lib/company-logos-auto.json"), import("@/lib/company-domains.json")]).then(([files, domains]) => {
     for (const [name, file] of Object.entries(files.default as Record<string, string>)) {
       AUTO.set(name.toLowerCase(), file)
       AUTO.set(nameKey(name), file)
@@ -63,6 +62,8 @@ export function loadAutoLogos(): void {
     ready = true
     listeners.forEach((l) => l())
   })
+
+  return loading
 }
 
 /** The saved icon file, or the company's site for the favicon service, for an employer of the later lists. */

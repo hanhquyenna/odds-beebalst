@@ -30,8 +30,8 @@ export function logoFor(employer: string, url?: string | null): string | null {
   if (stored) {
     return stored
   }
-  // Not in the main lists: ask the later ones (loaded now if they are not yet).
-  loadAutoLogos()
+  // Not in the main lists: ask the later ones (loaded now if they are not yet; the components redraw when they arrive).
+  void loadAutoLogos()
   const later = autoLogoFor(employer)
   if (later.file) {
     return later.file
@@ -42,6 +42,21 @@ export function logoFor(employer: string, url?: string | null): string | null {
   const domain = url ? siteDomain(url) : null
 
   return domain ? favicon(domain) : null
+}
+
+/** Site icons used if a saved or scraped company logo has gone stale. */
+export function fallbackLogoCandidatesFor(employer: string, url?: string | null): string[] {
+  const site = autoLogoFor(employer).site
+  const domain = url ? siteDomain(url) : null
+  const resolved = site ?? domain
+  if (!resolved) return []
+
+  return [favicon(resolved), `https://icons.duckduckgo.com/ip3/${resolved}.ico`]
+}
+
+/** The first site-icon choice, kept for callers that need one fallback. */
+export function fallbackLogoFor(employer: string, url?: string | null): string | null {
+  return fallbackLogoCandidatesFor(employer, url)[0] ?? null
 }
 
 /** Sites that list other companies' jobs: their icon is theirs, not the employer's. */

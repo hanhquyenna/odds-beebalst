@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { logoFor, monogram } from "@/lib/companies"
+import { fallbackLogoCandidatesFor, logoFor, monogram } from "@/lib/companies"
 import { useAutoLogosReady } from "@/lib/stored-logos"
 
 interface CompanyLogoProps {
@@ -22,9 +22,11 @@ export function CompanyLogo({ employer, name, size, wide, url }: CompanyLogoProp
   // Redraws once the later logo lists have loaded (stored-logos.ts).
   useAutoLogosReady()
   const src = logoFor(employer, url)
-  const [failed, setFailed] = useState<boolean>(false)
+  const fallbacks = fallbackLogoCandidatesFor(employer, url)
+  const [failedSrcs, setFailedSrcs] = useState<string[]>([])
+  const image = [src, ...fallbacks].find((candidate): candidate is string => candidate !== null && !failedSrcs.includes(candidate)) ?? null
 
-  if (src === null || failed) {
+  if (image === null) {
     return (
       <span
         aria-hidden="true"
@@ -38,12 +40,12 @@ export function CompanyLogo({ employer, name, size, wide, url }: CompanyLogoProp
 
   return (
     <img
-      src={src}
+      src={image}
       alt={`${name} logo`}
       height={size}
       loading="lazy"
       decoding="async"
-      onError={() => setFailed(true)}
+      onError={() => setFailedSrcs((failed) => failed.includes(image) ? failed : [...failed, image])}
       style={{ height: size, maxWidth: size * wide }}
       className="w-auto shrink-0 object-contain object-center"
     />

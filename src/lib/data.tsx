@@ -260,7 +260,9 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
   // A job whose employer has no logo anywhere (our lists, the employer's own site, the job link) is left out: it shows as a bare circle of letters and is nearly always a thin, unverifiable listing.
   // Jobs you saved or applied to are fetched on their own below, so they stay in your list. Until the later logo lists have loaded, nothing is hidden.
   const autoLogosReady = useAutoLogosReady()
-  useEffect(() => loadAutoLogos(), [])
+  useEffect(() => {
+    void loadAutoLogos()
+  }, [])
   // The logo lists are large, so they load after the first paint rather than with it; nothing is hidden until they are here.
   const [logoFor, setLogoFor] = useState<((employer: string, url?: string | null) => string | null) | null>(null)
   useEffect(() => {

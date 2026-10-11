@@ -3,10 +3,14 @@
  *   set -a; . ./.env.local; set +a; bun scripts/list-missing-logos.ts > missing-logos.json
  */
 import { logoFor } from "../src/lib/companies"
-import { fetchPostings } from "../src/lib/jobs"
+import { fetchPostings, fetchStoredLogos } from "../src/lib/jobs"
 import { mergePool } from "../src/lib/sources"
+import { loadAutoLogos, registerLogos } from "../src/lib/stored-logos"
 
-const jobs = mergePool(await fetchPostings()).jobs
+const [postings, logos] = await Promise.all([fetchPostings(), fetchStoredLogos()])
+registerLogos(logos)
+await loadAutoLogos()
+const jobs = mergePool(postings).jobs
 const seen = new Map<string, { employer: string; display: string; url: string | null; ats: string; jobs: number }>()
 for (const j of jobs) {
   if (logoFor(j.employer, j.url) !== null) continue
