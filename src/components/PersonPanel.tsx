@@ -19,6 +19,10 @@ export interface PanelPerson {
   url: string
   /** Facts we hold about them, shown as a Details card. Empty values are left out. */
   facts?: Array<{ label: string; value: string }>
+  /** Schools, newest first. */
+  education?: Array<{ school: string; detail: string }>
+  /** A line under everything (where it was read, how to have it removed). */
+  footnote?: React.ReactNode
 }
 
 function Card({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
@@ -100,8 +104,21 @@ export function PersonPanel({ person, action, editor, onClose }: { person: Panel
                     <p className="font-medium">{x.title}</p>
                     <p className="text-sm text-muted-foreground">
                       {x.company}
-                      {x.since ? `${x.company ? " · " : ""}since ${x.since}` : ""}
+                      {x.dates ? `${x.company ? " · " : ""}${x.dates}` : x.since ? `${x.company ? " · " : ""}since ${x.since}` : ""}
                     </p>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
+
+          {person.education && person.education.length > 0 ? (
+            <Card title="Education">
+              <ul className="flex flex-col gap-3">
+                {person.education.map((e) => (
+                  <li key={`${e.school}|${e.detail}`}>
+                    <p className="font-medium">{e.school}</p>
+                    {e.detail ? <p className="text-sm text-muted-foreground">{e.detail}</p> : null}
                   </li>
                 ))}
               </ul>
@@ -120,6 +137,8 @@ export function PersonPanel({ person, action, editor, onClose }: { person: Panel
               </dl>
             </Card>
           ) : null}
+
+          {person.footnote ? <p className="px-1 text-xs text-muted-foreground">{person.footnote}</p> : null}
         </div>
       </aside>
     </div>,

@@ -1,6 +1,7 @@
 import { useState } from "react"
-import { ChevronDownIcon, ExternalLinkIcon, StarIcon, XIcon } from "@/components/icons"
+import { ChevronDownIcon, StarIcon } from "@/components/icons"
 import { PersonAvatar } from "@/components/PersonAvatar"
+import { PersonPanel } from "@/components/PersonPanel"
 import { Section } from "@/components/Section"
 import { useCompanyProfile } from "@/lib/company-profile"
 import { companyMoney, companyNews, moneyText } from "@/lib/company-numbers"
@@ -93,68 +94,39 @@ export function PastHires({ post }: { post: Posting }): React.JSX.Element | null
   )
 }
 
-/** One person's whole path: every job and school, newest first, with the roles at this employer marked. */
+/** One person's whole path, in the same panel as anyone else's profile: every job and school, newest first. */
 function HireDialog({ person, post, onClose }: { person: PastHire; post: Posting; onClose: () => void }): React.JSX.Element {
-  return (
-    <div role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()} className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div role="dialog" aria-modal="true" aria-label={person.name ?? "Profile"} onKeyDown={(e) => e.key === "Escape" && onClose()} className={`${card} flex max-h-[90vh] w-full max-w-lg flex-col shadow-lg`}>
-        <div className="flex items-start gap-4 border-b-[1.5px] px-5 py-4">
-          <PersonAvatar name={person.name ?? "?"} photo={person.avatar ?? undefined} size="lg" />
-          <div className="min-w-0 flex-1">
-            <h2 className="text-lg font-semibold tracking-tight">{person.name ?? "Name not public"}</h2>
-            {person.headline ? <p className="text-sm">{person.headline}</p> : null}
-            {person.location ? <p className="text-sm text-muted-foreground">{person.location}</p> : null}
-            {person.linkedin ? (
-              <a href={person.linkedin} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-sm underline underline-offset-4">
-                LinkedIn profile <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
-              </a>
-            ) : null}
-          </div>
-          <button type="button" aria-label="Close" onClick={onClose} className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground">
-            <XIcon className="size-4" aria-hidden="true" />
-          </button>
-        </div>
-        <div className="overflow-y-auto px-5 py-4">
-          <h3 className="mb-2 text-sm font-semibold">Experience</h3>
-          {person.experience.length === 0 ? <p className="text-sm text-muted-foreground">Not public.</p> : null}
-          <ol className="relative flex flex-col gap-3 border-l-[1.5px] pl-4">
-            {byNewest(person.experience).map((r, i) => {
-              const here = atEmployer(r, post.employer, post.employer_display)
+  const range = (r: PastHire["experience"][number]): string => [monthYear(r.start), r.current ? "now" : monthYear(r.end)].filter(Boolean).join(" – ")
+  const here = person.experience.find((r) => atEmployer(r, post.employer, post.employer_display))
 
-              return (
-                <li key={i} className="relative">
-                  <span className={`absolute -left-[1.3rem] top-1.5 size-2.5 rounded-full ${here ? "bg-brand" : "bg-border"}`} aria-hidden="true" />
-                  <p className={`text-sm font-medium ${here ? "text-brand" : ""}`}>{r.title ?? "Role not stated"}</p>
-                  <p className="text-sm">{r.employer}{kindOf(r.type) ? <span className="text-muted-foreground"> · {kindOf(r.type)}</span> : null}</p>
-                  <p className="text-xs text-muted-foreground">{[monthYear(r.start), r.current ? "now" : monthYear(r.end)].filter(Boolean).join(" – ")}</p>
-                  {here ? <p className="mt-0.5 text-xs font-medium text-brand">At {post.employer_display}</p> : null}
-                </li>
-              )
-            })}
-          </ol>
-          {person.education.length > 0 ? (
-            <>
-              <h3 className="mb-2 mt-5 text-sm font-semibold">Education</h3>
-              <ul className="flex flex-col gap-2">
-                {person.education.map((e, i) => (
-                  <li key={i}>
-                    <p className="text-sm font-medium">{e.school}</p>
-                    <p className="text-sm text-muted-foreground">{[e.degree, e.field].filter(Boolean).join(", ")}{e.start || e.end ? ` · ${[monthYear(e.start), monthYear(e.end)].filter(Boolean).join(" – ")}` : ""}</p>
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : null}
-          <p className="mt-6 text-xs text-muted-foreground">
+  return (
+    <PersonPanel
+      onClose={onClose}
+      person={{
+        name: person.name ?? "Name not public",
+        headline: person.headline ?? person.currentPosition ?? undefined,
+        place: person.location ?? undefined,
+        photo: person.avatar ?? undefined,
+        url: person.linkedin ?? "",
+        positions: byNewest(person.experience).map((r) => ({ title: r.title ?? "Role not stated", company: [r.employer, kindOf(r.type)].filter(Boolean).join(" · "), dates: range(r) })),
+        education: person.education.map((e) => ({ school: e.school ?? "School not stated", detail: [[e.degree, e.field].filter(Boolean).join(", "), e.start || e.end ? [monthYear(e.start), monthYear(e.end)].filter(Boolean).join(" – ") : ""].filter(Boolean).join(" · ") })),
+        facts: [
+          { label: "Job", value: post.title },
+          { label: "Company", value: post.employer_display },
+          { label: "Role there", value: here ? `${here.title ?? "Role not stated"}${range(here) ? `, ${range(here)}` : ""}` : "" },
+          { label: "Match", value: person.status === "exact" ? "Same role" : "Similar role here" },
+        ],
+        footnote: (
+          <>
             From this person's public LinkedIn profile. Is this you and want it removed?{" "}
             <a href={`mailto:hello@odds.nl?subject=${encodeURIComponent("Remove my profile")}&body=${encodeURIComponent(`Please remove my profile (${person.linkedin ?? person.id}) from odds.`)}`} className="underline underline-offset-4">
               Ask us to remove it
             </a>
             .
-          </p>
-        </div>
-      </div>
-    </div>
+          </>
+        ),
+      }}
+    />
   )
 }
 

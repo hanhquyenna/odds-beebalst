@@ -311,22 +311,22 @@ function OutreachRow({ post }: { post: Posting }): React.JSX.Element {
 
   return (
     <li className="flex flex-col gap-3 p-3">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="flex size-10 shrink-0 items-center justify-center">
           <CompanyLogo employer={post.employer} name={post.employer_display} size={36} wide={1.3} url={post.url} />
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="block font-semibold sm:truncate">{post.title}</span>
-          <span className="block text-sm sm:truncate text-muted-foreground">
+        <span className="min-w-0 flex-1 basis-40">
+          <span className="block font-semibold">{post.title}</span>
+          <span className="block text-sm text-muted-foreground">
             {post.employer_display} · {formatPlace(post.region)}
           </span>
         </span>
         {guest ? null : canMore ? (
-          <Button type="button" size="sm" onClick={find} disabled={state === "busy"} className="shrink-0 cursor-pointer">
+          <Button type="button" size="sm" onClick={find} disabled={state === "busy"} className="shrink-0 cursor-pointer max-sm:ml-[3.25rem]">
             {state === "busy" ? "Looking…" : revealed.length > 0 ? "Find more" : "Find people"}
           </Button>
         ) : revealed.length > 0 ? (
-          <span className="shrink-0 text-sm text-muted-foreground">That is everyone we have for this job</span>
+          <span className="text-sm text-muted-foreground max-sm:ml-[3.25rem] max-sm:basis-full sm:max-w-48 sm:text-right">That is everyone we have for this job</span>
         ) : null}
       </div>
       {guest ? <p className="text-sm text-muted-foreground">{GUEST_PEOPLE}</p> : null}

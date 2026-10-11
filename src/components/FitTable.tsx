@@ -99,7 +99,7 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
       <ul className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card max-md:-mx-5 max-md:rounded-none max-md:border-x-0">
         {rows.slice(0, rowLimit).map((r) => (
           <li key={r.post.id} className="relative after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border last:after:hidden md:after:left-4">
-            <JobRow post={r.post} onOpen={() => onOpen(r.post)} note={r.note} chance={r.chance} dismissible />
+            <JobRow post={r.post} onOpen={() => onOpen(r.post)} note={r.note} dismissible />
           </li>
         ))}
       </ul>

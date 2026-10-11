@@ -5,6 +5,8 @@ export interface PersonPosition {
   title: string
   company: string
   since?: string
+  /** A finished or dated stretch ("Jan 2022 – Mar 2023"), where "since" does not say it. */
+  dates?: string
 }
 
 export interface Suggestion {

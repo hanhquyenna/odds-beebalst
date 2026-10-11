@@ -71,6 +71,10 @@ async function readAll(table: string, columns: string): Promise<{ rows: Posting[
   return { rows, columns: cols }
 }
 
+/** "Johnson &amp; Johnson" as some boards send it -> "Johnson & Johnson". */
+const ENTITIES: Record<string, string> = { "&amp;": "&", "&quot;": '"', "&#39;": "'", "&apos;": "'", "&lt;": "<", "&gt;": ">" }
+export const unescapeHtml = (s: string): string => (s && s.includes("&") ? s.replace(/&(amp|quot|#39|apos|lt|gt);/g, (m) => ENTITIES[m] ?? m) : s)
+
 /**
  * The whole pool, a thousand rows at a time, without the descriptions. It is read from the database view app_jobs, so the database
  * decides which jobs are active, which are the same job found twice, and which level each is. Where the view is missing it falls back to
@@ -81,7 +85,7 @@ export async function fetchPostings(): Promise<Posting[]> {
   const all = fromView?.rows ?? (await readAll("postings", COLUMNS + CHECK_COLUMNS))?.rows ?? (await readAll("postings", COLUMNS))?.rows ?? []
 
   // Posts the reader of the text found to be no real job (an advert, a list of links) stay out of every list.
-  const pool = all.filter((p) => (p.usable == null || p.usable >= 0.5) && !p.closed_at).map((p) => withSkillTiers(p))
+  const pool = all.filter((p) => (p.usable == null || p.usable >= 0.5) && !p.closed_at).map((p) => withSkillTiers({ ...p, title: unescapeHtml(p.title), employer_display: unescapeHtml(p.employer_display) }))
   await attachGlassdoor(pool)
   // Where the text plainly asks for Dutch and the first reading missed it, Dutch is required.
   for (const p of pool) {

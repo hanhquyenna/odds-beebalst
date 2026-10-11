@@ -39,11 +39,16 @@ export function SourceLogo({ name, size }: { name: string; size: number }): Reac
   )
 }
 
-const unique = (post: Posting): string[] => [...new Set(sourcesOf(post).map((s) => s.name))]
+/** One logo per job, even when it was found in several places (it is one job): LinkedIn where it is there, else the first source. */
+const oneSource = (post: Posting): string[] => {
+  const names = [...new Set(sourcesOf(post).map((s) => s.name))]
 
-/** The sources as small logos under the bookmark, in the same place on every row. Not links: the whole row opens the job. */
+  return names.includes("LinkedIn") ? ["LinkedIn"] : names.slice(0, 1)
+}
+
+/** The source as a small logo under the bookmark, in the same place on every row. Not a link: the whole row opens the job. */
 export function SourceCorner({ post }: { post: Posting }): React.JSX.Element | null {
-  const names = unique(post)
+  const names = oneSource(post)
   if (names.length === 0) {
     return null
   }
@@ -61,7 +66,7 @@ export function SourceCorner({ post }: { post: Posting }): React.JSX.Element | n
 
 /**
  * The way into the job: one Apply button to the posting that leads to the application (the employer's own page where we have it, since sources are ranked that way),
- * with the logo of the place it leads to beside it, and the logos of any other place the job was found, each a link. The logos carry the names (hover, and for screen
+ * with the logo of the place it leads to beside it. One logo only: a job found in several places is still one job. The logo carries the name (hover, and for screen
  * readers), so the line stays short and sits at the corner of the header, level with the status.
  */
 export function SourceLinks({ post }: { post: Posting }): React.JSX.Element | null {
@@ -71,7 +76,6 @@ export function SourceLinks({ post }: { post: Posting }): React.JSX.Element | nu
     return null
   }
   const main = sources.find((s) => s.url)
-  const others = sources.filter((s) => s !== main)
 
   return (
     <span className="flex items-center gap-3">
@@ -92,17 +96,6 @@ export function SourceLinks({ post }: { post: Posting }): React.JSX.Element | nu
           </span>
         </>
       ) : null}
-      {others.map((s, i) =>
-        s.url ? (
-          <a key={`${s.ats}-${i}`} href={s.url} target="_blank" rel="noopener noreferrer" title={`Also on ${s.name}`} aria-label={`Also on ${s.name} (opens in a new tab)`} className="flex opacity-80 transition-opacity hover:opacity-100">
-            <SourceLogo name={s.name} size={20} />
-          </a>
-        ) : (
-          <span key={`${s.ats}-${i}`} title={`Found on ${s.name}`} role="img" aria-label={`Found on ${s.name}`} className="flex opacity-80">
-            <SourceLogo name={s.name} size={20} />
-          </span>
-        ),
-      )}
     </span>
   )
 }
