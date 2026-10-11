@@ -394,8 +394,12 @@ var RELEVANCE_WORTH = { same: 1, adjacent: 0.3, unrelated: 0.05, none: 0 };
 var RELEVANCE_SPAN = 1.5;
 var RELEVANCE_FLOOR = 0.2;
 var KIND_WORTH = { job: 1, internship: 0.8, student: 0.15 };
+var SENIOR_YEARS = 5;
+var DEGREE_AS_FIRST_ROLE = 0.74;
 var PRESTIGE = { elite: 0.15, large: 0.07, mid: 0, small: 0, unknown: 0 };
 var PRESTIGE_OFF_FIELD = 0.4;
+var ELITE_SAME_LINE = 0.15;
+var SECOND_INTERNSHIP = 0.127;
 var EFFECTS = {
   underqualified: { or: 0.53, at: 0.46 },
   overqualified: { or: 0.85, at: 0.12 },
@@ -405,12 +409,11 @@ var EFFECTS = {
   dutchNone: { or: 1 / 1.91, at: 0.147 },
   dutchBasic: { or: 1.39 / 1.91, at: 0.147 },
   dutchProfessional: { or: 1.74 / 1.91, at: 0.147 },
-  referral: { or: 1.49, at: 0.35 },
-  tailored: { or: 1.31, at: 0.125 },
+  referral: { or: 1.22, at: 0.35 },
+  tailored: { or: 1.145, at: 0.125 },
   degreeInField: { or: 1.2, at: 0.17 },
   degreeBelowAsked: { or: 0.7, at: 0.46 },
-  foreignDegree: { or: 0.92, at: 0.1 },
-  secondInternship: { or: 1.15, at: 0.17 }
+  foreignDegree: { or: 0.92, at: 0.1 }
 };
 var DUTCH_NOT_ASKED_SHARE = 0.3;
 var SKILL_SPAN = 0.2;
@@ -593,7 +596,7 @@ function strengthParts(post, profile, ctx = {}) {
   const firstJob = isInternshipTitle(post.title) || post.level_view === "Internship" || post.level_view === "Entry" || post.role_kind === "internship" || post.role_kind === "entry_job" || post.role_kind === "traineeship";
   let worth = best.worth;
   if (firstJob && degreeIn)
-    worth = Math.max(worth, 0.55);
+    worth = Math.max(worth, DEGREE_AS_FIRST_ROLE);
   parts.push({
     key: "relevance",
     label: best.role ? `Most relevant: ${best.role.title}${best.role.company ? ` at ${best.role.company}` : ""} (${best.rel === "same" ? "same line of work" : best.rel === "adjacent" ? "a neighbouring line of work" : "another line of work"})` : degreeIn ? "Degree in this line of work, no work in it yet" : "No work in this line of work yet",
@@ -621,7 +624,10 @@ function strengthParts(post, profile, ctx = {}) {
       prestigeRole = ctx.record.detail;
     }
   }
-  if (prestige > 0)
+  const eliteHere = base.roles.find((r) => !isStudentJob(r.title) && employerTier(r.company) === "elite" && roleRelevance(r.title, post, jobFamily) === "same");
+  if (eliteHere)
+    parts.push({ key: "eliteSameLine", label: `A top employer in this line of work: ${eliteHere.company}`, z: ELITE_SAME_LINE, source: "Kessler, Low & Sullivan 2019" });
+  else if (prestige > 0)
     parts.push({ key: "prestige", label: `Known name or record: ${prestigeRole}`, z: prestige, source: "Kessler, Low & Sullivan 2019; Oreopoulos 2011" });
   relevantYears += ctx.extraYears ?? 0;
   const years = base.years + (ctx.extraYears ?? 0);
@@ -630,12 +636,13 @@ function strengthParts(post, profile, ctx = {}) {
   if (extra > 0)
     parts.push({ key: "years", label: `${extra.toFixed(1)} more years in this line of work than asked`, z: YEAR_STEP * extra, source: "Nunley et al. 2016" });
   if (relevantInternships >= 2)
-    parts.push({ key: "secondInternship", label: "A second internship in this line of work", z: step(EFFECTS.secondInternship), source: "Kessler, Low & Sullivan 2019" });
+    parts.push({ key: "secondInternship", label: "A second internship in this line of work", z: SECOND_INTERNSHIP, source: "Kessler, Low & Sullivan 2019" });
   const implied = post.years_min ?? (post.level_view ? LEVEL_YEARS[post.level_view] ?? null : null);
   const fromLevel = post.years_min == null && implied !== null;
   if (implied && years < implied) {
     const short = Math.min(1, (implied - years) / implied);
-    parts.push({ key: "underqualified", label: fromLevel ? `A ${post.level_view?.toLowerCase()} job (usually ${implied}+ years), you have ${years.toFixed(1)}` : `Asks for ${implied}+ years, you have ${years.toFixed(1)}`, z: step(EFFECTS.underqualified) * (0.4 + 0.8 * short), source: "GEMM (own fit, Dutch applications); scaled by how far short, our assumption" });
+    const scale = implied >= SENIOR_YEARS ? 0.8 + 3 * short + 9 * short * short : implied > 2 ? 0.4 + 0.8 * short : 0.25 + 0.5 * short;
+    parts.push({ key: "underqualified", label: fromLevel ? `A ${post.level_view?.toLowerCase()} job (usually ${implied}+ years), you have ${years.toFixed(1)}` : `Asks for ${implied}+ years, you have ${years.toFixed(1)}`, z: step(EFFECTS.underqualified) * scale, source: "GEMM (own fit, Dutch applications); scaled by level and how far short, our judgement" });
   } else if (post.years_min !== null && post.years_min !== undefined && years > 2 * post.years_min + 4) {
     parts.push({ key: "overqualified", label: "Much more experience than asked", z: step(EFFECTS.overqualified), source: "Baert & Verhaest 2019" });
   }
@@ -683,10 +690,24 @@ function strengthParts(post, profile, ctx = {}) {
   return parts.map((p) => ({ ...p, study: p.z, z: p.z * (LEARNED[p.key] ?? 1) }));
 }
 var FLOOR = 0.005;
+var STUDY_BASE = 0.25;
+var POSITION_KEYS = new Set(["relevance", "years", "underqualified", "overqualified", "degreeBelowAsked"]);
+function factorScale(position, pile, noise = NOISE) {
+  const p = chanceIn(position, pile, noise);
+  if (p >= STUDY_BASE || p <= 0)
+    return 1;
+  const T = phiInv(1 - pile.interviews / pile.applicants) * Math.sqrt(1 + noise * noise);
+  const slope = (z) => Math.exp(-(((T - z) / noise) ** 2) / 2) / Math.sqrt(2 * Math.PI) / (noise * Math.max(0.000000001, 1 - phi((T - z) / noise)));
+  const zRef = T - noise * phiInv(1 - STUDY_BASE);
+  return Math.min(1, slope(zRef) / slope(position));
+}
 function oddsV2(post, profile, ctx = {}) {
   const parts = strengthParts(post, profile, ctx);
-  const z = parts.reduce((s, p) => s + p.z, 0);
   const pile = pileFor(post, employerTier(post.employer_display || post.employer, ctx.employerEmployees), ctx.employerAvgApplicants);
+  const position = parts.filter((p) => POSITION_KEYS.has(p.key)).reduce((s, p) => s + p.z, 0);
+  const factors = parts.filter((p) => !POSITION_KEYS.has(p.key)).reduce((s, p) => s + p.z, 0);
+  const fScale = factorScale(position, pile);
+  const z = position + factors * fScale;
   const p = chanceIn(z, pile);
   const smaller = { ...pile, applicants: Math.max(pile.interviews + 1, pile.applicants / 1.6) };
   const bigger = { ...pile, applicants: pile.applicants * 1.6 };
@@ -695,7 +716,7 @@ function oddsV2(post, profile, ctx = {}) {
   const percentile = 1 - phi(z / Math.sqrt(1));
   const floor = (x) => Number.isFinite(x) ? FLOOR + Math.min(1, Math.max(0, x)) * (0.99 - FLOOR) : FLOOR;
   const reviewing = stillReviewing(post);
-  return { p: floor(p * reviewing), low: floor(Math.min(low, p) * reviewing), high: floor(Math.max(high, p) * reviewing), strength: z, pile, percentile, parts, reviewing };
+  return { p: floor(p * reviewing), low: floor(Math.min(low, p) * reviewing), high: floor(Math.max(high, p) * reviewing), strength: z, pile, percentile, parts, reviewing, factorScale: fScale };
 }
 
 // src/lib/degree.ts
@@ -3495,7 +3516,7 @@ function hearBackFor(postings, profile, referrals, record) {
 }
 
 // src/lib/outcome-snapshot.ts
-var SNAPSHOT_MODEL = "odds-v2.2-reviewing";
+var SNAPSHOT_MODEL = "odds-v2.3-factors-as-ratios";
 var round = (x, digits = 4) => Math.round(x * 10 ** digits) / 10 ** digits;
 function chanceSnapshot(post, profile, ctx = {}) {
   const v2 = oddsV2(post, profile, ctx);
