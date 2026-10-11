@@ -45,30 +45,13 @@ function Info({ label, children }: { label: string; children: React.ReactNode })
 
 // ---------------------------------------------------------------- the two numbers at the top
 
-/** What you keep each month after tax at this job's pay, with and without health insurance. Null when there is no pay to work from. */
-function keepOf(post: Posting, data: ReturnType<typeof useData>, original = false): { net: number; afterInsurance: number; basis: "Stated" | "Typical" } | null {
-  const ref = data.reference
-  const mid = ref ? payMid(post, ref) : null
-  if (!ref || !mid) {
-    return null
-  }
-  // `original` is the same job with the pay settings as they start (before you changed the 30% ruling, the master's rule or the visa).
-  const c = payChoicesOf(original ? { ...data.profile, payChoices: undefined } : data.profile)
-  const net = netMonth(mid.month * 12, c.ruling, c.masterFloor, ref.tax).net
-
-  return { net, afterInsurance: net - ref.tax.health_insurance_2026.average_premium_month, basis: mid.basis }
-}
-
 /**
  * The two numbers this product exists to give: your chance of an interview and
  * what you would keep each month. They lead every job, and they move when you
  * tick a recommendation below.
  */
 export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.JSX.Element {
-  const data = useData()
   const [open, setOpen] = useState<boolean>(false)
-  const keep = keepOf(post, data)
-  const keepWas = keepOf(post, data, true)?.net ?? null
   const original = useOriginalChance(post)
   const r = st.rate
   // With no profile there is no chance to give yet: a "?" that leads to the import, never a "0%" that reads like a real figure.
@@ -80,8 +63,8 @@ export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.J
 
   return (
     <div className="flex flex-col gap-2">
-      {chance !== null || keep ? (
-      <section aria-label="Your numbers" className={`grid overflow-hidden rounded-xl border-[1.5px] ${chance !== null && keep ? "sm:grid-cols-2" : ""}`}>
+      {chance !== null ? (
+      <section aria-label="Your numbers" className="grid overflow-hidden rounded-xl border-[1.5px]">
         {chance !== null ? (
         <div className="flex flex-col gap-1 p-4 sm:p-5">
           <p className="text-[0.8125rem] text-muted-foreground">Interview chance</p>
@@ -105,27 +88,6 @@ export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.J
                   This job also asks for {missing.join(" and ")}.{studentGate?.status === "fail" ? ` ${studentGate.why.replace(/^the posting /, "It ")}.` : ""} Tick a recommendation below to count it.
                 </p>
               ) : null}
-            </>
-          ) : null}
-        </div>
-        ) : null}
-        {keep ? (
-        <div className={`flex flex-col gap-1 p-4 sm:p-5 ${chance !== null ? "border-t-[1.5px] sm:border-t-0 sm:border-l-[1.5px]" : ""}`}>
-          <p className="text-[0.8125rem] text-muted-foreground">You keep</p>
-          {keep ? (
-            <>
-              <p className="text-3xl leading-none font-semibold tracking-tight tabular-nums">
-                <Moved delta={keepWas === null ? 0 : keep.net - keepWas} min={10} wasText={keepWas === null ? "" : eur(keepWas)}>
-                  {eur(keep.net)}
-                </Moved>
-              </p>
-              <p className="flex items-center gap-1 text-sm text-muted-foreground">
-                a month after tax
-                <Hint label="About what you keep">
-                  At the {keep.basis === "Stated" ? "pay the employer states" : "typical pay for this kind of job"}, with 2026 tax and credits{" "}
-                  and the 30% ruling if you qualify. {eur(keep.afterInsurance)} after an average health insurance premium. Pension is not included.
-                </Hint>
-              </p>
             </>
           ) : null}
         </div>
@@ -395,17 +357,13 @@ export function LockedPersonal({ onUnlock }: { onUnlock: () => void }): React.JS
 
   return (
     <div className="relative">
-      <section className="mb-6 grid overflow-hidden rounded-xl border-[1.5px] sm:grid-cols-2">
+      <section className="mb-6 grid overflow-hidden rounded-xl border-[1.5px]">
         <div className="flex flex-col gap-1 p-5">
           <p className="text-[0.8125rem] text-muted-foreground">Interview chance</p>
           <button type="button" title={IMPORT_HINT} aria-label={IMPORT_HINT} onClick={onUnlock} className="w-fit cursor-pointer text-3xl font-semibold tabular-nums underline decoration-dotted decoration-1 underline-offset-[6px] hover:decoration-solid">
             ?
           </button>
           <p className="text-sm text-muted-foreground">Add your LinkedIn or CV to see yours</p>
-        </div>
-        <div className="flex flex-col gap-1 border-t-[1.5px] p-5 sm:border-t-0 sm:border-l-[1.5px]">
-          <p className="text-[0.8125rem] text-muted-foreground">You keep</p>
-          <p className="text-sm text-muted-foreground">Shown once your profile is in</p>
         </div>
       </section>
       <div aria-hidden="true" className="pointer-events-none flex flex-col gap-8 opacity-70 blur-[7px] select-none">
