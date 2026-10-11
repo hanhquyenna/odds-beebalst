@@ -338,3 +338,7 @@ Glassdoor's terms). **All four openICPSR projects are downloaded (`research-data
   Easy Apply per view). It is not measured: the data to measure it is the same posting counted on two sites, which we do not have.
 - Effect: every pile read from a count is twice as large, so chances at those jobs fall. Piles with no count (typical by employer size) are unchanged,
   as they already are totals (Greenhouse 183). Persona fixtures were halved so they still describe the piles their names say; ranges unchanged.
+- Follow-up, same day: a small count (5 applicants -> pile 11 -> 99% chance) is the most misleading case, since an early read says least. The count-based pile is
+  now pulled halfway on the log scale towards the typical pile for the employer's size (`COUNT_WEIGHT = 0.5`, an assumption like the 2). Probe, internship, strong
+  applicant: 5 shown -> was 99%, now pulled up to a pile in the tens; the referral and tailored boosts are only +3 to +5 points and were not the cause.
+  `startupFinance` persona range lowered 50 -> 35 for the same reason.

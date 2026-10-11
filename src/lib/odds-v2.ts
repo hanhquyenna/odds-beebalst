@@ -237,17 +237,22 @@ export function projectedApplicants(count: number, post: Pick<Posting, "posted_o
  * LinkedIn dataset's applies-per-view ratio (off-site about 60-70% of Easy Apply) bound it; 2 is taken, an assumption like the square root above.
  */
 export const OTHER_CHANNELS = 2
+/** How much of the pile comes from the count the posting shows (the rest from the typical pile), on the log scale. An assumption: nothing here measures it. */
+const COUNT_WEIGHT = 0.5
 
 /** Typical applications per posting (Greenhouse 2026: 183 in Europe), scaled by how sought-after the employer is. */
 export function pileFor(post: Posting, employerTierOfPost: EmployerTier, employerAvgApplicants?: number | null, now = Date.now()): Pile {
   const interviews = /intern|stage|stagiair/i.test(post.title) ? 10 : 8
+  const byTier: Record<EmployerTier, number> = { elite: 600, large: 220, mid: 150, small: 60, unknown: 180 }
   if (typeof post.applicants === "number" && post.applicants > 0) {
     const projected = projectedApplicants(post.applicants, post, now)
+    // What one site shows says little about the whole pile, least of all a count read early: it is pulled halfway (on the log scale) towards the typical pile for the employer.
+    const seen = projected.applicants * OTHER_CHANNELS
+    const pulled = Math.round(Math.exp((1 - COUNT_WEIGHT) * Math.log(byTier[employerTierOfPost]) + COUNT_WEIGHT * Math.log(seen)))
 
-    return { applicants: Math.max(Math.round(projected.applicants * OTHER_CHANNELS), interviews + 1), interviews, source: "posting", seen: { count: post.applicants, daysAfterPosting: projected.daysAfterPosting } }
+    return { applicants: Math.max(pulled, interviews + 1), interviews, source: "posting", seen: { count: post.applicants, daysAfterPosting: projected.daysAfterPosting } }
   }
   if (typeof employerAvgApplicants === "number" && employerAvgApplicants > 0) return { applicants: Math.max(Math.round(employerAvgApplicants * OTHER_CHANNELS), interviews + 1), interviews, source: "employer" }
-  const byTier: Record<EmployerTier, number> = { elite: 600, large: 220, mid: 150, small: 60, unknown: 180 }
 
   return { applicants: byTier[employerTierOfPost], interviews, source: "typical" }
 }

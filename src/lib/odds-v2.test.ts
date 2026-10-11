@@ -277,8 +277,17 @@ describe("still reviewing (old postings)", () => {
 })
 
 describe("odds-v2: a count seen on one site is not the whole pile", () => {
-  test("the pile is the projected count times the other channels", () => {
-    const pile = pileFor(job({ ...JOBS.midFinanceEntry, applicants: 40, posted_on: null, fetched_at: null }), "mid")
-    expect(pile.applicants).toBe(40 * OTHER_CHANNELS)
+  const at = (n: number): number => pileFor(job({ ...JOBS.midFinanceEntry, applicants: n, posted_on: null, fetched_at: null }), "mid").applicants
+
+  test("the pile is the count times the other channels, pulled towards the typical pile", () => {
+    expect(at(40)).toBeGreaterThan(40 * OTHER_CHANNELS)
+    expect(at(40)).toBeLessThan(150)
+    expect(at(1000)).toBeLessThan(1000 * OTHER_CHANNELS)
+    expect(at(1000)).toBeGreaterThan(150)
+  })
+
+  test("a tiny count no longer means a tiny pile", () => {
+    expect(at(5)).toBeGreaterThan(30)
+    expect(oddsV2(job({ ...JOBS.financeIntern, applicants: 5 }), PEOPLE.gsAnalyst).p).toBeLessThan(0.9)
   })
 })

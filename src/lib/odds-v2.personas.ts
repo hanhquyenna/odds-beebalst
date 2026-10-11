@@ -37,7 +37,7 @@ export const JOBS = {
 
 /** [person, job, lowest acceptable %, highest acceptable %, why] */
 export const EXPECT: Array<[keyof typeof PEOPLE, keyof typeof JOBS, number, number, string]> = [
-  ["gsAnalyst", "startupFinance", 50, 90, "Top relevant pedigree into a small, less sought-after pile"],
+  ["gsAnalyst", "startupFinance", 35, 90, "Top relevant pedigree into a small, less sought-after pile (lowered from 50% when a count stopped meaning a small pile: an employer of unknown size is taken as typical)"],
   ["gsAnalyst", "eliteBankAnalyst", 5, 50, "Same pedigree, but the most sought-after pile there is (judgement; lowered from 10% after 34k applications put a famous name at 0.4x the study value)"],
   ["midFinanceIntern", "midFinanceEntry", 8, 35, "Relevant internship, ordinary employer, typical pile (matched CV 19-38%)"],
   ["freshFinanceGrad", "financeIntern", 5, 30, "Finance master's, no experience, internship"],

@@ -488,15 +488,18 @@ function projectedApplicants(count, post, now = Date.now()) {
   return { applicants: Math.round(count * factor), daysAfterPosting: age };
 }
 var OTHER_CHANNELS = 2;
+var COUNT_WEIGHT = 0.5;
 function pileFor(post, employerTierOfPost, employerAvgApplicants, now = Date.now()) {
   const interviews = /intern|stage|stagiair/i.test(post.title) ? 10 : 8;
+  const byTier = { elite: 600, large: 220, mid: 150, small: 60, unknown: 180 };
   if (typeof post.applicants === "number" && post.applicants > 0) {
     const projected = projectedApplicants(post.applicants, post, now);
-    return { applicants: Math.max(Math.round(projected.applicants * OTHER_CHANNELS), interviews + 1), interviews, source: "posting", seen: { count: post.applicants, daysAfterPosting: projected.daysAfterPosting } };
+    const seen = projected.applicants * OTHER_CHANNELS;
+    const pulled = Math.round(Math.exp((1 - COUNT_WEIGHT) * Math.log(byTier[employerTierOfPost]) + COUNT_WEIGHT * Math.log(seen)));
+    return { applicants: Math.max(pulled, interviews + 1), interviews, source: "posting", seen: { count: post.applicants, daysAfterPosting: projected.daysAfterPosting } };
   }
   if (typeof employerAvgApplicants === "number" && employerAvgApplicants > 0)
     return { applicants: Math.max(Math.round(employerAvgApplicants * OTHER_CHANNELS), interviews + 1), interviews, source: "employer" };
-  const byTier = { elite: 600, large: 220, mid: 150, small: 60, unknown: 180 };
   return { applicants: byTier[employerTierOfPost], interviews, source: "typical" };
 }
 function phi(x) {
