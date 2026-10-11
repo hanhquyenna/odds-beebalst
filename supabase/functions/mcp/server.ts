@@ -219,7 +219,7 @@ const ME_TOOLS = [
   {
     name: "my_documents",
     title: "My documents",
-    description: "The CVs and cover letters the person keeps in odds Documents (up to five), and which CV is their main one.",
+    description: "The CVs and cover letters the person keeps in odds Documents (up to thirty), and which CV is their main one.",
     inputSchema: { type: "object", properties: {} },
     write: false,
   },
@@ -240,7 +240,7 @@ const ME_TOOLS = [
   {
     name: "save_cover_letter",
     title: "Save a cover letter to Documents",
-    description: "Saves a cover letter you wrote with the person to their odds Documents, and attaches it to a job when you give one. Ask them first. Documents hold five files at most.",
+    description: "Saves a cover letter you wrote with the person to their odds Documents, and attaches it to a job when you give one. Ask them first. Documents hold thirty files at most.",
     inputSchema: { type: "object", properties: { name: { type: "string", description: "A short name, e.g. 'Cover letter Adyen'." }, text: { type: "string", description: "The letter, plain text." }, job_id: jobId }, required: ["name", "text"] },
     write: true,
   },
@@ -444,7 +444,7 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
   if (name === "my_documents") {
     const docs = await svc(env, `documents?user_id=eq.${uid}&select=id,kind,name,file_name,is_main,updated_at&order=created_at`)
 
-    return text({ documents: (docs ?? []).map(docLine), room_left: Math.max(0, 5 - (docs ?? []).length) })
+    return text({ documents: (docs ?? []).map(docLine), room_left: Math.max(0, 30 - (docs ?? []).length) })
   }
 
   if (name === "read_document") {
@@ -486,7 +486,7 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
   if (name === "save_cover_letter") {
     if (!args.name || !args.letter?.trim()) return failed("Give the letter a name and its text.")
     const count = (await svc(env, `documents?user_id=eq.${uid}&select=id`))?.length ?? 0
-    if (count >= 5) return failed("Their Documents are full (five files). Ask them to delete one in odds first.")
+    if (count >= 30) return failed("Their Documents are full (thirty files). Ask them to delete one in odds first.")
     const bytes = new TextEncoder().encode(args.letter)
     const id = crypto.randomUUID()
     const path = `${uid}/${id}`
@@ -498,7 +498,7 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
       const m = e instanceof Error ? e.message : ""
       console.error(`save_cover_letter: ${m}`)
 
-      return failed(m.includes("hash") ? "That exact letter is already in their Documents." : m.includes(" 409 ") || m.includes("23505") || m.includes("unique") ? "A cover letter with that name is already in their Documents. Pick another name." : m.includes("document limit") ? "Their Documents are full (five files). Ask them to delete one in odds first." : "Could not save it to Documents.")
+      return failed(m.includes("hash") ? "That exact letter is already in their Documents." : m.includes(" 409 ") || m.includes("23505") || m.includes("unique") ? "A cover letter with that name is already in their Documents. Pick another name." : m.includes("document limit") ? "Their Documents are full (thirty files). Ask them to delete one in odds first." : "Could not save it to Documents.")
     }
     const up = await fetch(`${env.url}/storage/v1/object/documents/${path}`, { method: "POST", headers: { apikey: env.serviceKey!, Authorization: `Bearer ${env.serviceKey}`, "Content-Type": "text/plain" }, body: bytes })
     if (!up.ok) {

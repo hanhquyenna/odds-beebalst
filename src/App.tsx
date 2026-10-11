@@ -123,7 +123,7 @@ export default function App(): React.JSX.Element {
   // with them so the wordmark stays over the content.
   // The front page is a web page, not a form, so it gets the widest column.
   const [landing, setLanding] = useState<boolean>(false)
-  const wide = view === "account" || view === "jobs" || view === "claude" || (view === "answers" && onboarded)
+  const wide = view === "account" || view === "jobs" || view === "claude" || view === "documents" || (view === "answers" && onboarded)
   const column = page
   ? "max-w-sm sm:max-w-2xl lg:max-w-5xl"
   : sharedJobId

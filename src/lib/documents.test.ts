@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { MAX_NAME, attachedTo, explain, freeName, jobsUsing, mainCv, mimeOf, nameFromFile, previewOf, problemText, wordCount, DocumentError, type Doc } from "@/lib/document-model"
+import { MAX_NAME, attachedTo, explain, freeName, jobsUsing, mainCv, mimeOf, nameForJob, nameFromFile, previewOf, problemText, wordCount, DocumentError, type Doc } from "@/lib/document-model"
 
 const doc = (over: Partial<Doc>): Doc => ({ id: "d1", kind: "cv", name: "Finance v1", fileName: "cv.pdf", mime: "application/pdf", size: 1000, body: "text", isMain: false, createdAt: "2026-10-06T10:00:00Z", ...over })
 const state = (docs: Doc[], links: Array<{ postingId: string; kind: "cv" | "cover_letter"; documentId: string }>): Parameters<typeof attachedTo>[0] => ({ userId: "u", status: "ready", docs, links })
@@ -36,7 +36,7 @@ describe("names", () => {
 
 describe("what a refusal means", () => {
   test("the limit, a repeated file and a repeated name each say what to do", () => {
-    expect(explain({ code: "P0001", message: "document limit" }).message).toContain("5 documents")
+    expect(explain({ code: "P0001", message: "document limit" }).message).toContain("30 documents")
     expect(explain({ code: "23505", message: 'duplicate key value violates unique constraint "documents_hash_unique"' }).message).toContain("exact file")
     expect(explain({ code: "23505", message: 'duplicate key value violates unique constraint "documents_name_unique"' }).message).toContain("name")
     expect(explain({ message: "boom" }).message).toBe("That did not save. Try again.")
@@ -88,5 +88,14 @@ describe("what a document is about", () => {
   test("no text, no preview; words are counted", () => {
     expect(previewOf("")).toBe("")
     expect(wordCount(" one two\nthree ")).toBe(3)
+  })
+})
+
+describe("names for a job", () => {
+  test("a CV is named after the role, a letter after the company", () => {
+    expect(nameForJob("cv", { title: "Portfolio  Strategy Intern", employer_display: "Mileway" })).toBe("CV – Portfolio Strategy Intern")
+    expect(nameForJob("cv", { title: "Intern (m/f/d) Strategy", title_clean: "Strategy Intern", employer_display: "Mileway" })).toBe("CV – Strategy Intern")
+    expect(nameForJob("cover_letter", { title: "Portfolio Strategy Intern", employer_display: "Mileway" })).toBe("Cover letter – Mileway")
+    expect(nameForJob("cv", { title: "x".repeat(200) }).length).toBeLessThanOrEqual(MAX_NAME)
   })
 })

@@ -28,7 +28,7 @@ export interface JobLink {
   documentId: string
 }
 
-export const MAX_DOCUMENTS = 5
+export const MAX_DOCUMENTS = 30
 export const MAX_NAME = 80
 
 export const KIND_LABEL: Record<DocKind, string> = { cv: "CV", cover_letter: "Cover letter" }
@@ -135,3 +135,13 @@ export const wordCount = (body: string): number => body.split(/\s+/).filter(Bool
 
 /** The file's page in Google Drive. */
 export const driveFileUrl = (id: string): string => `https://drive.google.com/file/d/${encodeURIComponent(id)}/view`
+
+/**
+ * The name a document gets when it is uploaded from a job, so the library says what it was for: "CV – Portfolio Strategy Intern",
+ * "Cover letter – Mileway". The library makes it unique ("… 2") when the name is taken.
+ */
+export function nameForJob(kind: DocKind, post: { title: string; title_clean?: string | null; employer_display?: string | null }): string {
+  const what = kind === "cv" ? (post.title_clean || post.title) : post.employer_display || post.title
+
+  return `${KIND_LABEL[kind]} – ${what.replace(/\s+/g, " ").trim()}`.slice(0, MAX_NAME).trim()
+}

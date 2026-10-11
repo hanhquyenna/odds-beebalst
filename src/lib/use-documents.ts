@@ -57,13 +57,13 @@ export function useDocumentsSync(): void {
  * Saves a file as a document. A first CV becomes the main one and, as an upload to the profile used to, also fills the roles,
  * degrees and skills that are still empty, so the CV alone is enough to be judged. Returns a line saying what was filled.
  */
-export function useAddDocument(): (file: File, kind: DocKind) => Promise<{ added: Added; note: string | null }> {
+export function useAddDocument(): (file: File, kind: DocKind, name?: string) => Promise<{ added: Added; note: string | null }> {
   const data = useData()
   const { profile, setProfile } = data
 
   return useCallback(
-    async (file, kind) => {
-      const added = await addDocument(file, kind)
+    async (file, kind, name) => {
+      const added = await addDocument(file, kind, name)
       let note: string | null = null
       if (added.becameMain) {
         const p = profile

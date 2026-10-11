@@ -1,25 +1,26 @@
 import { useRef, useState } from "react"
-import { Button } from "@/components/ui/button"
-import { UploadIcon } from "@/components/icons"
+import { cn } from "cn"
+import { Button, buttonVariants } from "@/components/ui/button"
+import { FileTextIcon, UploadIcon } from "@/components/icons"
 import { Section } from "@/components/Section"
 import { useData } from "@/lib/data"
 import { requestSignIn } from "@/lib/sign-in-request"
 import { useAddDocument } from "@/lib/use-documents"
-import { KIND_LABEL, MAX_DOCUMENTS, attachedTo, mainCv, problemText, type DocKind } from "@/lib/document-model"
+import { KIND_LABEL, MAX_DOCUMENTS, attachedTo, driveFileUrl, mainCv, nameForJob, previewOf, problemText, type Doc, type DocKind } from "@/lib/document-model"
 import { attachDocument, detachDocument, useDocumentStore } from "@/lib/documents"
+import type { Posting } from "@/lib/types"
 
 const ACCEPT = ".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
 
 /**
- * The CV and the cover letter that go with this job: pick one of the documents already kept (so a version is reused by name)
- * or add a new one here, which is kept in Documents too. A CV on a job is also what that job's chance is worked out from.
+ * The CV and the cover letter for this job, side by side: each one is picked from the library in Documents, or uploaded here,
+ * which puts it in the library too, named after the job. A CV on a job is also what that job's chance is worked out from.
  */
-export function JobDocuments({ postingId }: { postingId: string }): React.JSX.Element {
+export function JobDocuments({ post }: { post: Posting }): React.JSX.Element {
   const data = useData()
   const store = useDocumentStore()
-  const signedIn = Boolean(data.session)
 
-  if (!signedIn) {
+  if (!data.session) {
     return (
       <Section title="Your documents">
         <div className="flex flex-col items-start gap-3">
@@ -32,48 +33,56 @@ export function JobDocuments({ postingId }: { postingId: string }): React.JSX.El
     )
   }
 
+  const chosen = attachedTo(store, post.id, "cv")
   const main = mainCv(store)
 
   return (
-    <Section title="Your documents" aside={<span className="text-sm text-muted-foreground tabular-nums">{store.docs.length} of {MAX_DOCUMENTS} kept</span>}>
-      <div className="flex flex-col gap-5">
-        <Slot postingId={postingId} kind="cv" />
-        <Slot postingId={postingId} kind="cover_letter" />
-        {attachedTo(store, postingId, "cv") ? <p className="text-sm text-muted-foreground">The chance for this job is worked out from {attachedTo(store, postingId, "cv")?.name}.</p> : main ? <p className="text-sm text-muted-foreground">The chance for this job is worked out from your main CV, {main.name}. Choose another CV to see what it changes.</p> : null}
+    <Section title="Your documents">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Slot post={post} kind="cv" />
+        <Slot post={post} kind="cover_letter" />
       </div>
+      {chosen || main ? (
+        <p className="mt-3 text-sm text-muted-foreground">
+          The chance for this job is worked out from <span className="font-medium text-foreground">{(chosen ?? main)?.name}</span>
+          {chosen ? "." : ", your main CV. Choose another to see what it changes."}
+        </p>
+      ) : null}
     </Section>
   )
 }
 
-function Slot({ postingId, kind }: { postingId: string; kind: DocKind }): React.JSX.Element {
+/** One document for this job: what is on it now, and two equal ways to change it. */
+function Slot({ post, kind }: { post: Posting; kind: DocKind }): React.JSX.Element {
   const store = useDocumentStore()
   const add = useAddDocument()
   const input = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState<boolean>(false)
   const [problem, setProblem] = useState<string | null>(null)
-  const options = store.docs.filter((d) => d.kind === kind)
-  const current = attachedTo(store, postingId, kind)
+  const library = store.docs.filter((d) => d.kind === kind)
+  const attached = attachedTo(store, post.id, kind)
+  // A job with no CV of its own uses the main CV: shown as such, so the card is never empty when a CV is in use.
+  const shown: Doc | undefined = attached ?? (kind === "cv" ? mainCv(store) : undefined)
   const full = store.docs.length >= MAX_DOCUMENTS
   const label = KIND_LABEL[kind]
 
   async function choose(id: string): Promise<void> {
     setProblem(null)
     try {
-      if (id === "") await detachDocument(postingId, kind)
-      else await attachDocument(postingId, id)
+      if (id === "") await detachDocument(post.id, kind)
+      else await attachDocument(post.id, id)
     } catch (err) {
       setProblem(problemText(err))
     }
   }
 
-  async function take(files: FileList | null): Promise<void> {
-    const file = files?.[0]
+  async function take(file: File | undefined): Promise<void> {
     if (!file) return
     setBusy(true)
     setProblem(null)
     try {
-      const { added } = await add(file, kind)
-      await attachDocument(postingId, added.doc.id)
+      const { added } = await add(file, kind, nameForJob(kind, post))
+      await attachDocument(post.id, added.doc.id)
     } catch (err) {
       setProblem(problemText(err))
     } finally {
@@ -83,18 +92,42 @@ function Slot({ postingId, kind }: { postingId: string; kind: DocKind }): React.
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <label className="flex min-w-0 flex-col gap-1 text-sm font-medium">
-          {label}
+    <div className="flex h-full flex-col gap-3 rounded-xl border-[1.5px] bg-card p-4">
+      <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+        <FileTextIcon className="size-4" aria-hidden="true" /> {label}
+      </p>
+
+      <div className="min-h-[4.5rem]">
+        {shown ? (
+          <>
+            <p className="flex flex-wrap items-center gap-2">
+              <span className="min-w-0 truncate font-medium">{shown.name}</span>
+              {!attached ? <span className="rounded-md bg-brand/15 px-2 py-0.5 text-xs font-medium">Main CV</span> : null}
+            </p>
+            {previewOf(shown.body) ? <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{previewOf(shown.body)}</p> : null}
+            {shown.driveFileId ? (
+              <a href={driveFileUrl(shown.driveFileId)} target="_blank" rel="noreferrer" className="mt-1 inline-block text-sm font-medium text-primary underline-offset-4 hover:underline">
+                Open in Drive
+              </a>
+            ) : null}
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">{library.length > 0 ? `No ${label.toLowerCase()} on this job yet.` : `Your library has no ${kind === "cv" ? "CV" : "cover letter"} yet. Upload one: it is kept in Documents too.`}</p>
+        )}
+      </div>
+
+      <div className="mt-auto grid grid-cols-2 gap-2">
+        <label className={cn(buttonVariants({ variant: "outline", size: "sm" }), "relative cursor-pointer max-md:h-10", library.length === 0 ? "pointer-events-none opacity-50" : "")}>
+          <span className="truncate">Choose from library</span>
           <select
-            value={current?.id ?? ""}
+            aria-label={`Choose a ${label.toLowerCase()} from your library`}
+            value={attached?.id ?? ""}
             onChange={(e) => void choose(e.target.value)}
-            disabled={options.length === 0}
-            className="h-9 min-w-48 max-w-full cursor-pointer rounded-lg border-[1.5px] bg-background px-2.5 text-sm font-normal disabled:cursor-default disabled:text-muted-foreground"
+            disabled={library.length === 0}
+            className="absolute inset-0 cursor-pointer opacity-0"
           >
-            <option value="">{options.length === 0 ? `No ${label.toLowerCase()} kept yet` : kind === "cv" ? "Main CV (none chosen for this job)" : "None"}</option>
-            {options.map((d) => (
+            <option value="">{kind === "cv" ? "Use my main CV" : "No cover letter"}</option>
+            {library.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.name}
                 {d.isMain ? " (main)" : ""}
@@ -102,12 +135,12 @@ function Slot({ postingId, kind }: { postingId: string; kind: DocKind }): React.
             ))}
           </select>
         </label>
-        <input ref={input} type="file" accept={ACCEPT} aria-label={`Add a new ${label.toLowerCase()}`} className="sr-only" onChange={(e) => void take(e.target.files)} />
-        <Button type="button" variant="outline" size="sm" disabled={full || busy} onClick={() => input.current?.click()} className="cursor-pointer self-end">
-          <UploadIcon className="size-4" aria-hidden="true" /> {busy ? "Reading…" : `Add a new ${label.toLowerCase()}`}
+        <input ref={input} type="file" accept={ACCEPT} aria-label={`Upload a new ${label.toLowerCase()}`} className="sr-only" onChange={(e) => void take(e.target.files?.[0])} />
+        <Button type="button" variant="outline" size="sm" disabled={full || busy} onClick={() => input.current?.click()} className="cursor-pointer max-md:h-10">
+          <UploadIcon className="size-4" aria-hidden="true" /> {busy ? "Reading…" : "Upload new"}
         </Button>
       </div>
-      {full && !current ? <p className="text-xs text-muted-foreground">All {MAX_DOCUMENTS} places are used. Delete a document in Documents to add another.</p> : null}
+      {full ? <p className="text-xs text-muted-foreground">Your library is full ({MAX_DOCUMENTS}). Delete one in Documents to upload another.</p> : null}
       {problem ? (
         <p role="alert" className="text-sm text-destructive">
           {problem}

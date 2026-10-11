@@ -1,11 +1,12 @@
 import { useRef, useState } from "react"
+import { cn } from "cn"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
-import { ArrowLeftIcon, PencilIcon, TrashIcon, UploadIcon } from "@/components/icons"
+import { ArrowLeftIcon, DownloadIcon, FileTextIcon, PencilIcon, PlusIcon, TrashIcon } from "@/components/icons"
 import { useData } from "@/lib/data"
 import { isGuestEmail } from "@/lib/auth"
 import { useAddDocument } from "@/lib/use-documents"
-import { KIND_LABEL, MAX_DOCUMENTS, MAX_NAME, driveFileUrl, jobsUsing, previewOf, problemText, wordCount, type Doc, type DocKind } from "@/lib/document-model"
+import { MAX_DOCUMENTS, MAX_NAME, driveFileUrl, jobsUsing, previewOf, problemText, wordCount, type Doc, type DocKind } from "@/lib/document-model"
 import { downloadDocument, makeMain, removeDocument, renameDocument, useDocumentStore } from "@/lib/documents"
 import { connectDrive, disconnectDrive, useDrive } from "@/lib/drive"
 
@@ -14,46 +15,27 @@ const ACCEPT = ".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlforma
 const sizeText = (bytes: number): string => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`)
 const dateText = (iso: string): string => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })
 
+/** Every tile in the library is the same size, so the grid reads as one collection whatever is in it. */
+const TILE = "flex h-full min-h-[13.5rem] flex-col rounded-xl border-[1.5px] p-4"
+
 interface DocumentsProps {
   onBack: () => void
   onSignIn: () => void
 }
 
 /**
- * Where CVs and cover letters are kept, up to five, each with a name so a version can be reused on any job. The main CV is the
- * one the chance on every job is worked out from; a job can use another CV for its own chance (see the job page).
+ * The library: every CV and cover letter kept, as a grid of the same-sized cards, each with what it says, where it is used and
+ * what can be done with it. The main CV is the one the chance on every job is worked out from; a job can use another (the job
+ * page picks from here, and what is uploaded there lands here, named after the job).
  */
 export function Documents({ onBack, onSignIn }: DocumentsProps): React.JSX.Element {
   const data = useData()
   const store = useDocumentStore()
-  const drive = useDrive()
-  const add = useAddDocument()
-  const [busy, setBusy] = useState<DocKind | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [asking, setAsking] = useState<Doc | null>(null)
-  const cvInput = useRef<HTMLInputElement>(null)
-  const letterInput = useRef<HTMLInputElement>(null)
   const signedIn = Boolean(data.session)
-  const full = store.docs.length >= MAX_DOCUMENTS
-
-  async function take(files: FileList | null, kind: DocKind): Promise<void> {
-    const file = files?.[0]
-    if (!file) return
-    setBusy(kind)
-    setProblem(null)
-    setNote(null)
-    try {
-      const done = await add(file, kind)
-      setNote(done.note)
-    } catch (err) {
-      setProblem(problemText(err))
-    } finally {
-      setBusy(null)
-      if (cvInput.current) cvInput.current.value = ""
-      if (letterInput.current) letterInput.current.value = ""
-    }
-  }
+  const cvs = store.docs.filter((d) => d.kind === "cv").length
 
   async function remove(doc: Doc): Promise<void> {
     setAsking(null)
@@ -67,45 +49,22 @@ export function Documents({ onBack, onSignIn }: DocumentsProps): React.JSX.Eleme
     }
   }
 
-  const section = (kind: DocKind, input: React.RefObject<HTMLInputElement | null>, hint: string): React.JSX.Element => {
-    const docs = store.docs.filter((d) => d.kind === kind)
-
-    return (
-      <section className="rounded-xl border-[1.5px] bg-card p-5 sm:p-6">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <h2 className="font-heading text-xl font-medium tracking-tight">{kind === "cv" ? "CVs" : "Cover letters"}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{hint}</p>
-          </div>
-          <input ref={input} type="file" accept={ACCEPT} aria-label={`Add a ${KIND_LABEL[kind].toLowerCase()}`} className="sr-only" onChange={(e) => void take(e.target.files, kind)} />
-          <Button variant="outline" size="sm" disabled={full || busy !== null} onClick={() => input.current?.click()} className="shrink-0 cursor-pointer max-md:h-10 max-md:px-3.5">
-            <UploadIcon className="size-4" aria-hidden="true" /> {busy === kind ? "Reading…" : `Add a ${KIND_LABEL[kind].toLowerCase()}`}
-          </Button>
-        </div>
-        {docs.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{kind === "cv" ? "No CV yet. Add one and the chance on every job is worked out from it." : "No cover letter yet."}</p>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {docs.map((doc) => (
-              <DocumentRow key={doc.id} doc={doc} jobs={jobsUsing(store, doc.id).length} missing={drive.missing.has(doc.id)} onDelete={() => setAsking(doc)} onProblem={setProblem} />
-            ))}
-          </ul>
-        )}
-      </section>
-    )
-  }
-
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5 pb-16">
+    <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 pb-16">
       <button type="button" onClick={onBack} className="max-md:hidden flex w-fit cursor-pointer items-center gap-1 text-sm font-medium text-primary">
         <ArrowLeftIcon className="size-4" aria-hidden="true" /> Dashboard
       </button>
 
-      <header>
-        <h1 className="text-3xl font-semibold tracking-tight">Documents</h1>
-        <p className="mt-2 text-muted-foreground">
-          Keep your CVs and cover letters here, each with a name, and put the right one on each job. <span className="tabular-nums">{store.docs.length} of {MAX_DOCUMENTS}</span> used.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Documents</h1>
+          <p className="mt-2 max-w-xl text-muted-foreground">Your library of CVs and cover letters. Put the right one on each job; what you upload on a job lands here, named after it.</p>
+        </div>
+        {signedIn ? (
+          <p className="text-sm text-muted-foreground tabular-nums">
+            {cvs} {cvs === 1 ? "CV" : "CVs"} · {store.docs.length - cvs} {store.docs.length - cvs === 1 ? "letter" : "letters"} · {store.docs.length} of {MAX_DOCUMENTS}
+          </p>
+        ) : null}
       </header>
 
       {!signedIn ? (
@@ -117,6 +76,7 @@ export function Documents({ onBack, onSignIn }: DocumentsProps): React.JSX.Eleme
         </div>
       ) : (
         <>
+          <DriveCard onProblem={setProblem} onSignIn={onSignIn} />
           {store.status === "error" ? <p role="alert" className="text-sm text-destructive">We could not load your documents. Refresh the page to try again.</p> : null}
           {problem ? (
             <p role="alert" className="text-sm text-destructive">
@@ -124,12 +84,9 @@ export function Documents({ onBack, onSignIn }: DocumentsProps): React.JSX.Eleme
             </p>
           ) : null}
           {note ? <p className="text-sm text-muted-foreground">{note}</p> : null}
-          {full ? <p className="text-sm text-muted-foreground">You have used all {MAX_DOCUMENTS} places. Delete a document to add another.</p> : null}
 
-          <DriveCard onProblem={setProblem} onSignIn={onSignIn} />
-
-          {section("cv", cvInput, "The main CV is what the chance on every job is worked out from. PDF, Word (.docx) or text, up to 8 MB.")}
-          {section("cover_letter", letterInput, "Kept for you to put on a job. It does not change the chance.")}
+          <Shelf kind="cv" hint="The main CV is what the chance on every job is worked out from." onProblem={setProblem} onNote={setNote} onDelete={setAsking} />
+          <Shelf kind="cover_letter" hint="Put one on a job from the job page. Letters do not change the chance." onProblem={setProblem} onNote={setNote} onDelete={setAsking} />
         </>
       )}
 
@@ -146,7 +103,76 @@ export function Documents({ onBack, onSignIn }: DocumentsProps): React.JSX.Eleme
   )
 }
 
-interface DocumentRowProps {
+interface ShelfProps {
+  kind: DocKind
+  hint: string
+  onProblem: (text: string | null) => void
+  onNote: (text: string | null) => void
+  onDelete: (doc: Doc) => void
+}
+
+/** One kind of document: a heading, then the upload tile and every document as same-sized cards. */
+function Shelf({ kind, hint, onProblem, onNote, onDelete }: ShelfProps): React.JSX.Element {
+  const store = useDocumentStore()
+  const drive = useDrive()
+  const add = useAddDocument()
+  const input = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState<boolean>(false)
+  const docs = store.docs.filter((d) => d.kind === kind)
+  // The main CV first, then newest first: what is used most sits at the top left.
+  const ordered = [...docs].sort((a, b) => Number(b.isMain) - Number(a.isMain) || b.createdAt.localeCompare(a.createdAt))
+  const full = store.docs.length >= MAX_DOCUMENTS
+
+  async function take(file: File | undefined): Promise<void> {
+    if (!file) return
+    setBusy(true)
+    onProblem(null)
+    onNote(null)
+    try {
+      onNote((await add(file, kind)).note)
+    } catch (err) {
+      onProblem(problemText(err))
+    } finally {
+      setBusy(false)
+      if (input.current) input.current.value = ""
+    }
+  }
+
+  return (
+    <section aria-labelledby={`shelf-${kind}`}>
+      <div className="mb-3">
+        <h2 id={`shelf-${kind}`} className="font-heading text-xl font-medium tracking-tight">
+          {kind === "cv" ? "CVs" : "Cover letters"} <span className="text-base text-muted-foreground tabular-nums">{docs.length}</span>
+        </h2>
+        <p className="mt-0.5 text-sm text-muted-foreground">{hint}</p>
+      </div>
+      <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <li>
+          <input ref={input} type="file" accept={ACCEPT} aria-label={kind === "cv" ? "Upload a CV" : "Upload a cover letter"} className="sr-only" onChange={(e) => void take(e.target.files?.[0])} />
+          <button
+            type="button"
+            disabled={full || busy}
+            onClick={() => input.current?.click()}
+            className={`${TILE} w-full cursor-pointer items-center justify-center gap-2 border-dashed bg-secondary/30 text-center transition-colors duration-150 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60`}
+          >
+            <span className="flex size-10 items-center justify-center rounded-full bg-background">
+              <PlusIcon className="size-5" aria-hidden="true" />
+            </span>
+            <span className="font-medium">{busy ? "Reading…" : kind === "cv" ? "Upload a CV" : "Upload a cover letter"}</span>
+            <span className="text-xs text-muted-foreground">{full ? `Library full (${MAX_DOCUMENTS})` : "PDF, Word (.docx) or text, up to 8 MB"}</span>
+          </button>
+        </li>
+        {ordered.map((doc) => (
+          <li key={doc.id}>
+            <DocumentCard doc={doc} jobs={jobsUsing(store, doc.id).length} missing={drive.missing.has(doc.id)} onDelete={() => onDelete(doc)} onProblem={onProblem} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+interface DocumentCardProps {
   doc: Doc
   jobs: number
   missing: boolean
@@ -154,9 +180,10 @@ interface DocumentRowProps {
   onProblem: (text: string | null) => void
 }
 
-function DocumentRow({ doc, jobs, missing, onDelete, onProblem }: DocumentRowProps): React.JSX.Element {
+function DocumentCard({ doc, jobs, missing, onDelete, onProblem }: DocumentCardProps): React.JSX.Element {
   const [editing, setEditing] = useState<boolean>(false)
   const [name, setName] = useState<string>(doc.name)
+  const preview = previewOf(doc.body, 200)
 
   async function save(): Promise<void> {
     setEditing(false)
@@ -178,61 +205,73 @@ function DocumentRow({ doc, jobs, missing, onDelete, onProblem }: DocumentRowPro
     }
   }
 
+  const icon = "flex size-9 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-secondary hover:text-foreground max-md:size-10"
+
   return (
-    <li className="flex flex-col gap-3 rounded-lg border-[1.5px] bg-background px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0">
-        {editing ? (
-          <form onSubmit={(e) => { e.preventDefault(); void save() }} className="flex items-center gap-2">
-            <input
-              autoFocus
-              aria-label="Name"
-              maxLength={MAX_NAME}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onBlur={() => void save()}
-              onKeyDown={(e) => { if (e.key === "Escape") { setName(doc.name); setEditing(false) } }}
-              className="h-8 min-w-0 flex-1 rounded-md border-[1.5px] bg-background px-2 text-sm font-medium focus:border-ring focus:outline-none"
-            />
-          </form>
-        ) : (
-          <p className="flex flex-wrap items-center gap-2">
-            <span className="min-w-0 truncate font-medium">{doc.name}</span>
+    <article className={`${TILE} gap-3 bg-card`}>
+      <div className="flex items-start gap-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-secondary">
+          <FileTextIcon className="size-5" aria-hidden="true" />
+        </span>
+        <div className="min-w-0 flex-1">
+          {editing ? (
+            <form onSubmit={(e) => { e.preventDefault(); void save() }}>
+              <input
+                autoFocus
+                aria-label="Name"
+                maxLength={MAX_NAME}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onBlur={() => void save()}
+                onKeyDown={(e) => { if (e.key === "Escape") { setName(doc.name); setEditing(false) } }}
+                className="h-8 w-full rounded-md border-[1.5px] bg-background px-2 text-sm font-medium focus:border-ring focus:outline-none"
+              />
+            </form>
+          ) : (
+            <h3 className="line-clamp-2 font-medium leading-snug" title={doc.name}>{doc.name}</h3>
+          )}
+          <p className="mt-1 flex flex-wrap gap-1.5">
             {doc.isMain ? <span className="rounded-md bg-brand/15 px-2 py-0.5 text-xs font-medium">Main</span> : null}
             {doc.inDrive && missing ? (
-              <span className="rounded-md bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">Not in your Drive any more</span>
+              <span className="rounded-md bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">Not in your Drive</span>
             ) : doc.inDrive ? (
               <span className="rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground">In your Drive</span>
             ) : null}
+            {jobs > 0 ? <span className="rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground">On {jobs} {jobs === 1 ? "job" : "jobs"}</span> : null}
           </p>
-        )}
-        {previewOf(doc.body) ? <p className="mt-1 line-clamp-2 text-sm">{previewOf(doc.body)}</p> : null}
-        <p className="mt-0.5 truncate text-sm text-muted-foreground">
-          {doc.fileName} · {wordCount(doc.body)} words · {sizeText(doc.size)} · {dateText(doc.createdAt)}
-          {jobs > 0 ? ` · on ${jobs} ${jobs === 1 ? "job" : "jobs"}` : ""}
-        </p>
+        </div>
       </div>
-      <div className="flex flex-wrap items-center gap-1">
+
+      <p className="line-clamp-3 text-sm text-muted-foreground">{preview || "No text could be read from this file."}</p>
+      <p className="text-xs text-muted-foreground tabular-nums">
+        {wordCount(doc.body)} words · {sizeText(doc.size)} · {dateText(doc.createdAt)}
+      </p>
+
+      <div className="mt-auto flex items-center gap-1 border-t-[1.5px] pt-3">
         {doc.driveFileId && !missing ? (
-          <a href={driveFileUrl(doc.driveFileId)} target="_blank" rel="noreferrer" className={`${buttonVariants({ variant: "outline", size: "sm" })} cursor-pointer`}>
-            Open in Drive
+          <a href={driveFileUrl(doc.driveFileId)} target="_blank" rel="noreferrer" className={cn(buttonVariants({ variant: "outline", size: "sm" }), "cursor-pointer max-md:h-10")}>
+            Open
           </a>
-        ) : null}
+        ) : (
+          <Button type="button" variant="outline" size="sm" onClick={() => void run(() => downloadDocument(doc.id))} className="cursor-pointer max-md:h-10">
+            <DownloadIcon className="size-4" aria-hidden="true" /> Download
+          </Button>
+        )}
         {doc.kind === "cv" && !doc.isMain ? (
-          <Button type="button" variant="outline" size="sm" onClick={() => void run(() => makeMain(doc.id))} className="cursor-pointer max-md:h-10 max-md:px-3.5">
+          <Button type="button" variant="ghost" size="sm" onClick={() => void run(() => makeMain(doc.id))} className="cursor-pointer max-md:h-10">
             Make main
           </Button>
         ) : null}
-        <Button type="button" variant="ghost" size="sm" onClick={() => void run(() => downloadDocument(doc.id))} className="cursor-pointer max-md:h-10 max-md:px-3.5">
-          Download
-        </Button>
-        <Button type="button" variant="ghost" size="icon-sm" aria-label={`Rename ${doc.name}`} onClick={() => setEditing(true)} className="cursor-pointer max-md:size-10">
-          <PencilIcon className="size-4" aria-hidden="true" />
-        </Button>
-        <Button type="button" variant="ghost" size="icon-sm" aria-label={`Delete ${doc.name}`} onClick={onDelete} className="cursor-pointer max-md:size-10 text-destructive max-md:size-10">
-          <TrashIcon className="size-4" aria-hidden="true" />
-        </Button>
+        <span className="ml-auto flex items-center">
+          <button type="button" aria-label={`Rename ${doc.name}`} onClick={() => setEditing(true)} className={icon}>
+            <PencilIcon className="size-4" aria-hidden="true" />
+          </button>
+          <button type="button" aria-label={`Delete ${doc.name}`} onClick={onDelete} className={`${icon} hover:text-destructive`}>
+            <TrashIcon className="size-4" aria-hidden="true" />
+          </button>
+        </span>
       </div>
-    </li>
+    </article>
   )
 }
 
@@ -274,7 +313,7 @@ function DriveCard({ onProblem, onSignIn }: { onProblem: (text: string | null) =
           </div>
           <div className="flex shrink-0 flex-wrap gap-1">
             {drive.folder ? (
-              <a href={drive.folder} target="_blank" rel="noreferrer" className={`${buttonVariants({ variant: "outline", size: "sm" })} cursor-pointer`}>
+              <a href={drive.folder} target="_blank" rel="noreferrer" className={cn(buttonVariants({ variant: "outline", size: "sm" }), "cursor-pointer")}>
                 Open folder
               </a>
             ) : null}

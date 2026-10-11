@@ -164,7 +164,7 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
           <JobProperties post={job} st={st} />
           <UspStrip post={job} st={st} />
           <Recommendations post={job} base={base} whatIf={whatIf} setWhatIf={setWhatIf} />
-          <JobDocuments postingId={post.id} />
+          <JobDocuments post={post} />
           <FitCard post={job} st={st} requirements={requirements} />
         </>
       )}

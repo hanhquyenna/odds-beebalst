@@ -1,6 +1,6 @@
 /**
  * The CVs and cover letters a person keeps (table documents, files in the private bucket "documents"). Each is named, so a
- * version can be reused on any job: a job points at a document (job_documents) and never copies it. At most five per person.
+ * version can be reused on any job: a job points at a document (job_documents) and never copies it. At most thirty per person.
  * The file is read in the browser into text (cv-file.ts), the text is what the chance is worked out from, and the original
  * file is kept so "download" gives back exactly what was uploaded.
  *
