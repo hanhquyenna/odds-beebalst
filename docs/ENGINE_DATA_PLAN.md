@@ -112,9 +112,23 @@ reports, not training data.
       chance fell from 3.97% to 3.32%. **Cannot be tightened until the checker has run for months: re-run the script then.**
 
 ### E. Outcome loop for when users come (build later, after D)
-- [ ] E1. Snapshot the predicted chance + inputs when a job is marked Applied (app and Claude connector).
-- [ ] E2. Ask "heard back?" 2-3 weeks later (interview / rejected / nothing), store with the snapshot.
-- [ ] E3. Calibration view: predicted vs actual by bucket; feed `learn.py`.
+- [x] E1. Snapshot the predicted chance + inputs when a job is marked Applied (app and Claude connector).
+      Done 2026-10-11. Table `chance_snapshots` (migration 20261011120000): chance, range, model name (`SNAPSHOT_MODEL` in
+      src/lib/outcome-snapshot.ts: **change it whenever the engine changes in a way that moves the chance**), and jsonb with one z-score
+      per factor (the shape of parts.jsonl), the pile, `reviewing`, and a few posting facts. No CV text, name, employer or title. Written by
+      the app (`logApplication` in data.tsx) and by the connector (`mark_applied`); the first snapshot per job stays. Owner-read only;
+      people cannot edit what was predicted or the outcome.
+- [x] E2. Ask "heard back?" 2-3 weeks later (interview / rejected / nothing), store with the snapshot.
+      Done 2026-10-11. `HeardBack` card on Home 14 days after applying (src/components/HeardBack.tsx, logic and tests in
+      src/lib/answers-due.ts): Yes an interview / Rejected / No answer (from day 21) / Not yet (asks again in 7 days). An answer moves the
+      application's stage; a trigger on `applications` writes the outcome to the snapshot (interview, offer and hired count as interview,
+      an interview is never overwritten by a later rejected or no reply, moving back to applied clears it, deleting the application
+      deletes the snapshot). The tracker's own stage changes and the connector go through the same trigger.
+- [x] E3. Calibration view: predicted vs actual by bucket; feed `learn.py`.
+      Done 2026-10-11. SQL view `chance_calibration` (no grant to the app) and `scripts/research/outcomes_report.py` (calibration by bucket
+      with 90% Wilson intervals, Brier and log loss against a constant, and `research-data/backtest/outcomes_parts.jsonl` in the
+      parts.jsonl format with ds `odds_users`). **Do not retrain from it below 200 answers**; answers are self-reported and people who
+      hear back answer sooner, so it checks the model, it does not replace the field experiments. Tested on empty data and on 400 synthetic rows.
 
 ## Decisions so far
 - 2026-10-11: posting applicant count is a floor, projected forward (commit 83074ae). Mileway intern: 63% → 22%.
@@ -132,5 +146,9 @@ reports, not training data.
   Next: when the .arff is 521,840,572 bytes, run the script (B2-B4), then write results under B5.
 - 2026-10-11: B done (see B5): dataset cannot calibrate growth (flat cross-section); channel ratio supports an off-site multiplier.
   Next options: D4 (staleness in the chance), panel logging of our own applicant counts, C1 (Deming data), C2 when Kien downloads Kline.
+- 2026-10-11 (evening): E1-E3 built and tested end to end (a throwaway guest account: apply via the connector -> snapshot -> stage ->
+  outcome, tamper attempts refused, anon refused, the Home card on a 375px phone). Privacy page says what is kept. Nothing to calibrate
+  until people use it: run `python3 scripts/research/outcomes_report.py` every few weeks. Remaining in this plan: C1 (Dataverse
+  guestbook, Kien), C2 (openICPSR login, Kien), C3, C4 and D2 (need C1/C2).
 - 2026-10-11 (later): D4 done as above; D1 closed as "no change"; D3 done. C1 is blocked on the Dataverse guestbook (see C1), C2 on
   Kien's openICPSR download. E1 (snapshot when a job is marked Applied) is next.

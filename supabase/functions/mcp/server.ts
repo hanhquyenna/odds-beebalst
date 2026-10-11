@@ -526,6 +526,14 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
     const existing = await svc(env, `applications?user_id=eq.${uid}&posting_id=eq.${encodeURIComponent(id)}&select=id`)
     if (existing?.[0]) await svc(env, `applications?id=eq.${existing[0].id}&user_id=eq.${uid}`, { method: "PATCH", body: JSON.stringify({ stage: args.stage }) })
     else await svc(env, "applications", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ user_id: uid, posting_id: id, fit_tier: "claude", stage: args.stage }) })
+    // The chance as it stands now, kept with the application so it can be checked against what happens (outcome loop). The first one per job stays.
+    const post = w.byId.get(id)
+    if (post && args.stage === "applied") {
+      const profile = await myProfile(env, me)
+      if (core.hasProfile(profile)) {
+        await svc(env, "chance_snapshots", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ user_id: uid, ...core.chanceSnapshot(post, profile, {}) }) }).catch((e) => console.error(`snapshot: ${e instanceof Error ? e.message : e}`))
+      }
+    }
 
     return text({ done: true, job_id: id, stage: args.stage, note: "It shows on their odds tracker." })
   }

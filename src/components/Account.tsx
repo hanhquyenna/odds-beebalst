@@ -21,6 +21,7 @@ import { AddJobs, Tracker, type AddPanel } from "@/components/Tracker"
 import { TrackerTable } from "@/components/TrackerTable"
 import { SimilarJobs } from "@/components/SimilarJobs"
 import { ClaudePromo } from "@/components/ClaudeGuide"
+import { HeardBack } from "@/components/HeardBack"
 import { Button } from "@/components/ui/button"
 import { JobListSkeleton } from "@/components/Skeleton"
 import { useData } from "@/lib/data"
@@ -179,6 +180,8 @@ export function Account({ looking, onStartLooking, onStopLooking, onOpenClaude }
         <h1 className="text-2xl font-semibold tracking-tight max-md:hidden">{data.profile.name.trim() ? `${data.profile.name.trim().split(" ")[0]}'s job search` : "Your job search"}</h1>
 
         <SearchSummary />
+
+        <HeardBack />
 
         {onOpenClaude ? <ClaudePromo onOpen={onOpenClaude} /> : null}
 

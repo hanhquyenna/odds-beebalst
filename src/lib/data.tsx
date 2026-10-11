@@ -26,6 +26,8 @@ import {
   type Reference,
   type Signals,
 } from "@/lib/jobs"
+import { saveChanceSnapshot } from "@/lib/outcome-log"
+import { chanceSnapshot } from "@/lib/outcome-snapshot"
 import { mergeSaved, pushSaved } from "@/lib/saved-sync"
 import { loadDocuments } from "@/lib/documents"
 import { loadAutoLogos, registerLogos, useAutoLogosReady } from "@/lib/stored-logos"
@@ -619,6 +621,8 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
 
         return
       }
+      // What the chance was when they applied is kept, so that when they hear back the model can be checked against it (outcome-snapshot.ts).
+      if (stage === "applied") saveChanceSnapshot(chanceSnapshot(post, profile, { referral: referrals.has(post.id), record: facts.strengthFor(post) }))
       // The server has the row now. A move or removal made while it saved is applied to it, and a later failure keeps it.
       try {
         const rows = await fetchApplications(byId)
@@ -639,7 +643,7 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
         toast.error(`Logged ${post.title}, but could not refresh the list. Reload to see it.`)
       }
     },
-    [session, byId, changeApps],
+    [session, byId, changeApps, profile, referrals, facts],
   )
 
   const changeStage = useCallback(

@@ -3093,6 +3093,41 @@ function hearBackFor(postings, profile, referrals, record) {
   return out;
 }
 
+// src/lib/outcome-snapshot.ts
+var SNAPSHOT_MODEL = "odds-v2.2-reviewing";
+var round = (x, digits = 4) => Math.round(x * 10 ** digits) / 10 ** digits;
+function chanceSnapshot(post, profile, ctx = {}) {
+  const v2 = oddsV2(post, profile, ctx);
+  const parts = {};
+  for (const p of v2.parts)
+    parts[p.key] = round(p.z);
+  return {
+    posting_id: post.id,
+    model: SNAPSHOT_MODEL,
+    chance: round(v2.p),
+    low: round(v2.low),
+    high: round(v2.high),
+    snapshot: {
+      parts,
+      reviewing: round(v2.reviewing),
+      pile: { applicants: Math.round(v2.pile.applicants), interviews: v2.pile.interviews, source: v2.pile.source },
+      referral: ctx.referral === true,
+      post: {
+        family: post.family ?? null,
+        level: post.level_view ?? null,
+        days_open: post.days_open ?? null,
+        applicants: post.applicants ?? null,
+        source: post.source,
+        ats: post.ats,
+        dutch_required: post.dutch_required,
+        ind_sponsor: Boolean(post.ind_sponsor),
+        employer_tier: employerTier(post.employer_display || post.employer, ctx.employerEmployees),
+        has_deadline: Boolean(post.valid_through)
+      }
+    }
+  };
+}
+
 // src/lib/skill-tiers.ts
 function withSkillTiers(post) {
   const t = post.skill_tiers;
@@ -3391,6 +3426,7 @@ export {
   FIELD_OPTIONS,
   LEVELS,
   chanceFor,
+  chanceSnapshot,
   filtersFrom,
   hasProfile,
   jobLine,

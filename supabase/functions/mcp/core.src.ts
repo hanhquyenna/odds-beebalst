@@ -7,6 +7,7 @@ import { fitFilters, withFitLanguage } from "@/lib/fit-filters"
 import { profileFields } from "@/lib/field"
 import { daysSince } from "@/lib/format"
 import { hearBackFor } from "@/lib/hear-back"
+import { chanceSnapshot } from "@/lib/outcome-snapshot"
 import type { Reference, Signals } from "@/lib/jobs"
 import { oddsV2 } from "@/lib/odds-v2"
 import { withSkillTiers } from "@/lib/skill-tiers"
@@ -14,7 +15,7 @@ import { payOf } from "@/lib/spec"
 import { tailor } from "@/lib/tailor"
 import { DEFAULT_PROFILE, type Band, type DutchLevel, type Posting, type Profile, type Row, type TaxParams, type Transition } from "@/lib/types"
 
-export { FIELD_OPTIONS, LEVELS }
+export { FIELD_OPTIONS, LEVELS, chanceSnapshot }
 
 const APP = "https://odds.beeblast.co"
 

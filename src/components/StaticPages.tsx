@@ -287,6 +287,10 @@ export function PrivacyPage({ onBack }: Props): React.JSX.Element {
           We store only what you give us: your answers, the experience you add, the jobs you keep and the applications you log, plus your email if you make an account.
           Job postings and reference figures are public. The app has no advertising and no third-party trackers.
         </p>
+        <p>
+          When you mark a job applied we also keep the interview chance we showed you, the numbers it was worked out from and a few facts about the job (never your CV, your name or the
+          employer's name), and, if you tell us, whether you heard back. We use that only to check how well our estimates hold up. It is deleted with the application or your account.
+        </p>
       </Block>
     </Shell>
   )
