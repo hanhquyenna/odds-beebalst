@@ -12,6 +12,8 @@ export interface RungStats {
   years: number | null
   /** Postings at this level that state the years, and all postings at it. */
   sample: number
+  /** True when the years come from the wider category because the line of work states too few of its own. */
+  wider: boolean
   open: number
   /** The middle of the pay postings at this level state, a month before tax, or null with too few. */
   pay: number | null
@@ -21,6 +23,9 @@ export interface RungStats {
 }
 
 const MIN_YEARS = 4
+/** Postings of the wider category needed to stand in for a line of work with too few of its own; and how many own postings weigh as much as the category's whole middle. */
+const MIN_WIDER = 12
+const PULL = 4
 const MIN_PAY = 6
 
 /** "Senior Accountant (m/f/x) - Amsterdam" is "Senior Accountant": the noise taken off, the words kept as posted. */
@@ -69,6 +74,7 @@ export function poolOf(posts: ReadonlyArray<Posting>, like?: Posting): { posts: 
 /** What each rung of the ladder looks like in postings like this job: years asked, pay stated, titles, how many are open. */
 export function ladderStats(posts: ReadonlyArray<Posting>, like?: Posting): RungStats[] {
   const years: Record<string, number[]> = {}
+  const catYears: Record<string, number[]> = {}
   const pay: Record<string, number[]> = {}
   const open: Record<string, number> = {}
   const titles: Record<string, Map<string, { name: string; n: number }>> = {}
@@ -94,18 +100,30 @@ export function ladderStats(posts: ReadonlyArray<Posting>, like?: Posting): Rung
       else map.set(name.toLowerCase(), { name, n: 1 })
     }
   }
+  if (like?.family) {
+    for (const post of posts) {
+      const rung = post.cat === like.cat && post.years_min != null ? rungOf(levelOf(post)) : null
+      if (rung) (catYears[rung] ??= []).push(post.years_min as number)
+    }
+  }
   let floor = 0
 
   return LADDER.map((level) => {
     const ys = years[level] ?? []
     const ps = pay[level] ?? []
+    const wide = catYears[level] ?? []
+    // Few of its own: the category's middle stands in. Enough: its own middle, pulled a little towards the category's so a handful of postings cannot swing it.
+    const own = ys.length >= MIN_YEARS
+    const usesWider = !own && wide.length >= MIN_WIDER
+    const mid = own ? (wide.length >= MIN_WIDER ? (ys.length * median(ys) + PULL * median(wide)) / (ys.length + PULL) : median(ys)) : usesWider ? median(wide) : null
     // A rung never asks for less than the one below it.
-    const y = ys.length >= MIN_YEARS ? (floor = Math.max(floor, median(ys))) : null
+    const y = mid !== null ? (floor = Math.max(floor, mid)) : null
 
     return {
       level,
       years: y,
-      sample: ys.length,
+      sample: usesWider ? wide.length : ys.length,
+      wider: usesWider,
       open: open[level] ?? 0,
       pay: ps.length >= MIN_PAY ? Math.round(median(ps) / 50) * 50 : null,
       paySample: ps.length,

@@ -943,9 +943,9 @@ export function CareerLadder({ post, st, onPick }: { post: Posting; st?: Standin
     po.perHour ? { v: 0, typical: false, hourly: po.text ?? "" } :
     po.basis === "Allowance" ? (() => { const a = allowanceOf(post); return { v: (a.low + a.high) / 2, typical: false, allowance: { text: po.text ?? "", source: po.source as AllowanceSource } } })()
     : now ? { v: Math.round(now.month / 10) * 10, typical: now.basis !== "Stated", text: po.basis === "Stated" || po.source === "Typical traineeship pay" ? po.text ?? undefined : undefined } : null
-  const rows: Array<{ level: string; years: number | null; open: number; roles: string[]; pay: LevelPay | null; mine: boolean }> = [
+  const rows: Array<{ level: string; years: number | null; wider?: boolean; sample?: number; open: number; roles: string[]; pay: LevelPay | null; mine: boolean }> = [
     { level: here ?? "This job", years: null, open: 0, roles: [], pay: here0, mine: true },
-    ...steps.map((r) => ({ level: r.level, years: r.years, open: r.open, roles: r.roles, pay: money(r.level, r.pay), mine: false })),
+    ...steps.map((r) => ({ level: r.level, years: r.years, wider: r.wider, sample: r.sample, open: r.open, roles: r.roles, pay: money(r.level, r.pay), mine: false })),
   ]
   const band = st?.band ?? null
   const r10 = (n: number): number => Math.round(n / 10) * 10
@@ -1016,7 +1016,7 @@ export function CareerLadder({ post, st, onPick }: { post: Posting; st?: Standin
                     </button>
                   ) : null}
                   {isOpen && salary ? <TakeHome startNet={startNet(salary.v)} range={r.mine && mineRange && otherRange ? <AfterTaxRange first={firstRange} mine={{ p25: r10(mineRange.p25), p75: r10(mineRange.p75) }} other={{ p25: r10(otherRange.p25), p75: r10(otherRange.p75) }} ruling={ruling} /> : undefined} month={salary.v} typical={salary.typical} totals={taxTotals(salary.v)} premium={premium} threshold={r.level === "Internship" ? null : threshold} ruling={ruling} /> : null}
-                  {r.mine ? <p className="mt-2 text-sm">{post.title_clean ?? post.title}</p> : r.years !== null ? <p className="mt-2 text-sm">Asks for {Math.round(r.years)}+ years of experience</p> : null}
+                  {r.mine ? <p className="mt-2 text-sm">{post.title_clean ?? post.title}</p> : r.years !== null ? <p className="mt-2 text-sm">Asks for {Math.round(r.years)}+ years of experience <span className="text-xs text-muted-foreground">{r.wider ? `(across ${r.sample} jobs in the wider category)` : `(${r.sample} jobs in this field)`}</span></p> : null}
                   {!r.mine && r.roles.length > 0 ? (
                     <p className="mt-2 text-sm">
                       <span className="font-semibold">Typical jobs: </span>
