@@ -7,7 +7,11 @@ import { standing, type CategoryShare } from "@/lib/engine"
 import type { Reference } from "@/lib/jobs"
 import { strengthParts } from "@/lib/odds-v2"
 import { BANDS, TAX, TRANSITIONS } from "../../e2e/fixtures/reference"
-import { DEFAULT_PROFILE, type Posting, type Profile } from "@/lib/types"
+import { DEFAULT_PROFILE } from "@/lib/types"
+
+// Taken from the engine's own signature, so this script needs no tsconfig of its own to resolve the app's types.
+type Posting = Parameters<typeof strengthParts>[0]
+type Profile = Parameters<typeof strengthParts>[1]
 
 const ref: Reference = { bands: Object.fromEntries(BANDS.map((b) => [b.code, b])), ageFactors: {}, tax: TAX, transitions: Object.fromEntries(TRANSITIONS.map((t) => [t.title, t])) }
 const share: CategoryShare = { n: 500, dutchRequired: 0, visaMention: 0, asking5plus: 0, junior: 0, skills: {} }
