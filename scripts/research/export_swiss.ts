@@ -16,6 +16,8 @@ type Profile = Parameters<typeof strengthParts>[1]
 const ref: Reference = { bands: Object.fromEntries(BANDS.map((b) => [b.code, b])), ageFactors: {}, tax: TAX, transitions: Object.fromEntries(TRANSITIONS.map((t) => [t.title, t])) }
 const share: CategoryShare = { n: 500, dutchRequired: 0, visaMention: 0, asking5plus: 0, junior: 0, skills: {} }
 const shares = { finance_business: share, tech: share, other: share }
+// The app's types do not resolve for the linter in this folder (it has no tsconfig); tsc and bun do resolve them.
+// oxlint-disable-next-line typescript/no-redundant-type-constituents
 const post = (o: Partial<Posting> & { title: string }): Posting =>
   ({ id: "x", employer: "x", employer_display: "x", ats: "x", source: "x", region: "x", cat: "other", cbs_group: null, url: null, ind_sponsor: false, ind_sponsor_name: null, years_min: null, dutch_required: false, visa_mention: false, junior_title: false, degree_asked: null, skills: [], pay_posted: null, applicants: null, applicants_text: null, valid_through: null, seniority: null, posted_at: null, days_open: null, freshness_state: "fresh", fetched_at: null, ...o }) as Posting
 const role = (Title: string, company: string, from: number, to: number) => ({ Title, "Company Name": company, "Started On": `Jan ${from}`, "Finished On": `Jan ${to}`, Location: "Amsterdam, Netherlands" })
