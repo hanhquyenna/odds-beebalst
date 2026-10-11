@@ -2,8 +2,8 @@ import { usePhone } from "@/lib/use-phone"
 import { PersonAvatar } from "@/components/PersonAvatar"
 import { Suspense, lazy, useMemo, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
-import { ChevronDownIcon, ExternalLinkIcon, InfoIcon, MessageIcon, PlusIcon, TrashIcon, XIcon } from "@/components/icons"
-import { Button, buttonVariants } from "@/components/ui/button"
+import { CheckIcon, ChevronDownIcon, ExternalLinkIcon, InfoIcon, MessageIcon, PlusIcon, TrashIcon, XIcon } from "@/components/icons"
+import { Button } from "@/components/ui/button"
 import { useData } from "@/lib/data"
 import { suggestReferrals } from "@/lib/linkedin"
 import { useRemembered } from "@/lib/remembered"
@@ -158,11 +158,10 @@ function useFindPeople(post: Posting): { state: "idle" | "busy"; problem: string
 }
 
 /**
- * People found for one job, one line each: order number, picture (or the grey silhouette), name, position and department, then Connect
- * (opens their LinkedIn page), Add (puts them in your list, linked to the job) and an X to drop them from the results for good.
- * `start` is how many came before, so the numbers carry on across the list.
+ * People found for one job, one line each: picture, name and position (tap for their profile), then Add (puts them in your list, linked
+ * to the job), the LinkedIn mark (opens their page) and an X to drop them from the results for good.
  */
-function FoundPeople({ post, people, start = 0, onDrop }: { post: Posting; people: Suggestion[]; start?: number; onDrop: (url: string) => void }): React.JSX.Element | null {
+function FoundPeople({ post, people, onDrop }: { post: Posting; people: Suggestion[]; onDrop: (url: string) => void }): React.JSX.Element | null {
   const data = useData()
   const [panel, setPanel] = useState<Suggestion | null>(null)
   const add = (s: Suggestion): void => {
@@ -175,40 +174,29 @@ function FoundPeople({ post, people, start = 0, onDrop }: { post: Posting; peopl
 
   return (
     <>
-    <ul aria-label={`People you could ask at ${post.employer_display}`} className="flex flex-col divide-y-[1.5px] rounded-lg border-[1.5px]">
-      {people.map((s, i) => {
+    <ul aria-label={`People you could ask at ${post.employer_display}`} className="-mx-3 flex flex-col divide-y-[1.5px]">
+      {people.map((s) => {
         const added = data.people.some((p) => p.contact === s.url)
         const department = s.headline ? departmentOf(s.headline) : null
 
         return (
           <li key={s.url}>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 sm:flex-nowrap">
-            <span className="w-5 shrink-0 text-right text-sm text-muted-foreground tabular-nums">{start + i + 1}</span>
-            <PersonAvatar name={s.name} photo={s.photo} />
-            <span className="min-w-0 flex-1 basis-40 text-sm sm:truncate">
-              <span className="font-semibold">{s.name}</span>
-              {s.headline ? <span className="text-muted-foreground"> · {s.headline}</span> : null}
-              {department ? <span className="hidden text-muted-foreground sm:inline"> · {department}</span> : null}
-            </span>
-            <a href={s.url} target="_blank" rel="noreferrer" aria-label={`Connect with ${s.name} on LinkedIn`} className={`${buttonVariants({ variant: "default", size: "sm" })} w-[6.25rem] shrink-0 cursor-pointer justify-center`}>
-              Connect
-              <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
-            </a>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={added}
-              onClick={() => add(s)}
-              className="w-16 shrink-0 cursor-pointer justify-center"
-            >
-              {added ? "Added" : "Add"}
-            </Button>
-            <button type="button" aria-label={`Drop ${s.name} from the results`} title="Drop from the results" onClick={() => onDrop(s.url)} className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-              <XIcon className="size-3.5" aria-hidden="true" />
+          <div className="flex items-center gap-2 px-3 py-2.5">
+            <button type="button" onClick={() => setPanel(s)} className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left">
+              <PersonAvatar name={s.name} photo={s.photo} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{s.name}</span>
+                {s.headline || department ? <span className="block truncate text-sm text-muted-foreground">{s.headline ?? department}</span> : null}
+              </span>
             </button>
-            <button type="button" onClick={() => setPanel(s)} className="shrink-0 cursor-pointer text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground">
-              More details
+            <button type="button" disabled={added} onClick={() => add(s)} aria-label={added ? `${s.name} is in your People` : `Add ${s.name} to your People`} title={added ? "Added" : "Add to your People"} className={`flex size-8 shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors ${added ? "border-transparent text-good-foreground" : "cursor-pointer hover:bg-accent"}`}>
+              {added ? <CheckIcon className="size-4" weight="bold" aria-hidden="true" /> : <PlusIcon className="size-4" aria-hidden="true" />}
+            </button>
+            <a href={s.url} target="_blank" rel="noreferrer" aria-label={`Connect with ${s.name} on LinkedIn`} className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md hover:bg-accent">
+              <img src="/sources/linkedin.com.svg" alt="" className="size-5 rounded-[3px]" />
+            </a>
+            <button type="button" aria-label={`Drop ${s.name} from the results`} onClick={() => onDrop(s.url)} className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+              <XIcon className="size-3.5" aria-hidden="true" />
             </button>
           </div>
           </li>
@@ -293,7 +281,7 @@ function OutreachFromJobs({ onClose }: { onClose: () => void }): React.JSX.Eleme
       {tracked.length === 0 ? (
         <p className="rounded-lg border-[1.5px] border-dashed px-4 py-6 text-sm text-muted-foreground">Save a job first.</p>
       ) : (
-        <ul className="flex flex-col divide-y-[1.5px] rounded-lg border-[1.5px]">
+        <ul className="-mx-3 flex flex-col divide-y-[1.5px]">
           {tracked.map((post) => (
             <OutreachRow key={post.id} post={post} />
           ))}
@@ -342,7 +330,7 @@ function OutreachRow({ post }: { post: Posting }): React.JSX.Element {
           {showPast ? <FoundPeople post={post} people={past} onDrop={drop} /> : null}
         </div>
       ) : null}
-      <FoundPeople post={post} people={fresh} start={past.length} onDrop={drop} />
+      <FoundPeople post={post} people={fresh} onDrop={drop} />
     </li>
   )
 }
