@@ -66,7 +66,6 @@ export function CompanyResearch({ post }: { post: Posting }): React.JSX.Element 
       ) : null}
       <Items title="Known for" items={r.achievements} />
       <Items title="For someone from abroad" items={r.for_internationals} />
-      <p className="mt-4 text-xs text-muted-foreground">Researched from public sources{r.researched_on ? ` on ${r.researched_on}` : ""}. Every line links to where it was read.</p>
     </Section>
   )
 }

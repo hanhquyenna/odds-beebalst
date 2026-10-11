@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { ExternalLinkIcon, StarIcon, XIcon } from "@/components/icons"
+import { ChevronDownIcon, ExternalLinkIcon, StarIcon, XIcon } from "@/components/icons"
 import { PersonAvatar } from "@/components/PersonAvatar"
 import { Section } from "@/components/Section"
 import { useCompanyProfile } from "@/lib/company-profile"
@@ -28,7 +28,7 @@ const host = (url: string): string => url.replace(/^https?:\/\/(www\.)?/, "").re
 const card = "rounded-xl border-[1.5px] bg-card"
 
 /** "2026-09-15" -> "15 Sep 2026"; anything else is shown as it came. */
-const newsDay = (d: string | null | undefined): string | null => {
+const dayText = (d: string | null | undefined): string | null => {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d ?? "")
 
   return m ? `${Number(m[3])} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(m[2]) - 1]} ${m[1]}` : (d ?? null)
@@ -273,7 +273,7 @@ export function CompanySection({ post }: { post: Posting }): React.JSX.Element |
                   <span className="font-medium">{n.title}</span>
                 )}
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  {[n.site, newsDay(n.date)].filter(Boolean).join(" · ")}
+                  {[n.site, dayText(n.date)].filter(Boolean).join(" · ")}
                 </p>
               </li>
             ))}
@@ -286,17 +286,6 @@ export function CompanySection({ post }: { post: Posting }): React.JSX.Element |
         </div>
       ) : null}
 
-      <p className="mt-4 text-xs text-muted-foreground">
-        From the company's LinkedIn page{f?.readOn ? ` (read ${f.readOn})` : ""}, Wikidata, GLEIF, the IND register and the news.
-        {f?.linkedin ? (
-          <>
-            {" "}
-            <a href={f.linkedin} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">
-              LinkedIn page
-            </a>
-          </>
-        ) : null}
-      </p>
     </Section>
   )
 }
@@ -331,32 +320,42 @@ function ReviewCard({ r }: { r: Review }): React.JSX.Element {
   const [open, setOpen] = useState<boolean>(false)
   const long = (r.pros ?? "").length + (r.cons ?? "").length > 360
   const clamp = long && !open ? "line-clamp-3" : ""
+  const who = [r.role, reviewerStatus(r.status), r.place].filter(Boolean).join(" · ")
 
   return (
-    <li className={`${card} px-4 py-3`}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {r.overall !== null ? <Stars value={r.overall} /> : null}
-        {r.title ? <p className="font-semibold">“{r.title}”</p> : null}
+    <li className={`${card} flex flex-col gap-2 px-4 py-3.5`}>
+      <div className="flex items-center justify-between gap-3">
+        {r.overall !== null ? <Stars value={r.overall} /> : <span />}
+        <span className="text-xs text-muted-foreground">{dayText(r.date)}</span>
       </div>
-      <p className="mt-0.5 text-xs text-muted-foreground">{[r.role, reviewerStatus(r.status), r.place, r.date].filter(Boolean).join(" · ")}</p>
-      {r.pros ? (
-        <p className={`mt-2 text-sm ${clamp}`}>
-          <span className="font-semibold">Pros </span>
-          {r.pros}
-        </p>
+      {r.title ? <p className="font-semibold leading-snug">{r.title}</p> : null}
+      {who ? <p className="-mt-1 text-xs text-muted-foreground">{who}</p> : null}
+      {r.pros || r.cons ? (
+        <dl className="mt-1 grid grid-cols-[2.75rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
+          {r.pros ? (
+            <>
+              <dt className="text-muted-foreground">Pros</dt>
+              <dd className={clamp}>{r.pros}</dd>
+            </>
+          ) : null}
+          {r.cons ? (
+            <>
+              <dt className="text-muted-foreground">Cons</dt>
+              <dd className={clamp}>{r.cons}</dd>
+            </>
+          ) : null}
+        </dl>
       ) : null}
-      {r.cons ? (
-        <p className={`mt-1 text-sm ${clamp}`}>
-          <span className="font-semibold">Cons </span>
-          {r.cons}
-        </p>
+      {long || r.recommend === "yes" || r.recommend === "no" ? (
+        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+          <span>{r.recommend === "yes" ? "Would recommend" : r.recommend === "no" ? "Would not recommend" : ""}</span>
+          {long ? (
+            <button type="button" onClick={() => setOpen(!open)} className="cursor-pointer underline underline-offset-4 hover:text-foreground max-md:min-h-8">
+              {open ? "Less" : "Read all"}
+            </button>
+          ) : null}
+        </div>
       ) : null}
-      {long ? (
-        <button type="button" onClick={() => setOpen(!open)} className="mt-1 cursor-pointer text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground">
-          {open ? "Less" : "Read all"}
-        </button>
-      ) : null}
-      {r.recommend === "yes" || r.recommend === "no" ? <p className="mt-1 text-xs text-muted-foreground">{r.recommend === "yes" ? "Would recommend" : "Would not recommend"}</p> : null}
     </li>
   )
 }
@@ -365,6 +364,7 @@ function ReviewCard({ r }: { r: Review }): React.JSX.Element {
 export function ReviewsSection({ post }: { post: Posting }): React.JSX.Element | null {
   const company = useJobCompany(post.employer, post.employer_display)
   const [shown, setShown] = useState<number>(3)
+  const [listOpen, setListOpen] = useState<boolean>(false)
   if (company === undefined) return null
   const g = company?.glassdoor
   const s = company?.reviewStats
@@ -416,21 +416,27 @@ export function ReviewsSection({ post }: { post: Posting }): React.JSX.Element |
 
       {reviews.length > 0 ? (
         <>
-          <h4 className="mb-2 mt-5 text-sm font-semibold">Latest reviews</h4>
-          <ul className="flex flex-col gap-2">
-            {reviews.slice(0, shown).map((r, i) => (
-              <ReviewCard key={i} r={r} />
-            ))}
-          </ul>
-          {reviews.length > shown ? (
-            <button type="button" onClick={() => setShown(shown + 5)} className="mt-3 cursor-pointer text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground">
-              Show more reviews
-            </button>
+          <button type="button" onClick={() => setListOpen(!listOpen)} aria-expanded={listOpen} className="mt-5 flex w-full cursor-pointer items-center justify-between gap-3 text-left max-md:min-h-10">
+            <span className="text-base font-semibold tracking-tight">Latest reviews</span>
+            <ChevronDownIcon className={`size-5 text-muted-foreground transition-transform ${listOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+          </button>
+          {listOpen ? (
+            <>
+              <ul className="mt-2 flex flex-col gap-2.5">
+                {reviews.slice(0, shown).map((r, i) => (
+                  <ReviewCard key={i} r={r} />
+                ))}
+              </ul>
+              {reviews.length > shown ? (
+                <button type="button" onClick={() => setShown(shown + 5)} className="mt-3 cursor-pointer text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground max-md:min-h-10">
+                  Show more reviews
+                </button>
+              ) : null}
+            </>
           ) : null}
         </>
       ) : null}
 
-      {!g?.url ? <p className="mt-4 text-xs text-muted-foreground">From Glassdoor{g?.readOn ? `, read ${g.readOn}` : ""}.</p> : null}
     </Section>
   )
 }
