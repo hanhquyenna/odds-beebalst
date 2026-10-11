@@ -8,6 +8,8 @@
  * Below it, size decides when it is known (LinkedIn company page counts in employer_facts): 5,000+ staff is "large",
  * 200+ "mid", fewer "small". A name we know nothing about is "unknown" and moves nothing.
  */
+import standing from "@/lib/employer-standing.json"
+
 export type EmployerTier = "elite" | "large" | "mid" | "small" | "unknown"
 
 /** Names distinctive enough to count wherever they appear in a company name ("Goldman Sachs International", "Deloitte Consulting"). */
@@ -27,7 +29,7 @@ const WHOLE = new Set(["shell", "apple", "meta", "meta platforms", "amazon", "ba
 /** Legal forms and place words dropped before comparing a whole name. */
 const SUFFIX = /\b(n\.?v\.?|b\.?v\.?|plc|ltd|limited|inc|llc|gmbh|ag|s\.?a\.?|corp(oration)?|company|co|holdings?|international|global|europe|emea|nederland|netherlands|the netherlands|uk|us|usa)\b\.?/g
 
-function wholeName(name: string): string {
+export function wholeName(name: string): string {
   return name.replace(/[,()]/g, " ").replace(SUFFIX, " ").replace(/^the\s+/, "").replace(/\s+/g, " ").trim().replace(/\s*(&|and)$/, "")
 }
 
@@ -49,6 +51,10 @@ function employerTierFresh(name: string | null | undefined, employees?: number |
   // What is in brackets ("formerly Philips Domestic Appliances") describes the name; it is not the name.
   const n = (name ?? "").toLowerCase().replace(/\([^)]*\)/g, " ").replace(/&amp;/g, "&").trim()
   if (n && (DISTINCT.some((re) => re.test(n)) || WHOLE.has(wholeName(n)))) return "elite"
+  // Compared with the others in its own industry (scripts/build-employer-standing.ts), where we know enough of them: the biggest of the chip makers is a top
+  // employer for a chip engineer whatever a bank of the same headcount would be. Not the biggest five percent of anything is "elite" here: that stays the hand-kept list.
+  const placed = (standing as Record<string, EmployerTier | undefined>)[wholeName(n)]
+  if (placed) return placed
   if (typeof employees === "number") {
     if (employees >= 5000) return "large"
     if (employees >= 200) return "mid"

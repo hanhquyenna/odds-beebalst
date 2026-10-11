@@ -347,17 +347,17 @@ Glassdoor's terms). **All four openICPSR projects are downloaded (`research-data
   99th percentiles 12-39%. Top end: a strong person in a small pile could still be shown 90%+, so `capped()` bends everything above 30% towards `CEILING = 0.65`
   (identity below 30%, monotone, never reached). 0.65 is a judgement: the best-matched CVs in the experiments were called back well under 2 in 3. Snapshot model v2.5.
 
-### M. The pile learned per line of work (2026-10-11, SNAPSHOT_MODEL odds-v2.6-pile-prior)
-- Found in our own data: 457 of the 1,144 postings with a LinkedIn reading say "Be among the first 25 applicants" (fewer than 25) and 144 say "Over 200 applicants"
-  (at least 200). They were stored as 25 and 200 and used as counts. Only 543 are real counts (min 5, one below 25).
-- `scripts/research/export_pile_counts.ts` -> `research-data/pile-prior/counts.csv`; `scripts/research/pile_prior.py` fits a lognormal on the log count with
-  interval censoring (lt / exact / gt), mean = intercept + 0.293 log(1+age) + field + level + employer tier, ridge lambda 3 picked by 5-fold cross-validation.
-  Held-out log-likelihood -3,638 against -3,808 for one pooled average (hand-set constants cannot beat the pooled one by construction). sigma 1.21.
-  Effects (log scale): software +0.64, data +0.59, product +0.33, finance +0.27, risk +0.28, sales -0.39, HR -0.56, customer support -0.47; internship -0.70, mid +0.39;
-  elite +0.32, large +0.27, unknown employer -0.78. Written to `src/lib/pile-prior.json`, used by `src/lib/pile-prior.ts`.
-- `pileFor()` now: prior at the read age; a bound ("first 25") is the prior cut at the bound (truncated-normal mean); an exact count is pulled towards the prior by
-  sigma^2/(sigma^2 + 0.35^2) = 92% on the count (0.35 an assumption); then the old sqrt growth to end of life, times OTHER_CHANNELS = 2. No count at all: the prior itself.
-  This replaces the hand-set tier piles (600/220/150/60/180) and the halfway pull (COUNT_WEIGHT) added earlier today. Elite employers keep a floor of 600 (the readings cannot see past 200).
-- Caveats: the readings are LinkedIn only and mostly small and mid employers; the age slope is cross-sectional (see B5); the field effects are what LinkedIn shows, not the whole market.
-- Next: validate the field ordering against UWV's spanningsindicator (vacancies per short-term WW recipient, 93 occupation groups, dataset on uwv.nl/nl/arbeidsmarktinformatie/datasets;
-  needs a manual download) and CBS vacancies by sector (80474ned).
+### M. The posted applicant count is not used; the employer is compared within its own industry (2026-10-11, SNAPSHOT_MODEL odds-v2.7-no-counts-industry-standing)
+- Kien's decision: "applicants you see" is not accurate, so no per-posting count enters the engine. It is one site, often only a bound ("Be among the first 25 applicants" is
+  fewer than 25, "Over 200" at least 200; 457 + 144 of 1,144 readings, stored as 25 and 200), and it moves while the job is open. The earlier fits (OTHER_CHANNELS x2, the
+  halfway pull, a per-field lognormal prior trained on those counts) are removed, with `projectedApplicants` and `employerAvgApplicants`.
+- `pileFor(post, tier)`: tier piles only (elite 600, large 220, mid 150, small 60, unknown 180; Greenhouse 2026 says 183 for a typical European posting).
+- Prestige compared within the industry: `scripts/build-employer-standing.ts` ranks each employer by LinkedIn headcount among the employers we know in the same industry
+  (18 industries with at least 8 of them, 371 employers) into `src/lib/employer-standing.json`. In `employerTier` the hand-kept elite list still wins; otherwise a known
+  employer is "large" in the top tenth of its industry, "mid" in the next half, "small" below, and one with no industry falls back to the global headcount cut-offs.
+  The tier sets both the pile and the prestige credit for a name on a CV. Limits: headcount is a proxy for prestige; the peers are the employers in our own postings.
+- Validation: `scripts/validate-engine.ts` (live postings): bounds hold (0.5% to 65%, 0 violations in 3,324 postings x 8 profiles); for the same applicant plus one thing
+  (referral, tailored letter, Dutch, EU, a year, a top employer, a second internship, finance work for the same years) there are no reversals, and ties appear only on jobs
+  the applicant cannot reach (the floor). Where the base chance is above 3%, adding one thing moves it by about +3% (top employer) to +67% (native Dutch), relative.
+- Not done: field-level pile differences (software vs HR) now have no source; UWV's spanningsindicator (vacancies per short-term WW recipient, 93 occupation groups,
+  uwv.nl/nl/arbeidsmarktinformatie/datasets, manual download) is the Dutch candidate. Role prestige (title within a field) is not modelled.

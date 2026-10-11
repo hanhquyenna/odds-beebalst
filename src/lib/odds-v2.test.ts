@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { CEILING, capped, chanceIn, FLOOR, oddsV2, OTHER_CHANNELS, phi, phiInv, pileFor, POSITION_KEYS, projectedApplicants, SENIOR_YEARS, stillReviewing } from "@/lib/odds-v2"
-import { EXPECT, JOBS, PEOPLE, job } from "@/lib/odds-v2.personas"
+import { CEILING, capped, chanceIn, FLOOR, oddsV2, phi, phiInv, pileFor, POSITION_KEYS, SENIOR_YEARS, stillReviewing } from "@/lib/odds-v2"
+import { EXPECT, HEADCOUNT, JOBS, PEOPLE, job } from "@/lib/odds-v2.personas"
 import { employerTier } from "@/lib/tiers"
 
 describe("odds-v2: personas land where common sense and the studies put them", () => {
   for (const [who, what, lo, hi, why] of EXPECT) {
     test(`${who} -> ${what}: ${lo}-${hi}% (${why})`, () => {
-      const pct = oddsV2(JOBS[what], PEOPLE[who]).p * 100
+      const pct = oddsV2(JOBS[what], PEOPLE[who], { employerEmployees: HEADCOUNT[what] }).p * 100
       expect(pct).toBeGreaterThanOrEqual(lo)
       expect(pct).toBeLessThanOrEqual(hi)
     })
@@ -70,7 +70,9 @@ describe("employer tiers", () => {
   test("names and sizes", () => {
     expect(employerTier("Goldman Sachs International")).toBe("elite")
     expect(employerTier("J.P. Morgan")).toBe("elite")
-    expect(employerTier("Picnic", 5569)).toBe("large")
+    expect(employerTier("Some Unlisted Firm", 5569)).toBe("large")
+    // Compared with the others of its own industry we know, not with every company: Picnic is big for a grocer but not the biggest.
+    expect(["mid", "large"]).toContain(employerTier("Picnic", 5569))
     expect(employerTier("Some BV", 40)).toBe("small")
     expect(employerTier("Nobody")).toBe("unknown")
   })
@@ -145,9 +147,13 @@ describe("odds-v2: edge cases", () => {
       sane(oddsV2(JOBS.midFinanceEntry, { ...PEOPLE.gsAnalyst, positions: [{ ...PEOPLE.gsAnalyst.positions[0], Title: t }] }))
     }
   })
-  test("piles of any size: 0, 1, fewer than the interviews, 100,000", () => {
-    for (const n of [0, 1, 5, 9, 100_000]) sane(oddsV2(job({ ...JOBS.midFinanceEntry, applicants: n }), PEOPLE.gsAnalyst))
-    expect(oddsV2(job({ ...JOBS.midFinanceEntry, applicants: 100_000 }), PEOPLE.gsAnalyst).p).toBeLessThan(oddsV2(job({ ...JOBS.midFinanceEntry, applicants: 20 }), PEOPLE.gsAnalyst).p)
+  test("the applicant count a posting shows is not used: any count gives the same chance", () => {
+    const base = oddsV2(JOBS.midFinanceEntry, PEOPLE.gsAnalyst).p
+    for (const n of [0, 1, 5, 25, 200, 100_000]) {
+      for (const text of [null, "Be among the first 25 applicants", "Over 200 applicants", `${n} applicants`]) {
+        expect(oddsV2(job({ ...JOBS.midFinanceEntry, applicants: n, applicants_text: text }), PEOPLE.gsAnalyst).p).toBe(base)
+      }
+    }
   })
   test("years asked: 0, far more than anyone has, and negative nonsense", () => {
     for (const y of [0, 40, -3]) sane(oddsV2(job({ ...JOBS.midFinanceEntry, years_min: y }), PEOPLE.gsAnalyst))
@@ -201,42 +207,6 @@ describe("odds-v2: edge cases", () => {
   })
 })
 
-describe("a posting's applicant count is a floor, not the final pile", () => {
-  const now = Date.parse("2026-10-11T12:00:00Z")
-
-  test("a count read two days after posting is carried forward to a typical posting's life", () => {
-    // 48 read on day 2 of a posting still open on day 13: about 48 × √(28 / 2), not 48.
-    const p = projectedApplicants(48, { posted_on: "2026-09-28", fetched_at: "2026-09-30T08:00:00Z" }, now)
-    expect(p.daysAfterPosting).toBe(2)
-    expect(p.applicants).toBe(Math.round(48 * Math.sqrt(28 / 2)))
-  })
-
-  test("a count read late barely moves, and it never goes down", () => {
-    expect(projectedApplicants(200, { posted_on: "2026-09-01", fetched_at: "2026-09-29T08:00:00Z" }, now).applicants).toBeGreaterThanOrEqual(200)
-    expect(projectedApplicants(200, { posted_on: "2026-09-01", fetched_at: "2026-09-29T08:00:00Z" }, now).applicants).toBeLessThan(260)
-  })
-
-  test("read on a known day but no posting date: as a typical posting read on day 9", () => {
-    expect(projectedApplicants(90, { posted_on: null, fetched_at: "2026-10-01T08:00:00Z" }, now).applicants).toBe(Math.round(90 * Math.sqrt(28 / 9)))
-  })
-
-  test("no idea when it was read (typed in by hand): the count is taken as it stands", () => {
-    expect(projectedApplicants(90, { posted_on: null, fetched_at: null }, now).applicants).toBe(90)
-  })
-
-  test("a posting open past its usual life keeps gathering, up to a cap", () => {
-    const old = projectedApplicants(10, { posted_on: "2026-07-01", fetched_at: "2026-07-02T08:00:00Z" }, now)
-    expect(old.applicants).toBe(60)
-  })
-
-  test("the chance falls when the same count was read earlier in the posting's life", () => {
-    const early = oddsV2(job({ ...JOBS.midFinanceEntry, applicants: 48, posted_on: "2026-09-28", fetched_at: "2026-09-30T08:00:00Z" }), PEOPLE.gsAnalyst)
-    const late = oddsV2(job({ ...JOBS.midFinanceEntry, applicants: 48, posted_on: "2026-09-01", fetched_at: "2026-09-29T08:00:00Z" }), PEOPLE.gsAnalyst)
-    expect(early.p).toBeLessThan(late.p)
-    expect(early.pile.seen).toEqual({ count: 48, daysAfterPosting: 2, reading: "exact" })
-  })
-})
-
 describe("still reviewing (old postings)", () => {
   const now = Date.parse("2026-10-11T12:00:00Z")
 
@@ -276,33 +246,12 @@ describe("still reviewing (old postings)", () => {
   })
 })
 
-describe("odds-v2: a count seen on one site is not the whole pile", () => {
-  const at = (n: number): number => pileFor(job({ ...JOBS.midFinanceEntry, applicants: n, posted_on: null, fetched_at: null }), "mid").applicants
-
-  test("a stated count is carried to the whole pile: times the other channels, only lightly pulled towards the prior", () => {
-    expect(at(100)).toBeGreaterThan(150)
-    expect(at(100)).toBeLessThan(260)
-    expect(at(1000)).toBeLessThan(1000 * OTHER_CHANNELS)
-    expect(at(1000)).toBeGreaterThan(1500)
-  })
-
-  test("'first 25 applicants' is a ceiling, not a count of 25, and 'over 200' is a floor", () => {
-    const base = { ...JOBS.midFinanceEntry, posted_on: null, fetched_at: null }
-    const exact25 = pileFor(job({ ...base, applicants: 25, applicants_text: "25 applicants" }), "mid").applicants
-    const firstTwentyFive = pileFor(job({ ...base, applicants: 25, applicants_text: "Be among the first 25 applicants" }), "mid").applicants
-    const over200 = pileFor(job({ ...base, applicants: 200, applicants_text: "Over 200 applicants" }), "mid").applicants
-    const exact200 = pileFor(job({ ...base, applicants: 200, applicants_text: "200 applicants" }), "mid").applicants
-    expect(firstTwentyFive).toBeLessThan(exact25)
-    expect(over200).toBeGreaterThan(exact200)
-  })
-
-  test("the pile follows the line of work: software draws more than HR at the same employer and level", () => {
-    const at = (family: string): number => pileFor(job({ ...JOBS.midFinanceEntry, family, applicants: null, posted_on: null, fetched_at: null }), "mid").applicants
-    expect(at("Software engineering")).toBeGreaterThan(at("HR & recruiting") * 1.5)
-  })
-
-  test("a famous employer's pile is never below the elite floor", () => {
-    expect(pileFor(job({ ...JOBS.eliteBankAnalyst, applicants: null }), "elite").applicants).toBeGreaterThanOrEqual(600)
+describe("odds-v2: the pile", () => {
+  test("it follows the employer's tier, not the posting", () => {
+    const at = (tier: "elite" | "large" | "mid" | "small" | "unknown"): number => pileFor(JOBS.midFinanceEntry, tier).applicants
+    expect(at("elite")).toBeGreaterThan(at("large"))
+    expect(at("large")).toBeGreaterThan(at("mid"))
+    expect(at("mid")).toBeGreaterThan(at("small"))
   })
 })
 

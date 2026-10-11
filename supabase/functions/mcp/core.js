@@ -282,83 +282,6 @@ function guessFamily(title, skills) {
   const best = Math.max(...post);
   return best >= 0.6 ? M.families[post.indexOf(best)] : null;
 }
-// src/lib/pile-prior.json
-var pile_prior_default = {
-  lambda: 3,
-  sigma: 1.205,
-  effects: {
-    intercept: 3.554,
-    logage: 0.293,
-    "family:AI and machine learning": 0.207,
-    "family:Consulting & strategy": 0.069,
-    "family:Customer support & service": -0.47,
-    "family:Data, analytics & AI": 0.591,
-    "family:Design & UX": -0.349,
-    "family:Finance & accounting": 0.272,
-    "family:HR & recruiting": -0.559,
-    "family:Hardware & engineering": -0.294,
-    "family:Healthcare & life sciences": 0.173,
-    "family:IT, cloud & security": -0.208,
-    "family:Marketing & communications": -0.241,
-    "family:Operations & supply chain": 0.003,
-    "family:Other": 0.282,
-    "family:Product & project management": 0.33,
-    "family:Research & academia": -0.356,
-    "family:Risk, compliance & legal": 0.275,
-    "family:Sales & account management": -0.393,
-    "family:Software engineering": 0.637,
-    "family:Unknown": 0.026,
-    "level:Director": 0.05,
-    "level:Entry": 0.055,
-    "level:Internship": -0.698,
-    "level:Manager": 0.087,
-    "level:Mid": 0.392,
-    "level:Not stated": -0.095,
-    "level:Senior": 0.205,
-    "tier:elite": 0.322,
-    "tier:large": 0.274,
-    "tier:mid": 0.13,
-    "tier:small": 0.047,
-    "tier:unknown": -0.778
-  },
-  cv: {
-    chosen: 3,
-    heldout_loglik: -3638,
-    pooled_loglik: -3808
-  }
-};
-
-// src/lib/pile-prior.ts
-var SIGMA = pile_prior_default.sigma;
-var EFFECTS = pile_prior_default.effects;
-var COUNT_NOISE = 0.35;
-var pdf = (z) => Math.exp(-(z * z) / 2) / Math.sqrt(2 * Math.PI);
-function cdf(z) {
-  const x = Math.abs(z) / Math.SQRT2;
-  const t = 1 / (1 + 0.3275911 * x);
-  const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
-  return z >= 0 ? 0.5 * (1 + y) : 0.5 * (1 - y);
-}
-function priorMean(family, level, tier, ageDays) {
-  return (EFFECTS.intercept ?? 0) + (EFFECTS.logage ?? 0) * Math.log1p(Math.min(60, Math.max(0, ageDays))) + (EFFECTS[`family:${family || "Unknown"}`] ?? 0) + (EFFECTS[`level:${level || "Not stated"}`] ?? 0) + (EFFECTS[`tier:${tier}`] ?? 0);
-}
-function readingOf(text) {
-  return /first 25/i.test(text ?? "") ? "lt" : /over 200/i.test(text ?? "") ? "gt" : "exact";
-}
-function countAtRead(count, reading, mean) {
-  if (count === null)
-    return Math.exp(mean);
-  if (reading === "exact") {
-    const w = SIGMA ** 2 / (SIGMA ** 2 + COUNT_NOISE ** 2);
-    return Math.exp(w * Math.log(count) + (1 - w) * mean);
-  }
-  if (reading === "lt") {
-    const a = (Math.log(25) - mean) / SIGMA;
-    return Math.exp(mean - SIGMA * pdf(a) / Math.max(0.000000001, cdf(a)));
-  }
-  const a = (Math.log(200) - mean) / SIGMA;
-  return Math.exp(mean + SIGMA * pdf(a) / Math.max(0.000000001, 1 - cdf(a)));
-}
 
 // src/lib/strength.ts
 var NEIGHBOURS = [
@@ -378,6 +301,380 @@ function relevanceOf(itemFamily, jobFamily) {
   }
   return NEIGHBOURS.some((g) => g.includes(itemFamily) && g.includes(jobFamily)) ? "adjacent" : "unrelated";
 }
+// src/lib/employer-standing.json
+var employer_standing_default = {
+  "propharma group": { i: "Health & life sciences", s: 0 },
+  qps: { i: "Health & life sciences", s: 0.04 },
+  mytomorrows: { i: "Health & life sciences", s: 0.08 },
+  "proqr therapeutics": { i: "Health & life sciences", s: 0.12 },
+  "omron healthcare": { i: "Health & life sciences", s: 0.15 },
+  "dfe pharma": { i: "Health & life sciences", s: 0.19 },
+  msd: { i: "Health & life sciences", s: 0.23 },
+  "united imaging healthcare": { i: "Health & life sciences", s: 0.27 },
+  genmab: { i: "Health & life sciences", s: 0.31 },
+  "applied medical": { i: "Health & life sciences", s: 0.35 },
+  "basic-fit": { i: "Health & life sciences", s: 0.38 },
+  medpace: { i: "Health & life sciences", s: 0.42 },
+  resmed: { i: "Health & life sciences", s: 0.46 },
+  lonza: { i: "Health & life sciences", s: 0.5 },
+  eurofins: { i: "Health & life sciences", s: 0.54 },
+  "johnson & johnson medtech": { i: "Health & life sciences", s: 0.58 },
+  stryker: { i: "Health & life sciences", s: 0.62 },
+  "boston scientific": { i: "Health & life sciences", s: 0.65 },
+  abbvie: { i: "Health & life sciences", s: 0.69 },
+  philips: { i: "Health & life sciences", s: 0.77 },
+  novartis: { i: "Health & life sciences", s: 0.81 },
+  thermofisher: { i: "Health & life sciences", s: 0.85 },
+  "thermo fisher": { i: "Health & life sciences", s: 0.85 },
+  "thermo fisher scientific": { i: "Health & life sciences", s: 0.88 },
+  medtronic: { i: "Health & life sciences", s: 0.96 },
+  abbott: { i: "Health & life sciences", s: 1 },
+  "garanti bbva": { i: "Banking", s: 0 },
+  bunq: { i: "Banking", s: 0.11 },
+  "nibc bank": { i: "Banking", s: 0.22 },
+  jefferies: { i: "Banking", s: 0.33 },
+  ing: { i: "Banking", s: 0.44 },
+  mufg: { i: "Banking", s: 0.56 },
+  "abn amro bank": { i: "Banking", s: 0.67 },
+  "abn amro": { i: "Banking", s: 0.78 },
+  rabobank: { i: "Banking", s: 1 },
+  "analytics academy": { i: "Education", s: 0 },
+  "swim academy": { i: "Education", s: 0.08 },
+  "hfml-felix": { i: "Education", s: 0.15 },
+  "tu delft": { i: "Education", s: 0.23 },
+  "university of amsterdam": { i: "Education", s: 1 },
+  "universiteit van amsterdam": { i: "Education", s: 0.31 },
+  "hotelschool the hague": { i: "Education", s: 0.38 },
+  "erasmus university rotterdam": { i: "Education", s: 0.46 },
+  "tilburg university": { i: "Education", s: 0.54 },
+  "university of twente": { i: "Education", s: 0.62 },
+  "radboud university": { i: "Education", s: 0.69 },
+  "leiden university": { i: "Education", s: 0.77 },
+  "delft university of technology": { i: "Education", s: 0.92 },
+  "lloyd's register": { i: "Consulting", s: 0 },
+  "15wins": { i: "Consulting", s: 0.04 },
+  "ad idem consulting": { i: "Consulting", s: 0.07 },
+  "next organization": { i: "Consulting", s: 0.11 },
+  finext: { i: "Consulting", s: 0.15 },
+  "knowledge values": { i: "Consulting", s: 0.19 },
+  "mploy associates": { i: "Consulting", s: 0.22 },
+  "sancovia corporate finance": { i: "Consulting", s: 0.26 },
+  "cauberg huygen": { i: "Consulting", s: 0.3 },
+  improven: { i: "Consulting", s: 0.33 },
+  "4most": { i: "Consulting", s: 0.37 },
+  tangent: { i: "Consulting", s: 0.41 },
+  "ig&h": { i: "Consulting", s: 0.44 },
+  skim: { i: "Consulting", s: 0.48 },
+  "inverto | a bcg": { i: "Consulting", s: 0.52 },
+  ortec: { i: "Consulting", s: 0.56 },
+  "oc&c strategy consultants": { i: "Consulting", s: 0.59 },
+  "bcg x": { i: "Consulting", s: 0.63 },
+  artefact: { i: "Consulting", s: 0.67 },
+  pwc: { i: "Consulting", s: 0.7 },
+  wlg: { i: "Consulting", s: 0.74 },
+  "amaris consulting | part of mantu": { i: "Consulting", s: 0.78 },
+  kroll: { i: "Consulting", s: 0.81 },
+  mckinsey: { i: "Consulting", s: 0.89 },
+  "boston consulting group": { i: "Consulting", s: 0.93 },
+  accenture: { i: "Consulting", s: 1 },
+  "oedipus brewing": { i: "Food & consumer goods", s: 0 },
+  "cefetra / cefetra feed service": { i: "Food & consumer goods", s: 0.03 },
+  "acca careers": { i: "Food & consumer goods", s: 0.06 },
+  aquablu: { i: "Food & consumer goods", s: 0.09 },
+  coravin: { i: "Food & consumer goods", s: 0.12 },
+  "gisou by negin mirsalehi": { i: "Food & consumer goods", s: 0.15 },
+  gisou: { i: "Food & consumer goods", s: 0.15 },
+  "signature foods": { i: "Food & consumer goods", s: 0.18 },
+  swapfiets: { i: "Food & consumer goods", s: 0.21 },
+  "lamb weston": { i: "Food & consumer goods", s: 0.24 },
+  cloetta: { i: "Food & consumer goods", s: 0.27 },
+  keter: { i: "Food & consumer goods", s: 0.3 },
+  corbion: { i: "Food & consumer goods", s: 0.33 },
+  guerlain: { i: "Food & consumer goods", s: 0.36 },
+  "kao & americas": { i: "Food & consumer goods", s: 0.39 },
+  nutreco: { i: "Food & consumer goods", s: 0.42 },
+  ofi: { i: "Food & consumer goods", s: 0.45 },
+  refresco: { i: "Food & consumer goods", s: 0.48 },
+  bel: { i: "Food & consumer goods", s: 0.52 },
+  rituals: { i: "Food & consumer goods", s: 0.55 },
+  "jde peet's": { i: "Food & consumer goods", s: 0.58 },
+  "mccain foods": { i: "Food & consumer goods", s: 0.61 },
+  givaudan: { i: "Food & consumer goods", s: 0.64 },
+  iff: { i: "Food & consumer goods", s: 0.67 },
+  frieslandcampina: { i: "Food & consumer goods", s: 0.7 },
+  hellofresh: { i: "Food & consumer goods", s: 0.73 },
+  beiersdorf: { i: "Food & consumer goods", s: 0.76 },
+  "dsm-firmenich": { i: "Food & consumer goods", s: 0.79 },
+  "kraft heinz": { i: "Food & consumer goods", s: 0.82 },
+  reckitt: { i: "Food & consumer goods", s: 0.85 },
+  henkel: { i: "Food & consumer goods", s: 0.88 },
+  heineken: { i: "Food & consumer goods", s: 0.91 },
+  cargill: { i: "Food & consumer goods", s: 0.94 },
+  danone: { i: "Food & consumer goods", s: 0.97 },
+  "ab inbev": { i: "Food & consumer goods", s: 1 },
+  axelera: { i: "Semiconductors", s: 0 },
+  "axelera ai": { i: "Semiconductors", s: 0.11 },
+  "nearfield instruments": { i: "Semiconductors", s: 0.22 },
+  versuni: { i: "Manufacturing", s: 0.57 },
+  fluke: { i: "Semiconductors", s: 0.44 },
+  nexperia: { i: "Semiconductors", s: 0.56 },
+  nxp: { i: "Semiconductors", s: 0.67 },
+  "nxp semiconductors": { i: "Semiconductors", s: 0.78 },
+  asml: { i: "Semiconductors", s: 1 },
+  hotelprofessionals: { i: "Hospitality & travel", s: 0 },
+  "social hub": { i: "Hospitality & travel", s: 0.06 },
+  "mcdonald's midden limburg en maastricht centrum": { i: "Hospitality & travel", s: 0.13 },
+  "park plaza victoria amsterdam": { i: "Hospitality & travel", s: 0.19 },
+  cityhub: { i: "Hospitality & travel", s: 0.25 },
+  "mosaic world": { i: "Hospitality & travel", s: 0.31 },
+  "de l' amsterdam": { i: "Hospitality & travel", s: 0.38 },
+  "odyssey hotel group": { i: "Hospitality & travel", s: 0.44 },
+  "nh hotel group": { i: "Hospitality & travel", s: 0.5 },
+  andaz: { i: "Hospitality & travel", s: 0.56 },
+  getyourguide: { i: "Hospitality & travel", s: 0.63 },
+  "motel one group": { i: "Hospitality & travel", s: 0.69 },
+  "pphe hotel group": { i: "Hospitality & travel", s: 0.75 },
+  "basic fit": { i: "Hospitality & travel", s: 0.81 },
+  gategourmet: { i: "Hospitality & travel", s: 0.88 },
+  "booking.com": { i: "Hospitality & travel", s: 0.94 },
+  "hyatt regency": { i: "Hospitality & travel", s: 1 },
+  "lvh corporate finance": { i: "Financial services", s: 0 },
+  "lindenaar & corporate finance": { i: "Financial services", s: 0.03 },
+  "bigcircle ventures": { i: "Financial services", s: 0.06 },
+  "nielen schuman": { i: "Financial services", s: 0.09 },
+  "dealsuite.com": { i: "Financial services", s: 0.11 },
+  "mathrix group": { i: "Financial services", s: 0.14 },
+  "afs energy": { i: "Financial services", s: 0.17 },
+  blocktech: { i: "Financial services", s: 0.2 },
+  matchwornshirt: { i: "Financial services", s: 0.23 },
+  pinely: { i: "Financial services", s: 0.26 },
+  new10: { i: "Financial services", s: 0.29 },
+  "da vinci": { i: "Financial services", s: 0.31 },
+  "online payment platform": { i: "Financial services", s: 0.34 },
+  "ik partners": { i: "Financial services", s: 0.37 },
+  "ortec finance": { i: "Financial services", s: 0.4 },
+  "verder liquids": { i: "Financial services", s: 0.43 },
+  "stx group": { i: "Financial services", s: 0.46 },
+  "talent&pro": { i: "Financial services", s: 0.49 },
+  "flow traders": { i: "Financial services", s: 0.51 },
+  mollie: { i: "Financial services", s: 0.57 },
+  "walker & dunlop": { i: "Financial services", s: 0.6 },
+  robeco: { i: "Financial services", s: 0.66 },
+  antler: { i: "Financial services", s: 0.69 },
+  "van lanschot kempen": { i: "Financial services", s: 0.71 },
+  "cboe markets": { i: "Financial services", s: 0.74 },
+  pggm: { i: "Financial services", s: 0.77 },
+  drw: { i: "Financial services", s: 0.8 },
+  optiver: { i: "Financial services", s: 0.83 },
+  imc: { i: "Financial services", s: 0.86 },
+  "imc trading": { i: "Financial services", s: 0.89 },
+  adyen: { i: "Financial services", s: 0.94 },
+  "macquarie group": { i: "Financial services", s: 0.97 },
+  blackrock: { i: "Financial services", s: 1 },
+  honeybalm: { i: "Retail & e-commerce", s: 0 },
+  orderchamp: { i: "Retail & e-commerce", s: 0.03 },
+  "boas | save fashion for good": { i: "Retail & e-commerce", s: 0.05 },
+  beerwulf: { i: "Retail & e-commerce", s: 0.08 },
+  "loopper.com": { i: "Retail & e-commerce", s: 0.1 },
+  mws: { i: "Retail & e-commerce", s: 0.13 },
+  parfumado: { i: "Retail & e-commerce", s: 0.15 },
+  qogita: { i: "Retail & e-commerce", s: 0.18 },
+  "mr marvis": { i: "Retail & e-commerce", s: 0.21 },
+  crisp: { i: "Retail & e-commerce", s: 0.23 },
+  "o'neill": { i: "Retail & e-commerce", s: 0.26 },
+  mizuno: { i: "Retail & e-commerce", s: 0.28 },
+  tcwglobal: { i: "Retail & e-commerce", s: 0.31 },
+  trespa: { i: "Retail & e-commerce", s: 0.33 },
+  catawiki: { i: "Retail & e-commerce", s: 0.38 },
+  arma: { i: "Retail & e-commerce", s: 0.41 },
+  "as watson benelux": { i: "Retail & e-commerce", s: 0.44 },
+  "karl lagerfeld": { i: "Retail & e-commerce", s: 0.49 },
+  "redcare pharmacy": { i: "Retail & e-commerce", s: 0.51 },
+  asics: { i: "Retail & e-commerce", s: 0.54 },
+  karsten: { i: "Manufacturing", s: 0.22 },
+  etos: { i: "Retail & e-commerce", s: 0.59 },
+  coolblue: { i: "Retail & e-commerce", s: 0.62 },
+  patagonia: { i: "Retail & e-commerce", s: 0.64 },
+  "van cleef & arpels": { i: "Retail & e-commerce", s: 0.67 },
+  bol: { i: "Retail & e-commerce", s: 0.69 },
+  picnic: { i: "Retail & e-commerce", s: 0.72 },
+  "picnic technologies": { i: "Retail & e-commerce", s: 0.74 },
+  "c&a": { i: "Retail & e-commerce", s: 0.77 },
+  uniqlo: { i: "Retail & e-commerce", s: 0.79 },
+  action: { i: "Retail & e-commerce", s: 0.82 },
+  "albert heijn": { i: "Retail & e-commerce", s: 0.85 },
+  richemont: { i: "Retail & e-commerce", s: 0.87 },
+  "jd.com": { i: "Retail & e-commerce", s: 0.9 },
+  ikea: { i: "Retail & e-commerce", s: 0.92 },
+  nike: { i: "Retail & e-commerce", s: 0.97 },
+  amazon: { i: "Retail & e-commerce", s: 1 },
+  staffingbird: { i: "Staffing & recruiting", s: 0 },
+  "high tech source": { i: "Staffing & recruiting", s: 0.09 },
+  "lemon search": { i: "Staffing & recruiting", s: 0.18 },
+  "liberi group": { i: "Staffing & recruiting", s: 0.27 },
+  "etage 0": { i: "Staffing & recruiting", s: 0.36 },
+  riverflex: { i: "Staffing & recruiting", s: 0.45 },
+  recruitment: { i: "Staffing & recruiting", s: 0.55 },
+  "parakar group": { i: "Staffing & recruiting", s: 0.64 },
+  nobel: { i: "Staffing & recruiting", s: 0.73 },
+  "dpa professionals": { i: "Staffing & recruiting", s: 0.82 },
+  reed: { i: "Staffing & recruiting", s: 0.91 },
+  "korn ferry": { i: "Staffing & recruiting", s: 1 },
+  "awl-techniek": { i: "Manufacturing", s: 0 },
+  "gac motor": { i: "Manufacturing", s: 0.02 },
+  velaris: { i: "Manufacturing", s: 0.04 },
+  "disposable discounter": { i: "Manufacturing", s: 0.06 },
+  "dahua technology benelux": { i: "Manufacturing", s: 0.07 },
+  ezviz: { i: "Manufacturing", s: 0.09 },
+  "greenberg nielsen": { i: "Manufacturing", s: 0.11 },
+  "geely auto": { i: "Manufacturing", s: 0.13 },
+  aoc: { i: "Manufacturing", s: 0.15 },
+  "omron management center": { i: "Manufacturing", s: 0.17 },
+  bluebird: { i: "Manufacturing", s: 0.19 },
+  trumpf: { i: "Manufacturing", s: 0.2 },
+  hikvision: { i: "Manufacturing", s: 0.24 },
+  "kus technology": { i: "Manufacturing", s: 0.26 },
+  "royal lc packaging": { i: "Manufacturing", s: 0.28 },
+  hilti: { i: "Manufacturing", s: 0.3 },
+  demcon: { i: "Manufacturing", s: 0.31 },
+  frencken: { i: "Manufacturing", s: 0.33 },
+  "tp vision": { i: "Manufacturing", s: 0.35 },
+  "delta electronics": { i: "Manufacturing", s: 0.37 },
+  "kverneland group": { i: "Manufacturing", s: 0.39 },
+  "neways electronics": { i: "Manufacturing", s: 0.41 },
+  byd: { i: "Manufacturing", s: 0.44 },
+  "inalfa roof systems group": { i: "Manufacturing", s: 0.46 },
+  caldic: { i: "Manufacturing", s: 0.48 },
+  intralox: { i: "Manufacturing", s: 0.5 },
+  "canon production printing": { i: "Manufacturing", s: 0.52 },
+  xpeng: { i: "Manufacturing", s: 0.54 },
+  lely: { i: "Manufacturing", s: 0.56 },
+  "jbt marel": { i: "Manufacturing", s: 0.59 },
+  marel: { i: "Manufacturing", s: 0.61 },
+  "bosch group": { i: "Manufacturing", s: 0.63 },
+  nio: { i: "Manufacturing", s: 0.65 },
+  damen: { i: "Manufacturing", s: 0.69 },
+  yokogawa: { i: "Manufacturing", s: 0.7 },
+  vanderlande: { i: "Manufacturing", s: 0.72 },
+  brunswick: { i: "Manufacturing", s: 0.74 },
+  signify: { i: "Manufacturing", s: 0.78 },
+  dyson: { i: "Manufacturing", s: 0.8 },
+  "keysight technologies": { i: "Manufacturing", s: 0.81 },
+  wärtsilä: { i: "Manufacturing", s: 0.83 },
+  "gea group": { i: "Manufacturing", s: 0.85 },
+  "avery dennison": { i: "Manufacturing", s: 0.87 },
+  "tetra pak": { i: "Manufacturing", s: 0.89 },
+  akzonobel: { i: "Manufacturing", s: 0.91 },
+  lear: { i: "Manufacturing", s: 0.93 },
+  thales: { i: "Manufacturing", s: 0.94 },
+  tesla: { i: "Manufacturing", s: 0.96 },
+  "l'oréal": { i: "Manufacturing", s: 0.98 },
+  abb: { i: "Manufacturing", s: 1 },
+  "rubydeveloper.nl": { i: "Software & internet", s: 0 },
+  "built different": { i: "Software & internet", s: 0.02 },
+  "studentflex by tsp": { i: "Software & internet", s: 0.05 },
+  ml6: { i: "Software & internet", s: 0.07 },
+  prioticket: { i: "Software & internet", s: 0.1 },
+  tiledmedia: { i: "Software & internet", s: 0.12 },
+  churned: { i: "Software & internet", s: 0.15 },
+  senseglove: { i: "Software & internet", s: 0.17 },
+  "everience benelux": { i: "Software & internet", s: 0.2 },
+  "sharing group": { i: "Software & internet", s: 0.22 },
+  fieldbuddy: { i: "Software & internet", s: 0.24 },
+  semmtech: { i: "Software & internet", s: 0.27 },
+  simvia: { i: "Software & internet", s: 0.29 },
+  datamaran: { i: "Software & internet", s: 0.32 },
+  "12build": { i: "Software & internet", s: 0.34 },
+  "cleopatra enterprise": { i: "Software & internet", s: 0.37 },
+  virtuagym: { i: "Software & internet", s: 0.39 },
+  channelengine: { i: "Software & internet", s: 0.41 },
+  tiqets: { i: "Software & internet", s: 0.44 },
+  ohpen: { i: "Software & internet", s: 0.46 },
+  hanshow: { i: "Software & internet", s: 0.49 },
+  bynder: { i: "Software & internet", s: 0.54 },
+  project44: { i: "Software & internet", s: 0.56 },
+  azerion: { i: "Software & internet", s: 0.59 },
+  mendix: { i: "Software & internet", s: 0.61 },
+  irdeto: { i: "Software & internet", s: 0.63 },
+  mistral: { i: "Software & internet", s: 0.66 },
+  backbase: { i: "Software & internet", s: 0.68 },
+  kinaxis: { i: "Software & internet", s: 0.71 },
+  angi: { i: "Software & internet", s: 0.73 },
+  entrust: { i: "Software & internet", s: 0.76 },
+  highradius: { i: "Software & internet", s: 0.78 },
+  elastic: { i: "Software & internet", s: 0.8 },
+  ifs: { i: "Software & internet", s: 0.83 },
+  datadog: { i: "Software & internet", s: 0.85 },
+  prosus: { i: "Software & internet", s: 0.88 },
+  atlassian: { i: "Software & internet", s: 0.9 },
+  databricks: { i: "Software & internet", s: 0.93 },
+  servicenow: { i: "Software & internet", s: 0.95 },
+  cisco: { i: "Software & internet", s: 0.98 },
+  tiktok: { i: "Software & internet", s: 1 },
+  "new project agency": { i: "Media & marketing", s: 0 },
+  follo: { i: "Media & marketing", s: 0.09 },
+  relocately: { i: "Media & marketing", s: 0.18 },
+  socials: { i: "Media & marketing", s: 0.27 },
+  "dapper - the demand agency": { i: "Media & marketing", s: 0.36 },
+  "creative clicks": { i: "Media & marketing", s: 0.45 },
+  team5pm: { i: "Media & marketing", s: 0.55 },
+  "wp seo ai": { i: "Media & marketing", s: 0.64 },
+  samba: { i: "Media & marketing", s: 0.73 },
+  relx: { i: "Media & marketing", s: 0.82 },
+  "dept®": { i: "Media & marketing", s: 0.91 },
+  "wpp media": { i: "Media & marketing", s: 1 },
+  "hig groep": { i: "Construction", s: 0 },
+  monumental: { i: "Construction", s: 0.14 },
+  allseas: { i: "Construction", s: 0.29 },
+  "van oord": { i: "Construction", s: 0.43 },
+  bam: { i: "Construction", s: 0.57 },
+  crh: { i: "Construction", s: 0.71 },
+  boskalis: { i: "Construction", s: 0.86 },
+  haskoning: { i: "Construction", s: 1 },
+  revocivic: { i: "IT services", s: 0 },
+  datapebbles: { i: "IT services", s: 0.09 },
+  uxbee: { i: "IT services", s: 0.18 },
+  "alfa1 group": { i: "IT services", s: 0.27 },
+  aiden: { i: "IT services", s: 0.36 },
+  xccelerated: { i: "IT services", s: 0.45 },
+  "xccelerated | part of xebia": { i: "IT services", s: 0.55 },
+  nextnovate: { i: "IT services", s: 0.64 },
+  "swap support": { i: "IT services", s: 0.73 },
+  "on2it cybersecurity": { i: "IT services", s: 0.82 },
+  hypersolid: { i: "IT services", s: 0.91 },
+  cgi: { i: "IT services", s: 1 },
+  thermeleon: { i: "Energy & utilities", s: 0 },
+  aquabattery: { i: "Energy & utilities", s: 0.08 },
+  "emmett green": { i: "Energy & utilities", s: 0.15 },
+  skytree: { i: "Energy & utilities", s: 0.23 },
+  sensorfact: { i: "Energy & utilities", s: 0.31 },
+  "scholt energy": { i: "Energy & utilities", s: 0.38 },
+  varopreem: { i: "Energy & utilities", s: 0.46 },
+  sungrow: { i: "Energy & utilities", s: 0.54 },
+  vopak: { i: "Energy & utilities", s: 0.62 },
+  "sbm offshore": { i: "Energy & utilities", s: 0.69 },
+  fugro: { i: "Energy & utilities", s: 0.77 },
+  saipem: { i: "Energy & utilities", s: 0.85 },
+  shell: { i: "Energy & utilities", s: 1 },
+  portxl: { i: "Transport & logistics", s: 0 },
+  "ava logistics": { i: "Transport & logistics", s: 0.13 },
+  "van caem klerks group": { i: "Transport & logistics", s: 0.25 },
+  "ormit talent": { i: "Transport & logistics", s: 0.38 },
+  sendcloud: { i: "Transport & logistics", s: 0.5 },
+  "anthony veder": { i: "Transport & logistics", s: 0.63 },
+  "world courier": { i: "Transport & logistics", s: 0.75 },
+  "ait worldwide logistics": { i: "Transport & logistics", s: 0.88 },
+  klm: { i: "Transport & logistics", s: 1 },
+  mobypark: { i: "Hospitality", s: 0 },
+  "park plaza amsterdam airport": { i: "Hospitality", s: 0.13 },
+  "dylan amsterdam": { i: "Hospitality", s: 0.25 },
+  "cityden.": { i: "Hospitality", s: 0.38 },
+  "mövenpick hotel amsterdam city centre": { i: "Hospitality", s: 0.5 },
+  sojubar: { i: "Hospitality", s: 0.63 },
+  "anantara grand hotel krasnapolsky amsterdam": { i: "Hospitality", s: 0.75 },
+  "meliá hotels": { i: "Hospitality", s: 0.88 },
+  accor: { i: "Hospitality", s: 1 }
+};
 
 // src/lib/tiers.ts
 var DISTINCT = [
@@ -445,6 +742,9 @@ function employerTierFresh(name, employees) {
   const n = (name ?? "").toLowerCase().replace(/\([^)]*\)/g, " ").replace(/&amp;/g, "&").trim();
   if (n && (DISTINCT.some((re) => re.test(n)) || WHOLE.has(wholeName(n))))
     return "elite";
+  const rank = employer_standing_default[wholeName(n)];
+  if (rank)
+    return rank.s >= 0.9 ? "large" : rank.s >= 0.4 ? "mid" : "small";
   if (typeof employees === "number") {
     if (employees >= 5000)
       return "large";
@@ -477,7 +777,7 @@ var PRESTIGE = { elite: 0.15, large: 0.07, mid: 0, small: 0, unknown: 0 };
 var PRESTIGE_OFF_FIELD = 0.4;
 var ELITE_SAME_LINE = 0.15;
 var SECOND_INTERNSHIP = 0.127;
-var EFFECTS2 = {
+var EFFECTS = {
   underqualified: { or: 0.53, at: 0.46 },
   overqualified: { or: 0.85, at: 0.12 },
   nonEu: { or: 0.66, at: 0.3 },
@@ -527,7 +827,6 @@ function degreeFamily(text) {
   degreeMemo.set(text, fam);
   return fam;
 }
-var POSTING_LIFE_DAYS = 28;
 var LIKELY_FILLED_AFTER_DAYS = 30;
 var likelyFilled = (post) => (post.days_open ?? 0) > LIKELY_FILLED_AFTER_DAYS;
 var REVIEWING_CURVE = [[14, 1], [21, 0.82], [28, 0.75], [35, 0.55], [42, 0.52], [56, 0.47], [70, 0.385], [84, 0.33]];
@@ -547,45 +846,10 @@ function stillReviewing(post, now = Date.now()) {
   }
   return REVIEWING_CURVE[REVIEWING_CURVE.length - 1][1];
 }
-var TYPICAL_READ_AGE_DAYS = 9;
-var DAY = 86400000;
-var dayOf = (iso) => {
-  const t = iso ? Date.parse(iso.length === 10 ? `${iso}T00:00:00Z` : iso) : Number.NaN;
-  return Number.isFinite(t) ? Math.floor(t / DAY) : null;
-};
-function projectedApplicants(count, post, now = Date.now()) {
-  const posted = dayOf(post.posted_on);
-  const read = dayOf(post.fetched_at);
-  if (read === null)
-    return { applicants: count, daysAfterPosting: 0 };
-  const today = Math.floor(now / DAY);
-  const age = posted !== null && read >= posted ? Math.max(1, read - posted) : TYPICAL_READ_AGE_DAYS;
-  const open = posted !== null ? Math.max(POSTING_LIFE_DAYS, today - posted) : POSTING_LIFE_DAYS;
-  const factor = Math.min(6, Math.max(1, Math.sqrt(Math.min(60, open) / age)));
-  return { applicants: Math.round(count * factor), daysAfterPosting: age };
-}
-var OTHER_CHANNELS = 2;
-var ELITE_PILE = 600;
-function pileFor(post, employerTierOfPost, employerAvgApplicants, now = Date.now()) {
+function pileFor(post, employerTierOfPost) {
   const interviews = /intern|stage|stagiair/i.test(post.title) ? 10 : 8;
-  const posted = dayOf(post.posted_on);
-  const read = dayOf(post.fetched_at);
-  const age = posted !== null && read !== null && read >= posted ? Math.max(1, read - posted) : TYPICAL_READ_AGE_DAYS;
-  const level = post.level_view ?? (isInternshipTitle(post.title) ? "Internship" : null);
-  const mean = priorMean(post.family, level, employerTierOfPost, age);
-  const hasCount = typeof post.applicants === "number" && post.applicants > 0;
-  if (!hasCount && typeof employerAvgApplicants === "number" && employerAvgApplicants > 0) {
-    return { applicants: Math.max(Math.round(employerAvgApplicants * OTHER_CHANNELS), interviews + 1), interviews, source: "employer" };
-  }
-  const atRead = countAtRead(hasCount ? post.applicants : null, readingOf(post.applicants_text), mean);
-  const projected = projectedApplicants(Math.max(1, Math.round(atRead)), post, now);
-  const floor = employerTierOfPost === "elite" ? ELITE_PILE : interviews + 1;
-  return {
-    applicants: Math.max(Math.round(projected.applicants * OTHER_CHANNELS), floor),
-    interviews,
-    source: hasCount ? "posting" : "typical",
-    ...hasCount ? { seen: { count: post.applicants, daysAfterPosting: projected.daysAfterPosting, reading: readingOf(post.applicants_text) } } : {}
-  };
+  const byTier = { elite: 600, large: 220, mid: 150, small: 60, unknown: 180 };
+  return { applicants: byTier[employerTierOfPost], interviews, source: "typical" };
 }
 function phi(x) {
   const t = 1 / (1 + 0.2316419 * Math.abs(x));
@@ -731,16 +995,16 @@ function strengthParts(post, profile, ctx = {}) {
   if (implied && years < implied) {
     const short = Math.min(1, (implied - years) / implied);
     const scale = implied >= SENIOR_YEARS ? 0.8 + 3 * short + 9 * short * short : implied > 2 ? 0.4 + 0.8 * short : 0.25 + 0.5 * short;
-    parts.push({ key: "underqualified", label: fromLevel ? `A ${post.level_view?.toLowerCase()} job (usually ${implied}+ years), you have ${years.toFixed(1)}` : `Asks for ${implied}+ years, you have ${years.toFixed(1)}`, z: step(EFFECTS2.underqualified) * scale, source: "GEMM (own fit, Dutch applications); scaled by level and how far short, our judgement" });
+    parts.push({ key: "underqualified", label: fromLevel ? `A ${post.level_view?.toLowerCase()} job (usually ${implied}+ years), you have ${years.toFixed(1)}` : `Asks for ${implied}+ years, you have ${years.toFixed(1)}`, z: step(EFFECTS.underqualified) * scale, source: "GEMM (own fit, Dutch applications); scaled by level and how far short, our judgement" });
   } else if (post.years_min !== null && post.years_min !== undefined && years > 2 * post.years_min + 4) {
-    parts.push({ key: "overqualified", label: "Much more experience than asked", z: step(EFFECTS2.overqualified), source: "Baert & Verhaest 2019" });
+    parts.push({ key: "overqualified", label: "Much more experience than asked", z: step(EFFECTS.overqualified), source: "Baert & Verhaest 2019" });
   }
   if (degreeIn)
-    parts.push({ key: "degreeInField", label: "Degree in this line of work", z: step(EFFECTS2.degreeInField), source: "Humburg & van der Velden 2015 (direction); our size" });
+    parts.push({ key: "degreeInField", label: "Degree in this line of work", z: step(EFFECTS.degreeInField), source: "Humburg & van der Velden 2015 (direction); our size" });
   const rank = { bachelor: 1, master: 2, phd: 3 };
   const myDegree = ctx.assumeDegree ? Math.max(rank[base.degree] ?? 0, 2) : rank[base.degree] ?? 0;
   if (post.degree_asked && myDegree < rank[post.degree_asked])
-    parts.push({ key: "degreeBelowAsked", label: `Asks for a ${post.degree_asked}`, z: step(EFFECTS2.degreeBelowAsked), source: "GEMM underqualified, halved" });
+    parts.push({ key: "degreeBelowAsked", label: `Asks for a ${post.degree_asked}`, z: step(EFFECTS.degreeBelowAsked), source: "GEMM underqualified, halved" });
   if (post.skills.length >= 3) {
     const have = new Set([...base.skills, ...ctx.extraSkills ?? []].map((x) => x.toLowerCase()));
     const weight = { must: 1, strong: 0.7, optional: 0.4, nice: 0.2, unspecified: 0.6 };
@@ -756,15 +1020,15 @@ function strengthParts(post, profile, ctx = {}) {
     parts.push({ key: "skills", label: `Skills the job names: ${Math.round(cover * 100)}% covered`, z: SKILL_SPAN * (cover - 0.5) * 2, source: "Our assumption (no experiment varies listed skills)" });
   }
   if (profile.origin === "non_eu")
-    parts.push({ key: "nonEu", label: "Non-EU background", z: step(EFFECTS2.nonEu), source: "Lippens, Vermeiren & Baert 2023; GEMM" });
+    parts.push({ key: "nonEu", label: "Non-EU background", z: step(EFFECTS.nonEu), source: "Lippens, Vermeiren & Baert 2023; GEMM" });
   else if (profile.origin === "eu_non_native")
-    parts.push({ key: "euNonNative", label: "EU background, not Dutch", z: step(EFFECTS2.euNonNative), source: "GEMM" });
+    parts.push({ key: "euNonNative", label: "EU background, not Dutch", z: step(EFFECTS.euNonNative), source: "GEMM" });
   if (profile.origin === "non_eu" && profile.education.length > 0 && !base.dutchDegree)
-    parts.push({ key: "foreignDegree", label: "Degree from outside the Netherlands", z: step(EFFECTS2.foreignDegree), source: "Oreopoulos 2011" });
+    parts.push({ key: "foreignDegree", label: "Degree from outside the Netherlands", z: step(EFFECTS.foreignDegree), source: "Oreopoulos 2011" });
   if (base.share.nonEu > 0.99 && base.roles.length > 0)
-    parts.push({ key: "foreignExperienceOnly", label: "All work experience outside the EU", z: step(EFFECTS2.foreignExperienceOnly), source: "Oreopoulos 2011" });
+    parts.push({ key: "foreignExperienceOnly", label: "All work experience outside the EU", z: step(EFFECTS.foreignExperienceOnly), source: "Oreopoulos 2011" });
   const dutch = profile.dutch;
-  const level = dutch === "none" ? EFFECTS2.dutchNone : dutch === "basic" ? EFFECTS2.dutchBasic : dutch === "professional" ? EFFECTS2.dutchProfessional : null;
+  const level = dutch === "none" ? EFFECTS.dutchNone : dutch === "basic" ? EFFECTS.dutchBasic : dutch === "professional" ? EFFECTS.dutchProfessional : null;
   if (level) {
     const name = dutch === "none" ? "No Dutch" : dutch === "basic" ? "Basic Dutch" : "Professional (not native) Dutch";
     if (post.dutch_required)
@@ -773,9 +1037,9 @@ function strengthParts(post, profile, ctx = {}) {
       parts.push({ key: "dutchNotAsked", label: name, z: step(level) * DUTCH_NOT_ASKED_SHARE, source: "Carlsson, Eriksson & Rooth 2023, scaled down for an English-language job (our assumption)" });
   }
   if (ctx.referral)
-    parts.push({ key: "referral", label: "A referral", z: step(EFFECTS2.referral), source: "Ashby 2026" });
+    parts.push({ key: "referral", label: "A referral", z: step(EFFECTS.referral), source: "Ashby 2026" });
   if (ctx.tailored)
-    parts.push({ key: "tailored", label: "A cover letter written for this job", z: step(EFFECTS2.tailored), source: "ResumeGo 2020" });
+    parts.push({ key: "tailored", label: "A cover letter written for this job", z: step(EFFECTS.tailored), source: "ResumeGo 2020" });
   return parts.map((p) => ({ ...p, study: p.z, z: p.z * (LEARNED[p.key] ?? 1) }));
 }
 var FLOOR = 0.005;
@@ -797,7 +1061,7 @@ function factorScale(position, pile, noise = NOISE) {
 }
 function oddsV2(post, profile, ctx = {}) {
   const parts = strengthParts(post, profile, ctx);
-  const pile = pileFor(post, employerTier(post.employer_display || post.employer, ctx.employerEmployees), ctx.employerAvgApplicants);
+  const pile = pileFor(post, employerTier(post.employer_display || post.employer, ctx.employerEmployees));
   const position = parts.filter((p) => POSITION_KEYS.has(p.key)).reduce((s, p) => s + p.z, 0);
   const factors = parts.filter((p) => !POSITION_KEYS.has(p.key)).reduce((s, p) => s + p.z, 0);
   const fScale = factorScale(position, pile);
@@ -1367,7 +1631,7 @@ function standing(post, profile, ref, shares, whatIf = NO_WHAT_IF, referral = fa
     });
     const sign = (z) => z >= 0 ? "stronger" : "weaker";
     const lines = [
-      { label: `About ${Math.round(v2.pile.applicants)} people apply and about ${v2.pile.interviews} are invited${v2.pile.seen ? ` (the posting showed ${v2.pile.seen.reading === "lt" ? "fewer than 25" : v2.pile.seen.reading === "gt" ? "more than 200" : v2.pile.seen.count} ${v2.pile.seen.daysAfterPosting === 1 ? "a day" : `${v2.pile.seen.daysAfterPosting} days`} after it went up; more apply while it is open, and not everyone applies there)` : v2.pile.source === "employer" ? " (this employer's average)" : " (typical for this line of work, level and employer size, from the postings we read)"}`, source: "Greenhouse 2026 · Ashby 2026 · our own LinkedIn readings" },
+      { label: `About ${Math.round(v2.pile.applicants)} people apply and about ${v2.pile.interviews} are invited (typical for an employer this size; the applicant count a posting shows is not used, it is one site and often only a bound)`, source: "Greenhouse 2026 · Ashby 2026" },
       ...v2.parts.map((p) => ({ label: `${p.label}: ${sign(p.z)} by ${Math.abs(p.z).toFixed(2)}`, source: p.source })),
       ...v2.reviewing < 1 ? [{ label: `The posting is ${post.days_open} days old, so the employer may have stopped reading: the chance is taken down to ${Math.round(v2.reviewing * 100)}% of what it would be on a new posting`, source: "How long Dutch postings stay up (odds, 2,529 postings)" }] : []
     ];
@@ -3627,7 +3891,7 @@ function hearBackFor(postings, profile, referrals, record) {
 }
 
 // src/lib/outcome-snapshot.ts
-var SNAPSHOT_MODEL = "odds-v2.6-pile-prior";
+var SNAPSHOT_MODEL = "odds-v2.7-no-counts-industry-standing";
 var round = (x, digits = 4) => Math.round(x * 10 ** digits) / 10 ** digits;
 function chanceSnapshot(post, profile, ctx = {}) {
   const v2 = oddsV2(post, profile, ctx);

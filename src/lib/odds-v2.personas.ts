@@ -35,6 +35,9 @@ export const JOBS = {
   dutchFinance: job({ title: "Financial Controller", employer: "Mid Company", family: "Finance & accounting", applicants: 45, level_view: "Mid", years_min: 2, dutch_required: true }),
 }
 
+/** The headcount the personas' employers are taken to have: a scale-up is small, an ordinary company mid-sized. Without it an employer is "unknown" and gets the typical pile. */
+export const HEADCOUNT: Partial<Record<keyof typeof JOBS, number>> = { startupFinance: 60, scaleupSwe: 120, scaleupMarketing: 120, midFinanceEntry: 800, financeIntern: 800, seniorFinance: 800, dutchFinance: 800 }
+
 /** [person, job, lowest acceptable %, highest acceptable %, why] */
 export const EXPECT: Array<[keyof typeof PEOPLE, keyof typeof JOBS, number, number, string]> = [
   ["gsAnalyst", "startupFinance", 35, 90, "Top relevant pedigree into a small, less sought-after pile (lowered from 50% when a count stopped meaning a small pile: an employer of unknown size is taken as typical)"],
