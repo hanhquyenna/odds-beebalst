@@ -1103,7 +1103,7 @@ function computeShares(postings) {
     const n = ps.length || 1;
     const counts = {};
     for (const p of ps) {
-      for (const s of p.skills) {
+      for (const s of p.skills ?? []) {
         counts[s] = (counts[s] ?? 0) + 1;
       }
     }
@@ -3055,7 +3055,7 @@ function hearBackFor(postings, profile, referrals, record) {
 function withSkillTiers(post) {
   const t = post.skill_tiers;
   if (!t || typeof t !== "object")
-    return post;
+    return Array.isArray(post.skills) ? post : { ...post, skills: [] };
   const tiers = {};
   for (const [name, tier] of Object.entries(t))
     if (tier)
