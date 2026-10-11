@@ -157,6 +157,35 @@ export const LIKELY_FILLED_AFTER_DAYS = 30
 
 /** True when a posting is older than a typical posting's life, so the employer has most likely moved on. */
 export const likelyFilled = (post: Pick<Posting, "days_open">): boolean => (post.days_open ?? 0) > LIKELY_FILLED_AFTER_DAYS
+
+/**
+ * "Still reviewing": the chance that the employer is still reading new applications on a posting that is still up. Up to two weeks
+ * every posting counts as open. After that it falls with age, through points taken from our own postings: the share of Dutch postings
+ * still open at each age (Kaplan-Meier with delayed entry, 2,529 postings, scripts/research/posting_survival.py). That curve depends
+ * on what counts as a close, so it is read two ways and the middle is used: counting every close (28 days: 62% still open, 56 days:
+ * 31%) and leaving out the three days the checker swept many old postings at once (28 days: 87%, 56 days: 64%).
+ * Measured: how long postings stay up. Assumed: that an employer stops reading about when its cohort of postings comes down; the
+ * report (reports/Applicant count projection.md) argues for it as a separate probability, and no audit study measures it.
+ * Postings with a closing date still ahead are batch-read after it: everyone who applies by then counts, so there is no discount.
+ */
+const REVIEWING_CURVE: ReadonlyArray<readonly [number, number]> = [[14, 1], [21, 0.82], [28, 0.75], [35, 0.55], [42, 0.52], [56, 0.47], [70, 0.385], [84, 0.33]]
+
+export function stillReviewing(post: Pick<Posting, "days_open" | "valid_through">, now = Date.now()): number {
+  const age = post.days_open
+  if (age === null || age === undefined || age <= REVIEWING_CURVE[0][0]) return 1
+  const end = post.valid_through ? Date.parse(post.valid_through.length === 10 ? `${post.valid_through}T23:59:59Z` : post.valid_through) : Number.NaN
+  if (Number.isFinite(end) && end > now) return 1
+  for (let i = 1; i < REVIEWING_CURVE.length; i++) {
+    const [d1, r1] = REVIEWING_CURVE[i]
+    if (age <= d1) {
+      const [d0, r0] = REVIEWING_CURVE[i - 1]
+
+      return r0 + ((r1 - r0) * (age - d0)) / (d1 - d0)
+    }
+  }
+
+  return REVIEWING_CURVE[REVIEWING_CURVE.length - 1][1]
+}
 /** How many days after posting a count is usually read (median 9, n = 350), for a count with no dates. */
 const TYPICAL_READ_AGE_DAYS = 9
 const DAY = 86_400_000
@@ -222,6 +251,8 @@ export interface OddsV2 {
   /** Roughly where you rank among the applicants, 0 (top) to 1. */
   percentile: number
   parts: Part[]
+  /** 1 = nothing taken off; below 1 the posting is old enough that the employer may have stopped reading (stillReviewing). Already in p, low and high. */
+  reviewing: number
 }
 
 export interface V2Context {
@@ -468,6 +499,8 @@ export function oddsV2(post: Posting, profile: Profile, ctx: V2Context = {}): Od
   // A soft floor: shown = FLOOR + raw * (0.99 - FLOOR). Nobody sees 0%, and every improvement still moves the number (a hard
   // clamp left people at the floor with nothing a referral could change: the "always a way up" test caught it).
   const floor = (x: number): number => (Number.isFinite(x) ? FLOOR + Math.min(1, Math.max(0, x)) * (0.99 - FLOOR) : FLOOR)
+  // An old posting may no longer be read: the chance is the chance of being invited, times the chance the employer is still reading.
+  const reviewing = stillReviewing(post)
 
-  return { p: floor(p), low: floor(Math.min(low, p)), high: floor(Math.max(high, p)), strength: z, pile, percentile, parts }
+  return { p: floor(p * reviewing), low: floor(Math.min(low, p) * reviewing), high: floor(Math.max(high, p) * reviewing), strength: z, pile, percentile, parts, reviewing }
 }

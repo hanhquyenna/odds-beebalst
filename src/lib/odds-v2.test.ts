@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { chanceIn, FLOOR, oddsV2, phi, phiInv, projectedApplicants } from "@/lib/odds-v2"
+import { chanceIn, FLOOR, oddsV2, phi, phiInv, projectedApplicants, stillReviewing } from "@/lib/odds-v2"
 import { EXPECT, JOBS, PEOPLE, job } from "@/lib/odds-v2.personas"
 import { employerTier } from "@/lib/tiers"
 
@@ -229,5 +229,44 @@ describe("a posting's applicant count is a floor, not the final pile", () => {
     const late = oddsV2(job({ ...JOBS.midFinanceEntry, applicants: 48, posted_on: "2026-09-01", fetched_at: "2026-09-29T08:00:00Z" }), PEOPLE.gsAnalyst)
     expect(early.p).toBeLessThan(late.p)
     expect(early.pile.seen).toEqual({ count: 48, daysAfterPosting: 2 })
+  })
+})
+
+describe("still reviewing (old postings)", () => {
+  const now = Date.parse("2026-10-11T12:00:00Z")
+
+  test("a new posting is read in full; the chance falls with age after two weeks and never rises again", () => {
+    const at = (days: number): number => stillReviewing({ days_open: days, valid_through: null }, now)
+    expect(at(0)).toBe(1)
+    expect(at(14)).toBe(1)
+    let last = 1
+    for (const d of [15, 21, 28, 35, 42, 56, 70, 84, 120, 365]) {
+      expect(at(d)).toBeLessThanOrEqual(last)
+      last = at(d)
+    }
+    // The points taken from our own postings: between the two readings of the checker's closes (28 days: 62% to 87%; 56 days: 31% to 64%).
+    expect(at(28)).toBeGreaterThan(0.62)
+    expect(at(28)).toBeLessThan(0.87)
+    expect(at(56)).toBeGreaterThan(0.31)
+    expect(at(56)).toBeLessThan(0.64)
+    expect(at(365)).toBeGreaterThan(0.2)
+  })
+
+  test("an unknown age or a closing date still ahead takes nothing off: everyone who applies by then is read", () => {
+    expect(stillReviewing({ days_open: null, valid_through: null }, now)).toBe(1)
+    expect(stillReviewing({ days_open: 50, valid_through: "2026-11-15" }, now)).toBe(1)
+    expect(stillReviewing({ days_open: 50, valid_through: "2026-09-01" }, now)).toBeLessThan(1)
+  })
+
+  test("the same person gets a lower chance on an old posting than on a new one, never zero, and the range follows", () => {
+    const base = { ...JOBS.financeIntern, valid_through: null }
+    const fresh = oddsV2({ ...base, days_open: 3 }, PEOPLE.gsAnalyst)
+    const old = oddsV2({ ...base, days_open: 60 }, PEOPLE.gsAnalyst)
+    expect(fresh.reviewing).toBe(1)
+    expect(old.reviewing).toBeLessThan(0.6)
+    expect(old.p).toBeLessThan(fresh.p)
+    expect(old.p).toBeGreaterThanOrEqual(FLOOR)
+    expect(old.low).toBeLessThanOrEqual(old.p)
+    expect(old.high).toBeGreaterThanOrEqual(old.p)
   })
 })

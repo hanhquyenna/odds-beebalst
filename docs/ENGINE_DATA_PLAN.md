@@ -75,6 +75,11 @@ reports, not training data.
 
 ### C. More field-experiment data (profile strength)
 - [ ] C1. Deming et al. 2016: unzip `research-data/deming/deming.zip`, map columns to the engine's parts like `export_gemm.py`.
+      **Blocked (2026-10-11):** `deming.zip` is 122 bytes, not data: Harvard Dataverse answers `You may not download this file without
+      the required Guestbook response for guestbookID 269`. The file is `Postsecondary_Credentials_Replication.zip` (279,122 bytes,
+      file id 3182135, doi 10.7910/DVN/P8ETJ0). The guestbook asks for a name and an email, so Kien must either download it by hand
+      (free, one form, no account) and put the zip in `research-data/deming/`, or tell an agent to submit the form with his details.
+      Note for scoping: it is a US audit of for-profit and online degrees, so it informs the degree part only, not field or experience.
 - [ ] C2. Kline, Rose & Walters 2022 (QJE 137(4), doi 10.1093/qje/qjac024), 83k+ applications to 108 large US employers.
       Replication data: openICPSR project 198284 V1, https://www.openicpsr.org/openicpsr/project/198284/version/V1/view
       **Needs a free openICPSR login to download: Kien must download it** (agents may not create accounts) and put the files in
@@ -84,14 +89,27 @@ reports, not training data.
       **with NL (GEMM NL) held out as the check**. Only adopt new multipliers if NL does not get worse.
 
 ### D. Apply to the engine
-- [ ] D1. Change `projectedApplicants()` / `pileFor()` to the parameters from A and B (keep tests: `src/lib/odds-v2.test.ts`).
+- [x] D1. Change `projectedApplicants()` / `pileFor()` to the parameters from A and B (keep tests: `src/lib/odds-v2.test.ts`).
+      **No change, by A2 and B5:** L stays 28 and the sqrt curve stays; neither dataset measured anything better. (The research report
+      argues for L = 14 and an off-site channel multiplier; B5 supports the multiplier only as a bound, so it waits for panel data.)
 - [ ] D2. Update `learned_multipliers.json` if C improves NL.
-- [ ] D3. Rebuild MCP core, run checks, e2e, commit, push, deploy mcp. Recheck Mileway example (posting p38c15dfe4b42).
+- [x] D3. Rebuild MCP core, run checks, e2e, commit, push, deploy mcp. Recheck Mileway example (posting p38c15dfe4b42).
+      Done 2026-10-11 for D4. Mileway is 13 days old with a count read on day 2: unchanged at 15.4% [5.4-35] (pile 180). `bun run check`
+      909 tests, `bun run e2e` 9/9, landing 308.3 kB.
 
-- [ ] D4. Staleness in the chance itself: a posting older than its typical life is probably filled (rolling review). Today it only
+- [x] D4. Staleness in the chance itself: a posting older than its typical life is probably filled (rolling review). Today it only
       loses the "Most likely to hear back" tag and is not suggested (`likelyFilled()`, `LIKELY_FILLED_AFTER_DAYS = 30` in
       odds-v2.ts, done 2026-10-11). Next: multiply the chance by P(still reviewing | days open), e.g. survival of NL postings by age
       from A1 data, and show it on the job page.
+      **Done 2026-10-11** (`stillReviewing()` in odds-v2.ts, applied to p, low and high; a line on the job page; `OddsV2.reviewing`).
+      Survival redone properly (`scripts/research/posting_survival.py`, Kaplan-Meier with delayed entry, 2,529 postings, closes
+      observed only 2026-10-02..11): the A1 numbers were closed-only and so biased low. Two readings, because the checker swept many
+      old postings on 10-02, 10-03 and 10-10 (329 of 507 closes): counting every close, 62% still open at 28 days, 31% at 56, median
+      life 31; leaving the sweep days out, 87% at 28, 64% at 56, median 84. The curve used is the middle of the two (1.0 to day 14,
+      0.82 at 21, 0.75 at 28, 0.55 at 35, 0.47 at 56, 0.33 at 84). Measured: how long postings stay up. Assumed: employers stop
+      reading about when their postings come down. A posting with a closing date still ahead gets no discount (batch review): that
+      is 81% of the English postings older than 14 days, so only ~90 of 466 are touched. On 60 old no-deadline postings the average
+      chance fell from 3.97% to 3.32%. **Cannot be tightened until the checker has run for months: re-run the script then.**
 
 ### E. Outcome loop for when users come (build later, after D)
 - [ ] E1. Snapshot the predicted chance + inputs when a job is marked Applied (app and Claude connector).
@@ -114,3 +132,5 @@ reports, not training data.
   Next: when the .arff is 521,840,572 bytes, run the script (B2-B4), then write results under B5.
 - 2026-10-11: B done (see B5): dataset cannot calibrate growth (flat cross-section); channel ratio supports an off-site multiplier.
   Next options: D4 (staleness in the chance), panel logging of our own applicant counts, C1 (Deming data), C2 when Kien downloads Kline.
+- 2026-10-11 (later): D4 done as above; D1 closed as "no change"; D3 done. C1 is blocked on the Dataverse guestbook (see C1), C2 on
+  Kien's openICPSR download. E1 (snapshot when a job is marked Applied) is next.

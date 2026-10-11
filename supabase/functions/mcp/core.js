@@ -450,6 +450,23 @@ function degreeFamily(text) {
 var POSTING_LIFE_DAYS = 28;
 var LIKELY_FILLED_AFTER_DAYS = 30;
 var likelyFilled = (post) => (post.days_open ?? 0) > LIKELY_FILLED_AFTER_DAYS;
+var REVIEWING_CURVE = [[14, 1], [21, 0.82], [28, 0.75], [35, 0.55], [42, 0.52], [56, 0.47], [70, 0.385], [84, 0.33]];
+function stillReviewing(post, now = Date.now()) {
+  const age = post.days_open;
+  if (age === null || age === undefined || age <= REVIEWING_CURVE[0][0])
+    return 1;
+  const end = post.valid_through ? Date.parse(post.valid_through.length === 10 ? `${post.valid_through}T23:59:59Z` : post.valid_through) : Number.NaN;
+  if (Number.isFinite(end) && end > now)
+    return 1;
+  for (let i = 1;i < REVIEWING_CURVE.length; i++) {
+    const [d1, r1] = REVIEWING_CURVE[i];
+    if (age <= d1) {
+      const [d0, r0] = REVIEWING_CURVE[i - 1];
+      return r0 + (r1 - r0) * (age - d0) / (d1 - d0);
+    }
+  }
+  return REVIEWING_CURVE[REVIEWING_CURVE.length - 1][1];
+}
 var TYPICAL_READ_AGE_DAYS = 9;
 var DAY = 86400000;
 var dayOf = (iso) => {
@@ -677,7 +694,8 @@ function oddsV2(post, profile, ctx = {}) {
   const high = chanceIn(z + 0.3, smaller);
   const percentile = 1 - phi(z / Math.sqrt(1));
   const floor = (x) => Number.isFinite(x) ? FLOOR + Math.min(1, Math.max(0, x)) * (0.99 - FLOOR) : FLOOR;
-  return { p: floor(p), low: floor(Math.min(low, p)), high: floor(Math.max(high, p)), strength: z, pile, percentile, parts };
+  const reviewing = stillReviewing(post);
+  return { p: floor(p * reviewing), low: floor(Math.min(low, p) * reviewing), high: floor(Math.max(high, p) * reviewing), strength: z, pile, percentile, parts, reviewing };
 }
 
 // src/lib/degree.ts
@@ -1235,7 +1253,8 @@ function standing(post, profile, ref, shares, whatIf = NO_WHAT_IF, referral = fa
     const sign = (z) => z >= 0 ? "stronger" : "weaker";
     const lines = [
       { label: `About ${Math.round(v2.pile.applicants)} people apply and about ${v2.pile.interviews} are invited${v2.pile.seen ? ` (the posting showed ${v2.pile.seen.count} ${v2.pile.seen.daysAfterPosting === 1 ? "a day" : `${v2.pile.seen.daysAfterPosting} days`} after it went up; more apply while it is open, and not everyone applies there)` : v2.pile.source === "employer" ? " (this employer's average)" : " (typical for an employer like this)"}`, source: "Greenhouse 2026 · Ashby 2026" },
-      ...v2.parts.map((p) => ({ label: `${p.label}: ${sign(p.z)} by ${Math.abs(p.z).toFixed(2)}`, source: p.source }))
+      ...v2.parts.map((p) => ({ label: `${p.label}: ${sign(p.z)} by ${Math.abs(p.z).toFixed(2)}`, source: p.source })),
+      ...v2.reviewing < 1 ? [{ label: `The posting is ${post.days_open} days old, so the employer may have stopped reading: the chance is taken down to ${Math.round(v2.reviewing * 100)}% of what it would be on a new posting`, source: "How long Dutch postings stay up (odds, 2,529 postings)" }] : []
     ];
     rate = { low: v2.low, mid: v2.p, high: v2.high, lines, thin };
   }

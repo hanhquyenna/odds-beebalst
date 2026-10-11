@@ -547,6 +547,7 @@ export function standing(
     const lines: RateLine[] = [
       { label: `About ${Math.round(v2.pile.applicants)} people apply and about ${v2.pile.interviews} are invited${v2.pile.seen ? ` (the posting showed ${v2.pile.seen.count} ${v2.pile.seen.daysAfterPosting === 1 ? "a day" : `${v2.pile.seen.daysAfterPosting} days`} after it went up; more apply while it is open, and not everyone applies there)` : v2.pile.source === "employer" ? " (this employer's average)" : " (typical for an employer like this)"}`, source: "Greenhouse 2026 · Ashby 2026" },
       ...v2.parts.map((p) => ({ label: `${p.label}: ${sign(p.z)} by ${Math.abs(p.z).toFixed(2)}`, source: p.source })),
+      ...(v2.reviewing < 1 ? [{ label: `The posting is ${post.days_open} days old, so the employer may have stopped reading: the chance is taken down to ${Math.round(v2.reviewing * 100)}% of what it would be on a new posting`, source: "How long Dutch postings stay up (odds, 2,529 postings)" }] : []),
     ]
     rate = { low: v2.low, mid: v2.p, high: v2.high, lines, thin }
   }
