@@ -93,3 +93,26 @@ row("associate's degree", m.params["assoc"], m.bse["assoc"], None)
 row("female name", m.params["female"], m.bse["female"], None)
 print("  (the engine has no age part, on purpose; the race gap says nothing about a Dutch origin gap, but the spread of callback rates")
 print("   between employers (5% to 45% from the 10th to the 90th percentile, 9-fold) is the pile-size problem the engine handles with employer tiers, 60 to 600 applicants)")
+
+print("\n== Paths2Include (OSF 74q69, 2025): 15,036 vignettes rated by recruiters in Germany, Norway, Poland, Romania (ordered probit; a 1-10 rating, not a callback)")
+v = pd.read_stata(D + "sweep/paths2include-osf/hiring_discrimination_dataset.dta", convert_categoricals=False).dropna(subset=["d11", "x1_ref", "x3_nat", "x4_educ", "x5_lglvl", "x8_exptyp"])
+X = pd.DataFrame(
+    {
+        "referral": (v.x1_ref == 2).astype(float),
+        "origin_ukrainian": (v.x3_nat == 2).astype(float),
+        "origin_other_ethnic": (v.x3_nat == 3).astype(float),
+        "degree_from_home_country": (v.x4_educ == 2).astype(float),
+        "language_B2_not_C2": (v.x5_lglvl == 2).astype(float),
+        "experience_unrelated": (v.x8_exptyp == 2).astype(float),
+        "woman": (v.x2_sex == 1).astype(float),
+        "lives_with_partner": (v.x6_part == 2).astype(float),
+        "preschool_child": (v.x7_child == 1).astype(float),
+    }
+)
+X = pd.concat([X, pd.get_dummies(v.country.astype(int), prefix="c", drop_first=True).astype(float), pd.get_dummies(v.job.astype(int), prefix="j", drop_first=True).astype(float)], axis=1)
+res = OrderedModel(v.d11.astype(int), X, distr="probit").fit(method="bfgs", disp=0, maxiter=400)
+print(f"  {len(v)} vignettes, mean rating {v.d11.mean():.2f} of 10")
+for k, lab, eng in [("referral", "recommended by an employee (referral)", 0.247), ("origin_ukrainian", "Ukrainian origin (vs native)", -0.293), ("origin_other_ethnic", "other ethnic group (vs native)", -0.293), ("degree_from_home_country", "education from the home country", -0.043), ("language_B2_not_C2", "host language B2 instead of C2", -0.170), ("experience_unrelated", "2 years of experience unrelated to the job", None), ("woman", "woman", None), ("preschool_child", "preschool-aged child", None)]:
+    row(lab, res.params[k], res.bse[k], eng)
+print("  (engine values: referral = Ashby screen-pass ratio; origin = shipped nonEu; degree = shipped foreignDegree; language = shipped dutchBasic; the unrelated-experience")
+print("   effect is the engine's RELEVANCE span, about 1.4 probit units: compare it with the line above)")
