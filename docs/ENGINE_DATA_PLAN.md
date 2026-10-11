@@ -49,8 +49,12 @@ reports, not training data.
       Possible refinement later: L = 18 when the same job is also on a Workday board.
 
 ### B. LinkedIn Job Postings 2023-24 (pile size and growth curve)
-- [ ] B1. Download to `research-data/linkedin-postings/` (OpenML copy preferred; Kaggle needs an account). User approved
-      downloading on 2026-10-11. Record source URL, licence, file sizes, row counts.
+- [ ] B1. Download to `research-data/linkedin-postings/` (git-ignored, as all of research-data/). Source: OpenML dataset 45952
+      "Linkedin_Job_Postings" (copy of Kaggle arshkon "LinkedIn Job Postings 2023-2024" postings.csv), licence CC BY-SA,
+      https://openml.org/data/v1/download/22120395/Linkedin_Job_Postings.arff, 521,840,572 bytes, 123,849 rows, 28 columns.
+      Download started 2026-10-11 (slow, ~1 MB/s). If it is incomplete, rerun:
+      `curl -L -C - -o research-data/linkedin-postings/Linkedin_Job_Postings.arff <url above>`.
+      Analysis script: `scripts/research/linkedin_postings.py` (reads the ARFF, writes `research-data/linkedin-postings/summary.json`).
 - [ ] B2. Profile it: rows with `applies`, distribution of applies (median, p75, p90) by experience level (Internship, Entry level),
       company size, remote, and whether the job is Easy Apply (`application_type`) vs off-site.
 - [ ] B3. Cross-sectional growth curve: applies vs age at scrape (scrape time − original listed time), fit cumulative
@@ -60,7 +64,10 @@ reports, not training data.
 
 ### C. More field-experiment data (profile strength)
 - [ ] C1. Deming et al. 2016: unzip `research-data/deming/deming.zip`, map columns to the engine's parts like `export_gemm.py`.
-- [ ] C2. Kline, Rose & Walters 2021 replication data: download (openICPSR / authors' GitHub), record source + licence; map columns.
+- [ ] C2. Kline, Rose & Walters 2022 (QJE 137(4), doi 10.1093/qje/qjac024), 83k+ applications to 108 large US employers.
+      Replication data: openICPSR project 198284 V1, https://www.openicpsr.org/openicpsr/project/198284/version/V1/view
+      **Needs a free openICPSR login to download: Kien must download it** (agents may not create accounts) and put the files in
+      `research-data/kline/`. Then map columns like `export_gemm.py`.
 - [ ] C3. Kroft, Lange & Notowidigdo 2013 (optional).
 - [ ] C4. Add to the backtest (`loop.py` / `learn.py`), re-learn multipliers, report AUC and calibration slope per dataset,
       **with NL (GEMM NL) held out as the check**. Only adopt new multipliers if NL does not get worse.
@@ -91,3 +98,6 @@ reports, not training data.
 - 2026-10-11: user asked: suggestions newest first, and no "Most likely to hear back" on a 45-day-old job. Done: similarMix sorts
   newest first and skips postings > 30 days; hearBackFor skips them too (tests in src/lib/tailor.test.ts). MCP core rebuilt and
   deployed. Next: B1 (OpenML dataset id 45952 "Linkedin_Job_Postings", 123,849 rows, 28 features).
+- 2026-10-11: B1 download running; analysis script written and tested on a partial file (scripts/research/linkedin_postings.py,
+  stdlib only; times are 'YYYY-MM-DD HH:MM:SS' strings, missing = '?'). C2 needs Kien to download from openICPSR (login).
+  Next: when the .arff is 521,840,572 bytes, run the script (B2-B4), then write results under B5.
