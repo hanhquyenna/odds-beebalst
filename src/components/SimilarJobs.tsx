@@ -3,6 +3,7 @@ import { JobRow } from "@/components/JobBoard"
 import { notYours } from "@/components/FitTable"
 import { useCompanyProfiles } from "@/lib/company-profile"
 import { useData } from "@/lib/data"
+import { useFitEngine } from "@/lib/use-fit-engine"
 import { similarMix } from "@/lib/tailor"
 import type { Posting } from "@/lib/types"
 
@@ -13,13 +14,16 @@ import type { Posting } from "@/lib/types"
 export function SimilarJobs({ onOpen }: { onOpen: (post: Posting) => void }): React.JSX.Element | null {
   const data = useData()
   const profiles = useCompanyProfiles()
+  const engine = useFitEngine()
   const rows = useMemo(() => {
     const applied = new Set(data.applications.map((a) => a.posting_id))
     const mine = [...data.postings, ...data.keptExtra].filter((p) => data.saved.has(p.id) || applied.has(p.id))
     const pool = notYours({ postings: data.postings, applications: data.applications, saved: data.saved, passed: data.passed })
 
-    return similarMix(mine, pool, profiles, 5)
-  }, [data.postings, data.keptExtra, data.saved, data.applications, data.passed, profiles])
+    const avoid = (data.profile.dismissed ?? []).map((id) => data.byId.get(id)).filter((p): p is Posting => Boolean(p))
+
+    return similarMix(mine, pool, profiles, 5, new Date(), { weightOf: engine?.weightOf, chanceOf: engine?.chanceOf, avoid, eligible: engine ? (p) => !engine.fitOf(p).blocked : undefined, fieldOrder: data.profile.prefs?.field })
+  }, [data.postings, data.keptExtra, data.saved, data.applications, data.passed, data.profile, data.byId, profiles, engine])
 
   if (rows.length === 0) return null
 

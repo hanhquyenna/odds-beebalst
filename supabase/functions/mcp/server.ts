@@ -217,6 +217,13 @@ const ME_TOOLS = [
     write: false,
   },
   {
+    name: "similar_to_saved",
+    title: "Jobs like the ones I saved",
+    description: "A few open jobs like the ones the person saved or applied to, in the same mix as their list (two thirds finance saved: about two thirds of the suggestions are finance-like). A job they applied to or are interviewing for counts more than one they only saved; nothing much like a job they dismissed is suggested.",
+    inputSchema: { type: "object", properties: { limit: { type: "number", description: "Up to 20, default 5." } } },
+    write: false,
+  },
+  {
     name: "my_documents",
     title: "My documents",
     description: "The CVs and cover letters the person keeps in odds Documents (up to thirty), and which CV is their main one.",
@@ -355,7 +362,7 @@ async function call(env: Env, me: Me | null, keyGiven: boolean, name: string, ra
     if (!core.hasProfile(profile)) return failed("Tell me about the person first: at least one role or one degree.")
     const mine = me ? await myJobIds(env, me) : null
 
-    return text({ jobs: core.tailoredFor(w.pool, w.ref, w.signals, w.shares, profile, { fields: args.fields, limit: args.limit, saved: mine ? mine.ids.map((id) => w.byId.get(id)).filter(Boolean) : undefined, dismissed: mine?.dismissed }) })
+    return text({ jobs: core.tailoredFor(w.pool, w.ref, w.signals, w.shares, profile, { fields: args.fields, limit: args.limit, saved: mine ? mine.ids.map((id) => w.byId.get(id)).filter(Boolean) : undefined, dismissed: mine?.dismissed, stages: mine?.stage }) })
   }
 
   return failed(`Unknown tool: ${name}`)
@@ -439,6 +446,15 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
     })
 
     return text({ jobs, note: jobs.length === 0 ? "Nothing saved yet. Save jobs on odds (or with save_job) and they show here." : undefined })
+  }
+
+  if (name === "similar_to_saved") {
+    const [mine, profile] = await Promise.all([myJobIds(env, me), myProfile(env, me)])
+    const saved = mine.ids.map((id) => w.byId.get(id)).filter(Boolean)
+    if (saved.length === 0) return text({ jobs: [], note: "Nothing saved yet: save a few jobs and they will be suggested from." })
+    const dismissed = [...mine.dismissed].map((id) => w.byId.get(id)).filter(Boolean)
+
+    return text({ jobs: core.similarToSaved(w.pool, w.ref, w.shares, profile, saved, { stages: mine.stage, dismissed, limit: args.limit }) })
   }
 
   if (name === "my_documents") {

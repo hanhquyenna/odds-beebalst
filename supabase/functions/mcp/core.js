@@ -3065,81 +3065,6 @@ function fitFilters(filters, profile, fields = profileFields(profile)) {
   return f.field.length > 0 || fields.length === 0 ? f : { ...f, field: fields };
 }
 
-// src/lib/hear-back.ts
-var TOP_SHARE = 0.05;
-var LIFT = 2;
-var cache2 = new WeakMap;
-function hearBackFor(postings, profile, referrals, record) {
-  const byPool = cache2.get(profile) ?? new WeakMap;
-  cache2.set(profile, byPool);
-  const hit = byPool.get(postings);
-  if (hit)
-    return hit;
-  const out = new Map;
-  if (hasCvData(profile)) {
-    const scored = postings.filter((p) => !p.closed_at && !likelyFilled(p)).map((post) => ({ post, r: oddsV2(post, profile, { referral: referrals.has(post.id), record: record(post) }) }));
-    const room = Math.max(1, Math.floor(scored.length * TOP_SHARE));
-    const ranked = [...scored].sort((a, b) => b.r.p - a.r.p).slice(0, room);
-    for (const { post, r } of ranked) {
-      const average = r.pile.interviews / r.pile.applicants;
-      if (r.p < LIFT * average)
-        continue;
-      const lift = r.parts.filter((x) => x.z > 0.05).sort((a, b) => b.z - a.z)[0];
-      const pile = `about ${Math.round(r.pile.applicants)} people apply and about ${r.pile.interviews} are invited`;
-      out.set(post.id, { chance: r.p, reason: `You stand out here: ${pile}, and your chance is ${Math.round(r.p / average)} times an average applicant's${lift ? `, mainly because of ${lift.label.replace(/^Most relevant: /, "").replace(/ \((same|a neighbouring|another) line of work\)$/, "")}` : ""}.` });
-    }
-  }
-  byPool.set(postings, out);
-  return out;
-}
-
-// src/lib/outcome-snapshot.ts
-var SNAPSHOT_MODEL = "odds-v2.2-reviewing";
-var round = (x, digits = 4) => Math.round(x * 10 ** digits) / 10 ** digits;
-function chanceSnapshot(post, profile, ctx = {}) {
-  const v2 = oddsV2(post, profile, ctx);
-  const parts = {};
-  for (const p of v2.parts)
-    parts[p.key] = round(p.z);
-  return {
-    posting_id: post.id,
-    model: SNAPSHOT_MODEL,
-    chance: round(v2.p),
-    low: round(v2.low),
-    high: round(v2.high),
-    snapshot: {
-      parts,
-      reviewing: round(v2.reviewing),
-      pile: { applicants: Math.round(v2.pile.applicants), interviews: v2.pile.interviews, source: v2.pile.source },
-      referral: ctx.referral === true,
-      post: {
-        family: post.family ?? null,
-        level: post.level_view ?? null,
-        days_open: post.days_open ?? null,
-        applicants: post.applicants ?? null,
-        source: post.source,
-        ats: post.ats,
-        dutch_required: post.dutch_required,
-        ind_sponsor: Boolean(post.ind_sponsor),
-        employer_tier: employerTier(post.employer_display || post.employer, ctx.employerEmployees),
-        has_deadline: Boolean(post.valid_through)
-      }
-    }
-  };
-}
-
-// src/lib/skill-tiers.ts
-function withSkillTiers(post) {
-  const t = post.skill_tiers;
-  if (!t || typeof t !== "object")
-    return Array.isArray(post.skills) ? post : { ...post, skills: [] };
-  const tiers = {};
-  for (const [name, tier] of Object.entries(t))
-    if (tier)
-      tiers[name] = tier;
-  return { ...post, skills: Object.keys(t), tiers };
-}
-
 // src/lib/tailor.ts
 var GENERIC = new Set([
   "intern",
@@ -3260,11 +3185,14 @@ function ownMatch(post, own) {
   });
   return best;
 }
-function tailor({ candidates, fitting, saved, chanceOf, profiles, liftOf, own = [], fieldOrder = [], today = new Date }) {
+function tailor({ candidates, fitting, saved, chanceOf, profiles, liftOf, own = [], fieldOrder = [], fitOf, today = new Date }) {
   const ownSets = own.map(titleWords);
   const scored = [];
   for (const post of candidates) {
     if (pastDeadline(post, today))
+      continue;
+    const pf = fitOf?.(post);
+    if (pf?.blocked)
       continue;
     let best = null;
     for (const s of saved) {
@@ -3273,15 +3201,315 @@ function tailor({ candidates, fitting, saved, chanceOf, profiles, liftOf, own = 
         best = { s, l };
     }
     const mine = ownMatch(post, ownSets);
-    const interest = best || mine.share >= 0.5 ? 3 : mine.share > 0 ? 2 : fitting.has(post.id) ? 1 : 0;
+    const interest = best || mine.share >= 0.5 ? 3 : mine.share > 0 ? 2 : fitting.has(post.id) || (pf?.score ?? 0) >= 0.5 ? 1 : 0;
     if (interest === 0)
       continue;
     const lift = liftOf(post);
     const note = best ? `Like the ${shortTitle(best.s.title)} at ${shortName(best.s.employer_display)} you saved: ${best.l.why.slice(0, 3).join(", ")}` : mine.share > 0 ? `Close to your own work as ${shortTitle(own[mine.title])}: ${mine.words.slice(0, 2).join(", ")}` : lift ? `Fits your background: ${lift}` : "Fits your preferences";
+    const why = !best && mine.share === 0 && pf && pf.reasons.length > 0 ? `Fits your profile: ${pf.reasons.slice(0, 2).join("; ")}` : pf && pf.reasons.length > 0 && !/visa sponsor/.test(pf.reasons[0]) ? `${note} · ${pf.reasons[0]}` : note;
     const at = fieldOrder.length > 0 ? fieldOrder.indexOf(fieldOf(post) ?? "") : -1;
-    scored.push({ post, chance: chanceOf(post), note, interest, fresh: freshness(post), rank: at < 0 ? fieldOrder.length : at });
+    scored.push({ post, chance: chanceOf(post), note: why, interest, fresh: freshness(post), rank: at < 0 ? fieldOrder.length : at, fit: pf?.score == null ? 3 : Math.floor(pf.score * 10) });
   }
-  return scored.sort((x, y) => x.rank - y.rank || y.interest - x.interest || x.fresh - y.fresh || y.chance - x.chance || (x.post.days_open ?? 1e9) - (y.post.days_open ?? 1e9)).map(({ post, chance, note }) => ({ post, chance, note }));
+  const sorted = scored.sort((x, y) => x.rank - y.rank || y.interest - x.interest || y.fit - x.fit || x.fresh - y.fresh || y.chance - x.chance || (x.post.days_open ?? 1e9) - (y.post.days_open ?? 1e9)).map(({ post, chance, note }) => ({ post, chance, note }));
+  return spread(dedupe(sorted));
+}
+var same = (p) => `${p.employer}|${[...titleWords(p.title)].sort().join(" ")}|${city(p)}`;
+function dedupe(rows) {
+  const seen = new Set;
+  return rows.filter((r) => {
+    const k = same(r.post);
+    if (seen.has(k))
+      return false;
+    seen.add(k);
+    return true;
+  });
+}
+function spread(rows, perEmployer = 2) {
+  const seen = new Map;
+  const first = [];
+  const later = [];
+  for (const r of rows) {
+    const n = seen.get(r.post.employer) ?? 0;
+    seen.set(r.post.employer, n + 1);
+    (n < perEmployer ? first : later).push(r);
+  }
+  return [...first, ...later];
+}
+var RANK_WEIGHT = [1.4, 1.2, 1.1];
+function similarMix(saved, candidates, profiles, count = 5, today = new Date, opts = {}) {
+  const have = new Set(saved.map((s) => s.id));
+  const rankOf = (f) => f && opts.fieldOrder ? opts.fieldOrder.indexOf(f) : -1;
+  const weight = (s) => {
+    const r = rankOf(s.family ?? null);
+    return Math.max(0.1, opts.weightOf?.(s) ?? 1) * (r >= 0 && r < RANK_WEIGHT.length ? RANK_WEIGHT[r] : 1);
+  };
+  const groups = new Map;
+  for (const s of saved)
+    groups.set(s.family ?? "", [...groups.get(s.family ?? "") ?? [], s]);
+  if (groups.size === 0)
+    return [];
+  const groupWeight = new Map([...groups.entries()].map(([g, list]) => [g, list.reduce((n, s) => n + weight(s), 0)]));
+  const heaviest = new Map([...groups.entries()].map(([g, list]) => [g, Math.max(...list.map(weight))]));
+  const best = new Map;
+  for (const job of candidates) {
+    if (have.has(job.id) || pastDeadline(job, today) || likelyFilled(job) || opts.eligible?.(job) === false)
+      continue;
+    for (const [group, list] of groups) {
+      for (const s of list) {
+        const like = likeness(s, job, profiles);
+        if (!isLike(like))
+          continue;
+        const chance = opts.chanceOf ? Math.min(1, opts.chanceOf(job) / 0.25) : 0;
+        const score = like.score * (0.85 + 0.15 * (weight(s) / (heaviest.get(group) ?? 1))) + 0.08 * chance;
+        const now = best.get(job.id);
+        if (!now || score > now.score)
+          best.set(job.id, { job, like, group, s, score });
+      }
+    }
+  }
+  const avoid = opts.avoid ?? [];
+  const wanted = [...best.values()].filter((x) => !avoid.some((a) => {
+    const l = likeness(a, x.job, profiles);
+    return l.anchored && l.score >= 0.5 && l.score > x.like.score;
+  }));
+  const byGroup = new Map;
+  for (const x of wanted)
+    byGroup.set(x.group, [...byGroup.get(x.group) ?? [], x]);
+  for (const list of byGroup.values())
+    list.sort((x, y) => y.score - x.score || freshness(x.job) - freshness(y.job));
+  const live = [...groups.keys()].filter((g) => (byGroup.get(g)?.length ?? 0) > 0);
+  const total = live.reduce((n, g) => n + (groupWeight.get(g) ?? 0), 0);
+  const want = new Map;
+  const exact = live.map((g) => ({ g, x: (groupWeight.get(g) ?? 0) / total * count }));
+  for (const e of exact)
+    want.set(e.g, Math.floor(e.x));
+  let left = count - [...want.values()].reduce((a, b) => a + b, 0);
+  for (const e of [...exact].sort((a, b) => b.x - Math.floor(b.x) - (a.x - Math.floor(a.x)))) {
+    if (left <= 0)
+      break;
+    want.set(e.g, (want.get(e.g) ?? 0) + 1);
+    left -= 1;
+  }
+  const out = [];
+  const used = new Set;
+  const perEmployer = new Map;
+  const take = (g, n, cap) => {
+    for (const x of byGroup.get(g) ?? []) {
+      if (n <= 0 || out.length >= count)
+        return;
+      const emp = x.job.employer;
+      if (used.has(x.job.id) || (perEmployer.get(emp) ?? 0) >= cap)
+        continue;
+      used.add(x.job.id);
+      perEmployer.set(emp, (perEmployer.get(emp) ?? 0) + 1);
+      out.push({ post: x.job, note: `Like the ${shortTitle(x.s.title)} at ${shortName(x.s.employer_display)} you saved: ${x.like.why.slice(0, 3).join(", ")}` });
+      n -= 1;
+    }
+  };
+  const cap = opts.perEmployer ?? 1;
+  for (const g of live)
+    take(g, want.get(g) ?? 0, cap);
+  const heavy = [...live].sort((a, b) => (groupWeight.get(b) ?? 0) - (groupWeight.get(a) ?? 0));
+  for (const g of heavy)
+    take(g, count - out.length, cap);
+  for (const g of heavy)
+    take(g, count - out.length, Math.max(cap, 2));
+  return out.sort((a, b) => (a.post.days_open ?? Number.MAX_SAFE_INTEGER) - (b.post.days_open ?? Number.MAX_SAFE_INTEGER));
+}
+
+// src/lib/profile-fit.ts
+var CONTENT_WEIGHTS = { cv: 0.6, industry: 0.2, headline: 0.2 };
+var LOGISTICS_WEIGHTS = { level: 0.4, city: 0.3, sponsor: 0.3 };
+var WANT_STOP = new Set(["student", "studying", "aspiring", "at", "the", "of", "and", "in", "for", "with", "to", "a", "an", "msc", "bsc", "master", "bachelor", "university", "amsterdam", "rotterdam", "utrecht", "netherlands", "looking", "seeking", "open", "work", "intern", "internship"].map(stem));
+var norm = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+function industryByEmployer(pool) {
+  const out = new Map;
+  for (const p of pool) {
+    const ind = industryOf(p);
+    if (ind && !out.has(norm(p.employer_display || p.employer)))
+      out.set(norm(p.employer_display || p.employer), ind);
+  }
+  return out;
+}
+function profileSignals(profile, byEmployer = new Map) {
+  const d = derive(profile);
+  const studying = d.studying;
+  const gone = d.graduatedMonthsAgo;
+  const levels = studying === true ? ["Internship"] : gone !== null && gone <= 24 ? ["Entry", "Internship"] : d.years >= 2 ? ["Entry", "Mid"] : ["Entry", "Internship"];
+  const place = (profile.place ?? "").split(/[,;]/)[0].trim().toLowerCase();
+  const industries = [];
+  const industryFrom = {};
+  for (const role of d.roles) {
+    const ind = byEmployer.get(norm(role.company));
+    if (ind && !industries.includes(ind)) {
+      industries.push(ind);
+      industryFrom[ind] = role.company;
+    }
+  }
+  const wanted = new Set(words(profile.headline ?? "").map(stem).filter((w) => w.length > 2 && !WANT_STOP.has(w)));
+  return { studying, graduatedMonthsAgo: gone, levels, city: place || null, needsPermit: profile.permit === "other_non_eu" || profile.permit === "orientation_year" || profile.permit === "hsm", industries, industryFrom, wanted };
+}
+var REASON_BAR = 0.6;
+var SPONSOR_REASON = "a recognised visa sponsor";
+function profileFitFor(post, st, sig) {
+  const failed = (name) => st.gates.some((g) => g.name === name && g.status === "fail");
+  const studentJob = post.role_kind === "internship" || post.role_kind === "working_student" || post.level_view === "Internship";
+  const pastStudent = sig.studying === false && sig.graduatedMonthsAgo !== null && sig.graduatedMonthsAgo > 24;
+  const blocked = failed("Student") ? "asks for a student and you are not studying" : failed("Language") ? "asks for a language you do not list" : failed("Dutch") ? "asks for Dutch" : studentJob && pastStudent ? "an internship, and you finished your studies over two years ago" : null;
+  const content = [];
+  const logistics = [];
+  if (st.fit) {
+    const part = (key) => st.fit?.parts.find((x) => x.key === key);
+    const skills = part("skills");
+    const role = part("role");
+    const field = part("field");
+    const reason = skills && skills.value >= 0.55 ? `skills: ${skills.detail}` : role && role.value >= 0.5 ? "the title matches your roles" : field && field.value >= 0.5 ? "the line of work your CV points to" : st.fit.score >= REASON_BAR ? "your CV matches what it asks for" : undefined;
+    content.push({ w: CONTENT_WEIGHTS.cv, v: st.fit.score, reason });
+  }
+  const ind = industryOf(post);
+  if (sig.industries.length > 0 && ind) {
+    const hit = sig.industries.indexOf(ind);
+    content.push({ w: CONTENT_WEIGHTS.industry, v: hit === 0 ? 1 : hit > 0 ? 0.7 : 0, reason: hit >= 0 ? `the same industry as your time at ${sig.industryFrom[ind]}` : undefined });
+  }
+  if (sig.wanted.size > 0) {
+    const title = new Set(words(post.title.replace(/\([^)]*\)/g, " ")).map(stem));
+    const hit = [...sig.wanted].filter((w) => title.has(w));
+    content.push({ w: CONTENT_WEIGHTS.headline, v: hit.length > 0 ? 1 : 0, reason: hit.length > 0 ? `${hit[0]} is what your headline says you want` : undefined });
+  }
+  const level = post.level_view ?? null;
+  if (level && level !== "Not stated") {
+    const at = sig.levels.indexOf(level);
+    logistics.push({ w: LOGISTICS_WEIGHTS.level, v: at === 0 ? 1 : at > 0 ? 0.5 : 0 });
+  }
+  const here = sig.city;
+  if (here) {
+    const there = cityOf(post).toLowerCase();
+    if (there && there !== "location not stated")
+      logistics.push({ w: LOGISTICS_WEIGHTS.city, v: there === here ? 1 : 0, reason: there === here ? `in ${cityOf(post)}, where you live` : undefined });
+  }
+  if (sig.needsPermit)
+    logistics.push({ w: LOGISTICS_WEIGHTS.sponsor, v: post.ind_sponsor ? 1 : 0, reason: post.ind_sponsor ? SPONSOR_REASON : undefined });
+  const mean = (parts) => {
+    const total = parts.reduce((n, p) => n + p.w, 0);
+    return total === 0 ? null : parts.reduce((n, p) => n + p.w * p.v, 0) / total;
+  };
+  const says = titleWords(post.title).size > 0 || (post.skills?.length ?? 0) > 0;
+  const c0 = mean(content);
+  const c = c0 !== null && !says ? Math.min(c0, 0.15) : c0;
+  const l = mean(logistics);
+  if (c === null && l === null)
+    return { score: null, reasons: [], blocked };
+  let score = (c ?? 0.2) * (0.5 + 0.5 * (l ?? 0.7));
+  if (failed("Minimum years") || failed("Degree"))
+    score = Math.max(0, score - 0.1);
+  const reasons = [...content, ...logistics].filter((p) => p.reason).sort((x, y) => Number(x.reason === SPONSOR_REASON) - Number(y.reason === SPONSOR_REASON) || y.w * y.v - x.w * x.v).map((p) => p.reason);
+  return { score, reasons: reasons.slice(0, 3), blocked };
+}
+
+// src/lib/fit-engine.ts
+var STAGE_WEIGHT = { applied: 1.5, interview: 2.2, offer: 2.5, hired: 2.5, rejected: 0.7, no_reply: 0.7, withdrawn: 0.4 };
+function createFitEngine({ postings, profile, reference, shares, referrals, strengthFor, stages }) {
+  const signals = profileSignals(profile, industryByEmployer(postings));
+  const stood = new Map;
+  const stand = (post) => {
+    let st = stood.get(post.id);
+    if (!st) {
+      st = standing(post, profile, reference, shares, undefined, referrals?.has(post.id) ?? false, strengthFor?.(post) ?? null);
+      stood.set(post.id, st);
+    }
+    return st;
+  };
+  const fits = new Map;
+  return {
+    chanceOf: (post) => stand(post).rate?.mid ?? 0,
+    fitOf: (post) => {
+      let f = fits.get(post.id);
+      if (!f) {
+        f = profileFitFor(post, stand(post), signals);
+        fits.set(post.id, f);
+      }
+      return f;
+    },
+    weightOf: (post) => {
+      const stage = stages?.get(post.id);
+      return stage ? STAGE_WEIGHT[stage] : 1;
+    }
+  };
+}
+
+// src/lib/hear-back.ts
+var TOP_SHARE = 0.05;
+var LIFT = 2;
+var cache2 = new WeakMap;
+function hearBackFor(postings, profile, referrals, record) {
+  const byPool = cache2.get(profile) ?? new WeakMap;
+  cache2.set(profile, byPool);
+  const hit = byPool.get(postings);
+  if (hit)
+    return hit;
+  const out = new Map;
+  if (hasCvData(profile)) {
+    const scored = postings.filter((p) => !p.closed_at && !likelyFilled(p)).map((post) => ({ post, r: oddsV2(post, profile, { referral: referrals.has(post.id), record: record(post) }) }));
+    const room = Math.max(1, Math.floor(scored.length * TOP_SHARE));
+    const ranked = [...scored].sort((a, b) => b.r.p - a.r.p).slice(0, room);
+    for (const { post, r } of ranked) {
+      const average = r.pile.interviews / r.pile.applicants;
+      if (r.p < LIFT * average)
+        continue;
+      const lift = r.parts.filter((x) => x.z > 0.05).sort((a, b) => b.z - a.z)[0];
+      const pile = `about ${Math.round(r.pile.applicants)} people apply and about ${r.pile.interviews} are invited`;
+      out.set(post.id, { chance: r.p, reason: `You stand out here: ${pile}, and your chance is ${Math.round(r.p / average)} times an average applicant's${lift ? `, mainly because of ${lift.label.replace(/^Most relevant: /, "").replace(/ \((same|a neighbouring|another) line of work\)$/, "")}` : ""}.` });
+    }
+  }
+  byPool.set(postings, out);
+  return out;
+}
+
+// src/lib/outcome-snapshot.ts
+var SNAPSHOT_MODEL = "odds-v2.2-reviewing";
+var round = (x, digits = 4) => Math.round(x * 10 ** digits) / 10 ** digits;
+function chanceSnapshot(post, profile, ctx = {}) {
+  const v2 = oddsV2(post, profile, ctx);
+  const parts = {};
+  for (const p of v2.parts)
+    parts[p.key] = round(p.z);
+  return {
+    posting_id: post.id,
+    model: SNAPSHOT_MODEL,
+    chance: round(v2.p),
+    low: round(v2.low),
+    high: round(v2.high),
+    snapshot: {
+      parts,
+      reviewing: round(v2.reviewing),
+      pile: { applicants: Math.round(v2.pile.applicants), interviews: v2.pile.interviews, source: v2.pile.source },
+      referral: ctx.referral === true,
+      post: {
+        family: post.family ?? null,
+        level: post.level_view ?? null,
+        days_open: post.days_open ?? null,
+        applicants: post.applicants ?? null,
+        source: post.source,
+        ats: post.ats,
+        dutch_required: post.dutch_required,
+        ind_sponsor: Boolean(post.ind_sponsor),
+        employer_tier: employerTier(post.employer_display || post.employer, ctx.employerEmployees),
+        has_deadline: Boolean(post.valid_through)
+      }
+    }
+  };
+}
+
+// src/lib/skill-tiers.ts
+function withSkillTiers(post) {
+  const t = post.skill_tiers;
+  if (!t || typeof t !== "object")
+    return Array.isArray(post.skills) ? post : { ...post, skills: [] };
+  const tiers = {};
+  for (const [name, tier] of Object.entries(t))
+    if (tier)
+      tiers[name] = tier;
+  return { ...post, skills: Object.keys(t), tiers };
 }
 
 // supabase/functions/mcp/core.src.ts
@@ -3404,23 +3632,26 @@ function tailoredFor(pool, ref, signals, shares, profile, opts) {
   const open = pool.filter((p) => !savedIds.has(p.id) && !(opts.dismissed?.has(p.id) ?? false));
   const fitting = new Set(applyFilters(open, effective, ctx).map((p) => p.id));
   const candidates = [...applyFilters(open, withFitLanguage(filters), ctx)];
-  const memo = new Map;
-  const chanceOf = (post) => {
-    let c = memo.get(post.id);
-    if (c === undefined) {
-      c = standing(post, profile, ref, shares).rate?.mid ?? 0;
-      memo.set(post.id, c);
-    }
-    return c;
-  };
+  const engine = createFitEngine({ postings: pool, profile, reference: ref, shares, stages: opts.stages });
+  const { chanceOf, fitOf } = engine;
   const liftOf = (post) => {
     const top = oddsV2(post, profile, {}).parts.filter((x) => x.z > 0.05).sort((a, b) => b.z - a.z)[0];
     return top ? plainLabel(top.label) : null;
   };
   const own = [...profile.positions.map((p) => p.Title ?? ""), profile.headline].filter((t) => t.trim() !== "");
-  const rows = tailor({ candidates, fitting, saved: opts.saved ?? [], chanceOf, profiles: {}, liftOf, own, fieldOrder });
+  const rows = tailor({ candidates, fitting, saved: opts.saved ?? [], chanceOf, profiles: {}, liftOf, own, fieldOrder, fitOf });
   const tags = hearBackFor(pool, profile, new Set, () => null);
   return rows.slice(0, Math.min(opts.limit ?? 15, 50)).map((r) => ({ ...jobLine(r.post, ref), chance_pct: Math.round(r.chance * 1000) / 10, why: r.note, most_likely_to_hear_back: tags.has(r.post.id) }));
+}
+function similarToSaved(pool, ref, shares, profile, saved, opts) {
+  const engine = createFitEngine({ postings: pool, profile, reference: ref, shares, stages: opts.stages });
+  const ids = new Set(saved.map((p) => p.id));
+  const rows = similarMix(saved, pool.filter((p) => !ids.has(p.id)), {}, Math.min(opts.limit ?? 5, 20), new Date, { weightOf: engine.weightOf, chanceOf: engine.chanceOf, avoid: opts.dismissed, eligible: (p) => !engine.fitOf(p).blocked, fieldOrder: known(opts.fields, FIELD_OPTIONS) });
+  return rows.map((r) => ({ ...jobLine(r.post, ref), why: r.note }));
+}
+function fitTable(pool, ref, shares, profile) {
+  const engine = createFitEngine({ postings: pool, profile, reference: ref, shares });
+  return pool.map((post) => ({ post, ...engine.fitOf(post), chance: engine.chanceOf(post) })).sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
 }
 export {
   FIELD_OPTIONS,
@@ -3428,6 +3659,7 @@ export {
   chanceFor,
   chanceSnapshot,
   filtersFrom,
+  fitTable,
   hasProfile,
   jobLine,
   makeReference,
@@ -3437,5 +3669,7 @@ export {
   search,
   sharesOf,
   signalsOf,
+  similarMix,
+  similarToSaved,
   tailoredFor
 };

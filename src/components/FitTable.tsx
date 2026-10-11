@@ -6,7 +6,6 @@ import { DEFAULT_FILTERS, FIELD_OPTIONS, applyFilters, type JobFilters } from "@
 import { useSavedViews } from "@/lib/use-saved-views"
 import { Button } from "@/components/ui/button"
 import { useData, type Data } from "@/lib/data"
-import { standing } from "@/lib/engine"
 import { profileFields } from "@/lib/field"
 import { fitFilters, withFitLanguage } from "@/lib/fit-filters"
 import { openLinkedInImport } from "@/lib/open-profile"
@@ -14,6 +13,7 @@ import { CV_ACCEPT, profileWithCv } from "@/lib/cv-profile"
 import { oddsV2 } from "@/lib/odds-v2"
 import { stretches, tailor } from "@/lib/tailor"
 import { useCompanyProfiles } from "@/lib/company-profile"
+import { useFitEngine } from "@/lib/use-fit-engine"
 import type { Posting } from "@/lib/types"
 
 /** How many rows are shown at each step: a first look, a longer one, then everything. */
@@ -60,6 +60,7 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
   const { filters } = saved
   const [step, setStep] = useState<0 | 1 | 2>(0)
   const profiles = useCompanyProfiles()
+  const engine = useFitEngine()
 
   const fields = useMemo(() => profileFields(data.profile), [data.profile])
   // English unless a language is chosen, and until a line of work is chosen, the ones your profile points to (src/lib/fit-filters.ts, shared with the morning message).
@@ -70,22 +71,13 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
   const { rows, stretch } = useMemo(() => {
     if (!data.reference || !data.shares || needsProfile) return { rows: [], stretch: [] }
     const ref = data.reference
-    const shares = data.shares
     const pool = notYours({ postings: data.postings, applications: data.applications, saved: data.saved, passed: data.passed })
     const ctx = { signals: data.signals, reference: ref }
     const fitting = new Set(applyFilters(pool, effective, ctx).map((p) => p.id))
     const applied = new Set(data.applications.map((a) => a.posting_id))
     const mine = [...data.postings, ...data.keptExtra].filter((p) => data.saved.has(p.id) || applied.has(p.id))
-    const memo = new Map<string, number>()
-    const chanceOf = (post: Posting): number => {
-      let c = memo.get(post.id)
-      if (c === undefined) {
-        c = standing(post, data.profile, ref, shares, undefined, data.referrals.has(post.id), strengthFor(post)).rate?.mid ?? 0
-        memo.set(post.id, c)
-      }
-
-      return c
-    }
+    if (!engine) return { rows: [], stretch: [] }
+    const { chanceOf, fitOf } = engine
     const liftOf = (post: Posting): string | null => {
       const top = oddsV2(post, data.profile, { record: strengthFor(post) }).parts.filter((x) => x.z > 0.05).sort((a, b) => b.z - a.z)[0]
 
@@ -96,8 +88,8 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
 
     const own = [...data.profile.positions.map((p) => p.Title ?? ""), data.profile.headline].filter((t) => t.trim() !== "")
 
-    return { rows: tailor({ candidates, fitting, saved: mine, chanceOf, profiles, liftOf, own, fieldOrder: filters.field }), stretch: stretches(mine, chanceOf) }
-  }, [data.postings, data.keptExtra, data.profile, data.reference, data.shares, data.referrals, data.saved, data.applications, data.passed, data.signals, strengthFor, effective, filters, profiles, needsProfile])
+    return { rows: tailor({ candidates, fitting, saved: mine, chanceOf, profiles, liftOf, own, fieldOrder: filters.field, fitOf }), stretch: stretches(mine, chanceOf) }
+  }, [data.postings, data.keptExtra, data.profile, data.reference, data.shares, data.saved, data.applications, data.passed, data.signals, strengthFor, effective, filters, profiles, needsProfile, engine])
 
   if (!data.reference) return null
   const rowLimit = step === 2 ? rows.length : STEPS[step]

@@ -5,6 +5,7 @@ import { computeShares, hasCvData, LEVELS, standing, type Level } from "@/lib/en
 import { DEFAULT_FILTERS, FIELD_OPTIONS, applyFilters, fieldOf, type JobFilters } from "@/lib/filters"
 import { fitFilters, withFitLanguage } from "@/lib/fit-filters"
 import { profileFields } from "@/lib/field"
+import { createFitEngine } from "@/lib/fit-engine"
 import { daysSince } from "@/lib/format"
 import { hearBackFor } from "@/lib/hear-back"
 import { chanceSnapshot } from "@/lib/outcome-snapshot"
@@ -12,7 +13,7 @@ import type { Reference, Signals } from "@/lib/jobs"
 import { oddsV2 } from "@/lib/odds-v2"
 import { withSkillTiers } from "@/lib/skill-tiers"
 import { payOf } from "@/lib/spec"
-import { tailor } from "@/lib/tailor"
+import { similarMix, tailor } from "@/lib/tailor"
 import { DEFAULT_PROFILE, type Band, type DutchLevel, type Posting, type Profile, type Row, type TaxParams, type Transition } from "@/lib/types"
 
 export { FIELD_OPTIONS, LEVELS, chanceSnapshot }
@@ -218,7 +219,7 @@ export interface TailoredLine extends JobLine {
 }
 
 /** "Jobs tailored to you" exactly as the Jobs page builds it (FitTable.tsx): your fields in your order, jobs like the ones you saved, roles like your own, then the newest, then your chance. */
-export function tailoredFor(pool: Posting[], ref: Reference, signals: Record<string, Signals>, shares: ReturnType<typeof computeShares>, profile: Profile, opts: { fields?: string[]; saved?: Posting[]; dismissed?: Set<string>; limit?: number }): TailoredLine[] {
+export function tailoredFor(pool: Posting[], ref: Reference, signals: Record<string, Signals>, shares: ReturnType<typeof computeShares>, profile: Profile, opts: { fields?: string[]; saved?: Posting[]; dismissed?: Set<string>; limit?: number; stages?: ReadonlyMap<string, string> }): TailoredLine[] {
   const fieldOrder = known(opts.fields, FIELD_OPTIONS)
   const filters: JobFilters = { ...DEFAULT_FILTERS, field: fieldOrder }
   const fields = profileFields(profile)
@@ -228,24 +229,39 @@ export function tailoredFor(pool: Posting[], ref: Reference, signals: Record<str
   const open = pool.filter((p) => !savedIds.has(p.id) && !(opts.dismissed?.has(p.id) ?? false))
   const fitting = new Set(applyFilters(open, effective, ctx).map((p) => p.id))
   const candidates = [...applyFilters(open, withFitLanguage(filters), ctx)]
-  const memo = new Map<string, number>()
-  const chanceOf = (post: Posting): number => {
-    let c = memo.get(post.id)
-    if (c === undefined) {
-      c = standing(post, profile, ref, shares).rate?.mid ?? 0
-      memo.set(post.id, c)
-    }
-
-    return c
-  }
+  const engine = createFitEngine({ postings: pool, profile, reference: ref, shares, stages: opts.stages as never })
+  const { chanceOf, fitOf } = engine
   const liftOf = (post: Posting): string | null => {
     const top = oddsV2(post, profile, {}).parts.filter((x) => x.z > 0.05).sort((a, b) => b.z - a.z)[0]
 
     return top ? plainLabel(top.label) : null
   }
   const own = [...profile.positions.map((p) => p.Title ?? ""), profile.headline].filter((t) => t.trim() !== "")
-  const rows = tailor({ candidates, fitting, saved: opts.saved ?? [], chanceOf, profiles: {}, liftOf, own, fieldOrder })
+  const rows = tailor({ candidates, fitting, saved: opts.saved ?? [], chanceOf, profiles: {}, liftOf, own, fieldOrder, fitOf })
   const tags = hearBackFor(pool, profile, new Set(), () => null)
 
   return rows.slice(0, Math.min(opts.limit ?? 15, 50)).map((r) => ({ ...jobLine(r.post, ref), chance_pct: Math.round(r.chance * 1000) / 10, why: r.note, most_likely_to_hear_back: tags.has(r.post.id) }))
 }
+
+export interface SimilarLine extends JobLine {
+  why: string
+}
+
+/** Jobs like the ones a person saved, in the same mix as their saved list (tailor.ts similarMix), as the Home page shows them. */
+export function similarToSaved(pool: Posting[], ref: Reference, shares: ReturnType<typeof computeShares>, profile: Profile, saved: Posting[], opts: { stages?: ReadonlyMap<string, string>; dismissed?: Posting[]; fields?: string[]; limit?: number }): SimilarLine[] {
+  const engine = createFitEngine({ postings: pool, profile, reference: ref, shares, stages: opts.stages as never })
+  const ids = new Set(saved.map((p) => p.id))
+  const rows = similarMix(saved, pool.filter((p) => !ids.has(p.id)), {}, Math.min(opts.limit ?? 5, 20), new Date(), { weightOf: engine.weightOf, chanceOf: engine.chanceOf, avoid: opts.dismissed, eligible: (p) => !engine.fitOf(p).blocked, fieldOrder: known(opts.fields, FIELD_OPTIONS) })
+
+  return rows.map((r) => ({ ...jobLine(r.post, ref), why: r.note }))
+}
+
+/** For tests and tuning: the fit of one profile on every job in the pool (score, reasons, blocked), strongest first. */
+export function fitTable(pool: Posting[], ref: Reference, shares: ReturnType<typeof computeShares>, profile: Profile): Array<{ post: Posting; score: number | null; reasons: string[]; blocked: string | null; chance: number }> {
+  const engine = createFitEngine({ postings: pool, profile, reference: ref, shares })
+
+  return pool.map((post) => ({ post, ...engine.fitOf(post), chance: engine.chanceOf(post) })).sort((a, b) => (b.score ?? -1) - (a.score ?? -1))
+}
+
+/** For tests and tuning: the saved-jobs suggestions with every knob open. */
+export { similarMix }

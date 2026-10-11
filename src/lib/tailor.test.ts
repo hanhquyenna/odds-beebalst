@@ -138,3 +138,109 @@ describe("a shared rank word is not shared work", () => {
     expect(rows).toHaveLength(0)
   })
 })
+
+describe("jobs tailored to you, with what the profile says", () => {
+  const mk = (id: string, title: string, employer: string, family = "Finance & accounting", over: Partial<Posting> = {}): Posting => job({ id, title, employer, family, level_view: "Internship", region: "Amsterdam", days_open: 5, ...over })
+  const all = (rows: ReturnType<typeof tailor>) => rows.map((r) => r.post.id)
+  const base = { saved: [], chanceOf: () => 0.1, profiles: {}, liftOf: () => null as string | null }
+
+  test("a job closed to the person is left out even when its title is exactly their own work", () => {
+    const rows = tailor({ ...base, candidates: [mk("a", "Finance Intern", "A"), mk("b", "Finance Intern Treasury", "B")], fitting: new Set(["a", "b"]), own: ["Finance Intern"], fitOf: (p) => ({ score: 0.5, reasons: [], blocked: p.id === "b" ? "asks for a student" : null }) })
+    expect(all(rows)).toEqual(["a"])
+  })
+
+  test("within the same tier the better fit comes first, then the newer; the fit's reasons are the note when nothing else explains the job", () => {
+    const fits: Record<string, number> = { low: 0.2, high: 0.8 }
+    const rows = tailor({ ...base, candidates: [mk("low", "Risk Analyst", "L", "Finance & accounting", { days_open: 1 }), mk("high", "Treasury Analyst", "H", "Finance & accounting", { days_open: 20 })], fitting: new Set(["low", "high"]), fitOf: (p) => ({ score: fits[p.id], reasons: ["skills: 2 of 2 must-have", "in Amsterdam, where you live"], blocked: null }) })
+    expect(all(rows)).toEqual(["high", "low"])
+    expect(rows[0].note).toBe("Fits your profile: skills: 2 of 2 must-have; in Amsterdam, where you live")
+  })
+
+  test("a job outside the lines of work comes in when the profile fits it very well", () => {
+    const rows = tailor({ ...base, candidates: [mk("x", "Growth Analyst", "X", "Marketing & communications")], fitting: new Set(), fitOf: () => ({ score: 0.7, reasons: ["skills: 3 of 3 must-have"], blocked: null }) })
+    expect(all(rows)).toEqual(["x"])
+    expect(tailor({ ...base, candidates: [mk("x", "Growth Analyst", "X", "Marketing & communications")], fitting: new Set(), fitOf: () => ({ score: 0.2, reasons: [], blocked: null }) })).toEqual([])
+  })
+
+  test("the same job posted twice by one employer in one city shows once", () => {
+    const rows = tailor({ ...base, candidates: [mk("1", "Finance Intern (Feb 2027)", "Acme"), mk("2", "Finance Intern (Aug 2027)", "Acme")], fitting: new Set(["1", "2"]) })
+    expect(rows).toHaveLength(1)
+  })
+
+  test("no more than two of one employer in the first places: a third moves behind the others", () => {
+    const rows = tailor({ ...base, candidates: [mk("a1", "Finance Intern Treasury", "A", "Finance & accounting", { region: "Utrecht" }), mk("a2", "Finance Intern Audit", "A"), mk("a3", "Finance Intern Tax", "A"), mk("b1", "Finance Intern Risk", "B", "Finance & accounting", { days_open: 25 })], fitting: new Set(["a1", "a2", "a3", "b1"]) })
+    expect(all(rows).indexOf("b1")).toBeLessThan(all(rows).indexOf("a3"))
+    expect(rows).toHaveLength(4)
+  })
+})
+
+describe("jobs like the ones you saved: the mix, what counts, what is left out", () => {
+  const mk = (id: string, title: string, employer: string, family: string, over: Partial<Posting> = {}): Posting => job({ id, title, employer, family, level_view: "Internship", region: "Amsterdam", days_open: 5, ...over })
+  const saved = [mk("f1", "Finance Analyst Intern", "S1", "Finance & accounting"), mk("f2", "Finance Controller Intern", "S2", "Finance & accounting"), mk("f3", "Finance Treasury Intern", "S3", "Finance & accounting"), mk("m1", "Marketing Campaign Intern", "S4", "Marketing & communications"), mk("m2", "Marketing Content Intern", "S5", "Marketing & communications"), mk("m3", "Marketing Brand Intern", "S6", "Marketing & communications"), mk("o1", "Operations Logistics Intern", "S7", "Operations & supply chain"), mk("o2", "Operations Planning Intern", "S8", "Operations & supply chain"), mk("o3", "Operations Procurement Intern", "S9", "Operations & supply chain")]
+  const fam = (n: number, prefix: string, family: string, title: string): Posting[] => Array.from({ length: n }, (_, i) => mk(`${prefix}${i}`, `${title} ${["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "Theta"][i]}`, `${prefix}${i}-co`, family, { days_open: 3 + i }))
+  const pool = [...fam(6, "F", "Finance & accounting", "Finance Intern"), ...fam(6, "M", "Marketing & communications", "Marketing Intern"), ...fam(6, "O", "Operations & supply chain", "Operations Intern")]
+  const count = (rows: Array<{ post: Posting }>, family: string): number => rows.filter((r) => r.post.family === family).length
+
+  test("three saved lines of equal weight get an equal share of the suggestions", () => {
+    const rows = similarMix(saved, pool, {}, 9)
+    expect([count(rows, "Finance & accounting"), count(rows, "Marketing & communications"), count(rows, "Operations & supply chain")]).toEqual([3, 3, 3])
+  })
+
+  test("what you saved most of gets most of the suggestions", () => {
+    const heavy = [...saved, mk("f4", "Finance Audit Intern", "S10", "Finance & accounting"), mk("f5", "Finance Tax Intern", "S11", "Finance & accounting"), mk("f6", "Finance Risk Intern", "S12", "Finance & accounting")]
+    const rows = similarMix(heavy, pool, {}, 6)
+    expect(count(rows, "Finance & accounting")).toBe(3)
+    expect(count(rows, "Marketing & communications")).toBe(2)
+  })
+
+  test("an application counts for more than a bookmark: the line you applied in gets a bigger share", () => {
+    const even = similarMix(saved, pool, {}, 9)
+    const applied = similarMix(saved, pool, {}, 9, new Date(), { weightOf: (p) => (p.family === "Marketing & communications" ? 2.2 : 1) })
+    expect(count(applied, "Marketing & communications")).toBeGreaterThan(count(even, "Marketing & communications"))
+  })
+
+  test("the line of work you ranked first counts a little more", () => {
+    const even = similarMix(saved, pool, {}, 7)
+    const ranked = similarMix(saved, pool, {}, 7, new Date(), { fieldOrder: ["Operations & supply chain"] })
+    expect(count(ranked, "Operations & supply chain")).toBeGreaterThanOrEqual(count(even, "Operations & supply chain"))
+  })
+
+  test("nothing much like a job you pressed X on is suggested", () => {
+    // "Campaign Specialist" is a little like what was saved (Marketing Campaign) and a lot like what was dismissed (Campaign Specialist Analyst).
+    const dismissed = [mk("x", "Campaign Specialist Analyst Intern", "Nope", "Marketing & communications")]
+    const only = [mk("near", "Campaign Specialist Intern", "Z1", "Marketing & communications"), mk("far", "Marketing Content Intern", "Z2", "Marketing & communications")]
+    const rows = similarMix([saved[3]], only, {}, 2, new Date(), { avoid: dismissed })
+    expect(rows.map((r) => r.post.id)).not.toContain("near")
+  })
+
+  test("a job closed to you is never suggested, one past its closing date neither, one older than a posting's life neither", () => {
+    const candidates = [mk("a", "Finance Treasury Analyst Intern", "A1", "Finance & accounting"), mk("b", "Finance Treasury Analyst Intern", "A2", "Finance & accounting", { valid_through: "2020-01-01" }), mk("c", "Finance Treasury Analyst Intern", "A3", "Finance & accounting", { days_open: 80 }), mk("d", "Finance Treasury Analyst Intern", "A4", "Finance & accounting")]
+    const rows = similarMix([saved[0]], candidates, {}, 5, new Date(), { eligible: (p) => p.id !== "d" })
+    expect(rows.map((r) => r.post.id)).toEqual(["a"])
+  })
+
+  test("one employer comes once until nothing else is left, then twice", () => {
+    const same = Array.from({ length: 4 }, (_, i) => mk(`s${i}`, `Finance Analyst Intern ${["North", "South", "East", "West"][i]}`, "SameCo", "Finance & accounting"))
+    const other = [mk("o", "Finance Analyst Intern Europe", "OtherCo", "Finance & accounting")]
+    const rows = similarMix([saved[0]], [...same, ...other], {}, 3)
+    expect(rows.map((r) => r.post.employer).sort()).toEqual(["OtherCo", "SameCo", "SameCo"])
+    expect(rows.filter((r) => r.post.employer === "SameCo")).toHaveLength(2)
+  })
+
+  test("between two jobs as like the ones you saved, the one you are more likely to hear back from", () => {
+    const pair = [mk("lo", "Finance Analyst Intern Alpha", "L1", "Finance & accounting"), mk("hi", "Finance Analyst Intern Beta", "L2", "Finance & accounting")]
+    const rows = similarMix([saved[0]], pair, {}, 1, new Date(), { chanceOf: (p) => (p.id === "hi" ? 0.3 : 0.02) })
+    expect(rows[0].post.id).toBe("hi")
+  })
+
+  test("shown newest first, whatever line each belongs to", () => {
+    const rows = similarMix(saved, pool, {}, 9)
+    const ages = rows.map((r) => r.post.days_open ?? 99)
+    expect(ages).toEqual([...ages].sort((a, b) => a - b))
+  })
+
+  test("only one line saved: every suggestion is from it; nothing saved: nothing suggested", () => {
+    expect(similarMix([saved[0]], pool, {}, 4).every((r) => r.post.family === "Finance & accounting")).toBe(true)
+    expect(similarMix([], pool, {}, 4)).toEqual([])
+  })
+})
