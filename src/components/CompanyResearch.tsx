@@ -65,7 +65,6 @@ export function CompanyResearch({ post }: { post: Posting }): React.JSX.Element 
         </dl>
       ) : null}
       <Items title="Known for" items={r.achievements} />
-      <Items title="For someone from abroad" items={r.for_internationals} />
     </Section>
   )
 }

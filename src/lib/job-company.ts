@@ -152,12 +152,48 @@ export function loadJobCompany(employer: string, display: string): Promise<JobCo
   return p
 }
 
+/** Text from a field that the scrapers sometimes store as an object: {position, companyName} for a current job, {city, country} for a place. */
+const textOf = (v: unknown): string | null => {
+  if (v == null) return null
+  if (typeof v === "string") return v.trim() || null
+  if (typeof v === "number") return String(v)
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>
+    const role = [o.position ?? o.title, o.companyName ?? o.company].map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean)
+    if (role.length > 0) return role.join(" at ")
+    const place = [o.city, o.region, o.country].map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean)
+    if (place.length > 0) return place.join(", ")
+    if (typeof o.text === "string") return o.text.trim() || null
+  }
+
+  return null
+}
+
+/** One past hire as the page can show it: every field that is shown as text is text, whatever shape the database row has. */
+export function toPastHire(raw: Record<string, unknown>): PastHire {
+  const list = (v: unknown): Array<Record<string, unknown>> => (Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === "object") : [])
+
+  return {
+    id: textOf(raw.id) ?? "",
+    name: textOf(raw.name),
+    headline: textOf(raw.headline),
+    currentPosition: textOf(raw.currentPosition),
+    location: textOf(raw.location),
+    avatar: textOf(raw.avatar),
+    linkedin: textOf(raw.linkedin),
+    status: raw.status === "exact" ? "exact" : "adjacent",
+    confidence: num(raw.confidence),
+    experience: list(raw.experience).map((x) => ({ ...x, employer: textOf(x.employer), title: textOf(x.title), start: textOf(x.start), end: textOf(x.end), current: Boolean(x.current), type: textOf(x.type) }) as unknown as PastRole),
+    education: list(raw.education).map((x) => ({ ...x, school: textOf(x.school), degree: textOf(x.degree), field: textOf(x.field), start: textOf(x.start), end: textOf(x.end) }) as unknown as PastSchool),
+  }
+}
+
 /** Only for a signed-in caller (the database answers no one else): asked again after signing in, so the empty answer from before is not kept. */
 export function loadPastHires(postingId: string, signedIn: boolean): Promise<PastHire[]> {
   if (!signedIn) return Promise.resolve([])
   let p = hires.get(postingId)
   if (!p) {
-    p = Promise.resolve(supabase.rpc("job_successful_candidates", { p_posting: postingId })).then(({ data, error }) => (error || !Array.isArray(data) ? [] : (data as PastHire[])))
+    p = Promise.resolve(supabase.rpc("job_successful_candidates", { p_posting: postingId })).then(({ data, error }) => (error || !Array.isArray(data) ? [] : (data as Array<Record<string, unknown>>).map(toPastHire)))
     hires.set(postingId, p)
   }
 

@@ -80,7 +80,9 @@ export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.J
 
   return (
     <div className="flex flex-col gap-2">
-      <section aria-label="Your numbers" className="grid overflow-hidden rounded-xl border-[1.5px] sm:grid-cols-2">
+      {chance !== null || keep ? (
+      <section aria-label="Your numbers" className={`grid overflow-hidden rounded-xl border-[1.5px] ${chance !== null && keep ? "sm:grid-cols-2" : ""}`}>
+        {chance !== null ? (
         <div className="flex flex-col gap-1 p-4 sm:p-5">
           <p className="text-[0.8125rem] text-muted-foreground">Interview chance</p>
           {chance !== null ? (
@@ -104,11 +106,11 @@ export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.J
                 </p>
               ) : null}
             </>
-          ) : (
-            <p className="text-sm text-muted-foreground">Not enough similar jobs for a range.</p>
-          )}
+          ) : null}
         </div>
-        <div className="flex flex-col gap-1 border-t-[1.5px] p-4 sm:border-t-0 sm:border-l-[1.5px] sm:p-5">
+        ) : null}
+        {keep ? (
+        <div className={`flex flex-col gap-1 p-4 sm:p-5 ${chance !== null ? "border-t-[1.5px] sm:border-t-0 sm:border-l-[1.5px]" : ""}`}>
           <p className="text-[0.8125rem] text-muted-foreground">You keep</p>
           {keep ? (
             <>
@@ -125,11 +127,11 @@ export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.J
                 </Hint>
               </p>
             </>
-          ) : (
-            <p className="text-sm text-muted-foreground">{isInternship(post) ? "No tax on an allowance" : "No pay stated"}</p>
-          )}
+          ) : null}
         </div>
+        ) : null}
       </section>
+      ) : null}
       {open ? (
         <div id="chance-explained">
           <ChancePanel post={post} st={st} />
@@ -174,10 +176,11 @@ const KINDS: Kind[] = ["skills", "experience", "education", "language", "qualiti
  * asks for, sorted by how much it insists (Jev's reading of the posting) and shown the same way on every job, in a
  * fixed vocabulary (see standard.ts). If you have a thing, say so on your CV in these words.
  */
-export function FitCard({ post, requirements }: FitProps): React.JSX.Element {
+export function FitCard({ post, requirements }: FitProps): React.JSX.Element | null {
   const tiers = standardTiers(requirements, TIERS).map(({ tier, std }) => ({ tier, std, rows: KINDS.filter((k) => std[k].length > 0) }))
   // A posting with no requirements part still names things: those are listed without a tier.
   const mentioned = requirements.length === 0 ? standardNames(post.skills ?? []) : []
+  if (tiers.length === 0 && mentioned.length === 0) return null
 
   return (
     <Section title="What to put on your CV">
@@ -222,7 +225,6 @@ export function FitCard({ post, requirements }: FitProps): React.JSX.Element {
           </div>
         ) : null}
 
-        {tiers.length === 0 && mentioned.length === 0 ? <p className="text-sm text-muted-foreground">The posting lists no requirements.</p> : null}
       </div>
     </Section>
   )
@@ -348,7 +350,7 @@ export function Recommendations({ post, base, whatIf, setWhatIf }: { post: Posti
         )
       }
     >
-      <ul className="divide-y-[1.5px] border-y-[1.5px]">
+      <ul className="divide-y-[1.5px]">
         {recs.map((r) => (
           <li key={r.key}>
             <div className="flex items-center gap-3 py-3">
@@ -829,9 +831,7 @@ function NextMoves({ transition, postings, onPick }: { transition: Transition; p
                 </button>
               ) : null}
             </>
-          ) : (
-            <p className="mt-2 text-muted-foreground">No open job with this title on odds right now.</p>
-          )}
+          ) : null}
         </div>
       ) : null}
     </div>

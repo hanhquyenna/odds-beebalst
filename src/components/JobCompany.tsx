@@ -59,14 +59,12 @@ export function PastHires({ post }: { post: Posting }): React.JSX.Element | null
   const { session } = useData()
   const people = usePastHires(post.id, session !== null)
   const [open, setOpen] = useState<PastHire | null>(null)
-  if (people === undefined) return null
+  if (people === undefined || (session !== null && people.length === 0)) return null
 
   return (
     <Section title="People who got this role">
       {session === null ? (
         <p className="text-sm text-muted-foreground">Sign in to see who got this role before.</p>
-      ) : people.length === 0 ? (
-        <p className="text-sm text-muted-foreground">We have not found anyone who held this role yet.</p>
       ) : (
         <>
           <ul className="flex gap-3 overflow-x-auto pb-1">
@@ -148,7 +146,6 @@ export function CompanySection({ post }: { post: Posting }): React.JSX.Element |
   const company = useJobCompany(post.employer, post.employer_display)
   const file = useCompanyProfile(post.employer)
   const extra = useCompanyMore(post.employer)
-  const data = useData()
   const [more, setMore] = useState<boolean>(false)
   const [allNews, setAllNews] = useState<boolean>(false)
   if (company === undefined) return null
@@ -161,8 +158,6 @@ export function CompanySection({ post }: { post: Posting }): React.JSX.Element |
   const employees = f?.employees ?? file?.employees ?? extra?.employees?.count ?? null
   // The group it belongs to, unless that is the company itself ("NIKE, INC." for Nike).
   const owner = [file?.ownerGroup, file?.parent, extra?.parent].find((o): o is string => Boolean(o) && !sameName(o as string, f?.name ?? post.employer_display) && !sameName(o as string, post.employer_display)) ?? null
-  const open = data.postings.filter((p) => p.employer === post.employer)
-  const recent = open.filter((p) => p.days_open !== null && p.days_open !== undefined && p.days_open <= 30).length
   const linkedinMark = f?.linkedin ? <BrandMark src="/sources/linkedin.com.svg" name="LinkedIn" href={f.linkedin} /> : <BrandMark src="/sources/linkedin.com.svg" name="LinkedIn" />
   type Tile = { label: string; value: string; note: React.ReactNode }
   const rows: Array<Tile | null> = [
@@ -175,12 +170,11 @@ export function CompanySection({ post }: { post: Posting }): React.JSX.Element |
   const tiles = rows.filter((t): t is Tile => t !== null)
 
   if (!f && tiles.length === 0 && news.length === 0) {
-    return (
+    return post.ind_sponsor ? (
       <Section title={`About ${post.employer_display}`}>
-        <p className="text-sm text-muted-foreground">We have no company page for {post.employer_display} yet.</p>
-        <p className="mt-2 text-sm">{post.ind_sponsor ? "Recognised visa sponsor (IND register)." : "Not on the IND register of recognised sponsors."}</p>
+        <p className="text-sm">Recognised visa sponsor (IND register).</p>
       </Section>
-    )
+    ) : null
   }
 
   return (
@@ -220,20 +214,12 @@ export function CompanySection({ post }: { post: Posting }): React.JSX.Element |
         ) : null}
       </dl>
 
-      <div className="mt-5">
-        <h3 className="mb-2 text-base font-semibold tracking-tight">Open jobs here</h3>
-        <ul className="flex flex-col gap-1.5 text-sm">
-          <li>
-            {open.length} open {open.length === 1 ? "job" : "jobs"} on odds{recent > 0 ? `, ${recent} posted in the last 30 days` : ""}.
-          </li>
-          {file?.gptw2026 ? <li>On the Great Place to Work list, Netherlands 2026.</li> : null}
-        </ul>
-      </div>
+      {file?.gptw2026 ? <p className="mt-5 text-sm">On the Great Place to Work list, Netherlands 2026.</p> : null}
 
       {news.length > 0 ? (
         <div className="mt-5">
           <h3 className="mb-2 text-base font-semibold tracking-tight">Latest news</h3>
-          <ul className="flex flex-col divide-y-[1.5px] border-y-[1.5px]">
+          <ul className="flex flex-col divide-y-[1.5px]">
             {news.slice(0, allNews ? 15 : 4).map((n) => (
               <li key={n.url ?? n.title} className="py-2.5">
                 {n.url ? (
@@ -342,11 +328,7 @@ export function ReviewsSection({ post }: { post: Posting }): React.JSX.Element |
   // Newest first, but the ones in English before the ones in Dutch: the people reading are mostly from abroad.
   const reviews = englishFirst(company?.reviews ?? [])
   if (!g && !s && reviews.length === 0) {
-    return (
-      <Section title="Glassdoor reviews">
-        <p className="text-sm text-muted-foreground">No reviews of {post.employer_display} yet.</p>
-      </Section>
-    )
+    return null
   }
   const rating = g?.rating ?? s?.overall ?? null
 

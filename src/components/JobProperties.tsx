@@ -179,10 +179,10 @@ export function JobProperties({ post, st }: { post: Posting; st: Standing | null
   )
   const values: Record<string, React.ReactNode> = {
     chance: <ChanceCell st={st} post={post} />,
-    pay: pay.text ? <span className="tabular-nums">{pay.text}{pay.perHour ? " an hour" : ""}</span> : <span className="text-muted-foreground">No figure</span>,
+    pay: pay.text ? <span className="tabular-nums">{pay.text}{pay.perHour ? " an hour" : ""}</span> : null,
     location: <span>{placeOf(post.region)}</span>,
     // When the job went up. A job someone pasted in has no posting date.
-    posted: post.local || formatAge(post) === "Date not shown" ? <span className="text-muted-foreground">Not known</span> : <span>{formatAge(post)}</span>,
+    posted: post.local || formatAge(post) === "Date not shown" ? null : <span>{formatAge(post)}</span>,
     // The day you applied, and when to ask after it (a week later, while it is still waiting).
     applied: (() => {
       const day = appliedOn(data.applications.find((a) => a.posting_id === post.id))
@@ -303,6 +303,8 @@ export function JobProperties({ post, st }: { post: Posting; st: Standing | null
         {all.map((p) => {
           const on = view.show(p.key)
           const name = p.key.startsWith("p:") ? p.key.slice(2) : ""
+          // Nothing known for it: the row is left out rather than saying so.
+          if (!name && p.key in values && values[p.key] === null) return null
 
           return (
             <div key={p.key} className={`group min-w-0 ${on ? "" : "opacity-60"}`}>

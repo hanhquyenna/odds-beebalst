@@ -14,7 +14,7 @@ export function MoreAtEmployer({ post, onOpenJob }: { post: Posting; onOpenJob?:
 
   return (
     <Section title={`More jobs at ${post.employer_display}`}>
-      <ul className="divide-y-[1.5px] border-y-[1.5px]">
+      <ul className="divide-y-[1.5px]">
         {others.slice(0, 5).map((p) => (
           <li key={p.id}>
             <button type="button" disabled={!onOpenJob} onClick={() => onOpenJob?.(p)} className="flex w-full cursor-pointer items-baseline justify-between gap-4 py-3 text-left transition-colors duration-150 hover:text-primary disabled:cursor-default">
