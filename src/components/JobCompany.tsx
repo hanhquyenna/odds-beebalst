@@ -401,17 +401,14 @@ export function ReviewsSection({ post }: { post: Posting }): React.JSX.Element |
         </>
       ) : null}
 
-      <p className="mt-4 text-xs text-muted-foreground">
-        From Glassdoor{g?.readOn ? `, read ${g.readOn}` : ""}.
-        {g?.url ? (
-          <>
-            {" "}
-            <a href={g.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">
-              All reviews
-            </a>
-          </>
-        ) : null}
-      </p>
+      {g?.url ? (
+        <a href={g.url} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex cursor-pointer items-center gap-2 text-sm font-medium underline-offset-4 hover:underline">
+          <img src="/sources/glassdoor.com.svg" alt="" className="size-5 rounded-sm" />
+          Read more on Glassdoor
+        </a>
+      ) : (
+        <p className="mt-4 text-xs text-muted-foreground">From Glassdoor{g?.readOn ? `, read ${g.readOn}` : ""}.</p>
+      )}
     </Section>
   )
 }
