@@ -402,7 +402,7 @@ export function ReviewsSection({ post }: { post: Posting }): React.JSX.Element |
       ) : null}
 
       {g?.url ? (
-        <a href={g.url} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex cursor-pointer items-center gap-2 text-sm font-medium underline-offset-4 hover:underline">
+        <a href={g.url} target="_blank" rel="noopener noreferrer" className="mt-4 flex w-fit cursor-pointer items-center gap-2 text-sm font-medium underline-offset-4 hover:underline max-md:min-h-10">
           <img src="/sources/glassdoor.com.svg" alt="" className="size-5 rounded-sm" />
           Read more on Glassdoor
         </a>
