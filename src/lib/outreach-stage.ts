@@ -51,7 +51,7 @@ export function nextStep(person: Pick<Person, "status" | "statusAt">, now: Date 
   const at = person.statusAt ? Date.parse(person.statusAt) : NaN
   const due = info.waiting === true && Number.isFinite(at) && now.getTime() - at >= days * DAY
   if (due) {
-    return { text: person.status === "Referral asked" ? "A week has passed. Send one polite nudge, then stop." : "A week has passed. Send one nudge, then someone else.", kind: "Follow-up", due: true }
+    return { text: "Time for one nudge", kind: "Follow-up", due: true }
   }
 
   return { text: info.next, kind: info.kind, due: false }

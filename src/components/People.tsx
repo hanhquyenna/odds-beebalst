@@ -368,7 +368,6 @@ function PeopleColumns({ show }: { show: (key: string) => boolean }): React.JSX.
 export function PersonDetails({ person, onClose }: { person: Person; onClose: () => void }): React.JSX.Element {
   const data = useData()
   const put = (patch: Partial<Omit<Person, "id">>): void => data.updatePerson(person.id, patch)
-  const step = nextStep(person, new Date(), useFollowDays().nudge)
   const plain = "h-9 rounded-md border-[1.5px] border-input bg-background px-2.5 text-sm focus:border-ring focus:outline-none lg:h-8 lg:border-transparent lg:bg-transparent lg:px-2 lg:hover:border-input lg:focus:bg-background"
   const stage = (
     <select aria-label={`Stage of ${person.name}`} value={person.status} onChange={(e) => {
@@ -383,7 +382,7 @@ export function PersonDetails({ person, onClose }: { person: Person; onClose: ()
 
   return (
     <PersonPanel
-      person={{ name: person.name, headline: person.role, company: person.company, place: person.place, photo: person.photo, about: person.about, positions: person.positions, url: linkedinHref(person), facts: [{ label: "Next step", value: step.text }, { label: "Company", value: person.company }, { label: "Job", value: person.jobId ? (data.byId.get(person.jobId)?.title ?? "") : "" }, { label: "Stage", value: person.status }] }}
+      person={{ name: person.name, headline: person.role, company: person.company, place: person.place, photo: person.photo, about: person.about, positions: person.positions, url: linkedinHref(person), facts: [{ label: "Company", value: person.company }, { label: "Job", value: person.jobId ? (data.byId.get(person.jobId)?.title ?? "") : "" }, { label: "Stage", value: person.status }] }}
       editor={
         <div className="flex flex-col gap-3 text-sm">
           <label className="flex flex-col gap-1 text-muted-foreground">
@@ -432,38 +431,34 @@ function PersonRow({ person, show, n }: { person: Person; show: (key: string) =>
 
   return (
     <li className="border-b-[1.5px] last:border-b-0">
-      {/* Phone and tablet: a quiet card. Name and current job read as text (tap to open the profile, where they can be changed), the stage is
-          one pill, and Connect sits under it. Laptop and up: one line of fields under the column names. */}
-      <div className="flex flex-col gap-3 px-4 py-3.5 lg:hidden">
-        <div className="flex items-start gap-3">
-          <button type="button" onClick={() => setPanel(true)} className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 text-left">
-            <PersonAvatar name={person.name} photo={person.photo} />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-semibold">{person.name || "No name"}</span>
-              {person.role ? <span className="line-clamp-2 text-sm text-muted-foreground">{person.role}</span> : null}
-            </span>
-          </button>
-        </div>
+      {/* Phone and tablet: one compact line per person, so a hundred people stay a list you can scan. Tap the person for their profile
+          (where name and job can be changed); the stage changes in place; the LinkedIn mark opens them. Laptop and up: a row of fields. */}
+      <div className="flex items-center gap-3 px-3 py-2.5 lg:hidden">
+        <button type="button" onClick={() => setPanel(true)} className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left">
+          <PersonAvatar name={person.name} photo={person.photo} />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-medium">{person.name || "No name"}</span>
+            {step.due ? <span className="block truncate text-sm font-medium text-brand-ink">{step.text}</span> : person.role ? <span className="block truncate text-sm text-muted-foreground">{person.role}</span> : null}
+          </span>
+        </button>
         {show("status") ? (
-          <select aria-label={`Stage of ${person.name}`} value={person.status} onChange={(e) => {
-              put(stamp(e.target.value as ContactStatus))
-              saved()
-            }} className="ml-12 h-9 w-fit cursor-pointer rounded-full border-[1.5px] bg-background pr-7 pl-3 text-sm font-medium focus:border-ring focus:outline-none">
-            {CONTACT_STATUSES.map((r) => (
-              <option key={r}>{r}</option>
-            ))}
-          </select>
+          <span className="relative flex h-7 shrink-0 items-center gap-1 rounded-full border-[1.5px] bg-background pr-2 pl-2.5 text-xs font-medium whitespace-nowrap">
+            {person.status}
+            <ChevronDownIcon className="size-3 text-muted-foreground" aria-hidden="true" />
+            {/* The native picker, invisible over the chip: a small chip, and the phone's own list when tapped. */}
+            <select aria-label={`Stage of ${person.name}`} value={person.status} onChange={(e) => {
+                put(stamp(e.target.value as ContactStatus))
+                saved()
+              }} className="absolute inset-0 cursor-pointer opacity-0">
+              {CONTACT_STATUSES.map((r) => (
+                <option key={r}>{r}</option>
+              ))}
+            </select>
+          </span>
         ) : null}
-        {step.due ? <p className="pl-12 text-sm font-medium text-brand-ink">{step.text}</p> : null}
-        <div className="flex flex-wrap items-center gap-2 pl-12">
-          <a href={linkedinHref(person)} target="_blank" rel="noreferrer" className={`${buttonVariants({ variant: "default", size: "sm" })} cursor-pointer max-md:h-9`}>
-            Connect
-            <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
-          </a>
-          <Button type="button" variant="outline" size="sm" onClick={() => setPanel(true)} className="cursor-pointer max-md:h-9">
-            Details
-          </Button>
-        </div>
+        <a href={linkedinHref(person)} target="_blank" rel="noreferrer" aria-label={`Connect with ${person.name} on LinkedIn`} className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-md hover:bg-accent">
+          <img src="/sources/linkedin.com.svg" alt="" className="size-5 rounded-[3px]" />
+        </a>
       </div>
 
       <div className="hidden items-center gap-3 px-3 py-2.5 lg:flex">
@@ -622,25 +617,26 @@ export function PeopleView({ onOpen, views, tools }: { onOpen: (post: Posting) =
           return (
             <section key={company} className="overflow-hidden rounded-xl border-[1.5px]">
               {/* One job at the company: its title and city sit in the company's header. Several: each job gets its own line above its people. */}
-              <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b-[1.5px] bg-secondary/40 px-4 py-3">
-                <span className="flex size-9 items-center justify-center">
-                  <CompanyLogo employer={group.employer ?? company} name={company} size={30} wide={1.4} />
+              <header className="flex items-center gap-3 border-b-[1.5px] bg-secondary/40 px-3 py-2">
+                <span className="flex size-7 shrink-0 items-center justify-center">
+                  <CompanyLogo employer={group.employer ?? company} name={company} size={24} wide={1.4} />
                 </span>
-                <h3 className="font-semibold">{company}</h3>
-                {group.jobs.size === 1 && [...group.jobs.values()][0].post ? (
-                  <div className="flex min-w-0 basis-full flex-col text-sm sm:ml-auto sm:basis-auto sm:flex-1 sm:flex-row sm:items-baseline sm:justify-end sm:gap-3">
-                    <button type="button" onClick={() => onOpen([...group.jobs.values()][0].post as Posting)} className="min-w-0 cursor-pointer text-left font-medium hover:underline hover:underline-offset-4 sm:truncate">
+                <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                  <h3 className="shrink-0 font-semibold">{company}</h3>
+                  {group.jobs.size === 1 && [...group.jobs.values()][0].post ? (
+                    <button type="button" onClick={() => onOpen([...group.jobs.values()][0].post as Posting)} className="min-w-0 cursor-pointer truncate text-left text-sm text-muted-foreground hover:text-foreground hover:underline hover:underline-offset-4">
                       {[...group.jobs.values()][0].post?.title}
                     </button>
-                    <span className="shrink-0 text-muted-foreground">{formatPlace([...group.jobs.values()][0].post?.region ?? null)}</span>
-                  </div>
-                ) : null}
+                  ) : null}
+                </span>
+                {group.jobs.size === 1 && [...group.jobs.values()][0].post ? <span className="hidden shrink-0 text-sm text-muted-foreground sm:block">{formatPlace([...group.jobs.values()][0].post?.region ?? null)}</span> : null}
+                <span className="shrink-0 text-sm text-muted-foreground tabular-nums">{[...group.jobs.values()].reduce((n, j) => n + j.people.length, 0)}</span>
               </header>
               <PeopleColumns show={view.show} />
               {[...group.jobs.values()].map((job) => (
                 <div key={job.post?.id ?? "none"}>
                   {group.jobs.size > 1 || !job.post ? (
-                  <div className="flex items-center justify-between gap-3 border-b-[1.5px] px-4 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-3 border-b-[1.5px] px-3 py-1.5 text-sm">
                     {job.post ? (
                       <button type="button" onClick={() => onOpen(job.post as Posting)} className="cursor-pointer text-left font-medium underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground">
                         {job.post.title}
