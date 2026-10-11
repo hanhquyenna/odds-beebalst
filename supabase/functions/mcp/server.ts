@@ -8,7 +8,7 @@
 // Every one of those reads and writes is filtered by the user id the key belongs to. Nothing calls a paid service (no Apify, no models).
 // @ts-ignore: bundled from src/lib by scripts/build-mcp-core.sh
 import * as core from "./core.js"
-import { pushIfConnected } from "../_shared/drive.ts"
+import { accessFor, contentOf, driveEnv, linkOf, pushIfConnected } from "../_shared/drive.ts"
 
 const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"]
 /** Public endpoint: what one request may ask for, so no single call can make the server do much work. */
@@ -36,6 +36,8 @@ export interface Env {
 interface Me {
   id: string
   email: string | null
+  /** The private key itself, to build links to their files that only work with it. */
+  key: string
 }
 
 // ---- Reading the pool, kept for a few minutes per warm instance ----
@@ -95,7 +97,7 @@ async function whoIs(env: Env, key: string): Promise<Me | null> {
   const u = await fetch(`${env.url}/auth/v1/admin/users/${row.user_id}`, { headers: { apikey: env.serviceKey, Authorization: `Bearer ${env.serviceKey}` } }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
   const email = typeof u?.email === "string" && !u.email.endsWith("@guest.odds.invalid") ? u.email : null
 
-  return { id: row.user_id, email }
+  return { id: row.user_id, email, key }
 }
 
 async function readAll(env: Env, table: string, columns: string): Promise<Json[]> {
@@ -401,6 +403,32 @@ async function myJobIds(env: Env, me: Me): Promise<{ ids: string[]; stage: Map<s
 
 const docLine = (d: Json): Json => ({ document_id: d.id, kind: d.kind === "cv" ? "CV" : "cover letter", name: d.name, main_cv: Boolean(d.is_main), file: d.file_name, updated: String(d.updated_at ?? "").slice(0, 10) })
 
+/** A link to the original file (PDF, Word) that works only with the person's own private key: for upload fields on an application form. */
+const fileUrl = (env: Env, me: Me, docId: string): string => `${env.url}/functions/v1/mcp/file?key=${encodeURIComponent(me.key)}&doc=${docId}`
+
+/** GET /mcp/file?key=...&doc=...: the person's own CV or letter as they uploaded it, from their Google Drive when it lives there, else from odds. */
+async function serveFile(req: Request, env: Env): Promise<Response> {
+  const fail = (status: number, message: string): Response => new Response(JSON.stringify({ error: message }), { status, headers: { ...CORS, "Content-Type": "application/json" } })
+  const me = await whoIs(env, keyOf(req)).catch(() => null)
+  if (!me) return fail(401, "This link needs your private odds link key.")
+  const doc = new URL(req.url).searchParams.get("doc") ?? ""
+  if (!/^[0-9a-f-]{36}$/.test(doc)) return fail(400, "Give doc, a document_id from my_documents.")
+  const row = (await svc(env, `documents?user_id=eq.${me.id}&id=eq.${doc}&select=file_name,mime,path,drive_file_id`))?.[0]
+  if (!row) return fail(404, "No document with that id in your Documents.")
+  let r: Response
+  if (row.drive_file_id) {
+    const denv = driveEnv()
+    const link = denv ? await linkOf(denv, me.id) : null
+    if (!denv || !link) return fail(502, "The file is in Google Drive, and odds can no longer reach it. Reconnect Drive in Documents.")
+    r = await contentOf(await accessFor(denv, link), row.drive_file_id)
+  } else {
+    r = await fetch(`${env.url}/storage/v1/object/documents/${String(row.path).split("/").map(encodeURIComponent).join("/")}`, { headers: { apikey: env.serviceKey!, Authorization: `Bearer ${env.serviceKey}` } })
+  }
+  if (!r.ok || !r.body) return fail(502, "We could not get that file right now. Try again.")
+
+  return new Response(r.body, { status: 200, headers: { ...CORS, "Content-Type": row.mime || "application/octet-stream", "Content-Disposition": `attachment; filename="${String(row.file_name).replace(/["\\\r\n]/g, "")}"`, "Cache-Control": "private, no-store" } })
+}
+
 async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json> {
   const w = await worldFor(env)
   const uid = me.id
@@ -460,14 +488,14 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
   if (name === "my_documents") {
     const docs = await svc(env, `documents?user_id=eq.${uid}&select=id,kind,name,file_name,is_main,updated_at&order=created_at`)
 
-    return text({ documents: (docs ?? []).map(docLine), room_left: Math.max(0, 30 - (docs ?? []).length) })
+    return text({ documents: (docs ?? []).map((d: Json) => ({ ...docLine(d), file_url: fileUrl(env, me, d.id) })), room_left: Math.max(0, 30 - (docs ?? []).length) })
   }
 
   if (name === "read_document") {
     if (!args.document_id || !/^[0-9a-f-]{36}$/.test(args.document_id)) return failed("Give a document_id from my_documents.")
     const d = (await svc(env, `documents?user_id=eq.${uid}&id=eq.${args.document_id}&select=id,kind,name,file_name,is_main,updated_at,body`))?.[0]
 
-    return d ? text({ ...docLine(d), text: d.body }) : failed("No document with that id in your Documents.")
+    return d ? text({ ...docLine(d), file_url: fileUrl(env, me, d.id), text: d.body }) : failed("No document with that id in your Documents.")
   }
 
   if (name === "application_kit") {
@@ -493,9 +521,9 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
       apply_at: post.url,
       posting: String(body?.[0]?.body ?? "").slice(0, 8000),
       you: { name: profile.name || null, email: me.email, linkedin: profile.linkedin ?? null, place: profile.place || null },
-      cv: useCv ? { name: useCv.name, document_id: useCv.id, text: useCv.body, from: cv ? "attached to this job" : "your main CV" } : null,
-      cover_letter: letter ? { name: letter.name, document_id: letter.id, text: letter.body } : null,
-      how_to_apply: "Open apply_at in the browser, fill the form from you, cv and cover_letter, and stop before submitting: the person checks it and presses send. Upload fields need the file itself: ask the person to attach their CV from odds Documents. Afterwards, mark_applied.",
+      cv: useCv ? { name: useCv.name, document_id: useCv.id, file_url: fileUrl(env, me, useCv.id), text: useCv.body, from: cv ? "attached to this job" : "your main CV" } : null,
+      cover_letter: letter ? { name: letter.name, document_id: letter.id, file_url: fileUrl(env, me, letter.id), text: letter.body } : null,
+      how_to_apply: "Open apply_at in the browser, fill the form from you, cv and cover_letter, and stop before submitting: the person checks it and presses send. For an upload field, download file_url (the original PDF or Word file, from their Google Drive or odds) and attach it; if you cannot attach files, ask the person to attach it. Afterwards, mark_applied.",
     })
   }
 
@@ -604,6 +632,7 @@ async function answer(env: Env, me: Me | null, keyGiven: boolean, msg: Json): Pr
 
 export async function handle(req: Request, env: Env): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS })
+  if (req.method === "GET" && new URL(req.url).pathname.endsWith("/file")) return serveFile(req, env)
   // Stateless: no stream to open and no session to end.
   if (req.method !== "POST") return new Response(JSON.stringify({ error: "Use POST (MCP Streamable HTTP)." }), { status: 405, headers: { ...CORS, Allow: "POST, OPTIONS", "Content-Type": "application/json" } })
   const length = Number(req.headers.get("content-length") ?? 0)

@@ -311,13 +311,13 @@ function DriveCard({ onProblem, onSignIn }: { onProblem: (text: string | null) =
               Your files are in the <span className="font-medium text-foreground">odds</span> folder{drive.email ? ` of ${drive.email}` : ""}, in CVs and Cover letters. New ones go there by themselves, and if you edit one there, odds reads it again.
             </p>
           </div>
-          <div className="flex shrink-0 flex-wrap gap-1">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             {drive.folder ? (
-              <a href={drive.folder} target="_blank" rel="noreferrer" className={cn(buttonVariants({ variant: "outline", size: "sm" }), "cursor-pointer")}>
+              <a href={drive.folder} target="_blank" rel="noreferrer" className={cn(buttonVariants({ variant: "outline", size: "sm" }), "cursor-pointer max-md:h-10 max-md:px-3.5")}>
                 Open folder
               </a>
             ) : null}
-            <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setAsking(true)} className="cursor-pointer max-md:h-10 max-md:px-3.5 text-destructive">
+            <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setAsking(true)} className="cursor-pointer max-md:h-10 max-md:px-3.5 text-destructive">
               Disconnect
             </Button>
           </div>
