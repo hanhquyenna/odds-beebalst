@@ -236,7 +236,6 @@ export function MessageStrategy({ onClose }: { onClose: () => void }): React.JSX
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h3 className="text-lg font-semibold tracking-tight">What should I message?</h3>
-          <p className="text-sm text-muted-foreground">Five steps, and what to do when it stalls.</p>
         </div>
         <button type="button" onClick={onClose} aria-label="Close" className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
           <XIcon className="size-4" aria-hidden="true" />

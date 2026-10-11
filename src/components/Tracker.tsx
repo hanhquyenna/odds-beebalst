@@ -183,7 +183,7 @@ export function AddJobs({ panel, setPanel }: { panel: AddPanel; setPanel: (p: Ad
               <ColumnMapper pending={pending} onChange={(mapping) => setPending({ ...pending, mapping })} onCancel={() => setPending(null)} onImport={() => { finish(pending.rows, pending.mapping); setPending(null) }} />
             ) : (
               <>
-                <p className="text-sm text-muted-foreground">Any spreadsheet saved as CSV, with any columns. You say which column is the job title, company and so on; the rest can become properties of yours. A job needs only a title. With a company name we add its logo and sponsor status when we know it; with a LinkedIn job link we read the whole posting for you (logo, company, pay, level, language).</p>
+                <p className="text-sm text-muted-foreground">A spreadsheet saved as CSV.</p>
                 <input ref={file} type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" aria-label="Upload a CSV of jobs" onChange={(e) => upload(e.target.files)} className="text-sm" />
                 <a href={`data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE)}`} download="my-jobs-template.csv" className="w-fit text-sm font-medium text-primary underline">
                   Download a template

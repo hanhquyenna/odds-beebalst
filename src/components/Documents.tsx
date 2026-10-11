@@ -35,7 +35,6 @@ export function Documents({ onBack, onSignIn }: DocumentsProps): React.JSX.Eleme
   const [note, setNote] = useState<string | null>(null)
   const [asking, setAsking] = useState<Doc | null>(null)
   const signedIn = Boolean(data.session)
-  const cvs = store.docs.filter((d) => d.kind === "cv").length
 
   async function remove(doc: Doc): Promise<void> {
     setAsking(null)
@@ -58,18 +57,12 @@ export function Documents({ onBack, onSignIn }: DocumentsProps): React.JSX.Eleme
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Documents</h1>
-          <p className="mt-2 max-w-xl text-muted-foreground">Your library of CVs and cover letters. Put the right one on each job; what you upload on a job lands here, named after it.</p>
         </div>
-        {signedIn ? (
-          <p className="text-sm text-muted-foreground tabular-nums">
-            {cvs} {cvs === 1 ? "CV" : "CVs"} · {store.docs.length - cvs} {store.docs.length - cvs === 1 ? "letter" : "letters"} · {store.docs.length} of {MAX_DOCUMENTS}
-          </p>
-        ) : null}
       </header>
 
       {!signedIn ? (
         <div className="flex flex-col items-start gap-3 rounded-xl border-[1.5px] bg-card p-5 sm:p-6">
-          <p className="text-sm text-muted-foreground">Sign in to keep your documents. They are stored in your account, only you can open them, and you can delete them any time.</p>
+          <p className="text-sm text-muted-foreground">Sign in to keep your documents.</p>
           <Button onClick={onSignIn} className="cursor-pointer">
             Sign in
           </Button>
@@ -85,8 +78,8 @@ export function Documents({ onBack, onSignIn }: DocumentsProps): React.JSX.Eleme
           ) : null}
           {note ? <p className="text-sm text-muted-foreground">{note}</p> : null}
 
-          <Shelf kind="cv" hint="The main CV is what the chance on every job is worked out from." onProblem={setProblem} onNote={setNote} onDelete={setAsking} />
-          <Shelf kind="cover_letter" hint="Put one on a job from the job page. Letters do not change the chance." onProblem={setProblem} onNote={setNote} onDelete={setAsking} />
+          <Shelf kind="cv" onProblem={setProblem} onNote={setNote} onDelete={setAsking} />
+          <Shelf kind="cover_letter" onProblem={setProblem} onNote={setNote} onDelete={setAsking} />
         </>
       )}
 
@@ -105,14 +98,13 @@ export function Documents({ onBack, onSignIn }: DocumentsProps): React.JSX.Eleme
 
 interface ShelfProps {
   kind: DocKind
-  hint: string
   onProblem: (text: string | null) => void
   onNote: (text: string | null) => void
   onDelete: (doc: Doc) => void
 }
 
 /** One kind of document: a heading, then the upload tile and every document as same-sized cards. */
-function Shelf({ kind, hint, onProblem, onNote, onDelete }: ShelfProps): React.JSX.Element {
+function Shelf({ kind, onProblem, onNote, onDelete }: ShelfProps): React.JSX.Element {
   const store = useDocumentStore()
   const drive = useDrive()
   const add = useAddDocument()
@@ -144,7 +136,6 @@ function Shelf({ kind, hint, onProblem, onNote, onDelete }: ShelfProps): React.J
         <h2 id={`shelf-${kind}`} className="font-heading text-xl font-medium tracking-tight">
           {kind === "cv" ? "CVs" : "Cover letters"} <span className="text-base text-muted-foreground tabular-nums">{docs.length}</span>
         </h2>
-        <p className="mt-0.5 text-sm text-muted-foreground">{hint}</p>
       </div>
       <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <li>
@@ -307,9 +298,7 @@ function DriveCard({ onProblem, onSignIn }: { onProblem: (text: string | null) =
             <p className="flex items-center gap-2 font-medium">
               <span className="size-2.5 shrink-0 rounded-full bg-good-foreground" aria-hidden="true" /> Saved to your Google Drive
             </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Your files are in the <span className="font-medium text-foreground">odds</span> folder{drive.email ? ` of ${drive.email}` : ""}, in CVs and Cover letters. New ones go there by themselves, and if you edit one there, odds reads it again.
-            </p>
+            {drive.email ? <p className="mt-1 text-sm text-muted-foreground">{drive.email}</p> : null}
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {drive.folder ? (
@@ -326,7 +315,7 @@ function DriveCard({ onProblem, onSignIn }: { onProblem: (text: string | null) =
         <>
           <div className="min-w-0">
             <p className="font-medium">Keep your files in your Google Drive</p>
-            <p className="mt-1 text-sm text-muted-foreground">Connect once: we make an odds folder with CVs and Cover letters in it, and every file goes there. odds can only see the files it puts there, nothing else in your Drive.</p>
+            <p className="mt-1 text-sm text-muted-foreground">odds sees only its own folder.</p>
           </div>
           {guest ? (
             <Button type="button" onClick={onSignIn} className="shrink-0 cursor-pointer">

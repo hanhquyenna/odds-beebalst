@@ -18,13 +18,12 @@ const ACCEPT = ".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlforma
  */
 export function JobDocuments({ post }: { post: Posting }): React.JSX.Element {
   const data = useData()
-  const store = useDocumentStore()
 
   if (!data.session) {
     return (
       <Section title="Your documents">
         <div className="flex flex-col items-start gap-3">
-          <p className="text-sm text-muted-foreground">Sign in to keep a CV and a cover letter for this job. They are stored in your account.</p>
+          <p className="text-sm text-muted-foreground">Sign in to keep a CV and a cover letter for this job.</p>
           <Button type="button" variant="outline" onClick={requestSignIn} className="cursor-pointer max-md:h-10">
             Sign in
           </Button>
@@ -33,8 +32,6 @@ export function JobDocuments({ post }: { post: Posting }): React.JSX.Element {
     )
   }
 
-  const chosen = attachedTo(store, post.id, "cv")
-  const main = mainCv(store)
 
   return (
     <Section title="Your documents">
@@ -42,12 +39,6 @@ export function JobDocuments({ post }: { post: Posting }): React.JSX.Element {
         <Slot post={post} kind="cv" />
         <Slot post={post} kind="cover_letter" />
       </div>
-      {chosen || main ? (
-        <p className="mt-3 text-sm text-muted-foreground">
-          The chance for this job is worked out from <span className="font-medium text-foreground">{(chosen ?? main)?.name}</span>
-          {chosen ? "." : ", your main CV. Choose another to see what it changes."}
-        </p>
-      ) : null}
     </Section>
   )
 }
@@ -112,7 +103,7 @@ function Slot({ post, kind }: { post: Posting; kind: DocKind }): React.JSX.Eleme
             ) : null}
           </>
         ) : (
-          <p className="text-sm text-muted-foreground">{library.length > 0 ? `No ${label.toLowerCase()} on this job yet.` : `Your library has no ${kind === "cv" ? "CV" : "cover letter"} yet. Upload one: it is kept in Documents too.`}</p>
+          <p className="text-sm text-muted-foreground">{library.length > 0 ? `No ${label.toLowerCase()} on this job yet.` : `No ${kind === "cv" ? "CV" : "cover letter"} yet.`}</p>
         )}
       </div>
 

@@ -98,9 +98,7 @@ export function ViewControls({ view, properties, sorts, sortDefault }: { view: V
             >
               Remove sort
             </button>
-          ) : (
-            <p className="px-2.5 pt-2 pb-1 text-[0.8125rem] text-muted-foreground">Press again to reverse the order.</p>
-          )}
+          ) : null}
         </PopoverContent>
       </Popover>
 

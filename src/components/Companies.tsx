@@ -265,7 +265,7 @@ function CompanyCard({ company: c, onClose }: { company: Company; onClose: () =>
 
           <CardSection title="People you know here" count={c.people.length}>
             {c.people.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No one yet. Add someone from People, and link them to {c.name}.</p>
+              <p className="text-sm text-muted-foreground">No one yet.</p>
             ) : (
               <ul className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card max-md:-mx-5 max-md:rounded-none max-md:border-x-0">
                 {c.people.map((p) => {

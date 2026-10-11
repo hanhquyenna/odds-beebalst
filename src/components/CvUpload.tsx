@@ -132,7 +132,7 @@ export function CvUpload({ text, name, source, onChange, note }: CvUploadProps):
           />
         ) : null}
       </div>
-      <p className="text-xs text-muted-foreground">The file is read here in your browser and is not kept. Only the text is saved, in your account, to read your skills, degrees, roles and track record.</p>
+      <p className="text-xs text-muted-foreground">Only the text is kept.</p>
     </div>
   )
 }

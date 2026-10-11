@@ -33,13 +33,12 @@ const fromPicker = (value: string): string => {
 const field = "h-10 w-full rounded-lg border-[1.5px] bg-background px-3 text-sm focus:border-ring focus:outline-none focus:ring-3 focus:ring-ring/40"
 const label = "flex flex-col gap-1 text-[0.8125rem] font-medium text-muted-foreground"
 
-function Section({ id, title, hint, action, children }: { id?: string; title: string; hint?: string; action?: React.ReactNode; children: React.ReactNode }): React.JSX.Element {
+function Section({ id, title, action, children }: { id?: string; title: string; action?: React.ReactNode; children: React.ReactNode }): React.JSX.Element {
   return (
     <section id={id} className="scroll-mt-24 rounded-xl border-[1.5px] bg-card p-5 sm:p-6">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="font-heading text-xl font-medium tracking-tight">{title}</h2>
-          {hint ? <p className="mt-1 text-sm text-muted-foreground">{hint}</p> : null}
         </div>
         {action}
       </div>
@@ -218,7 +217,7 @@ export function ProfilePage({ onBack, onOpenDocuments, onOpenClaude }: ProfilePa
         </div>
       </section>
 
-      <Section id="profile-linkedin" title="LinkedIn" hint="Paste the link to your own profile and we read your roles, degrees, skills and languages into this page. Only a public profile can be read, and you can edit everything after.">
+      <Section id="profile-linkedin" title="LinkedIn">
         <form
           className="flex flex-col gap-2 sm:flex-row"
           onSubmit={(e) => {
@@ -234,13 +233,12 @@ export function ProfilePage({ onBack, onOpenDocuments, onOpenClaude }: ProfilePa
         {linkNote ? <p role="status" className={`mt-2 text-sm ${linkNote.ok ? "font-medium" : "text-destructive"}`}>{linkNote.text}</p> : null}
       </Section>
 
-      <Section title="About" hint="A few lines in your own words. It stays with you; no job is ranked by it.">
+      <Section title="About">
         <textarea aria-label="About" className={`${field} min-h-28 py-2`} value={p.about} onChange={(e) => set("about", e.target.value)} />
       </Section>
 
       <Section
         title="Experience"
-        hint="Checked against the years of experience a job asks for, and whether they were in the Netherlands, the EU or elsewhere."
         action={
           <label className="cursor-pointer text-sm font-medium text-primary underline">
             Import from LinkedIn
@@ -269,7 +267,7 @@ export function ProfilePage({ onBack, onOpenDocuments, onOpenClaude }: ProfilePa
         />
       </Section>
 
-      <Section title="Education" hint="Checked against the degree a job asks for, and whether it is from a Dutch institution, which matters for the 30% ruling and the orientation year.">
+      <Section title="Education">
         <EntryList
           noun="degree"
           rows={p.education}
@@ -287,7 +285,7 @@ export function ProfilePage({ onBack, onOpenDocuments, onOpenClaude }: ProfilePa
         />
       </Section>
 
-      <Section title="Skills" hint="Matched by name against the skills a posting lists. We also find skills in your roles and CV text.">
+      <Section title="Skills">
         <div className="flex flex-wrap gap-2">
           {p.skills.map((s, i) => (
             <span key={`${s.Name}-${i}`} className="inline-flex items-center gap-1 rounded-full bg-accent py-1 pr-1.5 pl-3 text-sm">
@@ -314,7 +312,7 @@ export function ProfilePage({ onBack, onOpenDocuments, onOpenClaude }: ProfilePa
         </form>
       </Section>
 
-      <Section title="Languages" hint="Dutch is the one most jobs require, and the level here decides whether a posting that asks for it is in reach. A job whose title asks for another language is checked against the languages you list.">
+      <Section title="Languages">
         <div className="flex flex-col gap-2">
           <label className={`${label} max-w-xs`}>
             Dutch
@@ -338,7 +336,7 @@ export function ProfilePage({ onBack, onOpenDocuments, onOpenClaude }: ProfilePa
         </div>
       </Section>
 
-      <Section id="profile-permit-and-pay" title="Permit and pay" hint="These set the salary your permit needs, whether the 30% ruling applies, and how a job's pay compares.">
+      <Section id="profile-permit-and-pay" title="Permit and pay">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className={label}>
             Your permit
@@ -363,14 +361,14 @@ export function ProfilePage({ onBack, onOpenDocuments, onOpenClaude }: ProfilePa
         </div>
       </Section>
 
-      <Section id="profile-cv" title="Your CV" hint="Your CVs and cover letters now live in Documents. The main CV there is what the chance on every job is worked out from, together with the roles, degrees and skills above.">
+      <Section id="profile-cv" title="Your CV">
         <Button variant="outline" onClick={onOpenDocuments} className="cursor-pointer">
           Open Documents
         </Button>
       </Section>
 
       {onOpenClaude ? (
-        <Section id="profile-claude" title="Use odds in Claude" hint="Ask Claude about jobs in your own words. It searches the same jobs you see here and works out your chances the same way.">
+        <Section id="profile-claude" title="Use odds in Claude">
           <ClaudeProfileRow onOpen={onOpenClaude} />
         </Section>
       ) : null}

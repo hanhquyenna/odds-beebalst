@@ -56,7 +56,6 @@ export function SeekerQuestions({ error, form, onChange, review, step, account }
           </Button>
         ))}
       </div>
-      {review ? null : <p className="mt-3 text-sm text-muted-foreground">It decides which salary a job has to reach for you to be allowed to take it.</p>}
     </Field>
   ) : null
 
@@ -101,7 +100,6 @@ export function SeekerQuestions({ error, form, onChange, review, step, account }
         onChange={(event) => onChange({ ...form, birth: event.target.value.replace(/\D/g, "").slice(0, 4) })}
       />
       {error && step === "birth" ? <FieldError className="mt-3">{error}</FieldError> : null}
-      {review ? null : <p className="mt-3 text-sm text-muted-foreground">At 30 the salary threshold for a highly skilled migrant rises by 36%, so the year matters.</p>}
     </Field>
   ) : null
 
@@ -167,7 +165,6 @@ export function SeekerQuestions({ error, form, onChange, review, step, account }
           </Button>
         ))}
       </div>
-      {review ? null : <p className="mt-3 text-sm text-muted-foreground">Most internships in the Netherlands need you to be a student, with an agreement from your school. We use this to tell you which ones you can take.</p>}
     </Field>
   ) : null
 
@@ -177,7 +174,7 @@ export function SeekerQuestions({ error, form, onChange, review, step, account }
     !review && account && asks("contact", step, review) ? (
       <Field key="contact" data-invalid={error ? true : undefined}>
         <FieldLabel className="text-2xl font-semibold tracking-tight">Make it yours with Google</FieldLabel>
-        <p className="mt-3 text-sm text-muted-foreground">An account keeps your CV, saved jobs and applications on every device you sign in on, and lets odds send you new jobs each morning. You sign in through Google, so there is no password to remember. You can skip it and add it later.</p>
+        <p className="mt-3 text-sm text-muted-foreground">Keeps your CV and saved jobs on every device.</p>
         <div className="mt-6 flex flex-col gap-2">
           <Button
             type="button"
@@ -218,7 +215,6 @@ function ImportQuestion({ review, space, wide }: { review: boolean; space: strin
       <QuestionLabel review={review} short="Your experience">
         Add your experience
       </QuestionLabel>
-      {review ? null : <p className="mt-3 text-sm text-muted-foreground">So we can check each job&apos;s requirements against what you have. Both are optional, and both stay in this browser until you continue with Google.</p>}
       <div className={`${space} flex flex-col gap-3`}>
         <div>
           <FieldLabel htmlFor="linkedin-files">LinkedIn data export (Positions, Education, Skills, Languages as .csv)</FieldLabel>

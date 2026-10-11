@@ -45,7 +45,7 @@ export function AddFromLinkedIn({ onDone }: { onDone: (message: string) => void 
   return (
     <form onSubmit={submit} className="flex flex-col gap-2 pr-8">
       <h3 className="font-heading text-lg font-medium">Add a job from LinkedIn</h3>
-      <p className="text-sm text-muted-foreground">Paste the link to a job. We read it for you, add it to your tracker, and add it to the list for everyone. If we already have it, it just goes to your tracker.</p>
+      <p className="text-sm text-muted-foreground">Paste a job link. It goes to your tracker.</p>
       <div className="flex flex-wrap gap-2">
         <input
           type="url"

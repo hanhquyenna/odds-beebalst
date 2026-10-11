@@ -61,7 +61,7 @@ export function HeardBack(): React.JSX.Element | null {
         <div className="min-w-0">
           <p className="font-semibold">Did you hear back from {first.employer}?</p>
           <p className="text-sm text-muted-foreground">
-            You applied for {first.title} {days} days ago. What happened helps us check how well our estimates hold up.
+            You applied for {first.title} {days} days ago.
             {due.length > 1 ? ` ${due.length - 1} more to answer after this.` : ""}
           </p>
         </div>

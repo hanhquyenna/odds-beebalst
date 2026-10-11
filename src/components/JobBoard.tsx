@@ -341,7 +341,7 @@ function NoMatches(): React.JSX.Element {
   return (
     <div role="status" className="flex flex-col items-center gap-3 rounded-xl border-[1.5px] bg-card px-6 py-12 text-center text-foreground">
       <p className="text-lg font-semibold">No jobs match that</p>
-      <p className="max-w-md text-sm text-muted-foreground">Try fewer or shorter words, or loosen a filter. Jobs that need Dutch are hidden while English is on.</p>
+      <p className="max-w-md text-sm text-muted-foreground">Try fewer words or loosen a filter.</p>
       {apply ? (
         <Button variant="outline" onClick={() => apply({ ...DEFAULT_FILTERS })} className="cursor-pointer">
           Clear the search and filters

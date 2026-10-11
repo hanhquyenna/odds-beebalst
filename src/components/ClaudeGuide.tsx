@@ -138,7 +138,7 @@ function ConnectCard({ onSignIn }: { onSignIn: () => void }): React.JSX.Element 
     return (
       <div className={`${card} flex flex-col gap-3 p-5`}>
         <p className="font-semibold">Sign in first</p>
-        <p className="text-sm text-muted-foreground">Claude needs to know which jobs and CVs are yours. Sign in, then come back here to connect.</p>
+        <p className="text-sm text-muted-foreground">Sign in to connect Claude.</p>
         <Button type="button" onClick={onSignIn} className="w-fit cursor-pointer">
           Sign in
         </Button>
@@ -169,7 +169,7 @@ function ConnectCard({ onSignIn }: { onSignIn: () => void }): React.JSX.Element 
               {copied ? "Copied" : "Copy"}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">Keep this link to yourself: anyone who has it can see your odds. You'll only see it once. No Claude tab? Open claude.ai, then Settings, then Connectors.</p>
+          <p className="text-xs text-muted-foreground">Keep this link private.</p>
         </>
       ) : state.status === "error" ? (
         <>
@@ -195,7 +195,6 @@ function ConnectCard({ onSignIn }: { onSignIn: () => void }): React.JSX.Element 
               </span>
             </span>
           </div>
-          <p className="text-sm text-muted-foreground">Works in Claude on the web, the desktop app and your phone. Lost the link? Get a new one and the old one stops working.</p>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" disabled={busy} onClick={() => void start()} className="cursor-pointer">
               Get a new link
@@ -211,7 +210,6 @@ function ConnectCard({ onSignIn }: { onSignIn: () => void }): React.JSX.Element 
             <ClaudeLogo className="size-7" />
           </span>
           <p className="font-semibold">Connect in about a minute</p>
-          <p className="text-sm text-muted-foreground">Tap the button. We copy a link for you and open Claude. You paste the link there once, and that's it.</p>
           <Button type="button" disabled={busy || state.status === "loading"} onClick={() => void start()} className="w-fit cursor-pointer">
             {busy ? "Connecting…" : "Connect Claude"}
           </Button>
@@ -425,8 +423,8 @@ function Tasks({ onDocuments, onJobs }: { onDocuments?: () => void; onJobs?: () 
 
         <Step n={needsJob ? 3 : 2} title="Copy this and send it to Claude">
           <Message text={message} />
-          {task === "apply" ? <p className="text-xs text-muted-foreground">Claude fills in the form in your browser with Claude in Chrome. It never presses send.</p> : null}
-          {task === "letter" ? <p className="text-xs text-muted-foreground">The letter shows up in your Documents, attached to this job.</p> : null}
+          {task === "apply" ? <p className="text-xs text-muted-foreground">You press send.</p> : null}
+          {task === "letter" ? <p className="text-xs text-muted-foreground">Saved to Documents.</p> : null}
         </Step>
       </ol>
     </div>
@@ -454,14 +452,13 @@ export function ClaudePage({ onBack, onSignIn, onDocuments, onJobs }: { onBack: 
       <header className="grid grid-cols-1 items-start gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-3">
           <h1 className="font-heading text-3xl font-semibold tracking-tight">Let Claude help you apply</h1>
-          <p className="text-muted-foreground">Claude is an AI assistant you chat with. Connect it to odds and it can use the CVs in your Documents and the jobs you saved: it applies for jobs, writes cover letters and finds new jobs for you. It never sends an application: you always press send.</p>
+          <p className="text-muted-foreground">Claude applies to your saved jobs with the CVs in your Documents.</p>
         </div>
         <ConnectCard onSignIn={onSignIn} />
       </header>
 
       <section>
         <h2 className="font-heading text-xl font-medium tracking-tight">Use Claude in 3 steps</h2>
-        <p className="mt-1 mb-4 text-sm text-muted-foreground">Pick what you want done. We write the message for you.</p>
         <Tasks onDocuments={onDocuments} onJobs={onJobs} />
       </section>
 
@@ -511,7 +508,7 @@ export function ClaudePromo({ onOpen }: { onOpen: () => void }): React.JSX.Eleme
     <section aria-label="Claude on your odds" className={`${card} relative flex flex-col gap-3 p-4 pr-12`}>
       <div>
         <p className="font-semibold">Let Claude help you apply</p>
-        <p className="text-sm text-muted-foreground">Claude can write your cover letters and fill in application forms with your CV. You just check it and press send.</p>
+        <p className="text-sm text-muted-foreground">Claude writes your cover letters and fills in applications. You press send.</p>
       </div>
       <Button type="button" onClick={onOpen} className="w-fit cursor-pointer">
         Connect Claude

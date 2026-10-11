@@ -180,11 +180,9 @@ export function PipelineBoard({ onOpen, viewName, include }: { onOpen: (post: Po
               <header className="hidden items-baseline justify-between gap-2 px-1 lg:flex">
                 <div>
                   <h3 className="text-base font-semibold tracking-tight">{column.title}</h3>
-                  <p className="text-xs text-muted-foreground">{column.hint}</p>
                 </div>
                 <span className="rounded-full bg-card px-2.5 py-0.5 text-sm font-medium tabular-nums">{here.length}</span>
               </header>
-              <p className="text-sm text-muted-foreground max-md:hidden lg:hidden">{column.hint}</p>
               {here.length === 0 ? <p className="rounded-xl border-[1.5px] border-dashed px-3 py-8 text-center text-sm text-muted-foreground">Nothing here</p> : null}
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-1">
                 {here.map((card) => (

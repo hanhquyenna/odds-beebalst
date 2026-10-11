@@ -214,7 +214,7 @@ export function Account({ looking, onStartLooking, onStopLooking, onOpenClaude }
                     <BookmarkIcon weight="fill" className="size-6" aria-hidden="true" />
                   </span>
                   <p className="text-lg font-semibold tracking-tight">Nothing saved yet</p>
-                  <p className="max-w-sm text-sm text-muted-foreground">Press the bookmark on a job and it lands here with its pay, your fit and your odds. You can also add a list of your own.</p>
+                  <p className="max-w-sm text-sm text-muted-foreground">Press the bookmark on a job to save it here.</p>
                   <Button type="button" onClick={onStartLooking} className="cursor-pointer max-md:h-10">
                     See jobs tailored to you
                   </Button>

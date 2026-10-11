@@ -21,7 +21,7 @@ import { ViewTabs } from "@/components/ViewTabs"
 import { applyPeopleFilter, isPeopleFilterOn } from "@/lib/people-table"
 import type { usePeopleViews } from "@/lib/use-people-views"
 import { formatPlace } from "@/lib/format"
-import { STAGES, nextStep, stamp } from "@/lib/outreach-stage"
+import { nextStep, stamp } from "@/lib/outreach-stage"
 import { CONTACT_STATUSES, type ContactStatus, type PastSearch, type Person, type Posting } from "@/lib/types"
 import { isGuestEmail } from "@/lib/auth"
 
@@ -244,7 +244,6 @@ function FindPeople({ post }: { post: Posting }): React.JSX.Element {
 
   return (
     <div className="flex flex-col gap-2 border-t-[1.5px] pt-3 sm:col-span-2">
-      <p className="text-sm text-muted-foreground">Do not know anyone there yet?</p>
       {canMore ? (
         <div>
           <button type="button" onClick={find} disabled={state === "busy"} className="cursor-pointer text-sm font-medium text-primary underline underline-offset-4 disabled:opacity-60">
@@ -279,16 +278,13 @@ function OutreachFromJobs({ onClose }: { onClose: () => void }): React.JSX.Eleme
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h3 className="text-lg font-semibold tracking-tight">Reach out from a job</h3>
-          <p className="max-w-xl text-sm text-muted-foreground">
-            Pick your job. We find the people most worth a message.
-          </p>
         </div>
         <button type="button" onClick={onClose} aria-label="Close" className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
           <XIcon className="size-4" aria-hidden="true" />
         </button>
       </div>
       {tracked.length === 0 ? (
-        <p className="rounded-lg border-[1.5px] border-dashed px-4 py-6 text-sm text-muted-foreground">Keep a job first (press its bookmark), then come back to find people at that company.</p>
+        <p className="rounded-lg border-[1.5px] border-dashed px-4 py-6 text-sm text-muted-foreground">Save a job first.</p>
       ) : (
         <ul className="flex flex-col divide-y-[1.5px] rounded-lg border-[1.5px]">
           {tracked.map((post) => (
@@ -683,7 +679,6 @@ function PeopleBoard({ people: shown, onOpen, sortKey, dir, show }: { people: Re
             <header className="flex items-baseline justify-between gap-2 px-1">
               <div>
                 <h3 className="text-base font-semibold tracking-tight">{status}</h3>
-                <p className="text-xs text-muted-foreground">{STAGES[status].hint}</p>
               </div>
               <span className="rounded-full bg-card px-2.5 py-0.5 text-sm font-medium tabular-nums">{here.length}</span>
             </header>

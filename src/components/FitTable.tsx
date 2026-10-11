@@ -95,7 +95,7 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
   const rowLimit = step === 2 ? rows.length : STEPS[step]
 
   return (
-    <FitSection label="Jobs tailored to you" heading="Jobs tailored to you" what="the jobs tailored to you" filters={filters} auto={fields} onChange={saved.setFilters} needsProfile={needsProfile} empty={rows.length === 0}>
+    <FitSection label="Jobs tailored to you" heading="Jobs tailored to you" what="the jobs tailored to you" filters={filters} onChange={saved.setFilters} needsProfile={needsProfile} empty={rows.length === 0}>
       <ul className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card max-md:-mx-5 max-md:rounded-none max-md:border-x-0">
         {rows.slice(0, rowLimit).map((r) => (
           <li key={r.post.id} className="relative after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border last:after:hidden md:after:left-4">
@@ -109,7 +109,7 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
 }
 
 /** The tailored list's heading with the pencil for your preferences, then the jobs, or the import prompt until a profile is in. */
-function FitSection({ label, heading, what, filters, auto, onChange, needsProfile, empty, children }: { label: string; heading: string; what: string; filters: JobFilters; auto: string[]; onChange: (next: JobFilters) => void; needsProfile: boolean; empty: boolean; children: React.ReactNode }): React.JSX.Element {
+function FitSection({ label, heading, what, filters, onChange, needsProfile, empty, children }: { label: string; heading: string; what: string; filters: JobFilters; onChange: (next: JobFilters) => void; needsProfile: boolean; empty: boolean; children: React.ReactNode }): React.JSX.Element {
   const [editing, setEditing] = useState<boolean>(false)
 
   return (
@@ -120,8 +120,8 @@ function FitSection({ label, heading, what, filters, auto, onChange, needsProfil
           <PencilIcon className="size-4" aria-hidden="true" />
         </button>
       </div>
-      {editing ? <PreferencesDialog filters={withFitLanguage(filters)} auto={auto} onChange={onChange} onClose={() => setEditing(false)} /> : null}
-      {needsProfile ? <ImportPrompt what={what} /> : empty ? <p className="text-sm text-muted-foreground">Nothing here fits your preferences. Loosen them with the pencil.</p> : children}
+      {editing ? <PreferencesDialog filters={withFitLanguage(filters)} onChange={onChange} onClose={() => setEditing(false)} /> : null}
+      {needsProfile ? <ImportPrompt what={what} /> : empty ? <p className="text-sm text-muted-foreground">Nothing fits your preferences yet.</p> : children}
     </section>
   )
 }
@@ -169,7 +169,7 @@ function ImportPrompt({ what }: { what: string }): React.JSX.Element {
  * What you want, set in one place, the way a job site asks: how recent, what level of job, where, which line of work, which language. The jobs that fit you are narrowed to these,
  * then ranked by your interview chance. They are kept with the profile.
  */
-function PreferencesDialog({ filters, auto, onChange, onClose }: { filters: JobFilters; auto: string[]; onChange: (next: JobFilters) => void; onClose: () => void }): React.JSX.Element {
+function PreferencesDialog({ filters, onChange, onClose }: { filters: JobFilters; onChange: (next: JobFilters) => void; onClose: () => void }): React.JSX.Element {
   return (
     <div role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()} className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
       <div role="dialog" aria-modal="true" aria-label="Job preferences" onKeyDown={(e) => e.key === "Escape" && onClose()} className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-xl border-[1.5px] bg-card shadow-lg">
@@ -180,8 +180,8 @@ function PreferencesDialog({ filters, auto, onChange, onClose }: { filters: JobF
           </button>
         </div>
         <div className="overflow-y-auto px-5 py-4">
-          <p className="mb-4 text-sm text-muted-foreground">These help tailor the jobs that fit you.</p>
-          <FieldRanking value={filters.field} auto={auto} onChange={(field) => onChange({ ...filters, field })} />
+          
+          <FieldRanking value={filters.field} onChange={(field) => onChange({ ...filters, field })} />
           <FilterEditor filters={filters} onChange={onChange} hide={["field"]} />
           <NotInterested />
         </div>
@@ -201,8 +201,8 @@ function PreferencesDialog({ filters, auto, onChange, onClose }: { filters: JobF
 /** How many lines of work you can rank. */
 const MAX_FIELDS = 3
 
-/** Up to three lines of work, in your order. Empty: the list follows the lines of work your profile points to (`auto`), and says which. */
-function FieldRanking({ value, auto, onChange }: { value: string[]; auto: string[]; onChange: (next: string[]) => void }): React.JSX.Element {
+/** Up to three lines of work, in your order. Empty: the list follows the lines of work your profile points to. */
+function FieldRanking({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }): React.JSX.Element {
   const move = (i: number, by: -1 | 1): void => {
     const next = [...value]
     ;[next[i], next[i + by]] = [next[i + by], next[i]]
@@ -214,8 +214,7 @@ function FieldRanking({ value, auto, onChange }: { value: string[]; auto: string
   return (
     <div className="mb-4 rounded-xl border-[1.5px] bg-secondary/30 p-3">
       <p className="text-sm font-medium">Your job fields, in order</p>
-      <p className="mb-2 text-xs text-muted-foreground">Pick up to {MAX_FIELDS}. The list shows only these, the first one on top.</p>
-      {value.length === 0 && auto.length > 0 ? <p className="mb-2 text-xs text-muted-foreground">None picked: the list follows your profile ({auto.slice(0, MAX_FIELDS).join(", ")}).</p> : null}
+      <p className="mb-2 text-xs text-muted-foreground">Up to {MAX_FIELDS}, top one first.</p>
       <ol className="flex flex-col gap-1.5">
         {value.map((f, i) => (
           <li key={f} className="flex items-center gap-2 rounded-lg border-[1.5px] bg-card px-3 py-1.5 text-sm">

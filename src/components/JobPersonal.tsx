@@ -9,7 +9,7 @@ import { Hint } from "@/components/Hint"
 import { Caret, ChancePanel } from "@/components/OddsExplain"
 import { Section } from "@/components/Section"
 import { TIERS, TIER_LABEL, type Requirement, type Tier } from "@/lib/requirements"
-import { standardise, standardNames, standardTiers } from "@/lib/standard"
+import { standardNames, standardTiers } from "@/lib/standard"
 import { useData } from "@/lib/data"
 import { useJobProfile } from "@/lib/use-documents"
 import { ladderStats, poolOf, rungOf } from "@/lib/ladder"
@@ -105,7 +105,7 @@ export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.J
               ) : null}
             </>
           ) : (
-            <p className="text-sm text-muted-foreground">Too few similar jobs to give a range we would stand behind.</p>
+            <p className="text-sm text-muted-foreground">Not enough similar jobs for a range.</p>
           )}
         </div>
         <div className="flex flex-col gap-1 border-t-[1.5px] p-4 sm:border-t-0 sm:border-l-[1.5px] sm:p-5">
@@ -126,7 +126,7 @@ export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.J
               </p>
             </>
           ) : (
-            <p className="text-sm text-muted-foreground">{isInternship(post) ? "An internship allowance is not a salary, so there is no tax figure." : "There is no pay figure for this job to work from."}</p>
+            <p className="text-sm text-muted-foreground">{isInternship(post) ? "No tax on an allowance" : "No pay stated"}</p>
           )}
         </div>
       </section>
@@ -176,16 +176,12 @@ const KINDS: Kind[] = ["skills", "experience", "education", "language", "qualiti
  */
 export function FitCard({ post, requirements }: FitProps): React.JSX.Element {
   const tiers = standardTiers(requirements, TIERS).map(({ tier, std }) => ({ tier, std, rows: KINDS.filter((k) => std[k].length > 0) }))
-  const unread = standardise(requirements).unread
   // A posting with no requirements part still names things: those are listed without a tier.
   const mentioned = requirements.length === 0 ? standardNames(post.skills ?? []) : []
 
   return (
     <Section title="What to put on your CV">
       <div className="flex flex-col gap-7">
-        <p className="text-sm text-muted-foreground">
-          What this job asks for, most important first, in the same words for every job. Whatever of it is true for you, put on your CV in these words, near the top.
-        </p>
 
         {tiers.map(({ tier, std, rows }) => (
           <div key={tier} className={`rounded-xl border-[1.5px] border-l-4 bg-card p-4 ${TIER_RAIL[tier]}`}>
@@ -212,8 +208,7 @@ export function FitCard({ post, requirements }: FitProps): React.JSX.Element {
           </div>
         ))}
 
-        {unread > 0 ? <p className="text-sm text-muted-foreground">{unread === 1 ? "One more line" : `${unread} more lines`} in the posting say something beyond this list. They are in the description below.</p> : null}
-
+        
         {mentioned.length > 0 ? (
           <div className="flex flex-col">
             <p className="mb-2 text-sm font-medium">What it mentions</p>
@@ -227,7 +222,7 @@ export function FitCard({ post, requirements }: FitProps): React.JSX.Element {
           </div>
         ) : null}
 
-        {tiers.length === 0 && mentioned.length === 0 ? <p className="text-sm text-muted-foreground">This posting does not list what it asks for. Read the description below, and use its words.</p> : null}
+        {tiers.length === 0 && mentioned.length === 0 ? <p className="text-sm text-muted-foreground">The posting lists no requirements.</p> : null}
       </div>
     </Section>
   )
@@ -444,7 +439,7 @@ export function LockedPersonal({ onUnlock }: { onUnlock: () => void }): React.JS
       <div className="absolute inset-x-0 top-40 flex justify-center px-4">
         <div className="flex max-w-sm flex-col items-start gap-3 rounded-xl border-[1.5px] bg-card p-5 shadow-lg">
           <h2 className="text-lg font-semibold tracking-tight">Import LinkedIn to see your numbers</h2>
-          <p className="text-sm text-muted-foreground">Your chance of an interview, what you keep after tax, how your CV fits, and what to do to improve it.</p>
+          
           <Button onClick={onUnlock} className="cursor-pointer">
             Import LinkedIn
           </Button>
@@ -518,7 +513,7 @@ export function PayCard({ post, st }: { post: Posting; st: Standing }): React.JS
             {allowanceNote(allowance.source as AllowanceSource)} Ask the employer what this one pays.
           </Hint>
         </p>
-        <p className="mt-3">An allowance is not taxed like a salary, so your settings do not change it. They change the pay after tax at the levels below.</p>
+        
         <CareerPath />
       </Section>
     )
@@ -532,7 +527,7 @@ export function PayCard({ post, st }: { post: Posting; st: Standing }): React.JS
           <span className="text-base font-normal text-muted-foreground">{allowance.perHour ? "an hour" : "a month"}</span>
           <Hint label="About this pay">Stated by the employer in this posting, before tax.</Hint>
         </p>
-        {post.glassdoor ? <p className="mt-2 text-sm text-muted-foreground">Glassdoor cross-check: {post.glassdoor.reports} employee salary reports, read {post.glassdoor.readOn}. This is a benchmark, not the employer’s offer.</p> : null}
+        {post.glassdoor ? <p className="mt-2 text-sm text-muted-foreground">Glassdoor: {post.glassdoor.reports} salary reports</p> : null}
         <CareerPath />
       </Section>
     )
@@ -804,7 +799,7 @@ function NextMoves({ transition, postings, onPick }: { transition: Transition; p
           </li>
         ))}
       </ol>
-      <p className="mt-3 text-xs text-muted-foreground">Same colour means about the same share. Press a role for more.</p>
+      
 
       {sel && open ? (
         <div className="mt-3 rounded-lg border-[1.5px] bg-background p-4 text-sm">
@@ -865,7 +860,7 @@ function CareerPath(): React.JSX.Element {
         return (
           <section aria-label="Count for me" className="rounded-xl border-[1.5px] bg-card px-4 pt-3 pb-4">
             <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Count for me</h4>
-            <p className="mt-1 text-sm">Change these and the pay after tax, above and in every level below, changes with them.</p>
+            
             <div className="divide-y-[1.5px]">
               <ToggleRow title="30% ruling" hint={ruling ? "30% of your pay is tax-free" : "Tax on all of your pay"} on={ruling} set={(v) => choose({ ruling: v })} helpLabel="Do I qualify?" help={<RulingHelp floor={ref.tax.ruling_30pct.min_salary} floorMaster={ref.tax.ruling_30pct.min_salary_under30_masters} abroad={data.profile.abroad} under30Master={masterFloor} />} />
               <ToggleRow title="Master's degree, under 30" hint="The ruling needs a lower salary" on={masterFloor} set={(v) => choose({ masterFloor: v })} />
@@ -964,7 +959,6 @@ export function CareerLadder({ post, st, onPick }: { post: Posting; st?: Standin
   }
   return (
     <Section title="What comes next in this kind of work">
-      <p className="text-[0.95rem] text-muted-foreground">What each level usually asks and pays in {pool.name}, from the jobs we hold. The after-tax figures follow your settings. This is the road ahead in this field, not a promise that this job leads there.</p>
       <ol className="mt-6 flex flex-col">
         {rows.map((r, i) => {
           const id = r.level + String(r.mine)

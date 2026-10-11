@@ -191,7 +191,7 @@ export function tailor({ candidates, fitting, saved, chanceOf, profiles, liftOf,
     if (interest === 0) continue
     const lift = liftOf(post)
     const note = best
-      ? `Like the ${shortTitle(best.s.title)} at ${shortName(best.s.employer_display)} you saved: ${best.l.why.slice(0, 3).join(", ")}`
+      ? `Like the ${shortTitle(best.s.title)} at ${shortName(best.s.employer_display)} you saved`
       : mine.share > 0
         ? `Close to your own work as ${shortTitle(own[mine.title])}: ${mine.words.slice(0, 2).join(", ")}`
         : lift
@@ -336,7 +336,7 @@ export function similarMix(saved: ReadonlyArray<Posting>, candidates: ReadonlyAr
       if (used.has(x.job.id) || (perEmployer.get(emp) ?? 0) >= cap) continue
       used.add(x.job.id)
       perEmployer.set(emp, (perEmployer.get(emp) ?? 0) + 1)
-      out.push({ post: x.job, note: `Like the ${shortTitle(x.s.title)} at ${shortName(x.s.employer_display)} you saved: ${x.like.why.slice(0, 3).join(", ")}` })
+      out.push({ post: x.job, note: `Like the ${shortTitle(x.s.title)} at ${shortName(x.s.employer_display)} you saved` })
       n -= 1
     }
   }

@@ -64,12 +64,11 @@ export function PastHires({ post }: { post: Posting }): React.JSX.Element | null
   return (
     <Section title="People who got this role">
       {session === null ? (
-        <p className="text-sm text-muted-foreground">Sign in to see who got this role before and the path that got them here.</p>
+        <p className="text-sm text-muted-foreground">Sign in to see who got this role before.</p>
       ) : people.length === 0 ? (
         <p className="text-sm text-muted-foreground">We have not found anyone who held this role yet.</p>
       ) : (
         <>
-          <p className="mb-3 text-sm text-muted-foreground">From their public LinkedIn profiles. Tap someone to see the path that got them here.</p>
           <ul className="flex gap-3 overflow-x-auto pb-1">
             {people.map((p) => {
               const here = p.experience.find((r) => atEmployer(r, post.employer, post.employer_display))
@@ -381,7 +380,6 @@ export function ReviewsSection({ post }: { post: Posting }): React.JSX.Element |
               <Score label="Management" value={s.management} />
               <Score label="Diversity" value={s.diversity} />
             </ul>
-            <p className="mt-2 text-xs text-muted-foreground">Average of {s.count} reviews{s.oldest && s.newest ? (s.oldest.slice(0, 4) === s.newest.slice(0, 4) ? ` from ${s.newest.slice(0, 4)}` : ` from ${s.oldest.slice(0, 4)} to ${s.newest.slice(0, 4)}`) : ""}.</p>
           </div>
         ) : null}
       </div>

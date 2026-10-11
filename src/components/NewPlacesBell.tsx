@@ -268,7 +268,7 @@ export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.El
             <CheckIcon weight="bold" className="size-6" aria-hidden="true" />
           </span>
           <p className="font-semibold">You're all caught up</p>
-          <p className="max-w-64 text-sm text-muted-foreground">Nothing new inside your filters since you last looked. We keep looking.</p>
+          <p className="max-w-64 text-sm text-muted-foreground">Nothing new yet.</p>
         </div>
       ) : (
         shown.map((g) => (
