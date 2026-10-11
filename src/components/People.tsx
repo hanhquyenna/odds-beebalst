@@ -9,7 +9,7 @@ import { suggestReferrals } from "@/lib/linkedin"
 import { useRemembered } from "@/lib/remembered"
 import { PersonPanel } from "@/components/PersonPanel"
 import { departmentOf } from "@/lib/field"
-import { addPage, canFindMore, dropPerson, firstPage, hasFree, isUrl, linkedinHref, linkedinPeopleSearch, rankForJob, readPast, revealNext, whyThisPerson, type Suggestion } from "@/lib/suggest"
+import { addPage, canFindMore, dropPerson, firstPage, hasFree, isUrl, linkedinHref, linkedinSearches, rankForJob, readPast, revealNext, whyThisPerson, type Suggestion } from "@/lib/suggest"
 import { saved } from "@/lib/saved"
 import { useFollowDays } from "@/lib/follow-days"
 import { useViewConfig } from "@/lib/views"
@@ -230,6 +230,20 @@ function FoundPeople({ post, people, start = 0, onDrop }: { post: Posting; peopl
   )
 }
 
+/** Once we have no one else for a job: the same three LinkedIn searches everywhere. */
+function MoreOnLinkedIn({ post }: { post: Posting }): React.JSX.Element {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {linkedinSearches(post.employer_display, post.family).map((s) => (
+        <a key={s.label} href={s.url} target="_blank" rel="noreferrer" className="flex h-9 cursor-pointer items-center gap-1.5 rounded-full border-[1.5px] px-3 text-sm font-medium transition-colors hover:bg-accent">
+          <img src="/sources/linkedin.com.svg" alt="" className="size-4 rounded-[3px]" />
+          {s.label}
+        </a>
+      ))}
+    </div>
+  )
+}
+
 /** Looks for people at the job's company who do something like it, and lets you add one. Sits inside the add-someone form. */
 function FindPeople({ post }: { post: Posting }): React.JSX.Element {
   const { state, problem, find, drop, rec, canMore, notLookedUp, guest } = useFindPeople(post)
@@ -250,16 +264,9 @@ function FindPeople({ post }: { post: Posting }): React.JSX.Element {
             {state === "busy" ? "Looking…" : revealed.length > 0 ? "Find more" : `Find people at ${post.employer_display}`}
           </button>
         </div>
-      ) : revealed.length > 0 ? (
-        <p className="text-sm text-muted-foreground">That is everyone we have for this job.</p>
       ) : null}
       {problem ? <p role="status" className="text-sm text-muted-foreground">{problem}</p> : null}
-      {notLookedUp ? (
-        <a href={linkedinPeopleSearch(post.employer_display, post.family)} target="_blank" rel="noreferrer" className="flex w-fit items-center gap-1.5 text-sm font-medium underline underline-offset-4">
-          Search {post.employer_display} on LinkedIn
-          <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
-        </a>
-      ) : null}
+      {notLookedUp || problem || (!canMore && revealed.length > 0) ? <MoreOnLinkedIn post={post} /> : null}
       <FoundPeople post={post} people={revealed} onDrop={drop} />
     </div>
   )
@@ -321,18 +328,11 @@ function OutreachRow({ post }: { post: Posting }): React.JSX.Element {
           <Button type="button" size="sm" onClick={find} disabled={state === "busy"} className="shrink-0 cursor-pointer max-sm:ml-[3.25rem]">
             {state === "busy" ? "Looking…" : revealed.length > 0 ? "Find more" : "Find people"}
           </Button>
-        ) : revealed.length > 0 ? (
-          <span className="text-sm text-muted-foreground max-sm:ml-[3.25rem] max-sm:basis-full sm:max-w-48 sm:text-right">That is everyone we have for this job</span>
         ) : null}
       </div>
       {guest ? <p className="text-sm text-muted-foreground">{GUEST_PEOPLE}</p> : null}
       {problem ? <p role="status" className="text-sm text-muted-foreground">{problem}</p> : null}
-      {notLookedUp ? (
-        <a href={linkedinPeopleSearch(post.employer_display, post.family)} target="_blank" rel="noreferrer" className="flex w-fit items-center gap-1.5 text-sm font-medium underline underline-offset-4">
-          Search {post.employer_display} on LinkedIn
-          <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
-        </a>
-      ) : null}
+      {!guest && (notLookedUp || problem || (!canMore && revealed.length > 0)) ? <MoreOnLinkedIn post={post} /> : null}
       {past.length > 0 ? (
         <div className="flex flex-col gap-2">
           <button type="button" aria-expanded={showPast} onClick={() => setShowPast(!showPast)} className="flex w-fit cursor-pointer items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">

@@ -55,11 +55,16 @@ export function departmentOfPosition(headline: string): string | null {
   return null
 }
 
-/** A LinkedIn people search for a company and a kind of work, opened by the person themselves: the free way in when no one is stored for the employer yet. */
-export function linkedinPeopleSearch(company: string, family: string | null | undefined): string {
+/** The three LinkedIn searches offered once we have no one else for a job: anyone there, the job's team, and its hiring managers. */
+export function linkedinSearches(company: string, family: string | null | undefined): Array<{ label: string; url: string }> {
   const word = family ? (DEPARTMENT_TITLES[family] ?? [])[0] ?? "" : ""
+  const at = (keywords: string): string => `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(keywords)}`
 
-  return `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent([company, word].filter(Boolean).join(" "))}`
+  return [
+    { label: "Anyone there", url: at(company) },
+    ...(word ? [{ label: "Same team", url: at(`${company} ${word}`) }] : []),
+    { label: "Hiring managers", url: at(`${company} ${word ? `${word} ` : ""}manager`) },
+  ]
 }
 
 /** How many people a job offers, best first, one more each time the button is pressed. */
