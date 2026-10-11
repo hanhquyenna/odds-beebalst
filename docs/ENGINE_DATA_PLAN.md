@@ -4,7 +4,7 @@
 "Steps". Update "Progress log" and the checkboxes after every step, and commit this file with the work.
 
 Owner: Kien. Repo: odds-beebalst, branch `track-philips-sustainability-internship` (push there; main gets merged later).
-Last updated: 2026-10-11.
+Last updated: 2026-10-11 (evening).
 
 ## Goal
 
@@ -175,12 +175,90 @@ reports, not training data.
       parts.jsonl format with ds `odds_users`). **Do not retrain from it below 200 answers**; answers are self-reported and people who
       hear back answer sooner, so it checks the model, it does not replace the field experiments. Tested on empty data and on 400 synthetic rows.
 
+### G. Second data round (2026-10-11 evening): the downloaded-but-unread files
+Script: `scripts/research/more_effects_2.py` (within-vacancy or within-cell linear probability, clustered by cell, put on the probit scale at the
+study's base rate). Output: `research-data/more-data/more_effects_2.csv`.
+- [x] G1. **GEMM full file, all five countries** (`gemm/GEMM_v3_5.csv`, 18,833 with an outcome): the design also randomised a school grade,
+      praise from a former employer and a warmth line, never used before. Overqualified **+0.084 (se 0.028)**: no country negative
+      (ES +0.145, DE +0.063, UK +0.047, NL +0.031, NO +0.016). Underqualified **-0.338 (0.070) in NL** but about 0 elsewhere (DE -0.003, ES -0.037,
+      NO -0.056, UK -0.094): the engine's value is the Dutch one, which is right for odds. Grade -0.018 (0.019), praise +0.028 (0.019), warmth +0.028 (0.019):
+      nothing worth a part. First generation -0.222, second generation -0.218 (0.027).
+- [x] G2. **GEMM NL full file** (Thijssen et al., `studies/thijssen-2021-jimi-nl/NL_26112018.dta`, 4,325): first generation -0.310 (0.048) vs the
+      engine's nonEu -0.293; **stating Dutch proficiency on an immigrant's letter: +0.008 (0.048), no effect**; communication skills +0.048 (0.043).
+- [x] G3. **Phillips 2019** (Washington DC, 2,260, interview within vacancy): +0.073 (0.041) per year of experience up to 5, -0.003 (0.007) per
+      year beyond: the engine's "+0.055 per year beyond the ask, cap 3" has the right size and shape.
+- [x] G4. **Pan & Zhang 2021** (China, 19,221, within vacancy): top-50 vs 51-100 university +0.123 (0.018); top-5% GPA +0.014 (0.018); each of six
+      programming skills listed about 0 (mean +0.000).
+- [x] G5. **L'Horty et al. 2023** (France): volunteering +0.052 (0.032), extra-curricular +0.017, a skills line +0.017, indicative only (8,776 of
+      12,866 outcomes blank; the candidate's experience barely varies within an ad, so it cannot settle under/overqualified).
+- [x] G6. **One number per part from every callback experiment** (`scripts/research/meta_effects.py`, DerSimonian-Laird random effects; ratings
+      of hypothetical candidates are listed but kept out of the pool):
+
+      | part | pooled (90% CI) | ships | studies |
+      | --- | --- | --- | --- |
+      | underqualified | -0.280 [-0.513, -0.046], I2 94% (NL -0.34, elsewhere ~0) | -0.263 x (0.4-1.2) | 3 |
+      | overqualified | +0.013 [-0.073, +0.100] | -0.053 | 3 |
+      | non-EU / first generation | -0.285 [-0.399, -0.170] | -0.293 | 3 |
+      | per year of experience (first few) | +0.044 [+0.022, +0.066], I2 0% | +0.055 | 3 |
+      | elite school / employer (callbacks) | +0.072 [+0.008, +0.135] | +0.060 | 3 |
+      | skills listed | +0.004 [-0.010, +0.017] | engine's skills part up to +-0.2 | 4 |
+      | grades / GPA | -0.001 [-0.028, +0.025] | 0 | 2 |
+      | volunteering / extra-curricular | +0.038 [-0.003, +0.079] | 0 | 2 (indicative) |
+
+      **Every shipped value is inside the 90% interval.** The prestige disagreement of section C is settled: the 3.6x larger Kessler number is a rating;
+      in callbacks the pooled value is +0.072, the engine ships +0.06. Ratings exaggerate (Kessler GPA +0.44 as a rating, 0 in callbacks).
+
+### H. Is the additive probit leaving anything on the table? (2026-10-11 evening)
+- [x] H1. `scripts/research/model_compare.py`: the engine (parts x shipped multipliers) against free coefficients, logistic with every pairwise
+      interaction, gradient boosting and a neural network (MLP 32-16, the "deep learning" check), all with the same job-side level per group, on
+      47,816 applications (parts.jsonl + Swiss + Eriksson-Rooth + Bertrand-Mullainathan). Output `research-data/backtest/model_compare.csv`.
+      **NL held out (nothing Dutch trained on): engine AUC 0.588, log loss 0.6246, slope 0.96 - the best of the five on all three**
+      (free 0.583, boosting 0.586, interactions 0.579, MLP 0.575). Leaving each study family out, the engine is best on GEMM, Eriksson-Rooth,
+      Oreopoulos and Sweden. The flexible models find one interaction (Oreopoulos: foreign name x big firm) that does not carry to other data.
+      **Reading: no deep model is warranted for the strength side;** the data are randomised experiments with a few factors, where an additive
+      probit is the right shape. More data per factor helps; more model does not.
+- [x] H2. One real fault found: on Bertrand-Mullainathan the engine ranks **backwards** (within-ad AUC 0.495). Cause: the overqualified penalty hits the
+      experienced resumes that are called more. Setting the overqualified multiplier to 0: B&M 0.495 -> 0.547, all datasets 0.5692 -> 0.5704,
+      **NL 0.5701 -> 0.5694 (-0.0007, noise)**, Spain +0.0015, Germany -0.0016, Swiss -0.004. With G1 (GEMM +0.084) and G6 (pooled +0.013), the
+      evidence says the overqualified penalty should go. **Waiting for Kien's decision (it moves every chance with "much more experience than asked").**
+
+### I. The pile when a posting shows no count: tested on our own Dutch postings (2026-10-11 evening)
+- [x] I1. `scripts/research/export_pile.ts` exports our 1,203 postings with a LinkedIn applicant count (758 employers) with the engine's own fallback for
+      the same posting (`pileFor` tier constant) and posting/employer facts; `scripts/research/pile_model.py` compares guesses with cross-validation
+      grouped by employer (no employer in both parts). Target: the count projected to end of life exactly as `projectedApplicants()` does.
+
+      | guess | typical factor off | within x2 | rank (Spearman) | bias |
+      | --- | --- | --- | --- | --- |
+      | engine fallback (tier constants) | x1.93 | 52% | **0.02** | **x1.4 too high** |
+      | one number for every posting | x1.73 | 58% | - | - |
+      | employer's other postings (median; the engine's second source) | x1.60 | 64% | 0.38 | ~0 |
+      | **ridge on posting and employer facts** | **x1.59** | **70%** | 0.34 | ~0 |
+      | gradient boosting / MLP / ridge + title words (TF-IDF) | x1.63 / x1.63 / x1.58 | 67% / 67% / 68% | 0.33 / 0.29 / 0.34 | ~0 |
+
+      **The tier constants do not rank postings at all and run 40% high.** Median projected LinkedIn pile by tier: elite 192 (ships 600), large 129
+      (220), mid 138 (150), small 110 (60), unknown 44 or less (180); internships 44, other jobs 133. What moves the pile (ridge): LinkedIn followers,
+      an English posting, Entry rather than Internship, Data/AI, the Randstad; less for Sales, IT and small cities. Caveat: LinkedIn counts only
+      LinkedIn applications (a floor; B5 puts off-site interest at 60-70% of what LinkedIn counts), so totals may be 1.5-2x these; even so 600 for
+      elite is too high and 60 for small too low.
+      **Proposal (waiting for Kien):** replace the tier constants with the ridge model (or at least re-fit the constants x a channel factor), and
+      re-run the comparison every month as more counts come in.
+
+### J. Searched, not available (2026-10-11 evening)
+- Nunley, Pugh, Romero & Seals 2016 (internships, majors; Labour Economics): no public data. Arellano-Bover, Bussotti, Nunley & Seals (IZA DP 17552;
+  majors, minors, extracurriculars, internship type): the IRB requires the firms to stay anonymous, no data. Braun et al. 2026 (arXiv 2604.01933,
+  36,880 applications, task content): no data posted. Farber, Silverman & von Wachter (RSF 2017): no openICPSR deposit found by search (the data report
+  lists project 113434: check it in the browser with Kien's login). SCP "Foreigners need not apply" (Dutch, extra experience compensates): no dataset
+  found. Applicants per posting for the Netherlands: no open source (commercial feeds carry postings, not applicants); our own counts (section I)
+  are the best Dutch data there is.
+
 ## Decisions so far
+- 2026-10-11 (evening), waiting for Kien: (1) drop the overqualified penalty (H2); (2) replace the pile tier constants with the ridge model from our postings (I1); (3) shrink the skills part from +-0.2 to about +-0.06 (G6: listed skills pool to +0.004; a job-relevant combination was +1.4 pp on 14.5% in the earlier search).
 - 2026-10-11: posting applicant count is a floor, projected forward (commit 83074ae). Mileway intern: 63% → 22%.
 - 2026-10-11: user approved downloading the LinkedIn postings dataset and Kline et al. replication data.
 - No LinkedIn scraping without the user explicitly accepting the ToS risk (see report section on legal).
 
 ## Progress log
+- 2026-10-11 (evening, session "Engine"): G (GEMM 5-country signals, GEMM NL full file, Phillips, Pan & Zhang, L'Horty), G6 meta-analysis, H (engine vs free / interactions / boosting / MLP: the engine wins on NL; the overqualified penalty is the one fault), I (pile model on our 1,203 Dutch counts: the tier constants do not rank and run 40% high; ridge is best), J (sources searched). No engine change made; three proposals wait for Kien.
 - 2026-10-11: plan written.
 - 2026-10-11: A1-A2 done (keep L = 28).
 - 2026-10-11: user asked: suggestions newest first, and no "Most likely to hear back" on a 45-day-old job. Done: similarMix sorts
