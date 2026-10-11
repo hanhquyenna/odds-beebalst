@@ -17,12 +17,18 @@ The mix follows the saved list: 3 finance, 3 marketing, 3 operations, 1 consulti
 - **dismissed jobs**: nothing is suggested that is much like a job you pressed X on, unless it is even more like something you saved.
 
 Within a line, the job most like a saved one wins (title words most, then line of work, level, city, company type), lifted a little by your chance. One employer
-once until nothing else is left. Never: closed to you (see below), past its closing date, older than a posting's typical life. Shown newest first.
+once until nothing else is left. Never: closed to you (see below), past its closing date, or **older than two weeks** (below). Shown newest first.
 
 **What a "cluster" is today: the line of work.** What else could be one, in the order that probably matters most for students: level (internship vs graduate
 programme: today a score, could be a second split inside a line), the role theme in the title (audit vs treasury inside finance), the industry of the employer,
 company type and size (bank, scale-up, big corporate), city, working mode (remote, hybrid), whether the employer is a recognised sponsor, pay band, start season.
 Not built: a second-level split inside a line, because with five slots it would be noise; it needs a longer list.
+
+## Two weeks, for both lists
+Only postings from the last two weeks (`LIST_MAX_AGE_DAYS = 14`, `freshForLists`), or with a closing date still ahead: the employer says they are open, so they are not outdated
+however long they have been up. A posting with no date and no closing date cannot be shown to be fresh and stays out (it is still in "All jobs"). Of 2,421 open jobs on
+2026-10-11: 531 posted within two weeks, 787 older with a closing date ahead, 480 undated, 623 older with no closing date. Checking one LinkedIn job with the Apify actor (`job_status` is
+`open` or `closed`) showed a 44-day-old posting still open, so age is a guess, not a fact; a daily check of the LinkedIn jobs on the lists would make it a fact (about $0.001-0.003 each).
 
 ## Jobs tailored to you
 Ranked by: your ranked fields, then what you are into (like a saved job, or named like your own work, then your lines of work), then **how well your profile fits**,

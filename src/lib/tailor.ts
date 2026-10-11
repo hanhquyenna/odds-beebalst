@@ -131,6 +131,26 @@ function freshness(post: Posting): number {
   return d <= 3 ? 0 : d <= 7 ? 1 : d <= 14 ? 2 : d <= 30 ? 3 : 4
 }
 
+/** How old a posting may be to appear in "Jobs tailored to you" and "Like the jobs you saved": two weeks. Older ones may well be filled, and no list should send you to one. */
+export const LIST_MAX_AGE_DAYS = 14
+
+/**
+ * Fresh enough for the two suggestion lists: posted in the last two weeks, or its own closing date is still ahead (the employer says it is
+ * open, and reads the whole pile after that date, so it is not outdated however long it has been up). A posting with no date and no
+ * closing date cannot be shown to be fresh, so it is left out of these lists (it stays in "All jobs").
+ */
+export function freshForLists(post: Pick<Posting, "days_open" | "valid_through">, today: Date): boolean {
+  if (post.valid_through) {
+    const end = new Date(post.valid_through)
+    if (!Number.isNaN(end.getTime())) {
+      end.setHours(23, 59, 59, 999)
+      if (end.getTime() >= today.getTime()) return true
+    }
+  }
+
+  return post.days_open !== null && post.days_open !== undefined && post.days_open <= LIST_MAX_AGE_DAYS
+}
+
 /** A closing date before today: the employer stopped taking applications, whatever the board still shows. */
 export function pastDeadline(post: Posting, today: Date): boolean {
   if (!post.valid_through) return false
@@ -156,7 +176,7 @@ export function tailor({ candidates, fitting, saved, chanceOf, profiles, liftOf,
   const ownSets = own.map(titleWords)
   const scored: Array<Tailored & { interest: Interest; fresh: number; rank: number; fit: number }> = []
   for (const post of candidates) {
-    if (pastDeadline(post, today)) continue
+    if (pastDeadline(post, today) || !freshForLists(post, today)) continue
     const pf = fitOf?.(post)
     // Closed to this person (it asks for a student and they graduated, for a language they do not list): not worth a place in the list.
     if (pf?.blocked) continue
@@ -269,7 +289,7 @@ export function similarMix(saved: ReadonlyArray<Posting>, candidates: ReadonlyAr
   const best = new Map<string, { job: Posting; like: Likeness; group: string; s: Posting; score: number }>()
   for (const job of candidates) {
     // Past its deadline, older than a typical posting's life (most likely filled), closed to you: not worth suggesting.
-    if (have.has(job.id) || pastDeadline(job, today) || likelyFilled(job) || opts.eligible?.(job) === false) continue
+    if (have.has(job.id) || pastDeadline(job, today) || !freshForLists(job, today) || likelyFilled(job) || opts.eligible?.(job) === false) continue
     for (const [group, list] of groups) {
       for (const s of list) {
         const like = likeness(s, job, profiles)

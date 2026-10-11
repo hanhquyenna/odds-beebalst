@@ -3182,6 +3182,18 @@ function freshness(post) {
     return 4;
   return d <= 3 ? 0 : d <= 7 ? 1 : d <= 14 ? 2 : d <= 30 ? 3 : 4;
 }
+var LIST_MAX_AGE_DAYS = 14;
+function freshForLists(post, today) {
+  if (post.valid_through) {
+    const end = new Date(post.valid_through);
+    if (!Number.isNaN(end.getTime())) {
+      end.setHours(23, 59, 59, 999);
+      if (end.getTime() >= today.getTime())
+        return true;
+    }
+  }
+  return post.days_open !== null && post.days_open !== undefined && post.days_open <= LIST_MAX_AGE_DAYS;
+}
 function pastDeadline(post, today) {
   if (!post.valid_through)
     return false;
@@ -3206,7 +3218,7 @@ function tailor({ candidates, fitting, saved, chanceOf, profiles, liftOf, own = 
   const ownSets = own.map(titleWords);
   const scored = [];
   for (const post of candidates) {
-    if (pastDeadline(post, today))
+    if (pastDeadline(post, today) || !freshForLists(post, today))
       continue;
     const pf = fitOf?.(post);
     if (pf?.blocked)
@@ -3269,7 +3281,7 @@ function similarMix(saved, candidates, profiles, count = 5, today = new Date, op
   const heaviest = new Map([...groups.entries()].map(([g, list]) => [g, Math.max(...list.map(weight))]));
   const best = new Map;
   for (const job of candidates) {
-    if (have.has(job.id) || pastDeadline(job, today) || likelyFilled(job) || opts.eligible?.(job) === false)
+    if (have.has(job.id) || pastDeadline(job, today) || !freshForLists(job, today) || likelyFilled(job) || opts.eligible?.(job) === false)
       continue;
     for (const [group, list] of groups) {
       for (const s of list) {

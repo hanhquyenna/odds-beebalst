@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import { hearBackFor, LIFT, TOP_SHARE } from "@/lib/hear-back"
 import { oddsV2 } from "@/lib/odds-v2"
-import { JOBS, PEOPLE, job } from "@/lib/odds-v2.personas"
-import { isLike, likeness, shortName, shortTitle, similarMix, tailor } from "@/lib/tailor"
+import { JOBS, PEOPLE, job as baseJob } from "@/lib/odds-v2.personas"
+import { freshForLists, isLike, LIST_MAX_AGE_DAYS, likeness, shortName, shortTitle, similarMix, tailor } from "@/lib/tailor"
 import { DEFAULT_PROFILE, type Posting } from "@/lib/types"
+
+/** A test job is two days old unless the test says otherwise: the lists only show postings from the last two weeks. */
+const job = (o: Parameters<typeof baseJob>[0]): Posting => baseJob({ days_open: 2, ...o })
 
 const pool: Posting[] = Array.from({ length: 200 }, (_, i) =>
   job({ ...Object.values(JOBS)[i % Object.values(JOBS).length], id: `j${i}`, title: `${Object.values(JOBS)[i % Object.values(JOBS).length].title} ${i}`, employer: `E${i}` }),
@@ -116,10 +119,10 @@ describe("similarMix", () => {
     expect(similarMix([], open, {})).toEqual([])
   })
 
-  test("newest first, and nothing older than a typical posting's life (most likely filled)", () => {
+  test("newest first, and nothing older than two weeks", () => {
     const aged = open.map((p, i) => ({ ...p, days_open: [45, 3, 12, 31, 1, 20, 8][i] }))
     const out = similarMix(saved, aged, {}, 5)
-    expect(out.every((s) => (s.post.days_open ?? 0) <= 30)).toBe(true)
+    expect(out.every((s) => (s.post.days_open ?? 0) <= LIST_MAX_AGE_DAYS)).toBe(true)
     const days = out.map((s) => s.post.days_open ?? 0)
     expect(days).toEqual([...days].sort((a, b) => a - b))
   })
@@ -144,7 +147,7 @@ describe("jobs tailored to you, with what the profile says", () => {
 
   test("within the same tier the better fit comes first, then the newer; the fit's reasons are the note when nothing else explains the job", () => {
     const fits: Record<string, number> = { low: 0.2, high: 0.8 }
-    const rows = tailor({ ...base, candidates: [mk("low", "Risk Analyst", "L", "Finance & accounting", { days_open: 1 }), mk("high", "Treasury Analyst", "H", "Finance & accounting", { days_open: 20 })], fitting: new Set(["low", "high"]), fitOf: (p) => ({ score: fits[p.id], reasons: ["skills: 2 of 2 must-have", "in Amsterdam, where you live"], blocked: null }) })
+    const rows = tailor({ ...base, candidates: [mk("low", "Risk Analyst", "L", "Finance & accounting", { days_open: 1 }), mk("high", "Treasury Analyst", "H", "Finance & accounting", { days_open: 12 })], fitting: new Set(["low", "high"]), fitOf: (p) => ({ score: fits[p.id], reasons: ["skills: 2 of 2 must-have", "in Amsterdam, where you live"], blocked: null }) })
     expect(all(rows)).toEqual(["high", "low"])
     expect(rows[0].note).toBe("Fits your profile: skills: 2 of 2 must-have; in Amsterdam, where you live")
   })
@@ -161,7 +164,7 @@ describe("jobs tailored to you, with what the profile says", () => {
   })
 
   test("no more than two of one employer in the first places: a third moves behind the others", () => {
-    const rows = tailor({ ...base, candidates: [mk("a1", "Finance Intern Treasury", "A", "Finance & accounting", { region: "Utrecht" }), mk("a2", "Finance Intern Audit", "A"), mk("a3", "Finance Intern Tax", "A"), mk("b1", "Finance Intern Risk", "B", "Finance & accounting", { days_open: 25 })], fitting: new Set(["a1", "a2", "a3", "b1"]) })
+    const rows = tailor({ ...base, candidates: [mk("a1", "Finance Intern Treasury", "A", "Finance & accounting", { region: "Utrecht" }), mk("a2", "Finance Intern Audit", "A"), mk("a3", "Finance Intern Tax", "A"), mk("b1", "Finance Intern Risk", "B", "Finance & accounting", { days_open: 13 })], fitting: new Set(["a1", "a2", "a3", "b1"]) })
     expect(all(rows).indexOf("b1")).toBeLessThan(all(rows).indexOf("a3"))
     expect(rows).toHaveLength(4)
   })
@@ -207,7 +210,7 @@ describe("jobs like the ones you saved: the mix, what counts, what is left out",
   })
 
   test("a job closed to you is never suggested, one past its closing date neither, one older than a posting's life neither", () => {
-    const candidates = [mk("a", "Finance Treasury Analyst Intern", "A1", "Finance & accounting"), mk("b", "Finance Treasury Analyst Intern", "A2", "Finance & accounting", { valid_through: "2020-01-01" }), mk("c", "Finance Treasury Analyst Intern", "A3", "Finance & accounting", { days_open: 80 }), mk("d", "Finance Treasury Analyst Intern", "A4", "Finance & accounting")]
+    const candidates = [mk("a", "Finance Treasury Analyst Intern", "A1", "Finance & accounting"), mk("b", "Finance Treasury Analyst Intern", "A2", "Finance & accounting", { valid_through: "2020-01-01" }), mk("c", "Finance Treasury Analyst Intern", "A3", "Finance & accounting", { days_open: 40 }), mk("d", "Finance Treasury Analyst Intern", "A4", "Finance & accounting")]
     const rows = similarMix([saved[0]], candidates, {}, 5, new Date(), { eligible: (p) => p.id !== "d" })
     expect(rows.map((r) => r.post.id)).toEqual(["a"])
   })
@@ -259,5 +262,36 @@ describe("what makes two jobs alike: level and the skills the description asks f
   test("a job with no skills listed is not marked down for it", () => {
     const quiet = likeness(saved, mk("Finance Analyst Intern", "Internship", [], { employer: "E" }), {})
     expect(isLike(quiet)).toBe(true)
+  })
+})
+
+describe("the two suggestion lists only show what is probably still open: two weeks", () => {
+  const today = new Date("2026-10-11T12:00:00")
+  const at = (days_open: number | null, valid_through: string | null = null) => ({ days_open, valid_through })
+
+  test("posted in the last two weeks is fresh; the fifteenth day is not", () => {
+    expect(freshForLists(at(0), today)).toBe(true)
+    expect(freshForLists(at(14), today)).toBe(true)
+    expect(freshForLists(at(15), today)).toBe(false)
+  })
+
+  test("an old posting with its own closing date still ahead is open, so it stays; once the date has passed it does not", () => {
+    expect(freshForLists(at(60, "2026-10-20"), today)).toBe(true)
+    expect(freshForLists(at(60, "2026-10-11"), today)).toBe(true)
+    expect(freshForLists(at(60, "2026-10-01"), today)).toBe(false)
+  })
+
+  test("a posting with no date and no closing date cannot be shown to be fresh", () => {
+    expect(freshForLists(at(null), today)).toBe(false)
+    expect(freshForLists(at(null, "2026-11-01"), today)).toBe(true)
+  })
+
+  test("both lists leave out the old and the undated", () => {
+    const old = job({ id: "old", title: "Finance Analyst Intern", employer: "Old", family: "Finance & accounting", days_open: 30 })
+    const undated = job({ id: "undated", title: "Finance Analyst Intern Two", employer: "Und", family: "Finance & accounting", days_open: null })
+    const newer = job({ id: "new", title: "Finance Analyst Intern Three", employer: "New", family: "Finance & accounting", days_open: 4 })
+    const saved = job({ id: "s", title: "Finance Analyst Intern", employer: "S", family: "Finance & accounting" })
+    expect(tailor({ candidates: [old, undated, newer], fitting: new Set(["old", "undated", "new"]), saved: [], chanceOf: () => 0.1, profiles: {}, liftOf: () => null, today: new Date() }).map((r) => r.post.id)).toEqual(["new"])
+    expect(similarMix([saved], [old, undated, newer], {}, 5).map((r) => r.post.id)).toEqual(["new"])
   })
 })
