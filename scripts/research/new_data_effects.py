@@ -17,6 +17,7 @@ import warnings
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
+from scipy.stats import norm
 import statsmodels.formula.api as smf
 from statsmodels.miscmodels.ordinal_model import OrderedModel
 
@@ -51,17 +52,19 @@ b["black"] = (b.race.astype(str).str.lower().str.startswith("b")).astype(int)
 b["exp_extra"] = np.clip(b.yearsexp - 2, 0, 3)
 for c in ["honors", "volunteer", "military", "empholes", "workinschool", "computerskills", "specialskills", "email"]:
     b[c] = pd.to_numeric(b[c], errors="coerce").fillna(0)
-f = "call ~ exp_extra + honors + volunteer + military + empholes + workinschool + computerskills + specialskills + C(education) + black + C(city) + C(occupbroad)"
-m = smf.probit(f, b).fit(disp=0, cov_type="cluster", cov_kwds={"groups": b.adid})
-print(f"  {len(b)} resumes, callback {b.call.mean():.1%}")
-row("per year of experience beyond 2 (cap 3)", m.params["exp_extra"], m.bse["exp_extra"], 0.08 * 0.69)
-row("skills: computer skills", m.params["computerskills"], m.bse["computerskills"], None)
-row("skills: special skills", m.params["specialskills"], m.bse["specialskills"], None)
-row("honours", m.params["honors"], m.bse["honors"], None)
-row("employment holes", m.params["empholes"], m.bse["empholes"], None)
-row("volunteering / military", m.params["volunteer"], m.bse["volunteer"], None)
-row("Black-sounding name (US race, not origin)", m.params["black"], m.bse["black"], None)
-print("  (the engine's skills part moves strength by at most +-0.2 and is an assumption; here both skill blocks are measured)")
+base = b.call.mean()
+print(f"  {len(b)} resumes, callback {base:.1%}")
+f0 = "call ~ exp_extra + honors + volunteer + military + empholes + workinschool + computerskills + specialskills + black"
+# Between ads the resume features are not randomised (the high-quality resumes went to different ads than the low-quality ones), so the
+# estimate that counts is WITHIN the same ad: ad fixed effects. The first version of this script left them out and found a +0.41 probit
+# effect of "special skills" that is not there within an ad.
+for name, formula in [("across ads (city and occupation controls only): confounded", f0 + " + C(city) + C(occupbroad)"), ("within the same ad (ad fixed effects): the one that counts", f0 + " + C(adid)")]:
+    m = smf.ols(formula, b).fit(cov_type="cluster", cov_kwds={"groups": b.adid})
+    print(f"  {name}")
+    for k, lab, eng in [("exp_extra", "per year of experience beyond 2 (cap 3)", 0.08 * 0.69), ("specialskills", "special skills", None), ("computerskills", "computer skills", None), ("honors", "honours", None), ("black", "Black-sounding name (US race, not origin)", None)]:
+        pp = m.params[k] * 100
+        print(f"    {lab:44s} {pp:+.2f} pp (se {m.bse[k] * 100:.2f}) = x{(base + m.params[k]) / base:.2f}" + ("" if eng is None else f"   engine {eng:+.3f} probit = about {eng * norm.pdf(norm.ppf(base)) * 100:+.1f} pp at this base rate"))
+print("  (within an ad the skills and honours effects disappear: do not read the across-ads numbers as skills effects)")
 
 print("\n== Kessler, Low & Sullivan 2019 (US, employer ratings 1-10, ordered probit)")
 k = pd.concat([pd.read_stata(D + f"231422/data/Data/Raw/IRRData_{s}.dta", convert_categoricals=False).assign(site=s) for s in ("Penn", "Pitt")], ignore_index=True)

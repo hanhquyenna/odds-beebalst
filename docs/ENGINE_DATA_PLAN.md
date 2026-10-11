@@ -103,19 +103,21 @@ reports, not training data.
       | part | observed (se) | engine ships | data |
       | --- | --- | --- | --- |
       | years beyond 2 asked, per year (cap 3) | +0.039 (0.015) | +0.055 | Eriksson & Rooth, Sweden, 8,466 callbacks |
-      | | +0.067 (0.039) | +0.055 | Bertrand & Mullainathan, US, 4,870 |
+      | | +0.83 pp (0.60) within an ad, x1.10 on an 8% base | +0.055 (about +0.9 pp) | Bertrand & Mullainathan, US, 4,870 |
       | minority name | -0.378 (0.034) | -0.293 | Eriksson & Rooth |
       | more education than required | -0.009 (0.036) | -0.053 | Eriksson & Rooth |
       | top employer on the first job | +0.215 (0.027) | +0.060 | Kessler et al., 6,320 resumes rated 1-10 (ordered probit) |
       | a second internship | +0.127 (0.032) | +0.079 | Kessler et al. |
-      | skills: "special skills" / computer skills | +0.408 (0.071) / -0.140 (0.083) | +-0.2 at most (an assumption) | Bertrand & Mullainathan |
+      | skills: "special skills" / computer skills | **+0.65 pp (1.31) / -0.19 pp (1.32) within an ad**: nothing | +-0.2 at most (an assumption) | Bertrand & Mullainathan |
       Also measured, with no part in the engine: unemployed now 9 months -0.077 (0.047) and no effect of shorter or past spells, summer jobs
-      -0.036 (0.031) (Eriksson & Rooth); honours +0.294 (0.106) (B&M); +1 GPA point +0.438 (0.041) (Kessler).
+      -0.036 (0.031) (Eriksson & Rooth); honours +1.88 pp (2.28) within an ad (B&M); +1 GPA point +0.438 (0.041) (Kessler, a rating).
+      **Correction (same day):** the first version of this table read B&M without ad fixed effects and reported special skills +0.41 probit and honours
+      +0.29. Between ads those resume features were not randomised; within the same ad they are +0.65 pp (se 1.31) and +1.88 pp (2.28): no effect.
       **Reading:** years, minority and second internship sit within about 1.5 standard errors of the shipped values, in independent data from
-      two countries; the overqualification penalty is, if anything, smaller than shipped. **Two real disagreements:** (1) prestige: Kessler's
+      two countries; the overqualification penalty is, if anything, smaller than shipped. **One real disagreement:** prestige: Kessler's
       top-employer effect is 3.6x what the engine ships (0.40 multiplier learned from GEMM and Oreopoulos callbacks), but Kessler measures a
-      stated would-hire rating, not callbacks; (2) skills: special skills move callbacks by +0.41, twice the +-0.2 span assumed. Neither is
-      changed without a callback measure that settles it. IT resume audit (Harvard Dataverse DVN/DOM4OS, 2,032 applications, gender and residential status): downloaded, **not used**:
+      stated would-hire rating, not callbacks. Not changed without a callback measure that settles it. Skills: within an ad B&M finds nothing,
+      so the engine's skills part (+-0.2, an assumption) is if anything too large. IT resume audit (Harvard Dataverse DVN/DOM4OS, 2,032 applications, gender and residential status): downloaded, **not used**:
       Pakistan, and none of the engine's parts maps to it.
 - [x] C4. (Done 2026-10-11 with the Swiss data; see below.) (Deming checked by hand, see C1: no change. Rows not added to `learn.py` because one mappable part with no effect cannot move the multipliers.) Add to the backtest (`loop.py` / `learn.py`), re-learn multipliers, report AUC and calibration slope per dataset,
       **with NL (GEMM NL) held out as the check**. Only adopt new multipliers if NL does not get worse.
