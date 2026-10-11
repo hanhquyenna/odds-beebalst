@@ -243,6 +243,37 @@ study's base rate). Output: `research-data/more-data/more_effects_2.csv`.
       **Proposal (waiting for Kien):** replace the tier constants with the ridge model (or at least re-fit the constants x a channel factor), and
       re-run the comparison every month as more counts come in.
 
+### K. Engine changes after Kien's review of the persona table (2026-10-11, late; SNAPSHOT_MODEL odds-v2.3-factors-as-ratios)
+Kien's objection: a Goldman Sachs IB internship scored almost the same as a Van Oord finance internship (24.1% vs 22.3%), and the spread
+from weakest to strongest (0.8% to 40.6%) did not make sense. Checked against the data, then changed (all in src/lib/odds-v2.ts):
+- [x] K1. **Top employer in the same line of work** (`eliteSameLine`, +0.15): `prestige` shrank every known name to 0.4 x (learned from
+      Oreopoulos' big-firm callbacks). Kessler's recruiters rate a top-firm internship +0.215; Oreopoulos' callbacks for a well-known firm in
+      the same occupation are about +0.05. Tried on the Oreopoulos rows held out: +0.06 AUC 0.6854, +0.10 0.6854, **+0.15 0.6873 (best)**,
+      +0.215 0.6742 (worse). So +0.15, only for an elite name in the job's own line; other names keep `prestige`.
+- [x] K2. **A second internship in the line** +0.127 (Kessler) instead of +0.08.
+- [x] K3. **First internship**: a degree in the line of work now counts for 0.74 of a role (was 0.55), so one same-line internship adds +0.09
+      to +0.10 probit over the same graduate without it, as Baert et al. 2021 (+12.6% invitations) and Nunley et al. 2016 (+14%) measured.
+      Before: x1.97 at odds' typical pile; after: x1.13.
+- [x] K4. **Factors keep the studies' ratios at low callback rates** (`factorScale`, POSITION_KEYS): GEMM shows the minority/native ratio holds as
+      the base falls (0.75 at 43%, 0.73 at 16%), while one probit step multiplies a low chance far more. Ratio-type parts (origin, Dutch,
+      foreign degree, names, second internship, referral, tailored, skills, degree in field) are shrunk, at the person's own position, until a
+      small step changes the chance by the ratio it has at a 25% base. Position parts (relevance, years, under/overqualified) are never shrunk, so
+      a strong applicant still stands well above a weak one in a mixed pile. No effect at a 25%+ base (all the experiments: GEMM NL unchanged).
+- [x] K5. **Referral and tailored letter halved** on the log-odds scale (OR 1.49 -> 1.22, 1.31 -> 1.145): vendor numbers; the one experiment
+      (Paths2Include) finds a referral +0.008.
+- [x] K6. **Missing years, by level** (Kien: "brutal for senior, lighter below"): senior (5+ years asked) 0.8 + 3 short + 9 short^2 times the
+      GEMM step (1.4x one year short of seven, 5.4x with three of seven, 12.8x with none; the one place a single thing may take more than
+      three quarters of a chance); mid unchanged (0.4 + 0.8 short); first jobs 0.25 + 0.5 short. Senior Finance Manager asking 7+ years, a
+      finance profile: 1y 0.9%, 3y 8.4%, 5y 28.5%, 6y 37.6%, 7y 52%. Mid asking 3: 1y 38.9% vs 3y 48.4%.
+- Persona table, Finance Intern, mid company, 150 on LinkedIn (before -> after): weakest 0.8 -> 1.3%; non-EU no experience MSc 6.4 -> 11.2%;
+  non-EU one internship 12.6 -> 12.6%; EU basic Dutch 17.6 -> 17.6%; Dutch one internship (Van Oord) 22.3 -> 22.3%; Goldman Sachs IB alone
+  24.1 -> 26.9%; Dutch two internships incl. GS 26.6 -> 31.2%; + referral + tailored 40.6 -> 38.3%. GS analyst into Senior Finance Manager
+  (7+ asked, has 3): 36.4 -> 6.8%.
+- Checks: parts re-exported (5,649 of 34,549 rows changed); held-out within-group AUC GEMM NL 0.5701 -> 0.5701, DE 0.5381 -> 0.5391, NO
+  0.5803 -> 0.5813, ES 0.5717 -> 0.5679 (softer first-job shortfall; GEMM ES underqualified is about 0), UK same, Oreopoulos 0.6854 -> 0.6873.
+  `bun run check` 956 tests on a clean tree; e2e 9/9 (landing 310.2 kB, budget raised 310 -> 312 for these 0.3 kB). Not done yet: dropping
+  the overqualified penalty (H2), the skills span (G6) and the pile model (I1).
+
 ### J. Searched, not available (2026-10-11 evening)
 - Nunley, Pugh, Romero & Seals 2016 (internships, majors; Labour Economics): no public data. Arellano-Bover, Bussotti, Nunley & Seals (IZA DP 17552;
   majors, minors, extracurriculars, internship type): the IRB requires the firms to stay anonymous, no data. Braun et al. 2026 (arXiv 2604.01933,
@@ -258,6 +289,7 @@ study's base rate). Output: `research-data/more-data/more_effects_2.csv`.
 - No LinkedIn scraping without the user explicitly accepting the ToS risk (see report section on legal).
 
 ## Progress log
+- 2026-10-11 (late): K1-K6 engine changes after Kien's review (see K).
 - 2026-10-11 (evening, session "Engine"): G (GEMM 5-country signals, GEMM NL full file, Phillips, Pan & Zhang, L'Horty), G6 meta-analysis, H (engine vs free / interactions / boosting / MLP: the engine wins on NL; the overqualified penalty is the one fault), I (pile model on our 1,203 Dutch counts: the tier constants do not rank and run 40% high; ridge is best), J (sources searched). No engine change made; three proposals wait for Kien.
 - 2026-10-11: plan written.
 - 2026-10-11: A1-A2 done (keep L = 28).

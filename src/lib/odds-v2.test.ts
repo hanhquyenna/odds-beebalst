@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { chanceIn, FLOOR, oddsV2, phi, phiInv, projectedApplicants, stillReviewing } from "@/lib/odds-v2"
+import { chanceIn, FLOOR, oddsV2, phi, phiInv, POSITION_KEYS, projectedApplicants, SENIOR_YEARS, stillReviewing } from "@/lib/odds-v2"
 import { EXPECT, JOBS, PEOPLE, job } from "@/lib/odds-v2.personas"
 import { employerTier } from "@/lib/tiers"
 
@@ -34,8 +34,9 @@ describe("odds-v2: rules every answer must keep", () => {
     expect(p("midFinanceIntern", "startupFinance")).toBeGreaterThan(p("mckinseyMarketingToFinance", "startupFinance"))
   })
   test("a famous name counts more in the same line of work than outside it", () => {
-    const same = oddsV2(JOBS.scaleupSwe, PEOPLE.googleSwe).parts.find((x) => x.label.startsWith("Known name or record"))!.z
-    const other = oddsV2(JOBS.scaleupMarketing, PEOPLE.googleSwe).parts.find((x) => x.label.startsWith("Known name or record"))!.z
+    const name = (x: { key: string }): boolean => x.key === "prestige" || x.key === "eliteSameLine"
+    const same = oddsV2(JOBS.scaleupSwe, PEOPLE.googleSwe).parts.find(name)!.z
+    const other = oddsV2(JOBS.scaleupMarketing, PEOPLE.googleSwe).parts.find(name)!.z
     expect(same).toBeGreaterThan(other)
   })
   test("the same person has a lower chance where more people apply", () => {
@@ -92,10 +93,14 @@ describe("odds-v2: no hard rejecting", () => {
     }
   })
   test("no single missing thing takes away more than three quarters of a chance", () => {
-    // Each part alone, removed from the strength, may not change the chance by more than 4x: there are no gates.
-    for (const [, , r] of all()) {
-      for (const part of r.parts.filter((x) => x.z < 0)) {
-        const without = chanceIn(r.strength - part.z, r.pile)
+    // Each part alone, removed from the strength, may not change the chance by more than 4x: there are no gates. The one exception, on
+    // purpose: missing most of the years a senior job (5+ years) asks for.
+    for (const [, what, r] of all()) {
+      const post = JOBS[what as keyof typeof JOBS]
+      const seniorAsk = (post.years_min ?? (post.level_view && ["Senior", "Manager", "Director"].includes(post.level_view) ? SENIOR_YEARS : 0)) >= SENIOR_YEARS
+      for (const part of r.parts.filter((x) => x.z < 0 && !(seniorAsk && x.key === "underqualified"))) {
+        const kept = POSITION_KEYS.has(part.key) ? part.z : part.z * r.factorScale
+        const without = chanceIn(r.strength - kept, r.pile)
         const withIt = chanceIn(r.strength, r.pile)
         expect(withIt / without).toBeGreaterThan(0.25)
       }

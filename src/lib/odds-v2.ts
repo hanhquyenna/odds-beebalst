@@ -55,6 +55,10 @@ const RELEVANCE_SPAN = 1.5
 const RELEVANCE_FLOOR = 0.2
 /** What kind of role it was: a full job counts fully, an internship 0.8 of it (Nunley et al. 2016: an internship is worth about 55% of a post-graduation in-field job's +25%), a job for money about nothing (Kessler et al. 2019; Baert et al. 2016). */
 const KIND_WORTH = { job: 1, internship: 0.8, student: 0.15 } as const
+/** Years asked from which a job counts as senior for the shortfall penalty. */
+export const SENIOR_YEARS = 5
+/** What a degree in the job's line of work is worth for a first job when there is no work in it yet: 0.06 below a same-line internship. */
+const DEGREE_AS_FIRST_ROLE = 0.74
 
 /**
  * The employer's name. The one callback measure is Oreopoulos 2011: experience at a very large firm, OR 1.09 (1.16 within job) at a
@@ -64,6 +68,16 @@ const KIND_WORTH = { job: 1, internship: 0.8, student: 0.15 } as const
  */
 const PRESTIGE: Record<EmployerTier, number> = { elite: 0.15, large: 0.07, mid: 0, small: 0, unknown: 0 }
 const PRESTIGE_OFF_FIELD = 0.4
+/**
+ * A top employer in the job's own line of work (a Goldman Sachs internship for a finance job). Kept apart from `prestige`, whose learned 0.4
+ * shrinks every known name. Two measures disagree: Kessler, Low & Sullivan 2019 (real recruiters of banks and consultancies rating student
+ * resumes) put a top-firm internship at +0.215 probit; Oreopoulos 2011 (callbacks, 4,023 applications listing a well-known large firm in the
+ * same occupation) is about +0.05. Tried on the Oreopoulos callbacks held out (research-data/backtest, 2026-10-11): +0.06 within-job AUC
+ * 0.6854, +0.10 0.6854, +0.15 0.6873 (best), +0.215 0.6742 (worse). So +0.15: the most the callback data supports.
+ */
+const ELITE_SAME_LINE = 0.15
+/** A second internship in the job's line of work: Kessler, Low & Sullivan 2019, +0.127 (se 0.032), the same recruiters. */
+const SECOND_INTERNSHIP = 0.127
 
 /** Effects from field experiments, as odds ratios with the callback rate they were measured at. */
 export const EFFECTS = {
@@ -82,18 +96,19 @@ export const EFFECTS = {
   dutchNone: { or: 1 / 1.91, at: 0.147 },
   dutchBasic: { or: 1.39 / 1.91, at: 0.147 },
   dutchProfessional: { or: 1.74 / 1.91, at: 0.147 },
-  /** A referral: Ashby 2026 screen pass 52% vs 35%. */
-  referral: { or: 1.49, at: 0.35 },
-  /** A cover letter tailored to the job: ResumeGo 2020 (vendor test, weakest evidence). */
-  tailored: { or: 1.31, at: 0.125 },
+  /**
+   * A referral: Ashby 2026 screen pass 52% vs 35% (OR 1.49) is observational vendor data, where referred people are also better candidates;
+   * the one experiment (Paths2Include recruiter ratings) finds +0.008. Half the vendor effect on the log-odds scale: OR 1.22.
+   */
+  referral: { or: 1.22, at: 0.35 },
+  /** A cover letter tailored to the job: ResumeGo 2020 (vendor test, weakest evidence), OR 1.31; half on the log-odds scale: OR 1.145. */
+  tailored: { or: 1.145, at: 0.125 },
   /** Degree in the job's line of work (Nunley et al.: major alone ~0; Humburg & van der Velden 2015: field match counts in screening). Our cautious value. */
   degreeInField: { or: 1.2, at: 0.17 },
   /** Degree below what the posting asks: treated like being underqualified, but half as strong. */
   degreeBelowAsked: { or: 0.7, at: 0.46 },
   /** A degree from outside the EU (no Dutch or EU degree): Oreopoulos 2011 own fit 0.92 (not significant), at a 10% callback rate. */
   foreignDegree: { or: 0.92, at: 0.1 },
-  /** A second relevant internship: Kessler et al. about half the value of the top-internship upgrade. */
-  secondInternship: { or: 1.15, at: 0.17 },
 } satisfies Record<string, Effect>
 
 /** The share of the Dutch gap kept on a job that does not ask for Dutch. Our assumption: the second learning round found no extra gap where the ad asks for the language, and a recruiter sees little of it in an English application. */
@@ -253,6 +268,8 @@ export interface OddsV2 {
   parts: Part[]
   /** 1 = nothing taken off; below 1 the posting is old enough that the employer may have stopped reading (stillReviewing). Already in p, low and high. */
   reviewing: number
+  /** The share of the ratio-type factors kept at this person's position in this pile (factorScale); position parts are always kept whole. */
+  factorScale: number
 }
 
 export interface V2Context {
@@ -379,7 +396,10 @@ export function strengthParts(post: Posting, profile: Profile, ctx: V2Context = 
   const degreeIn = jobFamily !== null && degreeFams.includes(jobFamily)
   const firstJob = isInternshipTitle(post.title) || post.level_view === "Internship" || post.level_view === "Entry" || post.role_kind === "internship" || post.role_kind === "entry_job" || post.role_kind === "traineeship"
   let worth = best.worth
-  if (firstJob && degreeIn) worth = Math.max(worth, 0.55)
+  // A first job or internship with a degree in its line of work: the degree reads almost like a first internship. Baert et al. 2021 (+12.6%
+  // interview invitations for an internship) and Nunley et al. 2016 (+14%) put one relevant internship at about +0.09 to +0.10 probit over
+  // the same graduate without it, so the degree's worth sits that far below a same-line internship (0.8 x 1.5 x 1.05 shipped).
+  if (firstJob && degreeIn) worth = Math.max(worth, DEGREE_AS_FIRST_ROLE)
   parts.push({
     key: "relevance",
     label: best.role ? `Most relevant: ${best.role.title}${best.role.company ? ` at ${best.role.company}` : ""} (${best.rel === "same" ? "same line of work" : best.rel === "adjacent" ? "a neighbouring line of work" : "another line of work"})` : degreeIn ? "Degree in this line of work, no work in it yet" : "No work in this line of work yet",
@@ -409,7 +429,10 @@ export function strengthParts(post: Posting, profile: Profile, ctx: V2Context = 
       prestigeRole = ctx.record.detail
     }
   }
-  if (prestige > 0) parts.push({ key: "prestige", label: `Known name or record: ${prestigeRole}`, z: prestige, source: "Kessler, Low & Sullivan 2019; Oreopoulos 2011" })
+  // A top employer in this line of work counts at the Kessler value, not shrunk by the multiplier learned for "very large firm".
+  const eliteHere = base.roles.find((r) => !isStudentJob(r.title) && employerTier(r.company) === "elite" && roleRelevance(r.title, post, jobFamily) === "same")
+  if (eliteHere) parts.push({ key: "eliteSameLine", label: `A top employer in this line of work: ${eliteHere.company}`, z: ELITE_SAME_LINE, source: "Kessler, Low & Sullivan 2019" })
+  else if (prestige > 0) parts.push({ key: "prestige", label: `Known name or record: ${prestigeRole}`, z: prestige, source: "Kessler, Low & Sullivan 2019; Oreopoulos 2011" })
 
   relevantYears += ctx.extraYears ?? 0
   const years = base.years + (ctx.extraYears ?? 0)
@@ -417,7 +440,7 @@ export function strengthParts(post: Posting, profile: Profile, ctx: V2Context = 
   const asked = post.years_min ?? (firstJob ? 0 : 2)
   const extra = Math.min(YEAR_CAP, Math.max(0, relevantYears - asked))
   if (extra > 0) parts.push({ key: "years", label: `${extra.toFixed(1)} more years in this line of work than asked`, z: YEAR_STEP * extra, source: "Nunley et al. 2016" })
-  if (relevantInternships >= 2) parts.push({ key: "secondInternship", label: "A second internship in this line of work", z: step(EFFECTS.secondInternship), source: "Kessler, Low & Sullivan 2019" })
+  if (relevantInternships >= 2) parts.push({ key: "secondInternship", label: "A second internship in this line of work", z: SECOND_INTERNSHIP, source: "Kessler, Low & Sullivan 2019" })
 
   // 4. Under- and overqualified.
   // A posting that names no years still has a level; a senior job without a number is not open to someone with one year.
@@ -427,7 +450,12 @@ export function strengthParts(post: Posting, profile: Profile, ctx: V2Context = 
     // GEMM's 0.53 is the average underqualified applicant; the step is scaled from 0.4x (barely short) to 1.2x (nothing of what is asked).
     // The second backtest put 0.6 + short at 0.44x the callbacks against 0.60x observed, so the scale was lowered.
     const short = Math.min(1, (implied - years) / implied)
-    parts.push({ key: "underqualified", label: fromLevel ? `A ${post.level_view?.toLowerCase()} job (usually ${implied}+ years), you have ${years.toFixed(1)}` : `Asks for ${implied}+ years, you have ${years.toFixed(1)}`, z: step(EFFECTS.underqualified) * (0.4 + 0.8 * short), source: "GEMM (own fit, Dutch applications); scaled by how far short, our assumption" })
+    // How hard a shortfall hits depends on the level. A senior job (5+ years) is close to closed to someone with half the years: 1.4x the
+    // GEMM step one year short of seven, 5.4x at four of seven years missing, 12.8x with nothing of what is asked (the one place the chance may fall by more
+    // than three quarters for a single thing). A mid job keeps the backtested 0.4x to 1.2x. A first job that asks
+    // a year or two is often flexible: 0.25x to 0.75x. The level split is our judgement; no experiment varies large shortfalls.
+    const scale = implied >= SENIOR_YEARS ? 0.8 + 3 * short + 9 * short * short : implied > 2 ? 0.4 + 0.8 * short : 0.25 + 0.5 * short
+    parts.push({ key: "underqualified", label: fromLevel ? `A ${post.level_view?.toLowerCase()} job (usually ${implied}+ years), you have ${years.toFixed(1)}` : `Asks for ${implied}+ years, you have ${years.toFixed(1)}`, z: step(EFFECTS.underqualified) * scale, source: "GEMM (own fit, Dutch applications); scaled by level and how far short, our judgement" })
   } else if (post.years_min !== null && post.years_min !== undefined && years > 2 * post.years_min + 4) {
     parts.push({ key: "overqualified", label: "Much more experience than asked", z: step(EFFECTS.overqualified), source: "Baert & Verhaest 2019" })
   }
@@ -484,10 +512,38 @@ export function strengthParts(post: Posting, profile: Profile, ctx: V2Context = 
  */
 export const FLOOR = 0.005
 
+/** The callback rate the experiments behind the parts were measured at (GEMM 16-43%, Oreopoulos 10-16%, Sweden 15%): their middle. */
+const STUDY_BASE = 0.25
+
+/** Parts that place someone in the pile: what they have done against what the job asks. Everything else is a factor measured as a ratio. */
+export const POSITION_KEYS = new Set(["relevance", "years", "underqualified", "overqualified", "degreeBelowAsked"])
+
+/**
+ * How much of the ratio-type factors (origin, Dutch, a foreign degree, a known name, a second internship, a referral, a tailored letter, skills,
+ * a degree in the field) to keep for someone whose position in this pile gives them a chance below the studies'. Each of those was measured as
+ * a ratio between comparable applicants at a 15-45% callback rate, and in GEMM the ratio holds as the rate falls (minority / native 0.75 at a
+ * 43% base, 0.73 at 16%). Low in a big pile, the same step on the strength scale would multiply the chance far more than any study saw (x1.85
+ * native vs non-EU at 7% against x1.31 at 30%). So the factors are shrunk until a small step changes the chance by the ratio it has at
+ * STUDY_BASE. Where someone's position already gives STUDY_BASE or more, nothing changes. The position parts are never shrunk: a pile mixes
+ * people far apart in what they have done, which is what places a strong applicant well above a weak one.
+ */
+export function factorScale(position: number, pile: Pile, noise = NOISE): number {
+  const p = chanceIn(position, pile, noise)
+  if (p >= STUDY_BASE || p <= 0) return 1
+  const T = phiInv(1 - pile.interviews / pile.applicants) * Math.sqrt(1 + noise * noise)
+  // d log p / dz = density / (noise x p), at the person and at the point where the chance is STUDY_BASE.
+  const slope = (z: number): number => (Math.exp(-(((T - z) / noise) ** 2) / 2) / Math.sqrt(2 * Math.PI)) / (noise * Math.max(1e-9, 1 - phi((T - z) / noise)))
+  const zRef = T - noise * phiInv(1 - STUDY_BASE)
+  return Math.min(1, slope(zRef) / slope(position))
+}
+
 export function oddsV2(post: Posting, profile: Profile, ctx: V2Context = {}): OddsV2 {
   const parts = strengthParts(post, profile, ctx)
-  const z = parts.reduce((s, p) => s + p.z, 0)
   const pile = pileFor(post, employerTier(post.employer_display || post.employer, ctx.employerEmployees), ctx.employerAvgApplicants)
+  const position = parts.filter((p) => POSITION_KEYS.has(p.key)).reduce((s, p) => s + p.z, 0)
+  const factors = parts.filter((p) => !POSITION_KEYS.has(p.key)).reduce((s, p) => s + p.z, 0)
+  const fScale = factorScale(position, pile)
+  const z = position + factors * fScale
   const p = chanceIn(z, pile)
   // Range: the strength itself is known to about +-0.3 (effects from different studies), and the pile to about a factor 1.6.
   const smaller = { ...pile, applicants: Math.max(pile.interviews + 1, pile.applicants / 1.6) }
@@ -502,5 +558,5 @@ export function oddsV2(post: Posting, profile: Profile, ctx: V2Context = {}): Od
   // An old posting may no longer be read: the chance is the chance of being invited, times the chance the employer is still reading.
   const reviewing = stillReviewing(post)
 
-  return { p: floor(p * reviewing), low: floor(Math.min(low, p) * reviewing), high: floor(Math.max(high, p) * reviewing), strength: z, pile, percentile, parts, reviewing }
+  return { p: floor(p * reviewing), low: floor(Math.min(low, p) * reviewing), high: floor(Math.max(high, p) * reviewing), strength: z, pile, percentile, parts, reviewing, factorScale: fScale }
 }
