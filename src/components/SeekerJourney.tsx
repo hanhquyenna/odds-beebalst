@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Landing } from "@/components/Landing"
 import { SeekerQuestions } from "@/components/SeekerQuestions"
@@ -22,6 +22,7 @@ import {
   type Step,
 } from "@/lib/journey"
 import { clearDraft } from "@/lib/session"
+import { CV_ACCEPT, profileWithCv } from "@/lib/cv-profile"
 import { isGuestEmail } from "@/lib/auth"
 import { prefetchWhenIdle } from "@/lib/prefetch"
 import type { StaticPage } from "@/lib/pages"
@@ -54,6 +55,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState<boolean>(false)
   const [link, setLink] = useState<string>("")
+  const cvInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     onWelcome?.(step === "welcome")
@@ -112,6 +114,26 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not read that profile.")
       setSaving(false)
+    }
+  }
+
+  /**
+   * The other way in, for anyone without a public LinkedIn (or when reading LinkedIn fails): their CV, read here in the browser,
+   * fills the roles, degrees and skills, and its text is what the chance is worked out from. Nothing is sent anywhere to read it.
+   */
+  async function readCv(file: File | undefined): Promise<void> {
+    if (!file) return
+    setError(null)
+    setSaving(true)
+    try {
+      data.setProfile(await profileWithCv(toProfile(form, data.profile), file))
+      clearDraft()
+      onSaved()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "We could not read that file.")
+      setSaving(false)
+    } finally {
+      if (cvInput.current) cvInput.current.value = ""
     }
   }
 
@@ -253,6 +275,10 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
         <div className="flex flex-col gap-2">
           <Button type="submit" size="lg" disabled={saving} className="h-12 w-full cursor-pointer text-base disabled:cursor-not-allowed">
             {saving ? "Reading your profile…" : "Show me jobs"}
+          </Button>
+          <input ref={cvInput} type="file" accept={CV_ACCEPT} aria-label="Your CV" className="sr-only" onChange={(event) => void readCv(event.target.files?.[0])} />
+          <Button type="button" variant="outline" size="lg" disabled={saving} onClick={() => cvInput.current?.click()} className="h-12 w-full cursor-pointer text-base">
+            Upload your CV instead
           </Button>
           <Button type="button" variant="ghost" disabled={saving} onClick={finish} className="w-full cursor-pointer text-muted-foreground">
             Continue without LinkedIn

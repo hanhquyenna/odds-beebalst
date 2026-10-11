@@ -16,6 +16,9 @@ describe("company money and news", () => {
   })
   test("amounts read like a finance page", () => {
     expect(moneyText({ amount: 69.7e9, currency: "USD" })).toBe("$69.7 billion")
+    // Wikidata ids stand for a currency when its label was not read: shown as the symbol, never as "Q4916".
+    expect(moneyText({ amount: 506e6, currency: "Q4916" })).toBe("€506 million")
+    expect(moneyText({ amount: 2e6, currency: "Q999999" })).toBe("2 million")
     expect(moneyText({ amount: 412e6, currency: "euro" })).toBe("€412 million")
     expect(moneyText({ amount: -3e6, currency: "EUR" })).toBe("-€3 million")
   })

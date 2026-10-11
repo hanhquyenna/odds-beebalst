@@ -3,6 +3,7 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { ArrowLeftIcon, PencilIcon, TrashIcon, UploadIcon } from "@/components/icons"
 import { useData } from "@/lib/data"
+import { isGuestEmail } from "@/lib/auth"
 import { useAddDocument } from "@/lib/use-documents"
 import { KIND_LABEL, MAX_DOCUMENTS, MAX_NAME, driveFileUrl, jobsUsing, previewOf, problemText, wordCount, type Doc, type DocKind } from "@/lib/document-model"
 import { downloadDocument, makeMain, removeDocument, renameDocument, useDocumentStore } from "@/lib/documents"
@@ -77,7 +78,7 @@ export function Documents({ onBack, onSignIn }: DocumentsProps): React.JSX.Eleme
             <p className="mt-1 text-sm text-muted-foreground">{hint}</p>
           </div>
           <input ref={input} type="file" accept={ACCEPT} aria-label={`Add a ${KIND_LABEL[kind].toLowerCase()}`} className="sr-only" onChange={(e) => void take(e.target.files, kind)} />
-          <Button variant="outline" size="sm" disabled={full || busy !== null} onClick={() => input.current?.click()} className="shrink-0 cursor-pointer">
+          <Button variant="outline" size="sm" disabled={full || busy !== null} onClick={() => input.current?.click()} className="shrink-0 cursor-pointer max-md:h-10 max-md:px-3.5">
             <UploadIcon className="size-4" aria-hidden="true" /> {busy === kind ? "Reading…" : `Add a ${KIND_LABEL[kind].toLowerCase()}`}
           </Button>
         </div>
@@ -125,7 +126,7 @@ export function Documents({ onBack, onSignIn }: DocumentsProps): React.JSX.Eleme
           {note ? <p className="text-sm text-muted-foreground">{note}</p> : null}
           {full ? <p className="text-sm text-muted-foreground">You have used all {MAX_DOCUMENTS} places. Delete a document to add another.</p> : null}
 
-          <DriveCard onProblem={setProblem} />
+          <DriveCard onProblem={setProblem} onSignIn={onSignIn} />
 
           {section("cv", cvInput, "The main CV is what the chance on every job is worked out from. PDF, Word (.docx) or text, up to 8 MB.")}
           {section("cover_letter", letterInput, "Kept for you to put on a job. It does not change the chance.")}
@@ -217,17 +218,17 @@ function DocumentRow({ doc, jobs, missing, onDelete, onProblem }: DocumentRowPro
           </a>
         ) : null}
         {doc.kind === "cv" && !doc.isMain ? (
-          <Button type="button" variant="outline" size="sm" onClick={() => void run(() => makeMain(doc.id))} className="cursor-pointer">
+          <Button type="button" variant="outline" size="sm" onClick={() => void run(() => makeMain(doc.id))} className="cursor-pointer max-md:h-10 max-md:px-3.5">
             Make main
           </Button>
         ) : null}
-        <Button type="button" variant="ghost" size="sm" onClick={() => void run(() => downloadDocument(doc.id))} className="cursor-pointer">
+        <Button type="button" variant="ghost" size="sm" onClick={() => void run(() => downloadDocument(doc.id))} className="cursor-pointer max-md:h-10 max-md:px-3.5">
           Download
         </Button>
-        <Button type="button" variant="ghost" size="icon-sm" aria-label={`Rename ${doc.name}`} onClick={() => setEditing(true)} className="cursor-pointer">
+        <Button type="button" variant="ghost" size="icon-sm" aria-label={`Rename ${doc.name}`} onClick={() => setEditing(true)} className="cursor-pointer max-md:size-10">
           <PencilIcon className="size-4" aria-hidden="true" />
         </Button>
-        <Button type="button" variant="ghost" size="icon-sm" aria-label={`Delete ${doc.name}`} onClick={onDelete} className="cursor-pointer text-destructive">
+        <Button type="button" variant="ghost" size="icon-sm" aria-label={`Delete ${doc.name}`} onClick={onDelete} className="cursor-pointer max-md:size-10 text-destructive max-md:size-10">
           <TrashIcon className="size-4" aria-hidden="true" />
         </Button>
       </div>
@@ -239,8 +240,10 @@ function DocumentRow({ doc, jobs, missing, onDelete, onProblem }: DocumentRowPro
  * Google Drive: connect once and every file is kept in an "odds" folder in their own Drive, with "CVs" and "Cover letters"
  * inside. New uploads go there by themselves, and a file edited there is read again here.
  */
-function DriveCard({ onProblem }: { onProblem: (text: string | null) => void }): React.JSX.Element | null {
+function DriveCard({ onProblem, onSignIn }: { onProblem: (text: string | null) => void; onSignIn: () => void }): React.JSX.Element | null {
   const drive = useDrive()
+  // A guest account (made from a LinkedIn import) has no Google account to connect: it signs in with Google first.
+  const guest = isGuestEmail(useData().session?.user.email)
   const [busy, setBusy] = useState<boolean>(false)
   const [asking, setAsking] = useState<boolean>(false)
   if (drive.status === "unknown") return null
@@ -275,7 +278,7 @@ function DriveCard({ onProblem }: { onProblem: (text: string | null) => void }):
                 Open folder
               </a>
             ) : null}
-            <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setAsking(true)} className="cursor-pointer text-destructive">
+            <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setAsking(true)} className="cursor-pointer max-md:h-10 max-md:px-3.5 text-destructive">
               Disconnect
             </Button>
           </div>
@@ -286,9 +289,15 @@ function DriveCard({ onProblem }: { onProblem: (text: string | null) => void }):
             <p className="font-medium">Keep your files in your Google Drive</p>
             <p className="mt-1 text-sm text-muted-foreground">Connect once: we make an odds folder with CVs and Cover letters in it, and every file goes there. odds can only see the files it puts there, nothing else in your Drive.</p>
           </div>
-          <Button type="button" disabled={busy} onClick={() => void run(connectDrive)} className="shrink-0 cursor-pointer">
-            {busy ? "Opening Google…" : "Connect Google Drive"}
-          </Button>
+          {guest ? (
+            <Button type="button" onClick={onSignIn} className="shrink-0 cursor-pointer">
+              Sign in with Google first
+            </Button>
+          ) : (
+            <Button type="button" disabled={busy} onClick={() => void run(connectDrive)} className="shrink-0 cursor-pointer">
+              {busy ? "Opening Google…" : "Connect Google Drive"}
+            </Button>
+          )}
         </>
       )}
       {asking ? (

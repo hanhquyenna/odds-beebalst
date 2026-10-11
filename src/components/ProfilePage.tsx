@@ -79,7 +79,7 @@ function EntryList({ rows, onChange, blank, summary, fields, noun }: ListProps):
             <div className="grid gap-3 border-t-[1.5px] px-4 py-4 sm:grid-cols-2">
               {fields(row, (key, value) => onChange(rows.map((r, j) => (j === i ? { ...r, [key]: value } : r))))}
               <div className="sm:col-span-2">
-                <Button variant="ghost" size="sm" onClick={() => onChange(rows.filter((_, j) => j !== i))} className="cursor-pointer text-destructive">
+                <Button variant="ghost" size="sm" onClick={() => onChange(rows.filter((_, j) => j !== i))} className="cursor-pointer text-destructive max-md:h-10">
                   Remove this {noun}
                 </Button>
               </div>
@@ -292,7 +292,7 @@ export function ProfilePage({ onBack, onOpenDocuments, onOpenClaude }: ProfilePa
           {p.skills.map((s, i) => (
             <span key={`${s.Name}-${i}`} className="inline-flex items-center gap-1 rounded-full bg-accent py-1 pr-1.5 pl-3 text-sm">
               {s.Name}
-              <button type="button" aria-label={`Remove ${s.Name}`} onClick={() => set("skills", p.skills.filter((_, j) => j !== i))} className="cursor-pointer rounded-full p-0.5 opacity-60 hover:opacity-100">
+              <button type="button" aria-label={`Remove ${s.Name}`} onClick={() => set("skills", p.skills.filter((_, j) => j !== i))} className="relative cursor-pointer rounded-full p-0.5 opacity-60 after:absolute after:-inset-2.5 after:content-[''] hover:opacity-100">
                 <XIcon className="size-3.5" aria-hidden="true" />
               </button>
             </span>

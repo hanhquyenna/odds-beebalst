@@ -6,6 +6,7 @@
 //   POST /drive/rename      { id }  gives the Drive file the document's current name
 //   POST /drive/trash       { id }  puts the Drive file in the Drive bin (before the document row is deleted)
 //   POST /drive/disconnect  brings the files back into the bucket, then lets go of Drive
+//   GET  /drive/check       whether Google's client id and secret are a working pair (never shows them)
 // Deploy:  supabase functions deploy drive --project-ref ukpmpyfcnbhngkgbnkxi --use-api   (config.toml: verify_jwt = false,
 // because Google's redirect carries no sign-in; every other route checks it here.)
 // Secrets: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET; SHOO_APP_ORIGINS (the sites the browser may be sent back to).
@@ -85,9 +86,10 @@ function safeReturn(raw: unknown): string | null {
   return `${u.origin}${u.pathname}`
 }
 
-function back(to: string, outcome: "connected" | "cancelled" | "failed"): Response {
+function back(to: string, outcome: "connected" | "cancelled" | "failed", why?: string): Response {
   const u = new URL(to)
   u.searchParams.set("drive", outcome)
+  if (why) u.searchParams.set("why", why)
 
   return new Response(null, { status: 302, headers: { Location: u.toString() } })
 }
@@ -150,20 +152,29 @@ async function callback(req: Request): Promise<Response> {
   if (!env || !state) return new Response("This link has expired. Go back to odds and press Connect Google Drive again.", { status: 400 })
   const code = params.get("code")
   if (!code) return back(state.r, "cancelled")
+  // Which step broke rides back to the app (?why=) and into the function log, so a failed connect says where, never what secret.
+  let step = "token"
   try {
     const t = await googleToken(env, { code })
-    if (!t.refresh_token) return back(state.r, "failed")
+    step = "no-refresh-token"
+    if (!t.refresh_token) throw new Error("Google gave no refresh token")
+    step = "scope"
     if (!(t.access_token && (await grantedDriveFile(t.access_token)))) return back(state.r, "cancelled")
+    step = "folders"
     const old = await linkOf(env, state.u)
     const folders = await ensureFolders(t.access_token, old ?? undefined)
+    step = "save"
     const link: DriveLink = { user_id: state.u, email: emailOf(t.id_token), refresh_token: t.refresh_token, ...folders }
     await svc(env, "drive_links?on_conflict=user_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ ...link, connected_at: new Date().toISOString() }) })
     if (old && old.refresh_token !== link.refresh_token) await revokeGoogle(old.refresh_token)
+    step = "move"
     await pushAll(env, link, t.access_token)
 
     return back(state.r, "connected")
-  } catch {
-    return back(state.r, "failed")
+  } catch (err) {
+    console.error(`drive callback failed at ${step}: ${err instanceof Error ? err.message : String(err)}`)
+
+    return back(state.r, "failed", step)
   }
 }
 
@@ -251,4 +262,18 @@ const disconnect = signedIn(async (ctx) => {
   return reply(200, { connected: false })
 })
 
-serveRoutes({ start, callback, sync, file, rename, trash, disconnect })
+/**
+ * Is Google set up right? Trades a made-up code: Google answers invalid_grant when the client id and secret are a real pair
+ * (only the code is wrong), invalid_client when they are not. Says which, never the secret itself.
+ */
+async function check(): Promise<Response> {
+  const env = driveEnv()
+  if (!env) return reply(200, { google: "not set up" })
+  const body = new URLSearchParams({ client_id: env.clientId, client_secret: env.clientSecret, grant_type: "authorization_code", code: "odds-self-check", redirect_uri: redirectUri(env) })
+  const r = await fetch("https://oauth2.googleapis.com/token", { method: "POST", body })
+  const out = (await r.json().catch(() => ({}))) as { error?: string; error_description?: string }
+
+  return reply(200, { google: out.error === "invalid_grant" ? "ok" : (out.error ?? `unexpected ${r.status}`), detail: out.error_description ?? null })
+}
+
+serveRoutes({ start, callback, sync, file, rename, trash, disconnect, check })

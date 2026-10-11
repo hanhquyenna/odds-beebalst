@@ -35,7 +35,7 @@ const INTERN_EMPLOYERS = internPay.employers as unknown as Record<string, { low:
 // this adjustment a marketing entry job inherits the full-career €4.3k–€7.5k
 // band, which is not a useful starting-pay estimate.
 const ENTRY_AGE_FACTOR: Record<Posting["cat"], number> = { finance_business: 0.675, tech: 0.708, other: 0.691 }
-const isEntry = (post: Posting): boolean => post.level_view === "Entry" || post.role_kind === "entry_job"
+export const isEntry = (post: Posting): boolean => post.level_view === "Entry" || post.role_kind === "entry_job"
 
 export function allowanceOf(post: Posting): { low: number; high: number; source: AllowanceSource } {
   const own = INTERN_POSTINGS[post.id]

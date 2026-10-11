@@ -118,3 +118,10 @@ describe("similarMix", () => {
     expect(similarMix([], open, {})).toEqual([])
   })
 })
+
+describe("a shared rank word is not shared work", () => {
+  test("a teaching assistant is not like a boutique assistant", () => {
+    const rows = tailor({ candidates: [job({ id: "c1", title: "Boutique assistant intern", employer: "Cartier", family: "Sales" })], fitting: new Set(), saved: [], chanceOf: () => 0.1, profiles: {}, liftOf: () => null, own: ["Teaching Assistant Accounting"] })
+    expect(rows).toHaveLength(0)
+  })
+})

@@ -41,7 +41,12 @@ export function familyPosterior(tokens: ReadonlyArray<string>): number[] | null 
   return exp.map((e) => e / sum)
 }
 
-const titleTokens = (text: string): string[] => words(text).map(stem)
+// Teaching words almost never appear in the job postings the model is counted from, so alone they say nothing and a "Teaching
+// Assistant" could be pulled into another family by the rest of a CV. They are read as an academic title word ("postdoc": research
+// and academia in 57% of the postings it appears in), which is where teaching belongs among the sixteen families.
+const ALIAS: Record<string, string> = Object.fromEntries(["teach", "teacher", "teaching", "tutor", "lectur", "lecturer", "instructor", "docent", "leraar", "onderwijs", "educator"].map((w) => [stem(w), stem("postdoc")]))
+
+const titleTokens = (text: string): string[] => words(text).map(stem).map((t) => ALIAS[t] ?? t)
 
 /** The line of work one job title or degree points to, when one family clearly leads (at least `sure`); else null. */
 const familyMemo = new Map<string, string | null>()

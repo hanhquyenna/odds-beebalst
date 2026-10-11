@@ -10,6 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
 import { takeDriveReturn } from "@/lib/drive"
+import { onSignInRequest } from "@/lib/sign-in-request"
 import { useData } from "@/lib/data"
 import { pageFromPath, pathForPage, type StaticPage } from "@/lib/pages"
 import { clearSeenRooms, saveSeenRooms } from "@/lib/seen"
@@ -169,6 +170,10 @@ export default function App(): React.JSX.Element {
     setView(nextView)
     window.scrollTo(0, 0)
   }
+
+  // "Sign in" pressed somewhere deep in a page (a job drawer, a shared job): open the sign-in view, leaving a shared job first.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => onSignInRequest(() => leaveSharedJob("signin")), [sharedJobId])
 
   // "Edit" next to a figure that comes from the sign-up answers opens the profile at the section that holds them.
   useEffect(() => {
@@ -352,7 +357,8 @@ export default function App(): React.JSX.Element {
                 type="button"
                 onClick={() => openPage(nextPage)}
                 {...prefetchOn(loadStaticPages)}
-                className="shrink-0 cursor-pointer whitespace-nowrap py-2 text-foreground underline-offset-4 hover:underline focus:underline"
+                // On a phone the bar keeps "How it works" and Sign in; About and Research are in the footer.
+                className={`shrink-0 cursor-pointer whitespace-nowrap py-2 text-foreground underline-offset-4 hover:underline focus:underline ${nextPage === "how-it-works" ? "" : "max-sm:hidden"}`}
               >
                 {nextPage === "how-it-works" ? "How it works" : nextPage === "about" ? "About" : "Research"}
               </button>

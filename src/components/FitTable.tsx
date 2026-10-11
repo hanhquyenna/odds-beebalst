@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { FilterEditor } from "@/components/JobFilters"
 import { ChevronDownIcon, ChevronUpIcon, PencilIcon, PlusIcon, XIcon } from "@/components/icons"
 import { JobRow } from "@/components/JobBoard"
@@ -10,6 +10,7 @@ import { standing } from "@/lib/engine"
 import { profileFields } from "@/lib/field"
 import { fitFilters, withFitLanguage } from "@/lib/fit-filters"
 import { openLinkedInImport } from "@/lib/open-profile"
+import { CV_ACCEPT, profileWithCv } from "@/lib/cv-profile"
 import { oddsV2 } from "@/lib/odds-v2"
 import { stretches, tailor } from "@/lib/tailor"
 import { useCompanyProfiles } from "@/lib/company-profile"
@@ -102,7 +103,7 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
   const rowLimit = step === 2 ? rows.length : STEPS[step]
 
   return (
-    <FitSection label="Jobs tailored to you" heading="Jobs tailored to you" what="the jobs tailored to you" filters={effective} onChange={saved.setFilters} needsProfile={needsProfile} empty={rows.length === 0}>
+    <FitSection label="Jobs tailored to you" heading="Jobs tailored to you" what="the jobs tailored to you" filters={filters} auto={fields} onChange={saved.setFilters} needsProfile={needsProfile} empty={rows.length === 0}>
       {stretch.length > 0 ? (
         <p className="rounded-xl border-[1.5px] border-dashed border-line bg-secondary/30 px-4 py-2.5 text-sm">
           Your saved {list(stretch.map((x) => familyWord(x.family)))} jobs: your chance is about {Math.max(1, Math.round(Math.min(...stretch.map((x) => x.chance)) * 100))}–{Math.max(1, Math.round(Math.max(...stretch.map((x) => x.chance)) * 100))}%, because nothing on your profile is in {stretch.length === 1 ? "it" : "them"} yet. A project, course or side job there would change that.
@@ -131,7 +132,7 @@ const familyWord = (f: string): string => {
 const list = (xs: string[]): string => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`)
 
 /** The tailored list's heading with the pencil for your preferences, then the jobs, or the import prompt until a profile is in. */
-function FitSection({ label, heading, what, filters, onChange, needsProfile, empty, children }: { label: string; heading: string; what: string; filters: JobFilters; onChange: (next: JobFilters) => void; needsProfile: boolean; empty: boolean; children: React.ReactNode }): React.JSX.Element {
+function FitSection({ label, heading, what, filters, auto, onChange, needsProfile, empty, children }: { label: string; heading: string; what: string; filters: JobFilters; auto: string[]; onChange: (next: JobFilters) => void; needsProfile: boolean; empty: boolean; children: React.ReactNode }): React.JSX.Element {
   const [editing, setEditing] = useState<boolean>(false)
 
   return (
@@ -142,7 +143,7 @@ function FitSection({ label, heading, what, filters, onChange, needsProfile, emp
           <PencilIcon className="size-4" aria-hidden="true" />
         </button>
       </div>
-      {editing ? <PreferencesDialog filters={withFitLanguage(filters)} onChange={onChange} onClose={() => setEditing(false)} /> : null}
+      {editing ? <PreferencesDialog filters={withFitLanguage(filters)} auto={auto} onChange={onChange} onClose={() => setEditing(false)} /> : null}
       {needsProfile ? <ImportPrompt what={what} /> : empty ? <p className="text-sm text-muted-foreground">Nothing here fits your preferences. Loosen them with the pencil.</p> : children}
     </section>
   )
@@ -150,12 +151,39 @@ function FitSection({ label, heading, what, filters, onChange, needsProfile, emp
 
 /** Shown in both job lists until a profile is in: the same box, the same button, so the two sections match. */
 function ImportPrompt({ what }: { what: string }): React.JSX.Element {
+  const data = useData()
+  const input = useRef<HTMLInputElement>(null)
+  const [reading, setReading] = useState<boolean>(false)
+  const [problem, setProblem] = useState<string | null>(null)
+
+  // The CV is the other way in: read in the browser, it fills the profile and the list appears.
+  async function take(file: File | undefined): Promise<void> {
+    if (!file) return
+    setReading(true)
+    setProblem(null)
+    try {
+      data.setProfile(await profileWithCv(data.profile, file))
+    } catch (caught) {
+      setProblem(caught instanceof Error ? caught.message : "We could not read that file.")
+    } finally {
+      setReading(false)
+      if (input.current) input.current.value = ""
+    }
+  }
+
   return (
     <div className="flex flex-col items-start gap-3 rounded-xl border-[1.5px] border-dashed border-line bg-secondary/30 px-5 py-6">
-      <p className="font-medium">Import your LinkedIn to see {what}.</p>
-      <Button type="button" onClick={openLinkedInImport} className="cursor-pointer">
-        Import LinkedIn
-      </Button>
+      <p className="font-medium">Import your LinkedIn or upload your CV to see {what}.</p>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" onClick={openLinkedInImport} className="cursor-pointer">
+          Import LinkedIn
+        </Button>
+        <input ref={input} type="file" accept={CV_ACCEPT} aria-label="Your CV" className="sr-only" onChange={(e) => void take(e.target.files?.[0])} />
+        <Button type="button" variant="outline" disabled={reading} onClick={() => input.current?.click()} className="cursor-pointer">
+          {reading ? "Reading…" : "Upload your CV"}
+        </Button>
+      </div>
+      {problem ? <p role="alert" className="text-sm text-destructive">{problem}</p> : null}
     </div>
   )
 }
@@ -164,7 +192,7 @@ function ImportPrompt({ what }: { what: string }): React.JSX.Element {
  * What you want, set in one place, the way a job site asks: how recent, what level of job, where, which line of work, which language. The jobs that fit you are narrowed to these,
  * then ranked by your interview chance. They are kept with the profile.
  */
-function PreferencesDialog({ filters, onChange, onClose }: { filters: JobFilters; onChange: (next: JobFilters) => void; onClose: () => void }): React.JSX.Element {
+function PreferencesDialog({ filters, auto, onChange, onClose }: { filters: JobFilters; auto: string[]; onChange: (next: JobFilters) => void; onClose: () => void }): React.JSX.Element {
   return (
     <div role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()} className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
       <div role="dialog" aria-modal="true" aria-label="Job preferences" onKeyDown={(e) => e.key === "Escape" && onClose()} className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-xl border-[1.5px] bg-card shadow-lg">
@@ -176,7 +204,7 @@ function PreferencesDialog({ filters, onChange, onClose }: { filters: JobFilters
         </div>
         <div className="overflow-y-auto px-5 py-4">
           <p className="mb-4 text-sm text-muted-foreground">These help tailor the jobs that fit you.</p>
-          <FieldRanking value={filters.field} onChange={(field) => onChange({ ...filters, field })} />
+          <FieldRanking value={filters.field} auto={auto} onChange={(field) => onChange({ ...filters, field })} />
           <FilterEditor filters={filters} onChange={onChange} hide={["field"]} />
           <NotInterested />
         </div>
@@ -196,20 +224,21 @@ function PreferencesDialog({ filters, onChange, onClose }: { filters: JobFilters
 /** How many lines of work you can rank. */
 const MAX_FIELDS = 3
 
-/** Up to three lines of work, in your order: the list shows only these, your first choice first. Empty means the ones your profile points to. */
-function FieldRanking({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }): React.JSX.Element {
+/** Up to three lines of work, in your order. Empty: the list follows the lines of work your profile points to (`auto`), and says which. */
+function FieldRanking({ value, auto, onChange }: { value: string[]; auto: string[]; onChange: (next: string[]) => void }): React.JSX.Element {
   const move = (i: number, by: -1 | 1): void => {
     const next = [...value]
     ;[next[i], next[i + by]] = [next[i + by], next[i]]
     onChange(next)
   }
   const left = FIELD_OPTIONS.filter((f) => !value.includes(f))
-  const button = "flex size-7 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+  const button = "flex size-9 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
 
   return (
     <div className="mb-4 rounded-xl border-[1.5px] bg-secondary/30 p-3">
       <p className="text-sm font-medium">Your job fields, in order</p>
       <p className="mb-2 text-xs text-muted-foreground">Pick up to {MAX_FIELDS}. The list shows only these, the first one on top.</p>
+      {value.length === 0 && auto.length > 0 ? <p className="mb-2 text-xs text-muted-foreground">None picked: the list follows your profile ({auto.slice(0, MAX_FIELDS).join(", ")}).</p> : null}
       <ol className="flex flex-col gap-1.5">
         {value.map((f, i) => (
           <li key={f} className="flex items-center gap-2 rounded-lg border-[1.5px] bg-card px-3 py-1.5 text-sm">

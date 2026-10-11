@@ -134,7 +134,7 @@ function LockScreen({ android = false }: { android?: boolean }): React.JSX.Eleme
     <div className="relative flex h-full flex-col bg-[linear-gradient(160deg,#2b2a28,#7a4a22_55%,#f0872a)] text-white">
       <StatusBar light android={android} />
       <div className="mt-6 text-center">
-        <p className="text-[11px] font-medium opacity-90">Monday 5 October</p>
+        <p className="text-[11px] font-medium opacity-90">{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</p>
         <p className="text-5xl font-semibold tracking-tight">8:00</p>
       </div>
       <div className="relative mx-2.5 mt-auto mb-16 flex items-start gap-2 rounded-2xl bg-white/90 p-2.5 text-black shadow-lg">

@@ -18,7 +18,7 @@ import { EXAMPLE_PROFILE } from "@/lib/example"
 import { DUTCH_OPTIONS } from "@/lib/journey"
 import { IMPORT_HINT, openLinkedInImport } from "@/lib/open-profile"
 import { saved } from "@/lib/saved"
-import { allowanceNote, allowanceOf, payMid, payOf, TRAINEE_NOTE, type AllowanceSource } from "@/lib/spec"
+import { allowanceNote, allowanceOf, isEntry, payMid, payOf, TRAINEE_NOTE, type AllowanceSource } from "@/lib/spec"
 import { useApplyFilter } from "@/lib/filter-bus"
 import { industryOf } from "@/lib/industries"
 import type { PayChoices, PermitRoute, Posting, Transition } from "@/lib/types"
@@ -71,7 +71,8 @@ export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.J
   const keepWas = keepOf(post, data, true)?.net ?? null
   const original = useOriginalChance(post)
   const r = st.rate
-  const chance = r && !r.thin ? point(r.mid) : st.needsProfile ? "0%" : null
+  // With no profile there is no chance to give yet: a "?" that leads to the import, never a "0%" that reads like a real figure.
+  const chance = r && !r.thin ? point(r.mid) : st.needsProfile ? "?" : null
   // The number against what it was before anything you did (a referral, a ticked recommendation): green and up, or red and down, with the original in the hover.
   const gain = r && !r.thin && original !== null ? (r.mid - original) * 100 : 0
   const missing = st.gates.filter((g) => g.status === "fail").map((g) => MISSING_WORDS[g.name])
@@ -85,7 +86,7 @@ export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.J
           {chance !== null ? (
             <>
               {st.needsProfile ? (
-                <button type="button" title={IMPORT_HINT} aria-label={`0%. ${IMPORT_HINT}`} onClick={openLinkedInImport} className="group flex w-fit cursor-pointer items-center gap-2 text-left">
+                <button type="button" title={IMPORT_HINT} aria-label={IMPORT_HINT} onClick={openLinkedInImport} className="group flex w-fit cursor-pointer items-center gap-2 text-left">
                   <span className="text-3xl leading-none font-semibold tracking-tight tabular-nums underline decoration-dotted decoration-1 underline-offset-[6px] group-hover:decoration-solid">{chance}</span>
                 </button>
               ) : (
@@ -96,7 +97,7 @@ export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.J
                   <Caret open={open} />
                 </button>
               )}
-              {st.needsProfile ? <p className="text-sm text-muted-foreground">Import LinkedIn to see yours</p> : null}
+              {st.needsProfile ? <p className="text-sm text-muted-foreground">Add your LinkedIn or CV to see yours</p> : null}
               {st.failing > 0 ? (
                 <p className="text-sm text-muted-foreground">
                   This job also asks for {missing.join(" and ")}.{studentGate?.status === "fail" ? ` ${studentGate.why.replace(/^the posting /, "It ")}.` : ""} Tick a recommendation below to count it.
@@ -400,10 +401,10 @@ export function LockedPersonal({ onUnlock }: { onUnlock: () => void }): React.JS
       <section className="mb-6 grid overflow-hidden rounded-xl border-[1.5px] sm:grid-cols-2">
         <div className="flex flex-col gap-1 p-5">
           <p className="text-[0.8125rem] text-muted-foreground">Interview chance</p>
-          <button type="button" title={IMPORT_HINT} aria-label={`0%. ${IMPORT_HINT}`} onClick={onUnlock} className="w-fit cursor-pointer text-3xl font-semibold tabular-nums underline decoration-dotted decoration-1 underline-offset-[6px] hover:decoration-solid">
-            0%
+          <button type="button" title={IMPORT_HINT} aria-label={IMPORT_HINT} onClick={onUnlock} className="w-fit cursor-pointer text-3xl font-semibold tabular-nums underline decoration-dotted decoration-1 underline-offset-[6px] hover:decoration-solid">
+            ?
           </button>
-          <p className="text-sm text-muted-foreground">Import LinkedIn to see yours</p>
+          <p className="text-sm text-muted-foreground">Add your LinkedIn or CV to see yours</p>
         </div>
         <div className="flex flex-col gap-1 border-t-[1.5px] p-5 sm:border-t-0 sm:border-l-[1.5px]">
           <p className="text-[0.8125rem] text-muted-foreground">You keep</p>
@@ -544,10 +545,11 @@ export function PayCard({ post, st }: { post: Posting; st: Standing }): React.JS
   return (
     <Section title="Pay and career path">
       <p className="flex flex-wrap items-center gap-x-2 text-2xl leading-tight font-semibold tracking-tight tabular-nums">
-        {eur(p25)} – {eur(p75)}
+        {/* The same figure as the top of the page (payOf), which allows for a starting job: one page, one pay range. */}
+        {allowance.text ?? `${eur(p25)} – ${eur(p75)}`}
         <span className="text-base font-normal text-muted-foreground">a month, estimated for this kind of job</span>
         <Hint label="About this pay">
-          Before tax. An estimate for this kind of job across employers (Statistics Netherlands, 2024), not what this employer pays. The middle of the range is {eur(p50)}.
+          Before tax. An estimate for this kind of job across employers (Statistics Netherlands, 2024), not what this employer pays{allowance.text ? (isEntry(post) ? ", set lower for a starting job." : ".") : `. The middle of the range is ${eur(p50)}.`}
         </Hint>
       </p>
 

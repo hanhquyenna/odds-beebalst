@@ -46,8 +46,9 @@ export function ChanceCell({ st, post }: { st: Standing | null; post: Posting })
   }
   if (st.needsProfile) {
     return (
-      <button type="button" title={IMPORT_HINT} aria-label={`0%. ${IMPORT_HINT}`} onClick={openLinkedInImport} className="cursor-pointer font-medium tabular-nums underline decoration-dotted underline-offset-4 hover:decoration-solid">
-        0%
+      // No profile yet, so no chance to give: a "?" that leads to the import, never a "0%" that reads like a real figure.
+      <button type="button" title={IMPORT_HINT} aria-label={IMPORT_HINT} onClick={openLinkedInImport} className="cursor-pointer font-medium tabular-nums underline decoration-dotted underline-offset-4 hover:decoration-solid">
+        ?
       </button>
     )
   }

@@ -29,7 +29,8 @@ export interface Company {
 }
 
 const PAGE = 40
-const norm = (s: string): string => s.trim().toLowerCase()
+// A job fetched on its own after it closed can come without a display name, and a person without a company: treated as empty, never a crash.
+const norm = (s: string | null | undefined): string => (s ?? "").trim().toLowerCase()
 
 /** Every company in the job pool and in your own search, linked to its jobs and people. Yours come first, then the most open jobs. */
 export function useCompanies(): Company[] {
@@ -56,16 +57,17 @@ export function useCompanies(): Company[] {
     for (const post of all) {
       if (seen.has(post.id)) continue
       seen.add(post.id)
-      const c = ensure(post.employer, post.employer_display, post)
+      const c = ensure(post.employer, post.employer_display || post.employer, post)
       if (!post.closed_at && inPool.has(post.id)) c.open.push(post)
       if (data.saved.has(post.id) || applied.has(post.id)) c.yours.push(post)
       c.sponsor ||= post.ind_sponsor
     }
     const jobEmployer = new Map(all.map((p) => [p.id, p.employer]))
     for (const person of data.people) {
-      const key = (person.jobId && jobEmployer.get(person.jobId)) || byName.get(norm(person.company)) || (person.company.trim() ? `person:${norm(person.company)}` : null)
+      const company = (person.company ?? "").trim()
+      const key = (person.jobId && jobEmployer.get(person.jobId)) || byName.get(norm(company)) || (company ? `person:${norm(company)}` : null)
       if (!key) continue
-      ;(byKey.get(key) ?? ensure(key, person.company.trim(), null)).people.push(person)
+      ;(byKey.get(key) ?? ensure(key, company, null)).people.push(person)
     }
     for (const c of byKey.values()) {
       c.profile = profiles[c.key]

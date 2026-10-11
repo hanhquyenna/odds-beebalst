@@ -28,10 +28,10 @@ export function Footer({ onOpenPage }: FooterProps): React.JSX.Element {
           <p className="mt-2 leading-6">jobs in the netherlands, for international students.</p>
         </div>
         <nav aria-label="Footer" className="max-w-xl">
-          <ul className="flex flex-wrap gap-x-6 gap-y-3 sm:justify-end">
+          <ul className="flex flex-wrap gap-x-6 gap-y-1 sm:justify-end">
             {LINKS.map(([page, label]) => (
               <li key={page}>
-                <button type="button" onClick={() => onOpenPage(page)} className="cursor-pointer text-foreground underline-offset-4 hover:underline">
+                <button type="button" onClick={() => onOpenPage(page)} className="min-h-11 cursor-pointer text-foreground underline-offset-4 hover:underline">
                   {label}
                 </button>
               </li>

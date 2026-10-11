@@ -95,7 +95,7 @@ export async function googleToken(env: DriveEnv, grant: { code: string } | { ref
   const r = await fetch("https://oauth2.googleapis.com/token", { method: "POST", body, signal: AbortSignal.timeout(15_000) })
   const out = (await r.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; id_token?: string; error?: string }
   if (out.error === "invalid_grant") throw new DriveGone("Google access was taken back.")
-  if (!r.ok || !out.access_token) throw new Error(`Google token: ${r.status} ${out.error ?? ""}`)
+  if (!r.ok || !out.access_token) throw new Error(`Google token: ${r.status} ${out.error ?? ""} ${(out as { error_description?: string }).error_description ?? ""}`.trim())
 
   return out as { access_token: string; refresh_token?: string; id_token?: string }
 }
@@ -120,7 +120,7 @@ async function g(token: string, url: string, init: Init = {}): Promise<Response>
 
 async function makeFolder(token: string, name: string, parent?: string): Promise<string> {
   const r = await g(token, `${DRIVE}?fields=id`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, mimeType: FOLDER, ...(parent ? { parents: [parent] } : {}) }) })
-  if (!r.ok) throw new Error(`Drive folder: ${r.status}`)
+  if (!r.ok) throw new Error(`Drive folder: ${r.status} ${(await r.text()).slice(0, 300)}`)
 
   return ((await r.json()) as { id: string }).id
 }

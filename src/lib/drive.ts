@@ -138,7 +138,10 @@ export function takeDriveReturn(): "connected" | "cancelled" | "failed" | null {
   const params = new URLSearchParams(window.location.search)
   const v = params.get("drive")
   if (v !== "connected" && v !== "cancelled" && v !== "failed") return null
+  // Which step failed on the server, for whoever is looking at the console.
+  if (v === "failed") console.warn(`Google Drive did not connect (step: ${params.get("why") ?? "unknown"})`)
   params.delete("drive")
+  params.delete("why")
   window.history.replaceState(null, "", `${window.location.pathname}${params.size > 0 ? `?${params}` : ""}${window.location.hash}`)
 
   return v

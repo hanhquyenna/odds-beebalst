@@ -57,11 +57,14 @@ export function companyMoney(db: ReadonlyArray<DbMoney>, ...files: Array<{ reven
   return out
 }
 
-const SYMBOL: Record<string, string> = { usd: "$", "united states dollar": "$", eur: "€", euro: "€", gbp: "£", "pound sterling": "£", chf: "CHF ", "swiss franc": "CHF ", jpy: "¥", "japanese yen": "¥", sek: "SEK ", "swedish krona": "SEK ", dkk: "DKK ", "danish krone": "DKK ", nok: "NOK ", "norwegian krone": "NOK ", cny: "CN¥", renminbi: "CN¥" }
+const SYMBOL: Record<string, string> = { usd: "$", "united states dollar": "$", eur: "€", euro: "€", gbp: "£", "pound sterling": "£", chf: "CHF ", "swiss franc": "CHF ", jpy: "¥", "japanese yen": "¥", sek: "SEK ", "swedish krona": "SEK ", dkk: "DKK ", "danish krone": "DKK ", nok: "NOK ", "norwegian krone": "NOK ", cny: "CN¥", renminbi: "CN¥", czk: "CZK ", "czech koruna": "CZK ",
+  // Wikidata names a currency by its item id when the label was not read: euro, US dollar, pound, Swiss franc, yen, krona, krone, yuan.
+  q4916: "€", q4917: "$", q25224: "£", q25344: "CHF ", q8146: "¥", q122922: "SEK ", q25417: "DKK ", q132643: "NOK ", q39099: "CN¥", q131016: "CZK " }
 
 /** "$69.7 billion", "€412 million", "-€3 million". */
 export function moneyText(a: Pick<Amount, "amount" | "currency">): string {
-  const sym = a.currency ? (SYMBOL[a.currency.toLowerCase()] ?? `${a.currency} `) : ""
+  // An id we do not know is left out rather than shown as "Q1234": the amount alone still says something.
+  const sym = a.currency ? (SYMBOL[a.currency.toLowerCase()] ?? (/^q\d+$/i.test(a.currency) ? "" : `${a.currency} `)) : ""
   const abs = Math.abs(a.amount)
   const sign = a.amount < 0 ? "-" : ""
   const v = abs >= 1e9 ? `${(abs / 1e9).toFixed(1)} billion` : abs >= 1e6 ? `${Math.round(abs / 1e6)} million` : Math.round(abs).toLocaleString("en-US")

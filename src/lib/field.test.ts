@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { FAMILIES, consistencyWith, familyPosterior, fieldMatch, guessFamily, profileFields, wordSpecificity } from "@/lib/field"
+import { FAMILIES, consistencyWith, familyOfTitle, familyPosterior, fieldMatch, guessFamily, profileFields, wordSpecificity } from "@/lib/field"
 import { DEFAULT_PROFILE, type Profile } from "@/lib/types"
 
 const profile = (titles: string[], degrees: string[] = []): Profile => ({
@@ -140,3 +140,12 @@ function fieldOf(title: string): string | null {
   const post = familyPosterior(title.toLowerCase().split(/\W+/).filter(Boolean))
   return post ? FAMILIES[post.indexOf(Math.max(...post))] : null
 }
+
+describe("teaching titles", () => {
+  test("a Teaching Assistant, a tutor and a lecturer are academic work; a Sales Assistant is still sales", () => {
+    expect(familyOfTitle("Teaching Assistant", 0.3)).toBe("Research & academia")
+    expect(familyOfTitle("Tutor", 0.3)).toBe("Research & academia")
+    expect(familyOfTitle("Lecturer", 0.3)).toBe("Research & academia")
+    expect(familyOfTitle("Sales Assistant", 0.3)).toBe("Sales & account management")
+  })
+})

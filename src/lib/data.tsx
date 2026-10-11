@@ -27,6 +27,7 @@ import {
   type Signals,
 } from "@/lib/jobs"
 import { mergeSaved, pushSaved } from "@/lib/saved-sync"
+import { loadDocuments } from "@/lib/documents"
 import { loadAutoLogos, registerLogos, useAutoLogosReady } from "@/lib/stored-logos"
 import { DEFAULT_PROFILE, type Application, type PastSearch, type Person, type Posting, type Profile } from "@/lib/types"
 
@@ -445,6 +446,35 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
 
       return next
     })
+  }, [signedInId])
+
+  // Coming back to this tab (from Claude, which can save a letter, mark a job applied or save a job, or from another device): the
+  // documents, applications and saved jobs are read again, at most every 20 seconds, so what changed elsewhere shows without a reload.
+  const latest = useRef({ byId, saved })
+  latest.current = { byId, saved }
+  useEffect(() => {
+    if (!signedInId) return
+    let last = Date.now()
+    const back = (): void => {
+      if (document.visibilityState !== "visible" || Date.now() - last < 20_000) return
+      last = Date.now()
+      void loadDocuments(signedInId)
+      void fetchApplications(latest.current.byId)
+        .then(setApplications)
+        .catch(() => undefined)
+      void mergeSaved(latest.current.saved).then((all) => {
+        if (!all || all.size === latest.current.saved.size) return
+        write(SAVED_KEY, [...all])
+        setSaved(all)
+      })
+    }
+    document.addEventListener("visibilitychange", back)
+    window.addEventListener("focus", back)
+
+    return () => {
+      document.removeEventListener("visibilitychange", back)
+      window.removeEventListener("focus", back)
+    }
   }, [signedInId])
 
   // Signing in brings the account's saved jobs down and copies this browser's up, once per account.

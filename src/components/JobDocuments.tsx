@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button"
 import { UploadIcon } from "@/components/icons"
 import { Section } from "@/components/Section"
 import { useData } from "@/lib/data"
+import { requestSignIn } from "@/lib/sign-in-request"
 import { useAddDocument } from "@/lib/use-documents"
 import { KIND_LABEL, MAX_DOCUMENTS, attachedTo, mainCv, problemText, type DocKind } from "@/lib/document-model"
 import { attachDocument, detachDocument, useDocumentStore } from "@/lib/documents"
@@ -21,7 +22,12 @@ export function JobDocuments({ postingId }: { postingId: string }): React.JSX.El
   if (!signedIn) {
     return (
       <Section title="Your documents">
-        <p className="text-sm text-muted-foreground">Sign in from the menu at the top to keep a CV and a cover letter for this job. They are stored in your account.</p>
+        <div className="flex flex-col items-start gap-3">
+          <p className="text-sm text-muted-foreground">Sign in to keep a CV and a cover letter for this job. They are stored in your account.</p>
+          <Button type="button" variant="outline" onClick={requestSignIn} className="cursor-pointer max-md:h-10">
+            Sign in
+          </Button>
+        </div>
       </Section>
     )
   }

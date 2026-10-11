@@ -13,7 +13,9 @@ import { stem, words } from "@/lib/fit"
 import type { CompanyProfile } from "@/lib/company-profile"
 import type { Posting } from "@/lib/types"
 
-const GENERIC = new Set(["intern", "internship", "stage", "stagiair", "junior", "senior", "medior", "trainee", "graduate", "working", "student", "werkstudent", "the", "and", "of", "for", "in", "a", "to", "m", "f", "d", "x", "all", "gender", "genders", "2026", "2027", "month", "months", "start", "programme", "program", "netherlands", "amsterdam", "nl"].map(stem))
+const GENERIC = new Set(["intern", "internship", "stage", "stagiair", "junior", "senior", "medior", "trainee", "graduate", "working", "student", "werkstudent", "the", "and", "of", "for", "in", "a", "to", "m", "f", "d", "x", "all", "gender", "genders", "2026", "2027", "month", "months", "start", "programme", "program", "netherlands", "amsterdam", "nl",
+  // Words that say what rank or kind of help a job is, not what the work is: "Teaching Assistant" is not like "Boutique Assistant".
+  "assistant", "associate", "coordinator", "officer", "member", "support", "team", "general", "office", "employee", "staff", "medewerker", "assistent"].map(stem))
 
 export const titleWords = (t: string): Set<string> => new Set(words(t.replace(/\([^)]*\)/g, " ")).map(stem).filter((w) => w.length > 2 && !GENERIC.has(w)))
 
