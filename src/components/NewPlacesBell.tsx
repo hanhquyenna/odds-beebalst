@@ -27,6 +27,8 @@ const MOST_SHOWN = 9
 const STRONG_FIT = 0.75
 /** A saved job closing within this many days is a notification. */
 const DEADLINE_DAYS = 3
+/** A saved job that closed within this many days is told about; older ones stay marked closed in the list. */
+const CLOSED_DAYS = 14
 const READ_KEY = "odds:notifications-read"
 const LAST_KEY = "odds:notifications-count"
 
@@ -45,7 +47,7 @@ interface Note {
 }
 
 interface Group {
-  key: "new" | "fit" | "follow" | "deadline"
+  key: "new" | "fit" | "follow" | "deadline" | "closed"
   title: string
   notes: Note[]
 }
@@ -113,6 +115,12 @@ export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.El
       const days = Math.round((Date.parse(`${until}T00:00:00Z`) - today) / MS_DAY)
       if (days >= 0 && days <= DEADLINE_DAYS) deadlines.push({ id: `deadline:${post.id}:${until}`, title: `Closes ${days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`}: ${post.title}`, detail: `${post.employer_display} · you saved it, not applied yet`, post })
     }
+    const closed: Note[] = []
+    for (const post of kept) {
+      if (!data.saved.has(post.id) || applied.has(post.id) || !post.closed_at) continue
+      const ago = Math.round((today - Date.parse(`${post.closed_at.slice(0, 10)}T00:00:00Z`)) / MS_DAY)
+      if (ago >= 0 && ago <= CLOSED_DAYS) closed.push({ id: `closed:${post.id}`, title: `Closed: ${post.title}`, detail: `${post.employer_display} · you saved it, not applied yet`, post })
+    }
     const batch: Note[] = fresh.length > 0 ? [{ id: `new:${fresh.length}:${fresh[0].id}`, title: fresh.length === 1 ? "1 new job fits you" : `${fresh.length} new jobs fit you`, detail: fresh.slice(0, 3).map((p) => p.employer_display).filter((v, i, all) => all.indexOf(v) === i).join(", ") + (fresh.length > 3 ? " and more" : "") }] : []
 
     return [
@@ -120,6 +128,7 @@ export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.El
       { key: "fit", title: "Strong fits", notes: strong.map(({ post, score }) => ({ id: `fit:${post.id}`, title: post.title, detail: `${post.employer_display} · ${Math.round(score * 100)}% match with your profile`, post })) },
       { key: "follow", title: "Follow-ups due", notes: followUps },
       { key: "deadline", title: "Closing soon", notes: deadlines },
+      { key: "closed", title: "Closed", notes: closed },
     ]
   }, [fresh, strong, data.postings, data.keptExtra, data.applications, data.saved, data.profile.notes, follow.followUp])
 
