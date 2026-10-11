@@ -432,37 +432,65 @@ function PersonRow({ person, show, n }: { person: Person; show: (key: string) =>
 
   return (
     <li className="border-b-[1.5px] last:border-b-0">
-      {/* Phone: a card with the person, their current job, the stage and the two actions; link, notes and removing are under More details.
-          Tablet: the card also shows the link. Notes are only under More details, so the row stays roomy. Laptop and up: one line, the same fields in a row under the column names. */}
-      <div className="grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-3 py-3 lg:flex lg:flex-nowrap lg:gap-y-0 lg:py-2.5">
-        <span className="hidden w-5 shrink-0 text-right text-sm text-muted-foreground tabular-nums lg:block">{n}</span>
-        <span className="row-span-2 self-start lg:row-span-1">
-          <PersonAvatar name={person.name} photo={person.photo} />
-        </span>
-        <input aria-label={`Name of ${person.name}`} placeholder="Name" value={person.name} onChange={(e) => put({ name: e.target.value })} className={`${plain} min-w-0 font-semibold lg:order-1 lg:flex-[2] lg:font-medium`} />
-        {show("status") ? <span className="w-28 shrink-0 lg:order-3 lg:w-32">{stage}</span> : <span />}
-        <input aria-label={`Current job of ${person.name}`} placeholder="Current job" value={person.role ?? ""} onChange={(e) => put({ role: e.target.value })} className={`${plain} col-span-2 col-start-2 min-w-0 text-muted-foreground lg:order-2 lg:flex-[1.5] lg:text-foreground`} />
-        {show("contact") ? <input aria-label={`Link for ${person.name}`} placeholder="Link: LinkedIn, email or phone" value={person.contact} onChange={(e) => put({ contact: e.target.value })} className={`${plain} col-span-3 hidden min-w-0 sm:block lg:order-4 lg:col-span-1 lg:flex-[1.2]`} /> : null}
-        <div className="col-span-3 flex items-center gap-3 lg:contents">
-          <a
-            href={linkedinHref(person)}
-            target="_blank"
-            rel="noreferrer"
-            title={isUrl(person.contact) ? `Open ${person.name} on LinkedIn` : `Search LinkedIn for ${person.name}${person.company ? ` at ${person.company}` : ""}`}
-            className="flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border-[1.5px] px-3 text-sm font-medium transition-colors duration-150 hover:border-foreground/40 hover:bg-accent lg:order-6 lg:h-8 lg:px-2.5"
-          >
+      {/* Phone and tablet: a quiet card. Name and current job read as text (tap to open the profile, where they can be changed), the stage is
+          one pill, and Connect sits under it. Laptop and up: one line of fields under the column names. */}
+      <div className="flex flex-col gap-3 px-4 py-3.5 lg:hidden">
+        <div className="flex items-start gap-3">
+          <button type="button" onClick={() => setPanel(true)} className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 text-left">
+            <PersonAvatar name={person.name} photo={person.photo} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-semibold">{person.name || "No name"}</span>
+              {person.role ? <span className="line-clamp-2 text-sm text-muted-foreground">{person.role}</span> : null}
+            </span>
+          </button>
+        </div>
+        {show("status") ? (
+          <select aria-label={`Stage of ${person.name}`} value={person.status} onChange={(e) => {
+              put(stamp(e.target.value as ContactStatus))
+              saved()
+            }} className="ml-12 h-9 w-fit cursor-pointer rounded-full border-[1.5px] bg-background pr-7 pl-3 text-sm font-medium focus:border-ring focus:outline-none">
+            {CONTACT_STATUSES.map((r) => (
+              <option key={r}>{r}</option>
+            ))}
+          </select>
+        ) : null}
+        {step.due ? <p className="pl-12 text-sm font-medium text-brand-ink">{step.text}</p> : null}
+        <div className="flex flex-wrap items-center gap-2 pl-12">
+          <a href={linkedinHref(person)} target="_blank" rel="noreferrer" className={`${buttonVariants({ variant: "default", size: "sm" })} cursor-pointer max-md:h-9`}>
             Connect
             <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
           </a>
-          <button type="button" aria-label={`Remove ${person.name}`} onClick={() => data.removePerson(person.id)} className="ml-auto hidden size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:text-destructive sm:flex lg:order-7 lg:ml-0">
-            <TrashIcon className="size-4" aria-hidden="true" />
-          </button>
-          <button type="button" onClick={() => setPanel(true)} className="ml-auto shrink-0 cursor-pointer text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground sm:ml-0 lg:order-8 lg:text-xs">
-            More details
-          </button>
+          <Button type="button" variant="outline" size="sm" onClick={() => setPanel(true)} className="cursor-pointer max-md:h-9">
+            Details
+          </Button>
         </div>
       </div>
-      {step.due ? <p className="px-3 pb-2.5 text-sm font-medium text-brand-ink lg:pl-[4.75rem]">{step.text}</p> : null}
+
+      <div className="hidden items-center gap-3 px-3 py-2.5 lg:flex">
+        <span className="w-5 shrink-0 text-right text-sm text-muted-foreground tabular-nums">{n}</span>
+        <PersonAvatar name={person.name} photo={person.photo} />
+        <input aria-label={`Name of ${person.name}`} placeholder="Name" value={person.name} onChange={(e) => put({ name: e.target.value })} className={`${plain} min-w-0 flex-[2] font-medium`} />
+        <input aria-label={`Current job of ${person.name}`} placeholder="Current job" value={person.role ?? ""} onChange={(e) => put({ role: e.target.value })} className={`${plain} min-w-0 flex-[1.5]`} />
+        {show("status") ? <span className="w-32 shrink-0">{stage}</span> : null}
+        {show("contact") ? <input aria-label={`Link for ${person.name}`} placeholder="Link: LinkedIn, email or phone" value={person.contact} onChange={(e) => put({ contact: e.target.value })} className={`${plain} min-w-0 flex-[1.2]`} /> : null}
+        <a
+          href={linkedinHref(person)}
+          target="_blank"
+          rel="noreferrer"
+          title={isUrl(person.contact) ? `Open ${person.name} on LinkedIn` : `Search LinkedIn for ${person.name}${person.company ? ` at ${person.company}` : ""}`}
+          className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border-[1.5px] px-2.5 text-sm font-medium transition-colors duration-150 hover:border-foreground/40 hover:bg-accent"
+        >
+          Connect
+          <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
+        </a>
+        <button type="button" aria-label={`Remove ${person.name}`} onClick={() => data.removePerson(person.id)} className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:text-destructive">
+          <TrashIcon className="size-4" aria-hidden="true" />
+        </button>
+        <button type="button" onClick={() => setPanel(true)} className="shrink-0 cursor-pointer text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground">
+          More details
+        </button>
+      </div>
+      {step.due ? <p className="hidden px-3 pb-2.5 pl-[4.75rem] text-sm font-medium text-brand-ink lg:block">{step.text}</p> : null}
       {panel ? <PersonDetails person={person} onClose={() => setPanel(false)} /> : null}
     </li>
   )
@@ -600,11 +628,11 @@ export function PeopleView({ onOpen, views, tools }: { onOpen: (post: Posting) =
                 </span>
                 <h3 className="font-semibold">{company}</h3>
                 {group.jobs.size === 1 && [...group.jobs.values()][0].post ? (
-                  <div className="flex min-w-0 basis-full items-baseline justify-between gap-3 text-sm sm:ml-auto sm:basis-auto sm:flex-1 sm:justify-end">
-                    <button type="button" onClick={() => onOpen([...group.jobs.values()][0].post as Posting)} className="min-w-0 cursor-pointer text-left font-medium underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground sm:truncate">
+                  <div className="flex min-w-0 basis-full flex-col text-sm sm:ml-auto sm:basis-auto sm:flex-1 sm:flex-row sm:items-baseline sm:justify-end sm:gap-3">
+                    <button type="button" onClick={() => onOpen([...group.jobs.values()][0].post as Posting)} className="min-w-0 cursor-pointer text-left font-medium hover:underline hover:underline-offset-4 sm:truncate">
                       {[...group.jobs.values()][0].post?.title}
                     </button>
-                    <span className="shrink-0 whitespace-nowrap text-muted-foreground">{formatPlace([...group.jobs.values()][0].post?.region ?? null)}</span>
+                    <span className="shrink-0 text-muted-foreground">{formatPlace([...group.jobs.values()][0].post?.region ?? null)}</span>
                   </div>
                 ) : null}
               </header>
