@@ -11,6 +11,7 @@
 import { fieldOf } from "@/lib/filters"
 import { stem, words } from "@/lib/fit"
 import type { CompanyProfile } from "@/lib/company-profile"
+import { likelyFilled } from "@/lib/odds-v2"
 import type { Posting } from "@/lib/types"
 
 const GENERIC = new Set(["intern", "internship", "stage", "stagiair", "junior", "senior", "medior", "trainee", "graduate", "working", "student", "werkstudent", "the", "and", "of", "for", "in", "a", "to", "m", "f", "d", "x", "all", "gender", "genders", "2026", "2027", "month", "months", "start", "programme", "program", "netherlands", "amsterdam", "nl",
@@ -205,7 +206,8 @@ export function similarMix(saved: ReadonlyArray<Posting>, candidates: ReadonlyAr
   // For each open job, the saved job it is most like, and the line of work that saved job is in.
   const best = new Map<string, { job: Posting; like: Likeness; group: string }>()
   for (const job of candidates) {
-    if (have.has(job.id) || pastDeadline(job, today)) continue
+    // Past its deadline, or older than a typical posting's life (most likely filled): not worth suggesting.
+    if (have.has(job.id) || pastDeadline(job, today) || likelyFilled(job)) continue
     for (const [group, list] of groups) {
       for (const s of list) {
         const like = likeness(s, job, profiles)
@@ -249,5 +251,6 @@ export function similarMix(saved: ReadonlyArray<Posting>, candidates: ReadonlyAr
   // Slots a line could not fill go to the lines with the most saved jobs that still have something.
   for (const [g] of [...live].sort((a, b) => b[1].length - a[1].length)) take(g, count - out.length)
 
-  return out
+  // Shown newest first: which ones are chosen follows the mix above, the order follows how fresh they are.
+  return out.sort((a, b) => (a.post.days_open ?? Number.MAX_SAFE_INTEGER) - (b.post.days_open ?? Number.MAX_SAFE_INTEGER))
 }

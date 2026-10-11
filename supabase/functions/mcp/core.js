@@ -448,6 +448,8 @@ function degreeFamily(text) {
   return fam;
 }
 var POSTING_LIFE_DAYS = 28;
+var LIKELY_FILLED_AFTER_DAYS = 30;
+var likelyFilled = (post) => (post.days_open ?? 0) > LIKELY_FILLED_AFTER_DAYS;
 var TYPICAL_READ_AGE_DAYS = 9;
 var DAY = 86400000;
 var dayOf = (iso) => {
@@ -3056,7 +3058,7 @@ function hearBackFor(postings, profile, referrals, record) {
     return hit;
   const out = new Map;
   if (hasCvData(profile)) {
-    const scored = postings.filter((p) => !p.closed_at).map((post) => ({ post, r: oddsV2(post, profile, { referral: referrals.has(post.id), record: record(post) }) }));
+    const scored = postings.filter((p) => !p.closed_at && !likelyFilled(p)).map((post) => ({ post, r: oddsV2(post, profile, { referral: referrals.has(post.id), record: record(post) }) }));
     const room = Math.max(1, Math.floor(scored.length * TOP_SHARE));
     const ranked = [...scored].sort((a, b) => b.r.p - a.r.p).slice(0, room);
     for (const { post, r } of ranked) {

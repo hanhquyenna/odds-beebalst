@@ -1,5 +1,5 @@
 import { hasCvData } from "@/lib/engine"
-import { oddsV2 } from "@/lib/odds-v2"
+import { likelyFilled, oddsV2 } from "@/lib/odds-v2"
 import type { Posting, Profile } from "@/lib/types"
 
 /**
@@ -28,7 +28,8 @@ export function hearBackFor(postings: Posting[], profile: Profile, referrals: Se
   if (hit) return hit
   const out = new Map<string, HearBack>()
   if (hasCvData(profile)) {
-    const scored = postings.filter((p) => !p.closed_at).map((post) => ({ post, r: oddsV2(post, profile, { referral: referrals.has(post.id), record: record(post) }) }))
+    // Open, and young enough that the employer is still reading: past a typical posting's life the chance is not worth a tag.
+    const scored = postings.filter((p) => !p.closed_at && !likelyFilled(p)).map((post) => ({ post, r: oddsV2(post, profile, { referral: referrals.has(post.id), record: record(post) }) }))
     // By rank, not by a cut-off value: many jobs can share one chance, and a tie must not carry the tag past the top share.
     const room = Math.max(1, Math.floor(scored.length * TOP_SHARE))
     const ranked = [...scored].sort((a, b) => b.r.p - a.r.p).slice(0, room)

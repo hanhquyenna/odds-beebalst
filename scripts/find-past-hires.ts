@@ -25,6 +25,7 @@ const LEVEL_WORDS: Record<string, RegExp> = {
   Entry: /\b(junior|graduate|trainee|associate|entry|starter|analyst|assistant|medior)\b/i,
 }
 const STOP = new Set(["intern", "internship", "stage", "stagiair", "junior", "graduate", "trainee", "associate", "entry", "level", "m", "f", "d", "x", "and", "the", "of", "for", "in", "at", "to", "a", "an", "with", "programme", "program", "2025", "2026", "2027", "fall", "spring", "summer", "autumn", "winter", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december", "months", "month", "fulltime", "full", "time", "part", "nl", "netherlands", "amsterdam", "rotterdam", "eindhoven", "utrecht"])
+const GENERIC = new Set(["product", "business", "management", "manager", "operations", "project", "global", "senior", "team", "services", "support", "officer", "specialist", "program", "general", "corporate", "office"])
 const words = (title: string): string[] => norm(title.replace(/\(.*?\)/g, " ")).split(" ").filter((w) => w.length > 1 && !STOP.has(w))
 
 interface Job { id: string; employer: string; display: string; title: string; level: string; day: string }
@@ -42,7 +43,9 @@ for (const j of jobs) {
   groups.set(key, [...(groups.get(key) ?? []), j])
 }
 
-const ym = (d: any): string | null => (d?.year ? `${d.year}-${String(d.month ?? 1).padStart(2, "0")}-01` : null)
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+const monthOf = (m: unknown): number => (typeof m === "number" ? m : MONTHS.indexOf(String(m ?? "").slice(0, 3).toLowerCase()) + 1 || Number(m) || 1)
+const ym = (d: any): string | null => (d?.year ? `${d.year}-${String(monthOf(d.month)).padStart(2, "0")}-01` : null)
 interface Hit { status: "exact" | "adjacent"; confidence: number; position: Record<string, any> }
 
 /** The best position at this employer that fits the job, by fixed rules; null when none does. */
@@ -54,7 +57,8 @@ function judge(profile: Record<string, any>, j: Job, page: string | null): Hit |
     const t = String(x.position ?? x.title ?? "")
     if (!LEVEL_WORDS[j.level]?.test(t)) continue
     const have = new Set(words(t))
-    const shared = want.filter((w) => have.has(w)).length
+    // A word as broad as "product" or "business" alone says nothing about the line of work.
+    const shared = want.filter((w) => have.has(w) && !GENERIC.has(w)).length
     if (shared === 0) continue
     const share = shared / Math.max(want.length, 1)
     const hit: Hit = { status: share >= 0.6 ? "exact" : "adjacent", confidence: Math.round(Math.min(0.95, 0.5 + share * 0.45) * 100) / 100, position: x }
@@ -64,7 +68,15 @@ function judge(profile: Record<string, any>, j: Job, page: string | null): Hit |
 }
 
 let runs = 0
+// --reuse-last answers the first search from the actor's most recent run (already paid for), e.g. after a failed write.
+let reuse = process.argv.includes("--reuse-last")
+async function lastRun(): Promise<Array<Record<string, any>>> {
+  const r = (await (await fetch(`https://api.apify.com/v2/acts/harvestapi~linkedin-profile-search/runs?limit=1&desc=1&token=${APIFY}`)).json()) as { data?: { items?: Array<{ defaultDatasetId: string }> } }
+  const id = r.data?.items?.[0]?.defaultDatasetId
+  return id ? ((await (await fetch(`https://api.apify.com/v2/datasets/${id}/items?clean=true&token=${APIFY}`)).json()) as Array<Record<string, any>>) : []
+}
 async function search(body: Record<string, unknown>): Promise<Array<Record<string, any>>> {
+  if (reuse) { reuse = false; return lastRun() }
   for (let i = 0; i < 3; i++) {
     const r = await fetch(`https://api.apify.com/v2/acts/harvestapi~linkedin-profile-search/run-sync-get-dataset-items?token=${APIFY}`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxItems: 15, takePages: 1, profileScraperMode: "Full", ...body }), signal: AbortSignal.timeout(290_000),
@@ -78,13 +90,19 @@ async function search(body: Record<string, unknown>): Promise<Array<Record<strin
   return []
 }
 
+/** The position they hold now, in the shape the table keeps: title, employer, start and end as LinkedIn shows them. */
+function currentOf(profile: Record<string, any>): Record<string, string> {
+  const x = ((profile.experience ?? []) as Array<Record<string, any>>)[0] ?? {}
+  return { title: String(x.position ?? x.title ?? ""), employer: String(x.companyName ?? ""), start_date: String(x.startDate?.text ?? ""), end_date: String(x.endDate?.text ?? ""), employment_type: String(x.employmentType ?? "") }
+}
+
 async function store(profile: Record<string, any>, j: Job, hit: Hit): Promise<void> {
   const url = String(profile.linkedinUrl).replace(/\/+$/, "")
   const now = new Date().toISOString()
   const name = [profile.firstName, profile.lastName].filter(Boolean).join(" ")
   const [{ id }] = await sql<{ id: string }>(`
     insert into candidate_profiles (canonical_linkedin_url, public_identifier, full_name, headline, current_position, public_location, avatar_url, avatar_status, evidence_status)
-    values (${lit(url)}, ${lit(profile.publicIdentifier ?? "")}, ${lit(name)}, ${lit(profile.headline ?? "")}, ${lit(profile.experience?.[0]?.position ?? "")}, ${lit(profile.location?.linkedinText ?? "")},
+    values (${lit(url)}, ${lit(profile.publicIdentifier ?? "")}, ${lit(name)}, ${lit(profile.headline ?? "")}, ${lit(JSON.stringify(currentOf(profile)))}::jsonb, ${lit(profile.location?.linkedinText ?? "")},
       ${profile.photo ? lit(profile.photo) : "null"}, ${profile.photo ? "'available'" : "'unavailable'"}, 'apify_verified')
     on conflict (canonical_linkedin_url) do update set headline = excluded.headline, current_position = excluded.current_position, public_location = excluded.public_location, updated_at = now()
     returning id`)
@@ -96,7 +114,7 @@ async function store(profile: Record<string, any>, j: Job, hit: Hit): Promise<vo
   const p = hit.position
   await sql(`
     insert into job_candidate_evidence (posting_id, candidate_profile_id, source_url, observed_at, label, current_position, employer_match, role_function_match, level_match, status, confidence, explanation, validation_status, validated_at, validation_notes)
-    values (${lit(j.id)}, '${id}', ${lit(url)}, ${lit(now)}, ${lit(hit.status)}, ${lit(profile.headline ?? "")}, true, true, true, ${lit(hit.status)}, ${hit.confidence},
+    values (${lit(j.id)}, '${id}', ${lit(url)}, ${lit(now)}, ${lit(hit.status)}, ${lit(JSON.stringify(currentOf(profile)))}::jsonb, 'same employer', ${lit(hit.status === "exact" ? "same title words" : "shared title words")}, 'same level', ${lit(hit.status)}, ${hit.confidence},
       ${lit(`Was "${p.position ?? p.title}" at ${p.companyName}${ym(p.startDate) ? ` from ${ym(p.startDate)}` : ""}.`)}, 'validated', now(), 'rules: same employer, same level words, shared title words (scripts/find-past-hires.ts)')`)
 }
 

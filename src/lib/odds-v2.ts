@@ -148,6 +148,15 @@ export interface Pile {
 
 /** How long a posting stays open: the median from postings that closed (28 days, n = 506; a quarter stay over 43). */
 const POSTING_LIFE_DAYS = 28
+/**
+ * Past this many days a posting is probably filled or shortlisted, even if the page is still up: Dutch postings with a known close
+ * stay open a median 28-31 days (LinkedIn 31, magnet.me 30, Workday 18; docs/ENGINE_DATA_PLAN.md A1). It is not suggested and not
+ * tagged "Most likely to hear back"; it stays in the list for anyone who looks for it.
+ */
+export const LIKELY_FILLED_AFTER_DAYS = 30
+
+/** True when a posting is older than a typical posting's life, so the employer has most likely moved on. */
+export const likelyFilled = (post: Pick<Posting, "days_open">): boolean => (post.days_open ?? 0) > LIKELY_FILLED_AFTER_DAYS
 /** How many days after posting a count is usually read (median 9, n = 350), for a count with no dates. */
 const TYPICAL_READ_AGE_DAYS = 9
 const DAY = 86_400_000

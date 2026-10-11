@@ -39,11 +39,14 @@ reports, not training data.
 ## Steps
 
 ### A. Posting life from our own data (free, fast)
-- [ ] A1. From `postings` with `closed_at` and `posted_on`: median/p25/p75 days open, split by `source`/`ats`
-      (linkedin_apify, indeed, greenhouse, lever, ashby, workday...). Known so far: all sources together median 28, p75 43 (n=506);
-      median age at read 9 days (n=350).
-- [ ] A2. Decide L per source (LinkedIn/Indeed auto-close at ~30 days, so their 28 is a platform timer; ATS boards 8-14 days in
-      outside data). Write the numbers here.
+- [x] A1. Days open (closed_at − posted_on), NL postings, by ats (2026-10-11):
+      magnet.me n=153 med 30 (p25 17, p75 63); workday n=140 med 18 (15-25); linkedin n=87 med 31 (16-32.5);
+      academictransfer n=78 med 33 (29-47); greenhouse n=31 med 45 (24-121); ashby n=11 med 70; recruitee n=4 med 17; lever n=2.
+      All together median 28, p75 43 (n=506). Median age at read of an applicant count: 9 days (n=350).
+      Caveat: closed_at is when our checker noticed the close, so these are upper bounds (by the check interval).
+- [x] A2. Decision: keep L = 28 for LinkedIn counts (the only source with applicant counts; LinkedIn's 31 is partly its 30-day
+      auto-close, but NL ATS boards also stay open 18-45 days, unlike the US 8-14 in the report). Do NOT drop to 14.
+      Possible refinement later: L = 18 when the same job is also on a Workday board.
 
 ### B. LinkedIn Job Postings 2023-24 (pile size and growth curve)
 - [ ] B1. Download to `research-data/linkedin-postings/` (OpenML copy preferred; Kaggle needs an account). User approved
@@ -67,6 +70,11 @@ reports, not training data.
 - [ ] D2. Update `learned_multipliers.json` if C improves NL.
 - [ ] D3. Rebuild MCP core, run checks, e2e, commit, push, deploy mcp. Recheck Mileway example (posting p38c15dfe4b42).
 
+- [ ] D4. Staleness in the chance itself: a posting older than its typical life is probably filled (rolling review). Today it only
+      loses the "Most likely to hear back" tag and is not suggested (`likelyFilled()`, `LIKELY_FILLED_AFTER_DAYS = 30` in
+      odds-v2.ts, done 2026-10-11). Next: multiply the chance by P(still reviewing | days open), e.g. survival of NL postings by age
+      from A1 data, and show it on the job page.
+
 ### E. Outcome loop for when users come (build later, after D)
 - [ ] E1. Snapshot the predicted chance + inputs when a job is marked Applied (app and Claude connector).
 - [ ] E2. Ask "heard back?" 2-3 weeks later (interview / rejected / nothing), store with the snapshot.
@@ -78,4 +86,8 @@ reports, not training data.
 - No LinkedIn scraping without the user explicitly accepting the ToS risk (see report section on legal).
 
 ## Progress log
-- 2026-10-11: plan written. Next: A1, then B1.
+- 2026-10-11: plan written.
+- 2026-10-11: A1-A2 done (keep L = 28).
+- 2026-10-11: user asked: suggestions newest first, and no "Most likely to hear back" on a 45-day-old job. Done: similarMix sorts
+  newest first and skips postings > 30 days; hearBackFor skips them too (tests in src/lib/tailor.test.ts). MCP core rebuilt and
+  deployed. Next: B1 (OpenML dataset id 45952 "Linkedin_Job_Postings", 123,849 rows, 28 features).

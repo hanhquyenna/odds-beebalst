@@ -10,6 +10,11 @@ const pool: Posting[] = Array.from({ length: 200 }, (_, i) =>
 )
 
 describe("most likely to hear back", () => {
+  test("never on a posting older than a typical posting's life", () => {
+    const old = pool.map((p) => ({ ...p, days_open: 45 }))
+    expect(hearBackFor(old, PEOPLE.gsAnalyst, new Set(), () => null).size).toBe(0)
+  })
+
   test("it is rare: at most the top share of a pool, never every job", () => {
     const tags = hearBackFor(pool, PEOPLE.gsAnalyst, new Set(), () => null)
     expect(tags.size).toBeLessThanOrEqual(Math.ceil(pool.length * TOP_SHARE) + 10)
@@ -116,6 +121,14 @@ describe("similarMix", () => {
 
   test("nothing saved, nothing suggested", () => {
     expect(similarMix([], open, {})).toEqual([])
+  })
+
+  test("newest first, and nothing older than a typical posting's life (most likely filled)", () => {
+    const aged = open.map((p, i) => ({ ...p, days_open: [45, 3, 12, 31, 1, 20, 8][i] }))
+    const out = similarMix(saved, aged, {}, 5)
+    expect(out.every((s) => (s.post.days_open ?? 0) <= 30)).toBe(true)
+    const days = out.map((s) => s.post.days_open ?? 0)
+    expect(days).toEqual([...days].sort((a, b) => a - b))
   })
 })
 
