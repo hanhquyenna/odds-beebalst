@@ -231,15 +231,22 @@ export function projectedApplicants(count: number, post: Pick<Posting, "posted_o
   return { applicants: Math.round(count * factor), daysAfterPosting: age }
 }
 
+/**
+ * A count read on one site is only the people who applied there. Many apply on the employer's own page, through other boards or an agency, so the
+ * whole pile is bigger by a factor nobody has measured here. The research report's channel figures (off-site 1.9x, Easy Apply 2.8x as totals) and the
+ * LinkedIn dataset's applies-per-view ratio (off-site about 60-70% of Easy Apply) bound it; 2 is taken, an assumption like the square root above.
+ */
+export const OTHER_CHANNELS = 2
+
 /** Typical applications per posting (Greenhouse 2026: 183 in Europe), scaled by how sought-after the employer is. */
 export function pileFor(post: Posting, employerTierOfPost: EmployerTier, employerAvgApplicants?: number | null, now = Date.now()): Pile {
   const interviews = /intern|stage|stagiair/i.test(post.title) ? 10 : 8
   if (typeof post.applicants === "number" && post.applicants > 0) {
     const projected = projectedApplicants(post.applicants, post, now)
 
-    return { applicants: Math.max(projected.applicants, interviews + 1), interviews, source: "posting", seen: { count: post.applicants, daysAfterPosting: projected.daysAfterPosting } }
+    return { applicants: Math.max(Math.round(projected.applicants * OTHER_CHANNELS), interviews + 1), interviews, source: "posting", seen: { count: post.applicants, daysAfterPosting: projected.daysAfterPosting } }
   }
-  if (typeof employerAvgApplicants === "number" && employerAvgApplicants > 0) return { applicants: Math.max(employerAvgApplicants, interviews + 1), interviews, source: "employer" }
+  if (typeof employerAvgApplicants === "number" && employerAvgApplicants > 0) return { applicants: Math.max(Math.round(employerAvgApplicants * OTHER_CHANNELS), interviews + 1), interviews, source: "employer" }
   const byTier: Record<EmployerTier, number> = { elite: 600, large: 220, mid: 150, small: 60, unknown: 180 }
 
   return { applicants: byTier[employerTierOfPost], interviews, source: "typical" }

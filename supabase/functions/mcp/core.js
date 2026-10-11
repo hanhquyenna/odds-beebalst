@@ -487,14 +487,15 @@ function projectedApplicants(count, post, now = Date.now()) {
   const factor = Math.min(6, Math.max(1, Math.sqrt(Math.min(60, open) / age)));
   return { applicants: Math.round(count * factor), daysAfterPosting: age };
 }
+var OTHER_CHANNELS = 2;
 function pileFor(post, employerTierOfPost, employerAvgApplicants, now = Date.now()) {
   const interviews = /intern|stage|stagiair/i.test(post.title) ? 10 : 8;
   if (typeof post.applicants === "number" && post.applicants > 0) {
     const projected = projectedApplicants(post.applicants, post, now);
-    return { applicants: Math.max(projected.applicants, interviews + 1), interviews, source: "posting", seen: { count: post.applicants, daysAfterPosting: projected.daysAfterPosting } };
+    return { applicants: Math.max(Math.round(projected.applicants * OTHER_CHANNELS), interviews + 1), interviews, source: "posting", seen: { count: post.applicants, daysAfterPosting: projected.daysAfterPosting } };
   }
   if (typeof employerAvgApplicants === "number" && employerAvgApplicants > 0)
-    return { applicants: Math.max(employerAvgApplicants, interviews + 1), interviews, source: "employer" };
+    return { applicants: Math.max(Math.round(employerAvgApplicants * OTHER_CHANNELS), interviews + 1), interviews, source: "employer" };
   const byTier = { elite: 600, large: 220, mid: 150, small: 60, unknown: 180 };
   return { applicants: byTier[employerTierOfPost], interviews, source: "typical" };
 }
@@ -3533,7 +3534,7 @@ function hearBackFor(postings, profile, referrals, record) {
 }
 
 // src/lib/outcome-snapshot.ts
-var SNAPSHOT_MODEL = "odds-v2.3-factors-as-ratios";
+var SNAPSHOT_MODEL = "odds-v2.4-other-channels";
 var round = (x, digits = 4) => Math.round(x * 10 ** digits) / 10 ** digits;
 function chanceSnapshot(post, profile, ctx = {}) {
   const v2 = oddsV2(post, profile, ctx);

@@ -330,3 +330,11 @@ Looked at and rejected: Karachi audit (not relevant), OSF "meta-reanalysis of co
 template), the Swiss employer vignette survey (Zenodo 18683954: attitudes, not callbacks), JobHop and OpenResume (career paths without outcomes),
 RecruitView (restricted, forbids use for employment decisions), Kaggle copies of scraped Glassdoor interview reviews (scraped against
 Glassdoor's terms). **All four openICPSR projects are downloaded (`research-data/more-data/{231422,116023,112740,198284}`).** Still to get: data where the number of years the ad asks for is recorded (it would settle underqualified and overqualified), and any callback measure of employer prestige and of skills.
+
+### L. Counts are one site's share (2026-10-11, after Kien's review; SNAPSHOT_MODEL odds-v2.4-other-channels)
+- The count a posting shows ("48 applicants", or an employer's average of them) is only who applied through that site. Many apply on the
+  employer's page, through other boards or agencies. `pileFor()` now multiplies the projected count by `OTHER_CHANNELS = 2`.
+- 2 is an assumption bounded by the report's channel figures (off-site 1.9x, Easy Apply 2.8x as totals) and by B5 (off-site counts about 60-70% of
+  Easy Apply per view). It is not measured: the data to measure it is the same posting counted on two sites, which we do not have.
+- Effect: every pile read from a count is twice as large, so chances at those jobs fall. Piles with no count (typical by employer size) are unchanged,
+  as they already are totals (Greenhouse 183). Persona fixtures were halved so they still describe the piles their names say; ranges unchanged.

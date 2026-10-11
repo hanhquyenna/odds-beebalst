@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { chanceIn, FLOOR, oddsV2, phi, phiInv, POSITION_KEYS, projectedApplicants, SENIOR_YEARS, stillReviewing } from "@/lib/odds-v2"
+import { chanceIn, FLOOR, oddsV2, OTHER_CHANNELS, phi, phiInv, pileFor, POSITION_KEYS, projectedApplicants, SENIOR_YEARS, stillReviewing } from "@/lib/odds-v2"
 import { EXPECT, JOBS, PEOPLE, job } from "@/lib/odds-v2.personas"
 import { employerTier } from "@/lib/tiers"
 
@@ -273,5 +273,12 @@ describe("still reviewing (old postings)", () => {
     expect(old.p).toBeGreaterThanOrEqual(FLOOR)
     expect(old.low).toBeLessThanOrEqual(old.p)
     expect(old.high).toBeGreaterThanOrEqual(old.p)
+  })
+})
+
+describe("odds-v2: a count seen on one site is not the whole pile", () => {
+  test("the pile is the projected count times the other channels", () => {
+    const pile = pileFor(job({ ...JOBS.midFinanceEntry, applicants: 40, posted_on: null, fetched_at: null }), "mid")
+    expect(pile.applicants).toBe(40 * OTHER_CHANNELS)
   })
 })

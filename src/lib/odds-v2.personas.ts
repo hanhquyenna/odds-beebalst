@@ -24,15 +24,15 @@ export const PEOPLE = {
 }
 
 export const JOBS = {
-  startupFinance: job({ title: "Finance Analyst", employer: "Some Scale-up BV", family: "Finance & accounting", applicants: 60, level_view: "Entry" }),
+  startupFinance: job({ title: "Finance Analyst", employer: "Some Scale-up BV", family: "Finance & accounting", applicants: 30, level_view: "Entry" }),
   eliteBankAnalyst: job({ title: "Investment Banking Analyst", employer: "J.P. Morgan", family: "Finance & accounting", level_view: "Entry" }),
-  midFinanceEntry: job({ title: "Junior Financial Analyst", employer: "Mid Company", family: "Finance & accounting", applicants: 180, level_view: "Entry" }),
+  midFinanceEntry: job({ title: "Junior Financial Analyst", employer: "Mid Company", family: "Finance & accounting", applicants: 90, level_view: "Entry" }),
   big4Audit: job({ title: "Audit Associate", employer: "KPMG", family: "Finance & accounting", level_view: "Entry" }),
-  scaleupSwe: job({ title: "Software Engineer", employer: "Scale-up", family: "Software engineering", cat: "tech", applicants: 120, level_view: "Mid", years_min: 2 }),
-  scaleupMarketing: job({ title: "Marketing Manager", employer: "Scale-up", family: "Marketing & communications", applicants: 120, level_view: "Mid", years_min: 2 }),
-  financeIntern: job({ title: "Finance Intern", employer: "Mid Company", family: "Finance & accounting", applicants: 150, level_view: "Internship", role_kind: "internship" }),
-  seniorFinance: job({ title: "Senior Finance Manager", employer: "Mid Company", family: "Finance & accounting", applicants: 80, level_view: "Senior", years_min: 7 }),
-  dutchFinance: job({ title: "Financial Controller", employer: "Mid Company", family: "Finance & accounting", applicants: 90, level_view: "Mid", years_min: 2, dutch_required: true }),
+  scaleupSwe: job({ title: "Software Engineer", employer: "Scale-up", family: "Software engineering", cat: "tech", applicants: 60, level_view: "Mid", years_min: 2 }),
+  scaleupMarketing: job({ title: "Marketing Manager", employer: "Scale-up", family: "Marketing & communications", applicants: 60, level_view: "Mid", years_min: 2 }),
+  financeIntern: job({ title: "Finance Intern", employer: "Mid Company", family: "Finance & accounting", applicants: 75, level_view: "Internship", role_kind: "internship" }),
+  seniorFinance: job({ title: "Senior Finance Manager", employer: "Mid Company", family: "Finance & accounting", applicants: 40, level_view: "Senior", years_min: 7 }),
+  dutchFinance: job({ title: "Financial Controller", employer: "Mid Company", family: "Finance & accounting", applicants: 45, level_view: "Mid", years_min: 2, dutch_required: true }),
 }
 
 /** [person, job, lowest acceptable %, highest acceptable %, why] */
