@@ -74,18 +74,22 @@ reports, not training data.
         log our own reads with timestamps (plan step E / research report calibration item 2).
 
 ### C. More field-experiment data (profile strength)
-- [ ] C1. Deming et al. 2016: unzip `research-data/deming/deming.zip`, map columns to the engine's parts like `export_gemm.py`.
-      **Blocked (2026-10-11):** `deming.zip` is 122 bytes, not data: Harvard Dataverse answers `You may not download this file without
-      the required Guestbook response for guestbookID 269`. The file is `Postsecondary_Credentials_Replication.zip` (279,122 bytes,
-      file id 3182135, doi 10.7910/DVN/P8ETJ0). The guestbook asks for a name and an email, so Kien must either download it by hand
-      (free, one form, no account) and put the zip in `research-data/deming/`, or tell an agent to submit the form with his details.
-      Note for scoping: it is a US audit of for-profit and online degrees, so it informs the degree part only, not field or experience.
+- [x] C1. Deming et al. 2016: unzip `research-data/deming/deming.zip`, map columns to the engine's parts like `export_gemm.py`.
+      Done 2026-10-11. The Dataverse guestbook was answered in the browser (name and email of Kien, as he asked); the real file is
+      `research-data/deming/Postsecondary_Credentials_Replication.zip` (unzipped under `deming/data/`; the old 122-byte `deming.zip`
+      was the guestbook error). 10,484 audit applications (5 US cities, business and health jobs), any-callback 8.2%.
+      **Only one engine part maps: school standing (`prestige`).** Result (scripts/research/deming_effects.py, job fixed effects,
+      90% intervals): selective against non-selective public school, business BA jobs: lift x0.98 [0.70, 1.26], i.e. no effect.
+      Public school against a for-profit online one: x1.30 [1.15, 1.45] (not a Dutch situation). AA-level business jobs: no
+      difference between degree types. **Reading: it agrees with the engine, which already cuts the prestige step to 0.40 of the study
+      value (learned_multipliers.json); if anything it argues for 0.4 or lower, never higher. No change made.** Race and gender are
+      randomised in this audit and not used by the engine, on purpose.
 - [ ] C2. Kline, Rose & Walters 2022 (QJE 137(4), doi 10.1093/qje/qjac024), 83k+ applications to 108 large US employers.
       Replication data: openICPSR project 198284 V1, https://www.openicpsr.org/openicpsr/project/198284/version/V1/view
       **Needs a free openICPSR login to download: Kien must download it** (agents may not create accounts) and put the files in
       `research-data/kline/`. Then map columns like `export_gemm.py`.
 - [ ] C3. Kroft, Lange & Notowidigdo 2013 (optional).
-- [ ] C4. Add to the backtest (`loop.py` / `learn.py`), re-learn multipliers, report AUC and calibration slope per dataset,
+- [ ] C4. (Deming checked by hand, see C1: no change. Rows not added to `learn.py` because one mappable part with no effect cannot move the multipliers.) Add to the backtest (`loop.py` / `learn.py`), re-learn multipliers, report AUC and calibration slope per dataset,
       **with NL (GEMM NL) held out as the check**. Only adopt new multipliers if NL does not get worse.
 
 ### D. Apply to the engine
