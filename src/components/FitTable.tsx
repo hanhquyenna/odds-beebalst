@@ -11,7 +11,7 @@ import { fitFilters, withFitLanguage } from "@/lib/fit-filters"
 import { openLinkedInImport } from "@/lib/open-profile"
 import { CV_ACCEPT, profileWithCv } from "@/lib/cv-profile"
 import { oddsV2 } from "@/lib/odds-v2"
-import { stretches, tailor } from "@/lib/tailor"
+import { tailor } from "@/lib/tailor"
 import { useCompanyProfiles } from "@/lib/company-profile"
 import { useFitEngine } from "@/lib/use-fit-engine"
 import type { Posting } from "@/lib/types"
@@ -68,15 +68,15 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
   const needsProfile = data.profile.positions.length === 0 && data.profile.education.length === 0
   const { strengthFor } = data
 
-  const { rows, stretch } = useMemo(() => {
-    if (!data.reference || !data.shares || needsProfile) return { rows: [], stretch: [] }
+  const rows = useMemo(() => {
+    if (!data.reference || !data.shares || needsProfile) return []
     const ref = data.reference
     const pool = notYours({ postings: data.postings, applications: data.applications, saved: data.saved, passed: data.passed })
     const ctx = { signals: data.signals, reference: ref }
     const fitting = new Set(applyFilters(pool, effective, ctx).map((p) => p.id))
     const applied = new Set(data.applications.map((a) => a.posting_id))
     const mine = [...data.postings, ...data.keptExtra].filter((p) => data.saved.has(p.id) || applied.has(p.id))
-    if (!engine) return { rows: [], stretch: [] }
+    if (!engine) return []
     const { chanceOf, fitOf } = engine
     const liftOf = (post: Posting): string | null => {
       const top = oddsV2(post, data.profile, { record: strengthFor(post) }).parts.filter((x) => x.z > 0.05).sort((a, b) => b.z - a.z)[0]
@@ -88,7 +88,7 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
 
     const own = [...data.profile.positions.map((p) => p.Title ?? ""), data.profile.headline].filter((t) => t.trim() !== "")
 
-    return { rows: tailor({ candidates, fitting, saved: mine, chanceOf, profiles, liftOf, own, fieldOrder: filters.field, fitOf }), stretch: stretches(mine, chanceOf) }
+    return tailor({ candidates, fitting, saved: mine, chanceOf, profiles, liftOf, own, fieldOrder: filters.field, fitOf })
   }, [data.postings, data.keptExtra, data.profile, data.reference, data.shares, data.saved, data.applications, data.passed, data.signals, strengthFor, effective, filters, profiles, needsProfile, engine])
 
   if (!data.reference) return null
@@ -96,11 +96,6 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
 
   return (
     <FitSection label="Jobs tailored to you" heading="Jobs tailored to you" what="the jobs tailored to you" filters={filters} auto={fields} onChange={saved.setFilters} needsProfile={needsProfile} empty={rows.length === 0}>
-      {stretch.length > 0 ? (
-        <p className="rounded-xl border-[1.5px] border-dashed border-line bg-secondary/30 px-4 py-2.5 text-sm">
-          Your saved {list(stretch.map((x) => familyWord(x.family)))} jobs: your chance is about {Math.max(1, Math.round(Math.min(...stretch.map((x) => x.chance)) * 100))}–{Math.max(1, Math.round(Math.max(...stretch.map((x) => x.chance)) * 100))}%, because nothing on your profile is in {stretch.length === 1 ? "it" : "them"} yet. A project, course or side job there would change that.
-        </p>
-      ) : null}
       <ul className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card max-md:-mx-5 max-md:rounded-none max-md:border-x-0">
         {rows.slice(0, rowLimit).map((r) => (
           <li key={r.post.id} className="relative after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border last:after:hidden md:after:left-4">
@@ -112,16 +107,6 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
     </FitSection>
   )
 }
-
-/** "design", "IT", "operations": the first word of a line of work, as it reads in a sentence. */
-const familyWord = (f: string): string => {
-  const w = f.split(" & ")[0].split(",")[0]
-
-  return w === w.toUpperCase() ? w : w.toLowerCase()
-}
-
-/** "a, b and c". */
-const list = (xs: string[]): string => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`)
 
 /** The tailored list's heading with the pencil for your preferences, then the jobs, or the import prompt until a profile is in. */
 function FitSection({ label, heading, what, filters, auto, onChange, needsProfile, empty, children }: { label: string; heading: string; what: string; filters: JobFilters; auto: string[]; onChange: (next: JobFilters) => void; needsProfile: boolean; empty: boolean; children: React.ReactNode }): React.JSX.Element {

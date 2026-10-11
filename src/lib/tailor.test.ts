@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { hearBackFor, LIFT, TOP_SHARE } from "@/lib/hear-back"
 import { oddsV2 } from "@/lib/odds-v2"
 import { JOBS, PEOPLE, job } from "@/lib/odds-v2.personas"
-import { isLike, likeness, shortName, shortTitle, similarMix, stretches, tailor } from "@/lib/tailor"
+import { isLike, likeness, shortName, shortTitle, similarMix, tailor } from "@/lib/tailor"
 import { DEFAULT_PROFILE, type Posting } from "@/lib/types"
 
 const pool: Posting[] = Array.from({ length: 200 }, (_, i) =>
@@ -84,13 +84,6 @@ describe("jobs tailored to you", () => {
   })
   test("nothing saved and nothing fitting gives an empty list, not an error", () => {
     expect(tailor({ candidates: [], fitting: new Set(), saved: [], chanceOf: () => 0, profiles: {}, liftOf: () => null })).toEqual([])
-  })
-  test("saved jobs where your chance is low are named once per line of work", () => {
-    const s = [job({ title: "Brand Design Internship", employer: "X", family: "Design & UX", id: "x" }), job({ title: "Brand Design Internship", employer: "Y", family: "Design & UX", id: "y" }), job({ title: "Finance Intern", employer: "Z", family: "Finance & accounting", id: "z" })]
-    const out = stretches(s, (p) => (p.family === "Design & UX" ? 0.03 : 0.4))
-    expect(out).toHaveLength(1)
-    expect(out[0].family).toBe("Design & UX")
-    expect(out[0].titles).toEqual(["Brand Design Internship"])
   })
   test("names read short", () => {
     expect(shortTitle("2027 MUFG 6 month Amsterdam internship: Japanese Corporate Banking")).toBe("MUFG Amsterdam internship")
@@ -242,5 +235,29 @@ describe("jobs like the ones you saved: the mix, what counts, what is left out",
   test("only one line saved: every suggestion is from it; nothing saved: nothing suggested", () => {
     expect(similarMix([saved[0]], pool, {}, 4).every((r) => r.post.family === "Finance & accounting")).toBe(true)
     expect(similarMix([], pool, {}, 4)).toEqual([])
+  })
+})
+
+describe("what makes two jobs alike: level and the skills the description asks for", () => {
+  const mk = (title: string, level: "Internship" | "Entry", skills: string[], over: Partial<Posting> = {}): Posting => job({ id: title + level, title, employer: over.employer ?? title + level, family: "Finance & accounting", level_view: level, region: "Amsterdam", skills, ...over })
+  const saved = mk("Finance Analyst Intern", "Internship", ["Excel", "SQL", "Power BI"])
+
+  test("the same level is more alike than a different one: an internship next to an entry-level job counts against", () => {
+    const sameLevel = likeness(saved, mk("Finance Analyst Intern", "Internship", [], { employer: "A" }), {})
+    const otherLevel = likeness(saved, mk("Finance Analyst", "Entry", [], { employer: "B" }), {})
+    expect(sameLevel.score).toBeGreaterThan(otherLevel.score)
+    expect(sameLevel.why).toContain("internship")
+  })
+
+  test("the same skills asked for make two jobs alike, and are named", () => {
+    const shared = likeness(saved, mk("Finance Analyst Intern", "Internship", ["Excel", "SQL"], { employer: "C" }), {})
+    const none = likeness(saved, mk("Finance Analyst Intern", "Internship", ["Photoshop", "Figma"], { employer: "D" }), {})
+    expect(shared.score).toBeGreaterThan(none.score)
+    expect(shared.why.join(" ")).toContain("excel")
+  })
+
+  test("a job with no skills listed is not marked down for it", () => {
+    const quiet = likeness(saved, mk("Finance Analyst Intern", "Internship", [], { employer: "E" }), {})
+    expect(isLike(quiet)).toBe(true)
   })
 })

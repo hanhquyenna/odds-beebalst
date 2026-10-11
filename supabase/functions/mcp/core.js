@@ -3130,10 +3130,27 @@ function likeness(saved, job, profiles) {
     score += 0.2;
     why.push(saved.family.split(" & ")[0].split(",")[0].toLowerCase());
   }
-  if (saved.level_view && saved.level_view === job.level_view && saved.level_view !== "Not stated") {
-    score += 0.12;
-    why.push(saved.level_view === "Internship" ? "internship" : `${saved.level_view.toLowerCase()} level`);
+  if (saved.level_view && job.level_view && saved.level_view !== "Not stated" && job.level_view !== "Not stated") {
+    if (saved.level_view === job.level_view) {
+      score += 0.15;
+      why.push(saved.level_view === "Internship" ? "internship" : `${saved.level_view.toLowerCase()} level`);
+    } else if (saved.level_view === "Internship" !== (job.level_view === "Internship")) {
+      score -= 0.1;
+    }
   }
+  const sa = new Set((saved.skills ?? []).map((x) => x.toLowerCase()));
+  const sb = new Set((job.skills ?? []).map((x) => x.toLowerCase()));
+  if (sa.size > 0 && sb.size > 0) {
+    const common = [...sa].filter((x) => sb.has(x));
+    const share = common.length / Math.min(sa.size, sb.size);
+    score += 0.15 * share;
+    if (common.length >= 2)
+      why.push(common.slice(0, 2).join(", "));
+  }
+  if (saved.role_kind && saved.role_kind === job.role_kind)
+    score += 0.04;
+  if (saved.industry && saved.industry === job.industry)
+    score += 0.04;
   if (city(saved) && city(saved) === city(job)) {
     score += 0.08;
     why.push((job.region ?? "").split(/[,;]/)[0].trim());

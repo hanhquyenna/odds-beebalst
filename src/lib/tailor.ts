@@ -5,7 +5,8 @@
  * Jobs past their own closing date are left out. Each job carries one line on why it is here.
  *
  * Similarity to a saved job counts the job title's own words most (a "Treasury Intern" is like a "Finance Intern" through "finance",
- * not through "intern"), then the line of work, the level, the city, and the kind of company (size and type, from company-profile.ts).
+ * not through "intern"), then the level (the same level counts, an internship next to an entry-level job counts against), the skills the
+ * posting's text asks for, the line of work, the city, and the kind of company (size and type, from company-profile.ts).
  * A shared line of work alone is not enough: the first try matched a procurement consultant to a warehouse job through "operations".
  */
 import { fieldOf } from "@/lib/filters"
@@ -41,10 +42,26 @@ export function likeness(saved: Posting, job: Posting, profiles: Record<string, 
     score += 0.2
     why.push(saved.family.split(" & ")[0].split(",")[0].toLowerCase())
   }
-  if (saved.level_view && saved.level_view === job.level_view && saved.level_view !== "Not stated") {
-    score += 0.12
-    why.push(saved.level_view === "Internship" ? "internship" : `${saved.level_view.toLowerCase()} level`)
+  // Level: the same level is what you are looking at; an internship next to an entry-level job is a different search.
+  if (saved.level_view && job.level_view && saved.level_view !== "Not stated" && job.level_view !== "Not stated") {
+    if (saved.level_view === job.level_view) {
+      score += 0.15
+      why.push(saved.level_view === "Internship" ? "internship" : `${saved.level_view.toLowerCase()} level`)
+    } else if ((saved.level_view === "Internship") !== (job.level_view === "Internship")) {
+      score -= 0.1
+    }
   }
+  // What the posting's text asks for, as far as the list holds it (the skills read from the description): the same tools and skills make two jobs alike.
+  const sa = new Set((saved.skills ?? []).map((x) => x.toLowerCase()))
+  const sb = new Set((job.skills ?? []).map((x) => x.toLowerCase()))
+  if (sa.size > 0 && sb.size > 0) {
+    const common = [...sa].filter((x) => sb.has(x))
+    const share = common.length / Math.min(sa.size, sb.size)
+    score += 0.15 * share
+    if (common.length >= 2) why.push(common.slice(0, 2).join(", "))
+  }
+  if (saved.role_kind && saved.role_kind === job.role_kind) score += 0.04
+  if (saved.industry && saved.industry === job.industry) score += 0.04
   if (city(saved) && city(saved) === city(job)) {
     score += 0.08
     why.push((job.region ?? "").split(/[,;]/)[0].trim())
@@ -200,28 +217,6 @@ function spread(rows: Tailored[], perEmployer = 2): Tailored[] {
   }
 
   return [...first, ...later]
-}
-
-export interface Stretch {
-  family: string
-  chance: number
-  titles: string[]
-}
-
-/** Lines of work you saved jobs in where your chance is low: worth a sentence on what would change it. */
-export function stretches(saved: Posting[], chanceOf: (post: Posting) => number): Stretch[] {
-  const by = new Map<string, { sum: number; n: number; titles: string[] }>()
-  for (const s of saved) {
-    const c = chanceOf(s)
-    if (c >= 0.05 || !s.family) continue
-    const e = by.get(s.family) ?? { sum: 0, n: 0, titles: [] }
-    e.sum += c
-    e.n += 1
-    if (!e.titles.includes(s.title)) e.titles.push(s.title)
-    by.set(s.family, e)
-  }
-
-  return [...by.entries()].map(([family, e]) => ({ family, chance: e.sum / e.n, titles: e.titles.slice(0, 2) }))
 }
 
 export interface Similar {
