@@ -342,3 +342,7 @@ Glassdoor's terms). **All four openICPSR projects are downloaded (`research-data
   now pulled halfway on the log scale towards the typical pile for the employer's size (`COUNT_WEIGHT = 0.5`, an assumption like the 2). Probe, internship, strong
   applicant: 5 shown -> was 99%, now pulled up to a pile in the tens; the referral and tailored boosts are only +3 to +5 points and were not the cause.
   `startupFinance` persona range lowered 50 -> 35 for the same reason.
+- Validation, same day: every live posting (3,324) against 8 personas, with and without a referral and tailored letter: no NaN, p always within FLOOR..CEILING,
+  low <= p <= high, a referral never lowers the chance. Medians sit near 1-2% because most postings are in other fields or levels than the persona (as they should);
+  99th percentiles 12-39%. Top end: a strong person in a small pile could still be shown 90%+, so `capped()` bends everything above 30% towards `CEILING = 0.65`
+  (identity below 30%, monotone, never reached). 0.65 is a judgement: the best-matched CVs in the experiments were called back well under 2 in 3. Snapshot model v2.5.

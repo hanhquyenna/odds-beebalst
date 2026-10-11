@@ -10,7 +10,7 @@ import type { Posting, Profile } from "@/lib/types"
  */
 
 /** Names the model that made the number: change it whenever the engine changes in a way that moves the chance. */
-export const SNAPSHOT_MODEL = "odds-v2.4-other-channels"
+export const SNAPSHOT_MODEL = "odds-v2.5-capped"
 
 export interface ChanceSnapshot {
   posting_id: string

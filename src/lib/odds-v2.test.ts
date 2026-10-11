@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { chanceIn, FLOOR, oddsV2, OTHER_CHANNELS, phi, phiInv, pileFor, POSITION_KEYS, projectedApplicants, SENIOR_YEARS, stillReviewing } from "@/lib/odds-v2"
+import { CEILING, capped, chanceIn, FLOOR, oddsV2, OTHER_CHANNELS, phi, phiInv, pileFor, POSITION_KEYS, projectedApplicants, SENIOR_YEARS, stillReviewing } from "@/lib/odds-v2"
 import { EXPECT, JOBS, PEOPLE, job } from "@/lib/odds-v2.personas"
 import { employerTier } from "@/lib/tiers"
 
@@ -289,5 +289,29 @@ describe("odds-v2: a count seen on one site is not the whole pile", () => {
   test("a tiny count no longer means a tiny pile", () => {
     expect(at(5)).toBeGreaterThan(30)
     expect(oddsV2(job({ ...JOBS.financeIntern, applicants: 5 }), PEOPLE.gsAnalyst).p).toBeLessThan(0.9)
+  })
+})
+
+describe("odds-v2: nobody is shown nearly certain or hopeless", () => {
+  test("capped leaves the low and middle alone and never reaches the ceiling", () => {
+    for (const x of [0, 0.01, 0.1, 0.3]) expect(capped(x)).toBe(x)
+    expect(capped(0.99)).toBeLessThan(CEILING)
+    expect(capped(1)).toBeLessThan(CEILING)
+    let last = -1
+    for (let x = 0; x <= 1; x += 0.01) {
+      expect(capped(x)).toBeGreaterThan(last)
+      last = capped(x)
+    }
+  })
+
+  test("the strongest applicant in the smallest pile stays under the ceiling, the weakest in the largest above the floor", () => {
+    for (const n of [1, 3, 10, 40]) {
+      const top = oddsV2(job({ ...JOBS.startupFinance, applicants: n }), PEOPLE.gsAnalyst, { referral: true, tailored: true })
+      expect(top.p).toBeLessThan(CEILING)
+      expect(top.high).toBeLessThan(CEILING)
+    }
+    const bottom = oddsV2(job({ ...JOBS.eliteBankAnalyst, applicants: 100_000 }), PEOPLE.barista)
+    expect(bottom.p).toBeGreaterThanOrEqual(FLOOR)
+    expect(bottom.low).toBeGreaterThanOrEqual(FLOOR)
   })
 })

@@ -523,6 +523,19 @@ export function strengthParts(post: Posting, profile: Profile, ctx: V2Context = 
  * experience), so a chance is never shown below half a percent (a soft floor), and no single missing thing is a gate.
  */
 export const FLOOR = 0.005
+/**
+ * The most anyone is shown, approached and never reached (see capped). No applicant is nearly sure of an interview: in the field experiments even the strongest, best-matched CVs were called back
+ * well under two times in three, and a recruiter's attention is never certain. A judgement, not a fit; it only trims the top, where the pile model, with a
+ * small pile and a strong person, would otherwise say 90% or more.
+ */
+export const CEILING = 0.65
+/** Below this the number is untouched; above it the ceiling bends it. */
+const KNEE = 0.3
+
+/** Identity up to KNEE, then a smooth bend that tops out at CEILING: still rising everywhere, so there is always a way up, but never certain. */
+export function capped(x: number): number {
+  return x <= KNEE ? x : KNEE + (CEILING - KNEE) * (1 - Math.exp(-(x - KNEE) / (CEILING - KNEE)))
+}
 
 /** The callback rate the experiments behind the parts were measured at (GEMM 16-43%, Oreopoulos 10-16%, Sweden 15%): their middle. */
 const STUDY_BASE = 0.25
@@ -564,9 +577,9 @@ export function oddsV2(post: Posting, profile: Profile, ctx: V2Context = {}): Od
   const high = chanceIn(z + 0.3, smaller)
   const percentile = 1 - phi(z / Math.sqrt(1)) // share of the pool stronger than you, before noise
 
-  // A soft floor: shown = FLOOR + raw * (0.99 - FLOOR). Nobody sees 0%, and every improvement still moves the number (a hard
+  // A soft floor: shown = FLOOR + raw * (0.99 - FLOOR), then capped(). Nobody sees 0%, and every improvement still moves the number (a hard
   // clamp left people at the floor with nothing a referral could change: the "always a way up" test caught it).
-  const floor = (x: number): number => (Number.isFinite(x) ? FLOOR + Math.min(1, Math.max(0, x)) * (0.99 - FLOOR) : FLOOR)
+  const floor = (x: number): number => (Number.isFinite(x) ? capped(FLOOR + Math.min(1, Math.max(0, x)) * (0.99 - FLOOR)) : FLOOR)
   // An old posting may no longer be read: the chance is the chance of being invited, times the chance the employer is still reading.
   const reviewing = stillReviewing(post)
 

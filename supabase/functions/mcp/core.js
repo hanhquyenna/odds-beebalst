@@ -694,6 +694,11 @@ function strengthParts(post, profile, ctx = {}) {
   return parts.map((p) => ({ ...p, study: p.z, z: p.z * (LEARNED[p.key] ?? 1) }));
 }
 var FLOOR = 0.005;
+var CEILING = 0.65;
+var KNEE = 0.3;
+function capped(x) {
+  return x <= KNEE ? x : KNEE + (CEILING - KNEE) * (1 - Math.exp(-(x - KNEE) / (CEILING - KNEE)));
+}
 var STUDY_BASE = 0.25;
 var POSITION_KEYS = new Set(["relevance", "years", "underqualified", "overqualified", "degreeBelowAsked"]);
 function factorScale(position, pile, noise = NOISE) {
@@ -718,7 +723,7 @@ function oddsV2(post, profile, ctx = {}) {
   const low = chanceIn(z - 0.3, bigger);
   const high = chanceIn(z + 0.3, smaller);
   const percentile = 1 - phi(z / Math.sqrt(1));
-  const floor = (x) => Number.isFinite(x) ? FLOOR + Math.min(1, Math.max(0, x)) * (0.99 - FLOOR) : FLOOR;
+  const floor = (x) => Number.isFinite(x) ? capped(FLOOR + Math.min(1, Math.max(0, x)) * (0.99 - FLOOR)) : FLOOR;
   const reviewing = stillReviewing(post);
   return { p: floor(p * reviewing), low: floor(Math.min(low, p) * reviewing), high: floor(Math.max(high, p) * reviewing), strength: z, pile, percentile, parts, reviewing, factorScale: fScale };
 }
@@ -3537,7 +3542,7 @@ function hearBackFor(postings, profile, referrals, record) {
 }
 
 // src/lib/outcome-snapshot.ts
-var SNAPSHOT_MODEL = "odds-v2.4-other-channels";
+var SNAPSHOT_MODEL = "odds-v2.5-capped";
 var round = (x, digits = 4) => Math.round(x * 10 ** digits) / 10 ** digits;
 function chanceSnapshot(post, profile, ctx = {}) {
   const v2 = oddsV2(post, profile, ctx);
