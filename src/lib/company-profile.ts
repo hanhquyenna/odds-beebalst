@@ -145,14 +145,3 @@ export function useCompanyProfile(employer: string): CompanyProfile | null {
 
   return state?.employer === employer ? state.profile : null
 }
-
-export const NEWS_LABEL: Record<NewsLabel, string> = {
-  layoffs_reorg: "Layoffs or reorganisation",
-  funding: "Funding",
-  acquisition: "Acquisitions",
-  growth_hiring: "Growth or hiring",
-  results: "Financial results",
-  legal_trouble: "Legal trouble, strikes or bankruptcy",
-  leadership: "Leadership changes",
-}
-

@@ -2,7 +2,7 @@ import { useState } from "react"
 import { ExternalLinkIcon, StarIcon, XIcon } from "@/components/icons"
 import { PersonAvatar } from "@/components/PersonAvatar"
 import { Section } from "@/components/Section"
-import { NEWS_LABEL, useCompanyProfile, type NewsLabel } from "@/lib/company-profile"
+import { useCompanyProfile } from "@/lib/company-profile"
 import { companyMoney, companyNews, moneyText } from "@/lib/company-numbers"
 import { useData } from "@/lib/data"
 import { useCompanyMore, useJobCompany, usePastHires, type PastHire, type Review } from "@/lib/job-company"
@@ -26,6 +26,26 @@ const sameName = (a: string, b: string): boolean => {
 const host = (url: string): string => url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")
 
 const card = "rounded-xl border-[1.5px] bg-card"
+
+/** "2026-09-15" -> "15 Sep 2026"; anything else is shown as it came. */
+const newsDay = (d: string | null | undefined): string | null => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d ?? "")
+
+  return m ? `${Number(m[3])} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(m[2]) - 1]} ${m[1]}` : (d ?? null)
+}
+
+/** A site's own logo in place of its name ("on LinkedIn"), a link when we have the page. */
+function BrandMark({ src, name, href }: { src: string; name: string; href?: string }): React.JSX.Element {
+  const img = <img src={src} alt={name} title={`on ${name}`} className="size-4 rounded-[3px]" />
+
+  return href ? (
+    <a href={href} target="_blank" rel="noopener noreferrer" aria-label={`Open on ${name}`} className="ml-2 inline-flex cursor-pointer align-middle max-md:min-h-8 max-md:min-w-8 max-md:items-center max-md:justify-center">
+      {img}
+    </a>
+  ) : (
+    <span className="ml-2 inline-flex align-middle">{img}</span>
+  )
+}
 
 /** "part_time" -> "Part-time"; "other" and unknown kinds are left out. */
 const KINDS: Record<string, string> = { full_time: "Full-time", part_time: "Part-time", internship: "Internship", traineeship: "Traineeship", freelance: "Freelance", self_employed: "Self-employed", contract: "Contract", apprenticeship: "Apprenticeship", seasonal: "Seasonal", volunteer: "Volunteer", permanent: "Permanent", permanent_full_time: "Full-time", co_op: "Co-op", working_student: "Working student" }
@@ -172,15 +192,16 @@ export function CompanySection({ post }: { post: Posting }): React.JSX.Element |
   const owner = [file?.ownerGroup, file?.parent, extra?.parent].find((o): o is string => Boolean(o) && !sameName(o as string, f?.name ?? post.employer_display) && !sameName(o as string, post.employer_display)) ?? null
   const open = data.postings.filter((p) => p.employer === post.employer)
   const recent = open.filter((p) => p.days_open !== null && p.days_open !== undefined && p.days_open <= 30).length
-  const counts = file?.newsCounts ?? {}
-  const signals = (Object.entries(counts) as Array<[NewsLabel, number]>).filter(([, n]) => n > 0).sort((x, y) => y[1] - x[1])
-  const tiles = [
+  const linkedinMark = f?.linkedin ? <BrandMark src="/sources/linkedin.com.svg" name="LinkedIn" href={f.linkedin} /> : <BrandMark src="/sources/linkedin.com.svg" name="LinkedIn" />
+  type Tile = { label: string; value: string; note: React.ReactNode }
+  const rows: Array<Tile | null> = [
     money.revenue ? { label: "Revenue", value: moneyText(money.revenue), note: [money.revenue.year, money.revenue.source].filter(Boolean).join(" · ") } : null,
     money.profit ? { label: "Profit", value: moneyText(money.profit), note: [money.profit.year, money.profit.source].filter(Boolean).join(" · ") } : null,
     money.marketValue ? { label: "Market value", value: moneyText(money.marketValue), note: [money.marketValue.year, money.marketValue.source].filter(Boolean).join(" · ") } : null,
-    employees ? { label: "Employees", value: Math.round(employees).toLocaleString("en-US"), note: f?.employees ? "on LinkedIn" : null } : f?.employeeRange ? { label: "Employees", value: f.employeeRange, note: "stated" } : null,
+    employees ? { label: "Employees", value: Math.round(employees).toLocaleString("en-US"), note: f?.employees ? linkedinMark : null } : f?.employeeRange ? { label: "Employees", value: f.employeeRange, note: "stated" } : null,
     f?.founded ?? file?.founded ?? extra?.founded ? { label: "Founded", value: String(f?.founded ?? file?.founded ?? extra?.founded), note: null } : null,
-  ].filter((t): t is { label: string; value: string; note: string | null } => t !== null)
+  ]
+  const tiles = rows.filter((t): t is Tile => t !== null)
 
   if (!f && tiles.length === 0 && news.length === 0) {
     return (
@@ -209,7 +230,7 @@ export function CompanySection({ post }: { post: Posting }): React.JSX.Element |
         {tiles.map((t) => (
           <Fact key={t.label} label={t.label}>
             {t.value}
-            {t.note ? <span className="ml-2 text-xs font-normal text-muted-foreground">{t.note}</span> : null}
+            {typeof t.note === "string" ? <span className="ml-2 text-xs font-normal text-muted-foreground">{t.note}</span> : (t.note ?? null)}
           </Fact>
         ))}
         {f?.industry ?? file?.industry?.[0] ? <Fact label="Industry">{f?.industry ?? file?.industry?.[0]}</Fact> : null}
@@ -229,12 +250,11 @@ export function CompanySection({ post }: { post: Posting }): React.JSX.Element |
       </dl>
 
       <div className="mt-5">
-        <h3 className="mb-2 text-base font-semibold tracking-tight">Growth</h3>
+        <h3 className="mb-2 text-base font-semibold tracking-tight">Open jobs here</h3>
         <ul className="flex flex-col gap-1.5 text-sm">
           <li>
-            {open.length} open {open.length === 1 ? "job" : "jobs"} here on odds{recent > 0 ? `, ${recent} posted in the last 30 days` : ""}.
+            {open.length} open {open.length === 1 ? "job" : "jobs"} on odds{recent > 0 ? `, ${recent} posted in the last 30 days` : ""}.
           </li>
-          {signals.length > 0 ? <li>In the news lately: {signals.map(([k, n]) => `${NEWS_LABEL[k].toLowerCase()} (${n})`).join(", ")}.</li> : null}
           {file?.gptw2026 ? <li>On the Great Place to Work list, Netherlands 2026.</li> : null}
         </ul>
       </div>
@@ -253,8 +273,7 @@ export function CompanySection({ post }: { post: Posting }): React.JSX.Element |
                   <span className="font-medium">{n.title}</span>
                 )}
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  {[n.site, n.date].filter(Boolean).join(" · ")}
-                  {n.labels.length > 0 ? ` · ${n.labels.map((l) => NEWS_LABEL[l as NewsLabel] ?? l).join(", ")}` : ""}
+                  {[n.site, newsDay(n.date)].filter(Boolean).join(" · ")}
                 </p>
               </li>
             ))}
@@ -353,7 +372,7 @@ export function ReviewsSection({ post }: { post: Posting }): React.JSX.Element |
   const reviews = englishFirst(company?.reviews ?? [])
   if (!g && !s && reviews.length === 0) {
     return (
-      <Section title="Reviews">
+      <Section title="Glassdoor reviews">
         <p className="text-sm text-muted-foreground">No reviews of {post.employer_display} yet.</p>
       </Section>
     )
@@ -361,12 +380,22 @@ export function ReviewsSection({ post }: { post: Posting }): React.JSX.Element |
   const rating = g?.rating ?? s?.overall ?? null
 
   return (
-    <Section title="Reviews">
+    <Section title="Glassdoor reviews">
       <div className={`${card} grid gap-5 px-4 py-4 sm:grid-cols-[auto_minmax(0,1fr)]`}>
         <div className="flex flex-col items-start gap-1 sm:pr-5">
           {rating !== null ? <span className="text-4xl font-semibold tabular-nums tracking-tight">{rating.toFixed(1)}</span> : null}
           {rating !== null ? <Stars value={rating} /> : null}
-          <span className="text-xs text-muted-foreground">{g?.reviews ? `${g.reviews.toLocaleString("en-US")} reviews on Glassdoor` : s ? `${s.count} reviews` : ""}</span>
+          {g?.url ? (
+            <a href={g.url} target="_blank" rel="noopener noreferrer" className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline max-md:min-h-10">
+              <img src="/sources/glassdoor.com.svg" alt="Glassdoor" className="size-4 rounded-[3px]" />
+              {g.reviews ? `${g.reviews.toLocaleString("en-US")} reviews` : "Read on Glassdoor"}
+            </a>
+          ) : (
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <img src="/sources/glassdoor.com.svg" alt="Glassdoor" className="size-4 rounded-[3px]" />
+              {g?.reviews ? `${g.reviews.toLocaleString("en-US")} reviews` : s ? `${s.count} reviews` : ""}
+            </span>
+          )}
           {g?.recommendPct ?? s?.recommendPct ? <span className="mt-1 text-sm">{g?.recommendPct ?? s?.recommendPct}% would recommend it to a friend</span> : null}
           {g?.ceo && g.ceoApprovalPct ? <span className="text-sm">{g.ceoApprovalPct}% approve of {g.ceo}</span> : null}
         </div>
@@ -401,14 +430,7 @@ export function ReviewsSection({ post }: { post: Posting }): React.JSX.Element |
         </>
       ) : null}
 
-      {g?.url ? (
-        <a href={g.url} target="_blank" rel="noopener noreferrer" className="mt-4 flex w-fit cursor-pointer items-center gap-2 text-sm font-medium underline-offset-4 hover:underline max-md:min-h-10">
-          <img src="/sources/glassdoor.com.svg" alt="" className="size-5 rounded-sm" />
-          Read more on Glassdoor
-        </a>
-      ) : (
-        <p className="mt-4 text-xs text-muted-foreground">From Glassdoor{g?.readOn ? `, read ${g.readOn}` : ""}.</p>
-      )}
+      {!g?.url ? <p className="mt-4 text-xs text-muted-foreground">From Glassdoor{g?.readOn ? `, read ${g.readOn}` : ""}.</p> : null}
     </Section>
   )
 }
