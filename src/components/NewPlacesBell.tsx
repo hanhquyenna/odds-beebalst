@@ -16,6 +16,7 @@ import { appliedDay, followUpFor, overrideOf } from "@/lib/cells"
 import { useSavedViews } from "@/lib/use-saved-views"
 import { todayIso } from "@/lib/tracker"
 import { readStored, store } from "@/lib/remembered"
+import { notifyAnswerMessage } from "@/lib/notify-answer"
 import { openInstallGuide, platformOf, promptInstall, turnOnNotifications, useHasPhone, usePush } from "@/lib/push"
 import { loadSeenRooms } from "@/lib/seen"
 import type { Posting } from "@/lib/types"
@@ -176,7 +177,11 @@ export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.El
     setBusy(true)
     setError(null)
     try {
-      await turnOnNotifications(data.session.user.id)
+      const answer = await turnOnNotifications(data.session.user.id)
+      // The phone can say no (blocked) or close its question without answering (ask): both are told, so the button never seems to do nothing.
+      const said = notifyAnswerMessage(answer, platformOf())
+      if (said) setError(said)
+      else toast.success("Notifications are on. We sent you a first message.")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not turn on notifications.")
     } finally {
@@ -208,36 +213,42 @@ export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.El
       <p className="text-lg font-semibold tracking-tight">Notifications</p>
 
       {invite ? (
-        <div className="flex gap-3 rounded-xl bg-secondary p-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand text-white">
-            <BellSimpleIcon weight="fill" className="size-4" aria-hidden="true" />
-          </span>
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card">
+          {/* The same picture as the two first-sign-in panels, small: the odds app icon on the brand colour. */}
+          <div aria-hidden="true" className="relative flex h-24 items-center justify-center bg-[radial-gradient(120%_90%_at_50%_0%,oklch(0.78_0.17_60),var(--brand)_55%,var(--brand-ink))]">
+            <span className="relative">
+              <img src="/icons/apple-touch-icon.png" alt="" className="size-14 rounded-[22%] shadow-lg" />
+              <span className="absolute -right-2 -bottom-2 flex size-7 items-center justify-center rounded-full bg-white text-brand shadow-md">
+                {push.state === "install" ? <span className="text-lg leading-none font-semibold">+</span> : <BellSimpleIcon weight="fill" className="size-4" />}
+              </span>
+            </span>
+          </div>
+          <div className="flex flex-col gap-1.5 p-4">
             {push.state === "install" ? (
               <>
-                <p className="text-sm font-semibold">{desktop ? "Get your jobs on your phone" : "Get your jobs every morning"}</p>
-                <p className="text-xs text-muted-foreground">{desktop ? "Add odds to your phone and get the new jobs that fit you at 8 every morning." : "Add odds to your Home Screen and get the new jobs that fit you at 8 every morning."}</p>
-                <Button size="sm" onClick={() => void addToPhone()} className="mt-1 w-fit cursor-pointer rounded-full px-4">
+                <p className="font-semibold">{desktop ? "Get your jobs on your phone" : "odds is now an app"}</p>
+                <p className="text-sm text-muted-foreground">{desktop ? "Add odds to your phone and get the new jobs that fit you at 8 every morning." : "Add it to your Home Screen. It opens in one tap, and then new jobs can reach you at 8 every morning."}</p>
+                <Button onClick={() => void addToPhone()} className="mt-1 h-10 w-full cursor-pointer rounded-full">
                   {desktop ? "Add to your phone" : "Add to Home Screen"}
                 </Button>
               </>
             ) : push.state === "ask" ? (
               <>
-                <p className="text-sm font-semibold">Turn on notifications</p>
-                <p className="text-xs text-muted-foreground">Get pinged when new jobs fit you, at 8 every morning.</p>
-                <Button size="sm" disabled={busy} onClick={() => void turnOn()} className="mt-1 w-fit cursor-pointer rounded-full px-4">
-                  {busy ? "Turning on…" : "Turn on"}
+                <p className="font-semibold">Get your jobs at 8 every morning</p>
+                <p className="text-sm text-muted-foreground">One message a day, with the new jobs that fit you.</p>
+                <Button disabled={busy} onClick={() => void turnOn()} className="mt-1 h-10 w-full cursor-pointer rounded-full">
+                  {busy ? "Turning on…" : "Turn on notifications"}
                 </Button>
-                {error ? <p className="text-xs text-destructive">{error}</p> : null}
               </>
             ) : (
               <>
-                <p className="text-sm font-semibold">Notifications are off for odds</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="font-semibold">Notifications are off for odds</p>
+                <p className="text-sm text-muted-foreground">
                   {platformOf() === "ios" ? "Turn them on in Settings, Notifications, odds." : platformOf() === "android" ? "Turn them on in Settings, Apps, odds, Notifications." : "Turn them on in your browser's site settings for odds."}
                 </p>
               </>
             )}
+            {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
           </div>
         </div>
       ) : null}

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button"
 import { createPhoneLink, startGuestSession, type Session } from "@/lib/auth"
 import { useData } from "@/lib/data"
 import { useWaitingPair } from "@/lib/pairing"
+import { notifyAnswerMessage } from "@/lib/notify-answer"
 import { iosOtherBrowser, isInstalled, platformOf, turnOnNotifications, usePush } from "@/lib/push"
 
 // The phone drawings are heavy and only this panel needs them: loaded when it is shown.
@@ -84,7 +85,7 @@ export function NotifyPrompt({ session }: { session: Session | null }): React.JS
     setError(null)
     try {
       // Signed in: this account. Not signed in (an icon added on its own): a guest account, made after the phone says yes.
-      await turnOnNotifications(
+      const answer = await turnOnNotifications(
         session
           ? session.user.id
           : async () => {
@@ -93,6 +94,7 @@ export function NotifyPrompt({ session }: { session: Session | null }): React.JS
               return guest?.user.id ?? null
             },
       )
+      setError(notifyAnswerMessage(answer, platformOf()))
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not turn on notifications.")
     } finally {
@@ -126,7 +128,7 @@ export function NotificationsRow({ session }: { session: Session | null }): Reac
     setBusy(true)
     setError(null)
     try {
-      await turnOnNotifications(
+      const answer = await turnOnNotifications(
         session
           ? session.user.id
           : async () => {
@@ -135,6 +137,7 @@ export function NotificationsRow({ session }: { session: Session | null }): Reac
               return guest?.user.id ?? null
             },
       )
+      setError(notifyAnswerMessage(answer, platformOf()))
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not turn on notifications.")
     } finally {
