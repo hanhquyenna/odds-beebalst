@@ -24,24 +24,52 @@ function snooze(): void {
   }
 }
 
+const VISITS_KEY = "odds:app-visits"
+const LAST_VISIT_KEY = "odds:app-last-visit"
+/** A visit is a return after at least half an hour away: a reload a minute later is the same visit. */
+const VISIT_GAP_MS = 30 * 60 * 1000
+let counted = false
+
+/** How many separate visits this device has made to the app, counting this one once per page load. */
+function visits(): number {
+  try {
+    const store = window.localStorage
+    let n = Number(store.getItem(VISITS_KEY) ?? 0)
+    if (!counted) {
+      counted = true
+      if (n === 0 || Date.now() - Number(store.getItem(LAST_VISIT_KEY) ?? 0) > VISIT_GAP_MS) {
+        n += 1
+        store.setItem(VISITS_KEY, String(n))
+      }
+      store.setItem(LAST_VISIT_KEY, String(Date.now()))
+    }
+
+    return n
+  } catch {
+    return 2
+  }
+}
+
 const POINTS = ["New jobs that fit you, every morning at 8", "Opens in one tap, like an app", "Free, no App Store needed"] as const
 
 /**
- * On a phone in the browser, right after landing in the app signed in: a big card that shows what odds on the Home Screen
+ * On a phone in the browser, once the person has seen what odds does for them (they saved a job, applied, or came back for a second
+ * visit), never over the very first screen they land on after signing up: a big card that shows what odds on the Home Screen
  * looks like (the morning message on the lock screen) and opens the steps in one tap. Never in the Home Screen app itself.
  */
-export function AddToPhonePrompt({ active }: { active: boolean }): React.JSX.Element | null {
+export function AddToPhonePrompt({ active, valueSeen }: { active: boolean; valueSeen: boolean }): React.JSX.Element | null {
   const platform = platformOf()
   const push = usePush()
   const [open, setOpen] = useState<boolean>(false)
 
   useEffect(() => {
     if (!active || platform === "desktop" || isInstalled() || snoozed()) return
-    // A moment after the app shows, so it lands on the jobs rather than on a blank page.
-    const id = window.setTimeout(() => setOpen(true), 900)
+    // Not on the first visit unless they have already done something with the jobs: the first screen is for the jobs.
+    if (!valueSeen && visits() < 2) return
+    const id = window.setTimeout(() => setOpen(true), valueSeen ? 1500 : 900)
 
     return () => window.clearTimeout(id)
-  }, [active, platform])
+  }, [active, platform, valueSeen])
 
   useEffect(() => {
     if (!open) return

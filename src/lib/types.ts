@@ -279,6 +279,8 @@ export interface Profile {
   peopleNotes?: Record<string, Record<string, string>>
   /** True once the sign-up questions were answered. */
   onboarded: boolean
+  /** True once the person looked over what the chance assumes about them (where they are from, permit, Dutch): signing up with a link or a CV never asks. */
+  basicsChecked?: boolean
   /** What you told us you are looking for: the same filters as the job list, kept. Null until you set them. */
   prefs: import("@/lib/filters").JobFilters | null
   /** Whether the list of jobs for you follows those preferences. */

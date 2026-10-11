@@ -23,6 +23,8 @@ import {
 } from "@/lib/journey"
 import { clearDraft } from "@/lib/session"
 import { CV_ACCEPT, profileWithCv } from "@/lib/cv-profile"
+import { failureIsOurs } from "@/lib/linkedin-failure"
+import { rememberPendingCv } from "@/lib/pending-cv"
 import { isGuestEmail } from "@/lib/auth"
 import { prefetchWhenIdle } from "@/lib/prefetch"
 import type { StaticPage } from "@/lib/pages"
@@ -47,6 +49,18 @@ interface SeekerJourneyProps {
   atIntro?: boolean
 }
 
+const DOWN_KEY = "odds:linkedin-down"
+const DOWN_FOR_MS = 60 * 60 * 1000
+
+/** Reading LinkedIn failed in the last hour (the paid reader is out of credit or over its limit): the CV leads until it works again. */
+function linkedinWasDown(): boolean {
+  try {
+    return Date.now() - Number(localStorage.getItem(DOWN_KEY) ?? 0) < DOWN_FOR_MS
+  } catch {
+    return false
+  }
+}
+
 export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOpenPage, atWelcome = false, atIntro = false }: SeekerJourneyProps): React.JSX.Element {
   const data = useData()
   const existing = data.profile.onboarded ? data.profile : null
@@ -55,6 +69,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState<boolean>(false)
   const [link, setLink] = useState<string>("")
+  const [linkedinDown, setLinkedinDown] = useState<boolean>(linkedinWasDown)
   const cvInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -112,7 +127,18 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
       clearDraft()
       onSaved()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not read that profile.")
+      const said = caught instanceof Error ? caught.message : ""
+      // "Paused" and "did not answer" are on our side: say so and point at the CV, which works. Anything else (a private profile) keeps its own words.
+      const ours = failureIsOurs(said)
+      if (ours) {
+        try {
+          localStorage.setItem(DOWN_KEY, String(Date.now()))
+        } catch {
+          // Private mode: it leads with LinkedIn again next time, which is fine.
+        }
+        setLinkedinDown(true)
+      }
+      setError(ours ? "We can't read LinkedIn right now. Upload your CV instead: it takes a few seconds." : `${said} Or upload your CV instead.`)
       setSaving(false)
     }
   }
@@ -127,6 +153,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
     setSaving(true)
     try {
       data.setProfile(await profileWithCv(toProfile(form, data.profile), file))
+      rememberPendingCv(file)
       clearDraft()
       onSaved()
     } catch (caught) {
@@ -243,6 +270,17 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
   }
 
   if (!review && step === "linkedin") {
+    const cvButton = (primary: boolean): React.JSX.Element => (
+      <Button type="button" variant={primary ? "default" : "outline"} size="lg" disabled={saving} onClick={() => cvInput.current?.click()} className="h-12 w-full cursor-pointer text-base">
+        Upload your CV
+      </Button>
+    )
+    const linkedinButton = (primary: boolean): React.JSX.Element => (
+      <Button type="submit" variant={primary ? "default" : "outline"} size="lg" disabled={saving} className="h-12 w-full cursor-pointer text-base disabled:cursor-not-allowed">
+        {saving ? "Reading your profile…" : "Show me my odds"}
+      </Button>
+    )
+
     return (
       <form
         onSubmit={(event) => {
@@ -252,38 +290,54 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
         noValidate
         className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-8 py-12 md:max-w-lg sm:py-20"
       >
-        <button type="button" onClick={goBack} className="inline-flex cursor-pointer items-center gap-2 self-start text-sm font-semibold text-primary">
+        <button type="button" onClick={goBack} className="inline-flex cursor-pointer items-center gap-2 self-start py-2 text-sm font-semibold text-primary">
           <span aria-hidden="true">←</span> Back
         </button>
         <div className="space-y-3">
-          <h1 className="text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">What is your LinkedIn?</h1>
-          <p className="text-muted-foreground">Paste the link to your profile. We read your roles, degrees, skills and languages, then open your jobs. Only a public profile can be read, and you can change everything after.</p>
+          <h1 className="text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">See your odds on every job.</h1>
+          <p className="text-muted-foreground">Add your LinkedIn or your CV. We read your roles, degrees and skills, then show your chance of an interview for each job. Only you see it, and you can change everything after.</p>
         </div>
-        <div className="space-y-2">
-          <input
-            aria-label="Your LinkedIn link"
-            className="h-12 w-full rounded-lg border-[1.5px] bg-background px-4 text-base focus:border-ring focus:outline-none focus:ring-3 focus:ring-ring/40"
-            placeholder="https://www.linkedin.com/in/your-name"
-            value={link}
-            onChange={(event) => setLink(event.target.value)}
-            inputMode="url"
-            autoComplete="off"
-            autoFocus
-          />
-          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-        </div>
-        <div className="flex flex-col gap-2">
-          <Button type="submit" size="lg" disabled={saving} className="h-12 w-full cursor-pointer text-base disabled:cursor-not-allowed">
-            {saving ? "Reading your profile…" : "Show me jobs"}
+        <input ref={cvInput} type="file" accept={CV_ACCEPT} aria-label="Your CV" className="sr-only" onChange={(event) => void readCv(event.target.files?.[0])} />
+        {linkedinDown ? (
+          <div className="flex flex-col gap-3">
+            {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : <p className="text-sm text-muted-foreground">Reading LinkedIn is not working right now, so your CV is the quickest way in.</p>}
+            {cvButton(true)}
+            <p className="text-center text-xs text-muted-foreground">PDF, Word or text. It is read in your browser and never leaves your device.</p>
+            <details className="rounded-lg border-[1.5px] px-4 py-3 text-sm">
+              <summary className="cursor-pointer font-medium">Try LinkedIn anyway</summary>
+              <div className="mt-3 flex flex-col gap-3">
+                <input aria-label="Your LinkedIn link" className="h-12 w-full rounded-lg border-[1.5px] bg-background px-4 text-base focus:border-ring focus:outline-none focus:ring-3 focus:ring-ring/40" placeholder="https://www.linkedin.com/in/your-name" value={link} onChange={(event) => setLink(event.target.value)} inputMode="url" autoComplete="off" />
+                {linkedinButton(false)}
+              </div>
+            </details>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="space-y-2">
+              <input
+                aria-label="Your LinkedIn link"
+                className="h-12 w-full rounded-lg border-[1.5px] bg-background px-4 text-base focus:border-ring focus:outline-none focus:ring-3 focus:ring-ring/40"
+                placeholder="https://www.linkedin.com/in/your-name"
+                value={link}
+                onChange={(event) => setLink(event.target.value)}
+                inputMode="url"
+                autoComplete="off"
+                autoFocus
+              />
+              {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+              {saving ? <p className="text-sm text-muted-foreground">This can take up to 20 seconds.</p> : null}
+            </div>
+            {linkedinButton(true)}
+            <p className="text-center text-sm text-muted-foreground">or</p>
+            {cvButton(false)}
+            <p className="text-center text-xs text-muted-foreground">A CV is read in your browser and never leaves your device.</p>
+          </div>
+        )}
+        <div className="flex flex-col gap-1 border-t-[1.5px] pt-4">
+          <Button type="button" variant="ghost" disabled={saving} onClick={finish} className="w-full cursor-pointer text-muted-foreground max-md:h-10">
+            Skip for now, just show me jobs
           </Button>
-          <input ref={cvInput} type="file" accept={CV_ACCEPT} aria-label="Your CV" className="sr-only" onChange={(event) => void readCv(event.target.files?.[0])} />
-          <Button type="button" variant="outline" size="lg" disabled={saving} onClick={() => cvInput.current?.click()} className="h-12 w-full cursor-pointer text-base">
-            Upload your CV instead
-          </Button>
-          <Button type="button" variant="ghost" disabled={saving} onClick={finish} className="w-full cursor-pointer text-muted-foreground">
-            Continue without LinkedIn
-          </Button>
-          <Button type="button" variant="ghost" disabled={saving} onClick={() => setStep("contact")} className="w-full cursor-pointer text-muted-foreground">
+          <Button type="button" variant="ghost" disabled={saving} onClick={() => setStep("contact")} className="w-full cursor-pointer text-muted-foreground max-md:h-10">
             Continue with Google to keep it on every device
           </Button>
           <SignInLink onSignIn={onSignIn} hidden={signedIn} />
@@ -349,7 +403,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
             &larr; Back
           </Button>
           <Button type="submit" size="lg" disabled={saving} className="flex-1 cursor-pointer disabled:cursor-not-allowed">
-            {saving ? "Saving" : step === "contact" ? "Keep it on this device" : nextLabel(step, form)}
+            {saving ? "Saving" : step === "contact" ? "Skip, just show me jobs" : nextLabel(step, form)}
           </Button>
         </div>
         <SignInLink onSignIn={onSignIn} hidden={signedIn} />
@@ -400,7 +454,7 @@ function SignInLink({ onSignIn, hidden }: { onSignIn: () => void; hidden: boolea
   }
 
   return (
-    <Button type="button" variant="ghost" onClick={onSignIn} className="w-full cursor-pointer text-muted-foreground">
+    <Button type="button" variant="ghost" onClick={onSignIn} className="w-full cursor-pointer text-muted-foreground max-md:h-10">
       Already with us? Sign in
     </Button>
   )

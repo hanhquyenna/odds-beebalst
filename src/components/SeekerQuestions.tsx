@@ -176,8 +176,8 @@ export function SeekerQuestions({ error, form, onChange, review, step, account }
   const contact =
     !review && account && asks("contact", step, review) ? (
       <Field key="contact" data-invalid={error ? true : undefined}>
-        <FieldLabel className="text-2xl font-semibold tracking-tight">Keep it with Google?</FieldLabel>
-        <p className="mt-3 text-sm text-muted-foreground">Continue with Google keeps your profile and applications on devices you sign in on. You can skip it and keep everything on this device.</p>
+        <FieldLabel className="text-2xl font-semibold tracking-tight">Make it yours with Google</FieldLabel>
+        <p className="mt-3 text-sm text-muted-foreground">An account keeps your CV, saved jobs and applications on every device you sign in on, and lets odds send you new jobs each morning. You sign in through Google, so there is no password to remember. You can skip it and add it later.</p>
         <div className="mt-6 flex flex-col gap-2">
           <Button
             type="button"

@@ -66,11 +66,11 @@ test("a shared job link opens the job and survives a reload", async ({ page }) =
   await expect(page.getByText("This job is not in the list.")).toBeVisible()
 })
 
-test("first visit: start, skip LinkedIn, see your jobs, answer the questions and keep them", async ({ page }) => {
+test("first visit: start, skip the profile, see your jobs, answer the questions and keep them", async ({ page }) => {
   await page.goto("/")
   await page.getByRole("button", { name: "Start" }).click()
-  await expect(page.getByRole("heading", { name: "What is your LinkedIn?" })).toBeVisible()
-  await page.getByRole("button", { name: "Continue without LinkedIn" }).click()
+  await expect(page.getByRole("heading", { name: "See your odds on every job." })).toBeVisible()
+  await page.getByRole("button", { name: "Skip for now, just show me jobs" }).click()
 
   await expect(page.getByText(`${DEFAULT_VISIBLE} jobs`, { exact: true })).toBeVisible()
   await expect(jobRows(page)).toHaveCount(DEFAULT_VISIBLE)

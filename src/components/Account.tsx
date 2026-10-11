@@ -183,7 +183,8 @@ export function Account({ looking, onStartLooking, onStopLooking, onOpenClaude }
 
         <HeardBack />
 
-        {onOpenClaude ? <ClaudePromo onOpen={onOpenClaude} /> : null}
+        {/* Only once there is something for Claude to work on: a saved or applied job. Before that, the first thing to do is to find jobs. */}
+        {onOpenClaude && kept.length > 0 ? <ClaudePromo onOpen={onOpenClaude} /> : null}
 
         <section aria-label="Your jobs" className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3 max-md:hidden">
@@ -214,6 +215,9 @@ export function Account({ looking, onStartLooking, onStopLooking, onOpenClaude }
                   </span>
                   <p className="text-lg font-semibold tracking-tight">Nothing saved yet</p>
                   <p className="max-w-sm text-sm text-muted-foreground">Press the bookmark on a job and it lands here with its pay, your fit and your odds. You can also add a list of your own.</p>
+                  <Button type="button" onClick={onStartLooking} className="cursor-pointer max-md:h-10">
+                    See jobs tailored to you
+                  </Button>
                   <ToolButton pressed={addPanel === "upload"} onClick={() => setAddPanel(addPanel === "upload" ? null : "upload")}>
                     <UploadIcon className="size-4" aria-hidden="true" /> Upload your own jobs
                   </ToolButton>

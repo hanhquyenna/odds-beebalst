@@ -137,6 +137,8 @@ interface JobRowProps {
   dismissible?: boolean
   /** A short line on why this job is shown here ("Like your saved MUFG internship: finance, internship, Amsterdam"). */
   note?: string
+  /** Your estimated chance of an interview here, 0 to 1: the number the whole app is about, shown on the row so no job has to be opened to see it. */
+  chance?: number
 }
 
 /**
@@ -144,7 +146,7 @@ interface JobRowProps {
  * it went up. Everything else is inside. The whole row opens the job; the
  * bookmark saves it.
  */
-export function JobRow({ post, onOpen, status, dismissible, note }: JobRowProps): React.JSX.Element {
+export function JobRow({ post, onOpen, status, dismissible, note, chance }: JobRowProps): React.JSX.Element {
   const data = useData()
   const hearBack = useHearBack(post)
   const kept = data.saved.has(post.id) || data.applications.some((a) => a.posting_id === post.id)
@@ -169,6 +171,11 @@ export function JobRow({ post, onOpen, status, dismissible, note }: JobRowProps)
             <span className="line-clamp-2 text-base leading-snug font-semibold">{post.title}</span>
             <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.95rem]">
               <span className="truncate">{post.employer_display}</span>
+              {chance !== undefined ? (
+                <span title="Your estimated chance of an interview for this job" className="inline-flex shrink-0 items-center rounded-md bg-secondary px-1.5 py-px text-xs font-semibold tabular-nums">
+                  {chance < 0.01 ? "<1%" : `${Math.round(chance * 100)}%`} chance
+                </span>
+              ) : null}
               {hearBack ? (
                 <span title={hearBack.reason} className="inline-flex shrink-0 items-center gap-1 rounded-md border-[1.5px] border-good-foreground/40 bg-good-foreground/10 px-1.5 py-px text-xs font-semibold text-good-foreground">
                   <span aria-hidden="true">★</span> Most likely to hear back

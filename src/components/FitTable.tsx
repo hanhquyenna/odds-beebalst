@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react"
+import { BasicsCard } from "@/components/BasicsCard"
 import { FilterEditor } from "@/components/JobFilters"
 import { ChevronDownIcon, ChevronUpIcon, PencilIcon, PlusIcon, XIcon } from "@/components/icons"
 import { JobRow } from "@/components/JobBoard"
@@ -96,10 +97,11 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
 
   return (
     <FitSection label="Jobs tailored to you" heading="Jobs tailored to you" what="the jobs tailored to you" filters={filters} auto={fields} onChange={saved.setFilters} needsProfile={needsProfile} empty={rows.length === 0}>
+      <BasicsCard />
       <ul className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card max-md:-mx-5 max-md:rounded-none max-md:border-x-0">
         {rows.slice(0, rowLimit).map((r) => (
           <li key={r.post.id} className="relative after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border last:after:hidden md:after:left-4">
-            <JobRow post={r.post} onOpen={() => onOpen(r.post)} note={r.note} dismissible />
+            <JobRow post={r.post} onOpen={() => onOpen(r.post)} note={r.note} chance={r.chance} dismissible />
           </li>
         ))}
       </ul>

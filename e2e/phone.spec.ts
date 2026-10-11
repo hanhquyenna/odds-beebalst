@@ -8,7 +8,7 @@ test("phone: landing, your jobs and a job never scroll sideways", async ({ page 
   await expectNoSideScroll(page)
 
   await page.getByRole("button", { name: "Start" }).click()
-  await page.getByRole("button", { name: "Continue without LinkedIn" }).click()
+  await page.getByRole("button", { name: "Skip for now, just show me jobs" }).click()
   await expect(jobRows(page)).toHaveCount(DEFAULT_VISIBLE)
   await expectNoSideScroll(page)
   await shot(page, "phone-job-list")

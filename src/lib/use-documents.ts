@@ -4,6 +4,7 @@ import type { Profile } from "@/lib/types"
 import { attachedTo, mainCv, type DocKind } from "@/lib/document-model"
 import { addDocument, loadDocuments, signOutDocuments, syncWithDrive, useDocumentStore, type Added } from "@/lib/documents"
 import { loadDrive, useDrive } from "@/lib/drive"
+import { takePendingCv } from "@/lib/pending-cv"
 
 const DRIVE_SYNC_GAP_MS = 30_000
 
@@ -44,6 +45,13 @@ export function useDocumentsSync(): void {
       window.removeEventListener("focus", run)
     }
   }, [ready, userId])
+
+  // The CV uploaded on the way in goes into Documents as the main CV once there is an account to keep it in.
+  useEffect(() => {
+    if (!userId || store.status !== "ready" || store.docs.some((d) => d.kind === "cv")) return
+    const file = takePendingCv()
+    if (file) void addDocument(file, "cv").catch(() => undefined)
+  }, [userId, store.status, store.docs])
 
   const main = mainCv(store)
   const { profile, profileSaved, setProfile } = data

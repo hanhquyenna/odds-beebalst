@@ -303,18 +303,18 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
   const shares = useMemo(() => (remote.length ? computeShares(remote) : null), [remote])
   const collected = useMemo(() => collectedOn(remote), [remote])
 
-  // Imported LinkedIn without an account: a guest account is made at once, so the profile is kept and the phone and the
-  // morning message work. The profile on this device is then saved to it (below, "first time this account is used").
+  // Imported LinkedIn or a CV without an account: a guest account is made at once, so the profile is kept and the phone, Documents,
+  // the morning message and Claude work. The profile on this device is then saved to it (below, "first time this account is used").
   const guestAsked = useRef<boolean>(false)
   useEffect(() => {
-    if (session || !sessionChecked || status !== "ready" || !profile.linkedin || guestAsked.current) {
+    if (session || !sessionChecked || status !== "ready" || !(profile.linkedin || profile.cv) || guestAsked.current) {
       return
     }
     guestAsked.current = true
     startGuestSession()
       .then((guest) => guest && setSessionState(guest))
       .catch(() => undefined)
-  }, [session, sessionChecked, status, profile.linkedin])
+  }, [session, sessionChecked, status, profile.linkedin, profile.cv])
 
   // Tokens last an hour: without this, a tab left open keeps "saving" into 401s and the next load drops those edits.
   const signedIn = session !== null
