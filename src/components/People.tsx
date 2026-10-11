@@ -1,6 +1,6 @@
 import { usePhone } from "@/lib/use-phone"
 import { PersonAvatar } from "@/components/PersonAvatar"
-import { Suspense, lazy, useMemo, useState } from "react"
+import { Suspense, lazy, useEffect, useMemo, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
 import { CheckIcon, ChevronDownIcon, ExternalLinkIcon, InfoIcon, MessageIcon, PlusIcon, TrashIcon, XIcon } from "@/components/icons"
 import { Button } from "@/components/ui/button"
@@ -9,7 +9,7 @@ import { suggestReferrals } from "@/lib/linkedin"
 import { useRemembered } from "@/lib/remembered"
 import { PersonPanel } from "@/components/PersonPanel"
 import { departmentOf } from "@/lib/field"
-import { addPage, canFindMore, dropPerson, firstPage, hasFree, isUrl, linkedinHref, linkedinSearches, rankForJob, readPast, revealNext, whyThisPerson, type Suggestion } from "@/lib/suggest"
+import { GROUP_POOL, PEOPLE_GROUPS, dropPerson, isUrl, linkedinHref, linkedinSearches, moreIn, openIn, rankForJob, readPast, revealIn, startGroups, whyThisPerson, type PeopleGroup, type Suggestion } from "@/lib/suggest"
 import { saved } from "@/lib/saved"
 import { useFollowDays } from "@/lib/follow-days"
 import { useViewConfig } from "@/lib/views"
@@ -122,31 +122,28 @@ export function AddPerson({ onDone, fixedJob }: { onDone: () => void; fixedJob?:
  * fetched when there are any (free), otherwise from the next page of 25 (one search). Never on its own.
  * `guest` is true for a free guest account, which is not shown other people (the server refuses it too).
  */
-function useFindPeople(post: Posting): { state: "idle" | "busy"; problem: string | null; find: () => void; drop: (url: string) => void; rec: PastSearch | null; canMore: boolean; notLookedUp: boolean; guest: boolean } {
+function useFindPeople(post: Posting): { state: "idle" | "busy"; problem: string | null; find: () => void; more: (group: PeopleGroup) => void; drop: (url: string) => void; rec: PastSearch | null; notLookedUp: boolean; guest: boolean } {
   const data = useData()
   const guest = isGuestEmail(data.session?.user.email)
   const [state, setState] = useState<"idle" | "busy">("idle")
   const [problem, setProblem] = useState<string | null>(null)
-  // The employer has not been searched yet: pressing again would only repeat that, so the button gives way to a link that searches LinkedIn.
+  // The employer has not been searched yet: pressing again would only repeat that, so the button gives way to LinkedIn searches.
   const [notLookedUp, setNotLookedUp] = useState<boolean>(false)
-  const rec = readPast(data.profile.peopleFound?.[post.id])
+  const family = post.family ?? null
+  // Only searches kept in groups count; one saved before the groups came in is looked up again on the next press.
+  const past = readPast(data.profile.peopleFound?.[post.id])
+  const rec = past?.open ? past : null
 
   function find(): void {
     setProblem(null)
-    if (rec && hasFree(rec)) {
-      data.updatePast(post.id, (cur) => (cur ? revealNext(cur) : cur))
-
-      return
-    }
     setState("busy")
-    const page = rec ? rec.page + 1 : 1
     suggestReferrals(post.employer, data.session?.access_token ?? null)
       .then(({ people, searched }) => {
-        const ranked = rankForJob(people, post.family ?? null)
-        data.updatePast(post.id, (cur) => (cur ? addPage(cur, ranked, page, false) : firstPage(ranked, page, false)))
+        const ranked = rankForJob(people, family, GROUP_POOL)
+        data.updatePast(post.id, () => startGroups(ranked, family))
         setState("idle")
         setNotLookedUp(ranked.length === 0 && !searched)
-        if (ranked.length === 0) setProblem(searched ? `We looked at ${post.employer_display} and found no one in this kind of work, or a department next to it, whom we could confirm in the Netherlands.` : `We have not looked up people at ${post.employer_display} yet. You can search for them on LinkedIn in the meantime.`)
+        if (ranked.length === 0) setProblem(searched ? `We looked at ${post.employer_display} and found no one in this kind of work whom we could confirm in the Netherlands.` : null)
       })
       .catch((err: unknown) => {
         setState("idle")
@@ -154,7 +151,23 @@ function useFindPeople(post: Posting): { state: "idle" | "busy"; problem: string
       })
   }
 
-  return { state: state, problem: problem, find: find, drop: (url) => data.updatePast(post.id, (cur) => (cur ? dropPerson(cur, url) : cur)), rec: rec, canMore: canFindMore(rec) && !notLookedUp, notLookedUp: notLookedUp, guest: guest }
+  // A search from before the groups: looked up again once, by itself (our own stored list, no cost), so it shows in groups.
+  const old = past !== null && !past.open
+  useEffect(() => {
+    if (old && !guest) find()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [old, guest])
+
+  return {
+    state,
+    problem,
+    find,
+    more: (group) => data.updatePast(post.id, (cur) => (cur ? revealIn(cur, group, family) : cur)),
+    drop: (url) => data.updatePast(post.id, (cur) => (cur ? dropPerson(cur, url) : cur)),
+    rec,
+    notLookedUp,
+    guest,
+  }
 }
 
 /**
@@ -232,10 +245,46 @@ function MoreOnLinkedIn({ post }: { post: Posting }): React.JSX.Element {
   )
 }
 
+/** The people found for a job in three groups: the same team, hiring managers and other. Each group's + hands out one more of that group;
+    when a group has no one left, its LinkedIn mark searches LinkedIn for that kind of person instead. */
+function PeopleGroups({ post, rec, onMore, onDrop }: { post: Posting; rec: PastSearch; onMore: (group: PeopleGroup) => void; onDrop: (url: string) => void }): React.JSX.Element {
+  const family = post.family ?? null
+  const searches = linkedinSearches(post.employer_display, family)
+
+  return (
+    <div className="flex flex-col gap-4">
+      {PEOPLE_GROUPS.map((g) => {
+        const shown = openIn(rec, g.key, family)
+        const search = searches.find((s) => s.label === g.search) ?? searches[0]
+
+        return (
+          <section key={g.key} aria-label={g.label}>
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="text-sm font-semibold">
+                {g.label}
+                {shown.length > 0 ? <span className="ml-1.5 font-normal text-muted-foreground tabular-nums">{shown.length}</span> : null}
+              </h4>
+              {moreIn(rec, g.key, family) ? (
+                <button type="button" onClick={() => onMore(g.key)} aria-label={`Find another: ${g.label}`} title="Find another" className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+                  <PlusIcon className="size-4" aria-hidden="true" />
+                </button>
+              ) : (
+                <a href={search.url} target="_blank" rel="noreferrer" aria-label={`Search LinkedIn: ${g.label}`} title="Search LinkedIn" className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md hover:bg-accent">
+                  <img src="/sources/linkedin.com.svg" alt="" className="size-4 rounded-[3px]" />
+                </a>
+              )}
+            </div>
+            <FoundPeople post={post} people={shown} onDrop={onDrop} />
+          </section>
+        )
+      })}
+    </div>
+  )
+}
+
 /** Looks for people at the job's company who do something like it, and lets you add one. Sits inside the add-someone form. */
 function FindPeople({ post }: { post: Posting }): React.JSX.Element {
-  const { state, problem, find, drop, rec, canMore, notLookedUp, guest } = useFindPeople(post)
-  const revealed = rec ? rec.pool.slice(0, rec.shown) : []
+  const { state, problem, find, more, drop, rec, notLookedUp, guest } = useFindPeople(post)
   if (guest) {
     return (
       <div className="flex flex-col gap-2 border-t-[1.5px] pt-3 sm:col-span-2">
@@ -245,17 +294,18 @@ function FindPeople({ post }: { post: Posting }): React.JSX.Element {
   }
 
   return (
-    <div className="flex flex-col gap-2 border-t-[1.5px] pt-3 sm:col-span-2">
-      {canMore ? (
+    <div className="flex flex-col gap-3 border-t-[1.5px] pt-3 sm:col-span-2">
+      {rec ? (
+        <PeopleGroups post={post} rec={rec} onMore={more} onDrop={drop} />
+      ) : (
         <div>
           <button type="button" onClick={find} disabled={state === "busy"} className="cursor-pointer text-sm font-medium text-primary underline underline-offset-4 disabled:opacity-60">
-            {state === "busy" ? "Looking…" : revealed.length > 0 ? "Find more" : `Find people at ${post.employer_display}`}
+            {state === "busy" ? "Looking…" : `Find people at ${post.employer_display}`}
           </button>
         </div>
-      ) : null}
+      )}
       {problem ? <p role="status" className="text-sm text-muted-foreground">{problem}</p> : null}
-      {notLookedUp || problem || (!canMore && revealed.length > 0) ? <MoreOnLinkedIn post={post} /> : null}
-      <FoundPeople post={post} people={revealed} onDrop={drop} />
+      {!rec && (notLookedUp || problem) ? <MoreOnLinkedIn post={post} /> : null}
     </div>
   )
 }
@@ -292,13 +342,7 @@ function OutreachFromJobs({ onClose }: { onClose: () => void }): React.JSX.Eleme
 }
 
 function OutreachRow({ post }: { post: Posting }): React.JSX.Element {
-  const { state, problem, find, drop, rec, canMore, notLookedUp, guest } = useFindPeople(post)
-  const [showPast, setShowPast] = useState<boolean>(false)
-  const revealed = rec && !guest ? rec.pool.slice(0, rec.shown) : []
-  // What was already shown when the panel opened sits in "Past results"; what this visit brings sits below it, numbered on.
-  const [before] = useState<number>(revealed.length)
-  const past = revealed.slice(0, before)
-  const fresh = revealed.slice(before)
+  const { state, problem, find, more, drop, rec, notLookedUp, guest } = useFindPeople(post)
 
   return (
     <li className="flex flex-col gap-3 p-3">
@@ -312,25 +356,16 @@ function OutreachRow({ post }: { post: Posting }): React.JSX.Element {
             {post.employer_display} · {formatPlace(post.region)}
           </span>
         </span>
-        {guest ? null : canMore ? (
+        {guest || rec ? null : (
           <Button type="button" size="sm" onClick={find} disabled={state === "busy"} className="shrink-0 cursor-pointer max-sm:ml-[3.25rem]">
-            {state === "busy" ? "Looking…" : revealed.length > 0 ? "Find more" : "Find people"}
+            {state === "busy" ? "Looking…" : "Find people"}
           </Button>
-        ) : null}
+        )}
       </div>
       {guest ? <p className="text-sm text-muted-foreground">{GUEST_PEOPLE}</p> : null}
       {problem ? <p role="status" className="text-sm text-muted-foreground">{problem}</p> : null}
-      {!guest && (notLookedUp || problem || (!canMore && revealed.length > 0)) ? <MoreOnLinkedIn post={post} /> : null}
-      {past.length > 0 ? (
-        <div className="flex flex-col gap-2">
-          <button type="button" aria-expanded={showPast} onClick={() => setShowPast(!showPast)} className="flex w-fit cursor-pointer items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
-            <ChevronDownIcon className={`size-4 transition-transform ${showPast ? "rotate-180" : ""}`} aria-hidden="true" />
-            Past results
-          </button>
-          {showPast ? <FoundPeople post={post} people={past} onDrop={drop} /> : null}
-        </div>
-      ) : null}
-      <FoundPeople post={post} people={fresh} onDrop={drop} />
+      {!guest && !rec && (notLookedUp || problem) ? <MoreOnLinkedIn post={post} /> : null}
+      {!guest && rec ? <PeopleGroups post={post} rec={rec} onMore={more} onDrop={drop} /> : null}
     </li>
   )
 }

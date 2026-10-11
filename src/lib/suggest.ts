@@ -131,6 +131,49 @@ export function linkedinHref(person: { name: string; company: string; contact: s
 /** How many jobs' past searches are kept with the profile. */
 export const PAST_SEARCHES_KEPT = 25
 
+/** The groups people for a job are shown in: the job's own team, its managers, and everyone else we could ask. */
+export type PeopleGroup = "team" | "manager" | "other"
+export const PEOPLE_GROUPS: ReadonlyArray<{ key: PeopleGroup; label: string; search: string }> = [
+  { key: "team", label: "Same team", search: "Same team" },
+  { key: "manager", label: "Hiring managers", search: "Hiring managers" },
+  { key: "other", label: "Other", search: "Anyone there" },
+]
+/** How many people a job's search keeps to hand out from, all groups together. */
+export const GROUP_POOL = 60
+
+/** Which group someone falls in for a job: a manager, lead or head is a hiring manager; someone in the job's department is the same team; the rest is other. */
+export function groupOf(p: Suggestion, jobFamily: string | null | undefined): PeopleGroup {
+  if (SENIORS.test(p.headline) || LEADERS.test(p.headline)) return "manager"
+  const d = p.headline.trim() ? departmentOfPosition(p.headline) : null
+
+  return jobFamily && d === jobFamily ? "team" : "other"
+}
+
+/** A new grouped search: the first person of each group handed out. */
+export function startGroups(pool: ReadonlyArray<Suggestion>, jobFamily: string | null | undefined, now: Date = new Date()): PastSearch | null {
+  if (pool.length === 0) return null
+  const open = PEOPLE_GROUPS.map((g) => pool.find((p) => groupOf(p, jobFamily) === g.key)?.url).filter((u): u is string => Boolean(u))
+
+  return { at: now.toISOString(), pool: [...pool], shown: 0, page: 1, more: false, src: "stored", open }
+}
+
+/** Who is handed out in one group, in the pool's order. */
+export function openIn(rec: PastSearch, group: PeopleGroup, jobFamily: string | null | undefined): Suggestion[] {
+  const open = new Set(rec.open ?? [])
+
+  return rec.pool.filter((p) => open.has(p.url) && groupOf(p, jobFamily) === group)
+}
+
+/** Whether a group has anyone left to hand out. */
+export const moreIn = (rec: PastSearch, group: PeopleGroup, jobFamily: string | null | undefined): boolean => rec.pool.some((p) => !(rec.open ?? []).includes(p.url) && groupOf(p, jobFamily) === group)
+
+/** One more person handed out in a group. */
+export function revealIn(rec: PastSearch, group: PeopleGroup, jobFamily: string | null | undefined): PastSearch {
+  const next = rec.pool.find((p) => !(rec.open ?? []).includes(p.url) && groupOf(p, jobFamily) === group)
+
+  return next ? { ...rec, open: [...(rec.open ?? []), next.url] } : rec
+}
+
 /** How many people one press of Find shows. */
 export const REVEAL = 1
 
@@ -148,6 +191,8 @@ export interface PastSearch {
   more: boolean
   /** Where the people came from: the stored, checked list. Searches saved before that (from the earlier live scrapers) are not read. */
   src: "stored"
+  /** Who has been handed out, by link, when people are shown in groups (same team, hiring managers, other). */
+  open?: string[]
 }
 
 const isSuggestion = (x: unknown): x is Suggestion => !!x && typeof x === "object" && typeof (x as Suggestion).name === "string" && typeof (x as Suggestion).url === "string"
@@ -165,7 +210,9 @@ export function readPast(raw: unknown): PastSearch | null {
   if (pool.length === 0) return null
   const shown = Math.min(pool.length, Math.max(0, Math.floor(Number(r.shown)) || 0))
 
-  return { at: typeof r.at === "string" ? r.at : new Date(0).toISOString(), pool, shown, page: Math.max(1, Math.floor(Number(r.page)) || 1), more: r.more === true, src: "stored" }
+  const open = Array.isArray(r.open) ? r.open.filter((u): u is string => typeof u === "string") : undefined
+
+  return { at: typeof r.at === "string" ? r.at : new Date(0).toISOString(), pool, shown, page: Math.max(1, Math.floor(Number(r.page)) || 1), more: r.more === true, src: "stored", ...(open ? { open } : {}) }
 }
 
 /** The first page of a search, with the first few handed out. No one found means nothing to keep. */
@@ -198,7 +245,7 @@ export function dropPerson(rec: PastSearch, url: string): PastSearch {
   const at = rec.pool.findIndex((p) => p.url === url)
   if (at < 0) return rec
 
-  return { ...rec, pool: rec.pool.filter((_, i) => i !== at), shown: at < rec.shown ? rec.shown - 1 : rec.shown }
+  return { ...rec, pool: rec.pool.filter((_, i) => i !== at), shown: at < rec.shown ? rec.shown - 1 : rec.shown, ...(rec.open ? { open: rec.open.filter((u) => u !== url) } : {}) }
 }
 
 /** The saved searches with one job's replaced (or removed with null); only the newest few jobs stay. */
