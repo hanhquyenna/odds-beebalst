@@ -84,10 +84,12 @@ reports, not training data.
       difference between degree types. **Reading: it agrees with the engine, which already cuts the prestige step to 0.40 of the study
       value (learned_multipliers.json); if anything it argues for 0.4 or lower, never higher. No change made.** Race and gender are
       randomised in this audit and not used by the engine, on purpose.
-- [ ] C2. Kline, Rose & Walters 2022 (QJE 137(4), doi 10.1093/qje/qjac024), 83k+ applications to 108 large US employers.
-      Replication data: openICPSR project 198284 V1, https://www.openicpsr.org/openicpsr/project/198284/version/V1/view
-      **Needs a free openICPSR login to download: Kien must download it** (agents may not create accounts) and put the files in
-      `research-data/kline/`. Then map columns like `export_gemm.py`.
+- [x] C2. Kline, Rose & Walters: **done 2026-10-11** (Kien made the free openICPSR login; an agent downloaded it). Project 198284 is the 2024
+      "A Discrimination Report Card" package, which carries the experiment's own rows: `replication/data/data.dta`, 83,643 applications to
+      108 large US employers (CC-BY-NC). Race, gender and age names only (no experience or origin), so it feeds no part of the engine directly.
+      What it gives (`scripts/research/new_data_effects.py`): callback 24.0%; Black-sounding name -0.075 (se 0.006) probit units; over 40
+      -0.031; associate's degree +0.009 (nothing); and **callback rates between employers run from 5% to 45% (10th-90th percentile)**, which is
+      the size of the spread the engine's employer tiers cover (60 to 600 applicants).
 - [ ] C3. Kroft, Lange & Notowidigdo 2013 (optional). Not on Dataverse, Zenodo or OSF (searched 2026-10-11); ask the authors or check the QJE site.
 - [x] C3b. **Swiss correspondence test** (Zenodo 6675500, CC-BY, 2,366 applications, German-speaking Switzerland 2017-18; origin x qualification fit
       x occupation). Downloaded 2026-10-11 to `research-data/more-data/swiss/`, run through the engine (`scripts/research/export_swiss.ts`,
@@ -96,7 +98,24 @@ reports, not training data.
       engine's spread is about 1.5x too wide here. By factor (probit units, observed vs engine): minority name -0.17 (se 0.03) vs -0.29;
       "okay" fit instead of good -0.48 (0.08) vs -0.60; overqualified instead of good -0.22 (0.15) vs -0.98. The overqualified row is only 186
       applications and rests on my mapping of "Fit of vacancy" to years of experience (Good 3, Okay 1.5, Overqualified 9: an assumption).
-- [x] C3c. Karachi IT resume audit (Harvard Dataverse DVN/DOM4OS, 2,032 applications, gender and residential status): downloaded, **not used**:
+- [x] C3d. **Three more experiments from the same login (2026-10-11), run through the engine next to its shipped values**
+      (`scripts/research/new_data_effects.py`; probit units, the engine's own scale):
+      | part | observed (se) | engine ships | data |
+      | --- | --- | --- | --- |
+      | years beyond 2 asked, per year (cap 3) | +0.039 (0.015) | +0.055 | Eriksson & Rooth, Sweden, 8,466 callbacks |
+      | | +0.067 (0.039) | +0.055 | Bertrand & Mullainathan, US, 4,870 |
+      | minority name | -0.378 (0.034) | -0.293 | Eriksson & Rooth |
+      | more education than required | -0.009 (0.036) | -0.053 | Eriksson & Rooth |
+      | top employer on the first job | +0.215 (0.027) | +0.060 | Kessler et al., 6,320 resumes rated 1-10 (ordered probit) |
+      | a second internship | +0.127 (0.032) | +0.079 | Kessler et al. |
+      | skills: "special skills" / computer skills | +0.408 (0.071) / -0.140 (0.083) | +-0.2 at most (an assumption) | Bertrand & Mullainathan |
+      Also measured, with no part in the engine: unemployed now 9 months -0.077 (0.047) and no effect of shorter or past spells, summer jobs
+      -0.036 (0.031) (Eriksson & Rooth); honours +0.294 (0.106) (B&M); +1 GPA point +0.438 (0.041) (Kessler).
+      **Reading:** years, minority and second internship sit within about 1.5 standard errors of the shipped values, in independent data from
+      two countries; the overqualification penalty is, if anything, smaller than shipped. **Two real disagreements:** (1) prestige: Kessler's
+      top-employer effect is 3.6x what the engine ships (0.40 multiplier learned from GEMM and Oreopoulos callbacks), but Kessler measures a
+      stated would-hire rating, not callbacks; (2) skills: special skills move callbacks by +0.41, twice the +-0.2 span assumed. Neither is
+      changed without a callback measure that settles it. IT resume audit (Harvard Dataverse DVN/DOM4OS, 2,032 applications, gender and residential status): downloaded, **not used**:
       Pakistan, and none of the engine's parts maps to it.
 - [x] C4. (Done 2026-10-11 with the Swiss data; see below.) (Deming checked by hand, see C1: no change. Rows not added to `learn.py` because one mappable part with no effect cannot move the multipliers.) Add to the backtest (`loop.py` / `learn.py`), re-learn multipliers, report AUC and calibration slope per dataset,
       **with NL (GEMM NL) held out as the check**. Only adopt new multipliers if NL does not get worse.
@@ -105,12 +124,18 @@ reports, not training data.
 - [x] D1. Change `projectedApplicants()` / `pileFor()` to the parameters from A and B (keep tests: `src/lib/odds-v2.test.ts`).
       **No change, by A2 and B5:** L stays 28 and the sqrt curve stays; neither dataset measured anything better. (The research report
       argues for L = 14 and an off-site channel multiplier; B5 supports the multiplier only as a bound, so it waits for panel data.)
-- [x] D2. Update `learned_multipliers.json` if C improves NL.
+- [x] D2. Update `learned_multipliers.json` if C improves NL. (Second round, below, adds Eriksson-Rooth and Bertrand-Mullainathan.)
       **Not updated (2026-10-11).** Swiss added to `learn.py` (75% of pairs train, 25% test, PARTS=... env var and a "swiss" ceiling spec added to
       the local learn.py; research-data is git-ignored). Re-learned: years 0.69 -> 0.93, overqualified 0.63 -> 0.70, foreignDegree 1.00 -> 0.87,
       the others within 0.05. **NL unchanged** (AUC 0.570 both, log loss 0.6227 -> 0.6230, slope 1.10 -> 1.09) and on the Swiss test pairs the
       shipped multipliers were no worse (AUC 0.527 vs 0.519). The rule was "adopt only if NL improves or holds and the new data supports it":
       NL holds but nothing improves, and the Swiss mapping is my assumption, so the shipped multipliers stay.
+      **Second round (Swiss + Eriksson-Rooth 10,610 rows + Bertrand-Mullainathan white names 2,435; `scripts/research/export_more.ts`):**
+      years 0.69 -> 0.55, overqualified 0.63 -> 0.43, underqualified 0.67 -> 0.57, euNonNative 1.51 -> 1.93, dutch 0.81 -> 1.06, nonEu 1.19 -> 1.23.
+      NL held out: AUC 0.5689 -> 0.5706, log loss 0.6239 -> 0.6229 (very slightly better); Eriksson-Rooth test AUC 0.568 -> 0.577; Swiss 0.527 -> 0.521.
+      **Not adopted:** underqualified, overqualified and years depend on how many years the ads asked (not recorded in Eriksson-Rooth, Swiss or
+      B&M: I assumed 2), and euNonNative on my mapping of German and French names. The one clean number, the minority effect, is
+      nonEu 1.19 -> 1.23, too small to matter. To change a multiplier we need data where the ask is known.
 - [x] D3. Rebuild MCP core, run checks, e2e, commit, push, deploy mcp. Recheck Mileway example (posting p38c15dfe4b42).
       Done 2026-10-11 for D4. Mileway is 13 days old with a count read on day 2: unchanged at 15.4% [5.4-35] (pile 180). `bun run check`
       909 tests, `bun run e2e` 9/9, landing 308.3 kB.
@@ -169,7 +194,7 @@ reports, not training data.
   until people use it: run `python3 scripts/research/outcomes_report.py` every few weeks. Remaining in this plan: C1 (Dataverse
   guestbook, Kien), C2 (openICPSR login, Kien), C3, C4 and D2 (need C1/C2).
 - 2026-10-11 (data): Deming unzipped and analysed (C1); Swiss test added as an external check (C3b); learn.py re-run with it, no change to
-  the multipliers (D2); more sources listed in F. Next: the four openICPSR projects once Kien has a login.
+  the multipliers (D2); more sources listed in F. The four openICPSR projects were then downloaded and analysed (C3d, C2); no multiplier changed.
 - 2026-10-11 (later): D4 done as above; D1 closed as "no change"; D3 done. C1 is blocked on the Dataverse guestbook (see C1), C2 on
   Kien's openICPSR download. E1 (snapshot when a job is marked Applied) is next.
 
@@ -180,10 +205,10 @@ LinkedIn postings 2023-24 (pile only). What is left, best first:
 
 | Source | What it adds to the engine | Access |
 | --- | --- | --- |
-| Kessler, Low & Sullivan 2019, resume ratings (openICPSR 231422) | GPA, internships, work experience, employer prestige on 2,880 resumes rated by 72 employers: the prestige and internship parts | free openICPSR login |
-| Bertrand & Mullainathan 2004 (openICPSR 116023, `lakisha_aer.dta`, 4,870 resumes) | years of experience, education, skills, honours, volunteering, employment gaps | free openICPSR login |
-| Eriksson & Rooth 2014 AER (openICPSR E112740) | Sweden: unemployment spells, experience, young applicants | free openICPSR login |
-| Kline, Rose & Walters (openICPSR 198284, "A Discrimination Report Card", 83k) | name-based origin at scale, 108 big employers | free openICPSR login; US race, only loosely the origin part |
+| **In hand (2026-10-11):** Kessler, Low & Sullivan 2019, resume ratings (openICPSR 231422) | GPA, internships, work experience, employer prestige on 2,880 resumes rated by 72 employers: the prestige and internship parts | free openICPSR login |
+| **In hand:** Bertrand & Mullainathan 2004 (openICPSR 116023, `lakisha_aer.dta`, 4,870 resumes) | years of experience, education, skills, honours, volunteering, employment gaps | free openICPSR login |
+| **In hand:** Eriksson & Rooth 2014 AER (openICPSR 112740) | Sweden: unemployment spells, experience, young applicants | free openICPSR login |
+| Kline, Rose & Walters (openICPSR 198284, "A Discrimination Report Card", 83k) | **in hand**: employer spread of callbacks | done |
 | Pedulla 2020 (Harvard Dataverse DVN/4TTCEY, 518 KB) | US race, gender, parenthood | guestbook form; low value |
 | Baert et al. 2021 internships (Belgium, 1,248 CVs), Nunley et al. (US graduates: unemployment, underemployment, internships), Agan & Starr (15,000), Gaddis (elite colleges, 1,008) | internship and underemployment effects | no public file found: ask the authors |
 | Lippens, Vermeiren & Baert 2023 meta-analysis, Baert's register (users.ugent.be/~sbaert/research_register.htm) | effect sizes of ~100 experiments by country and ground, for priors | paper and list only, no data file |
@@ -192,4 +217,4 @@ LinkedIn postings 2023-24 (pile only). What is left, best first:
 Looked at and rejected: Karachi audit (not relevant), OSF "meta-reanalysis of correspondence experiments" (osf.io/mgc4y: an empty extraction
 template), the Swiss employer vignette survey (Zenodo 18683954: attitudes, not callbacks), JobHop and OpenResume (career paths without outcomes),
 RecruitView (restricted, forbids use for employment decisions), Kaggle copies of scraped Glassdoor interview reviews (scraped against
-Glassdoor's terms). **One free openICPSR login unlocks the first four rows.**
+Glassdoor's terms). **All four openICPSR projects are downloaded (`research-data/more-data/{231422,116023,112740,198284}`).** Still to get: data where the number of years the ad asks for is recorded (it would settle underqualified and overqualified), and any callback measure of employer prestige and of skills.
