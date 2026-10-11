@@ -5,6 +5,7 @@
  * never wait on Drive. A file changed in Drive (an edited CV) is read again here, so odds follows what is in their Drive.
  */
 import { useSyncExternalStore } from "react"
+import { DocumentError } from "@/lib/document-model"
 import { ANON_KEY, SUPABASE_URL, currentAccessToken, supabase } from "@/lib/supabase"
 
 export interface DriveState {
@@ -48,11 +49,12 @@ async function call(route: string, body: Record<string, unknown> = {}): Promise<
   })
 }
 
+/** The server's own words when it gives them (they are written for the person, e.g. "Google Drive is not switched on yet."). */
 async function errorOf(r: Response, fallback: string): Promise<Error> {
   const body = (await r.json().catch(() => ({}))) as { error?: string; connected?: boolean }
   if (body.connected === false) set({ ...state, status: "off", email: null, folder: null, missing: new Set() })
 
-  return new Error(body.error ?? fallback)
+  return new DocumentError(body.error ?? fallback)
 }
 
 /** Whether this person has Drive connected (one small read; the secret token is never readable from here). */
@@ -64,8 +66,9 @@ export async function loadDrive(userId: string | null): Promise<void> {
   }
   const { data, error } = await supabase.from("drive_links").select("email,root_id").maybeSingle()
   if (error) {
-    // The table is not there yet (the migration is not applied): Drive stays hidden rather than broken.
-    set({ ...OFF, status: "off" })
+    // The table is not there yet (the migration is not applied): Drive stays hidden ("unknown") rather than offering a
+    // Connect button that can only fail.
+    set(OFF)
 
     return
   }
