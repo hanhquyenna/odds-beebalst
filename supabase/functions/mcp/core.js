@@ -2141,7 +2141,24 @@ var NAMES = {
 };
 var EMPLOYER_SYSTEMS = new Set(["workday", "greenhouse", "ashby", "smartrecruiters", "successfactors", "recruitee", "lever", "teamtailor", "personio", "workable"]);
 function sourceOf(p) {
-  const ats = (p.ats ?? "").toLowerCase();
+  const recorded = (p.ats ?? "").toLowerCase();
+  let fromUrl = "";
+  if (!recorded || recorded === "other") {
+    try {
+      const host = new URL(p.url ?? "").hostname.toLowerCase().replace(/^www\./, "");
+      if (host === "linkedin.com" || host.endsWith(".linkedin.com"))
+        fromUrl = "linkedin";
+      else if (host === "magnet.me" || host.endsWith(".magnet.me"))
+        fromUrl = "magnet.me";
+      else if (host === "indeed.com" || host.endsWith(".indeed.com"))
+        fromUrl = "indeed";
+      else if (host === "glassdoor.com" || host.endsWith(".glassdoor.com"))
+        fromUrl = "glassdoor";
+      else if (host === "academictransfer.com" || host.endsWith(".academictransfer.com"))
+        fromUrl = "academictransfer";
+    } catch {}
+  }
+  const ats = fromUrl || recorded;
   return { name: NAMES[ats] ?? (EMPLOYER_SYSTEMS.has(ats) ? "Employer site" : "Other"), url: p.url, ats };
 }
 function sourceNamesOf(p) {
