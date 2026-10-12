@@ -1,5 +1,5 @@
 import { skillLabel } from "@/lib/skills"
-import { CircleHelpIcon, InfoIcon } from "@/components/icons"
+import { CircleHelpIcon } from "@/components/icons"
 import { Suspense, lazy, useMemo, useState } from "react"
 import { useOriginalChance } from "@/components/FitCells"
 import { Moved } from "@/components/Moved"
@@ -11,7 +11,7 @@ import { Section } from "@/components/Section"
 import { TIERS, TIER_LABEL, type Requirement, type Tier } from "@/lib/requirements"
 import { standardNames, standardTiers } from "@/lib/standard"
 import { useData } from "@/lib/data"
-import { useJobProfile, useJobProfileInfo, useJobStrength } from "@/lib/use-documents"
+import { useJobProfile, useJobStrength } from "@/lib/use-documents"
 import { ladderStats, poolOf, rungOf } from "@/lib/ladder"
 import { derive, eur, isInternship, levelOf, type Level, payChoicesOf, netMonth, pct, point, standing, thresholdLines, type Standing, type WhatIf, NO_WHAT_IF } from "@/lib/engine"
 import { EXAMPLE_PROFILE } from "@/lib/example"
@@ -53,7 +53,6 @@ function Info({ label, children }: { label: string; children: React.ReactNode })
 export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.JSX.Element {
   const [open, setOpen] = useState<boolean>(false)
   const original = useOriginalChance(post)
-  const { cvName, fromCv } = useJobProfileInfo(post.id)
   const r = st.rate
   // With no profile there is no chance to give yet: a "?" that leads to the import, never a "0%" that reads like a real figure.
   const chance = r && !r.thin ? point(r.mid) : st.needsProfile ? "?" : null
@@ -69,9 +68,6 @@ export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.J
         {chance !== null ? (
         <div className="flex flex-col gap-1 p-4 sm:p-5">
           <p className="text-[0.8125rem] text-muted-foreground">Interview chance</p>
-          {cvName ? (
-            <p className="text-xs text-muted-foreground">{fromCv ? `Worked out from your CV “${cvName}”` : `We could not read roles or degrees from “${cvName}”, so this uses your profile`}</p>
-          ) : null}
           {chance !== null ? (
             <>
               {st.needsProfile ? (
@@ -86,10 +82,9 @@ export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.J
                   <Caret open={open} />
                 </button>
               )}
-              {st.needsProfile ? <p className="text-sm text-muted-foreground">Add your LinkedIn or CV to see yours</p> : null}
               {st.failing > 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  This job also asks for {missing.join(" and ")}.{studentGate?.status === "fail" ? ` ${studentGate.why.replace(/^the posting /, "It ")}.` : ""} Tick a recommendation below to count it.
+                  This job also asks for {missing.join(" and ")}.{studentGate?.status === "fail" ? ` ${studentGate.why.replace(/^the posting /, "It ")}.` : ""}
                 </p>
               ) : null}
             </>
@@ -232,7 +227,6 @@ export function Recommendations({ post, base, whatIf, setWhatIf }: { post: Posti
   const d = derive(jobProfile)
   const active = whatIf.dutch || whatIf.degree || whatIf.student || whatIf.years > 0 || whatIf.skills.length > 0 || whatIf.tailor !== null
   const failed = (name: string): boolean => base.gates.find((g) => g.name === name)?.status === "fail"
-  const [open, setOpen] = useState<string | null>(null)
 
   /**
    * What one change does to your interview chance, in the plainest words: "+1.3%" (percentage points more), "Needed" when it settles a requirement that must be met but the
@@ -310,11 +304,7 @@ export function Recommendations({ post, base, whatIf, setWhatIf }: { post: Posti
           <button type="button" onClick={() => setWhatIf(NO_WHAT_IF)} className="cursor-pointer text-sm font-medium text-primary underline">
             Untick all
           </button>
-        ) : (
-          <Hint label="How recommendations work" align="right">
-            Tick what you could do. The numbers at the top move, and each line has a reason and its source behind the question mark.
-          </Hint>
-        )
+        ) : undefined
       }
     >
       <ul className="divide-y-[1.5px]">
@@ -326,21 +316,7 @@ export function Recommendations({ post, base, whatIf, setWhatIf }: { post: Posti
                 <span className="min-w-0 font-medium">{r.title}</span>
               </label>
               <span className={`shrink-0 rounded-md px-2 py-0.5 text-[0.8125rem] font-medium tabular-nums ${r.on && r.moves ? "bg-good text-good-foreground" : "bg-secondary text-secondary-foreground"}`}>{r.badge}</span>
-              <button
-                type="button"
-                aria-label={`Why: ${r.title}`}
-                aria-expanded={open === r.key}
-                onClick={() => setOpen(open === r.key ? null : r.key)}
-                className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-secondary hover:text-foreground"
-              >
-                <CircleHelpIcon className="size-4" aria-hidden="true" />
-              </button>
             </div>
-            {open === r.key ? (
-              <p className="-mt-1 pb-3 pl-7 text-sm text-muted-foreground">
-                {r.reason}{r.gap ? " It must be met, but your chance only moves once the other missing requirements are met too." : ""} <span className="whitespace-nowrap">Source: {r.source}.</span>
-              </p>
-            ) : null}
             {r.extra}
           </li>
         ))}
@@ -368,7 +344,6 @@ export function LockedPersonal({ onUnlock }: { onUnlock: () => void }): React.JS
           <button type="button" title={IMPORT_HINT} aria-label={IMPORT_HINT} onClick={onUnlock} className="w-fit cursor-pointer text-3xl font-semibold tabular-nums underline decoration-dotted decoration-1 underline-offset-[6px] hover:decoration-solid">
             ?
           </button>
-          <p className="text-sm text-muted-foreground">Add your LinkedIn or CV to see yours</p>
         </div>
       </section>
       <div aria-hidden="true" className="pointer-events-none flex flex-col gap-8 opacity-70 blur-[7px] select-none">
@@ -460,7 +435,7 @@ export function PayCard({ post, st }: { post: Posting; st: Standing }): React.JS
       <Section title="Pay and career path">
         <p className="flex flex-wrap items-center gap-x-2 text-2xl leading-tight font-semibold tracking-tight tabular-nums">
           {allowance.text}
-          <span className="text-base font-normal text-muted-foreground">a month, typical for a traineeship</span>
+          <span className="text-base font-normal text-muted-foreground">a month</span>
           <Hint label="About this pay">{TRAINEE_NOTE}</Hint>
         </p>
         <CareerPath />
@@ -507,7 +482,7 @@ export function PayCard({ post, st }: { post: Posting; st: Standing }): React.JS
       <p className="flex flex-wrap items-center gap-x-2 text-2xl leading-tight font-semibold tracking-tight tabular-nums">
         {/* The same figure as the top of the page (payOf), which allows for a starting job: one page, one pay range. */}
         {allowance.text ?? `${eur(p25)} – ${eur(p75)}`}
-        <span className="text-base font-normal text-muted-foreground">a month, estimated for this kind of job</span>
+        <span className="text-base font-normal text-muted-foreground">a month</span>
         <Hint label="About this pay">
           Before tax. An estimate for this kind of job across employers (Statistics Netherlands, 2024), not what this employer pays{allowance.text ? (isEntry(post) ? ", set lower for a starting job." : ".") : `. The middle of the range is ${eur(p50)}.`}
         </Hint>
@@ -582,22 +557,14 @@ interface LevelPay {
   text?: string
 }
 
-/** One row of the "Count for me" list: what it is and what it does on the left, the switch on the right. `help` adds an (i) that opens an explanation under the row. */
-function ToggleRow({ title, hint, on, set, help, helpLabel }: { title: string; hint: string; on: boolean; set: (v: boolean) => void; help?: React.ReactNode; helpLabel?: string }): React.JSX.Element {
-  const [open, setOpen] = useState(false)
-
+/** One row of the "Count for me" list: what it is and what it does on the left, the switch on the right. */
+function ToggleRow({ title, hint, on, set }: { title: string; hint: string; on: boolean; set: (v: boolean) => void }): React.JSX.Element {
   return (
     <div className="py-3">
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 font-medium">
             {title}
-            {help ? (
-              <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="inline-flex cursor-pointer items-center gap-1 text-sm font-normal text-muted-foreground underline underline-offset-4 hover:text-foreground">
-                <InfoIcon className="size-4" aria-hidden="true" />
-                {helpLabel ?? "More"}
-              </button>
-            ) : null}
           </p>
           <p className="text-sm text-muted-foreground">{hint}</p>
         </div>
@@ -605,54 +572,6 @@ function ToggleRow({ title, hint, on, set, help, helpLabel }: { title: string; h
           <span className={`absolute top-0.5 left-0.5 size-6 rounded-full bg-background shadow transition-transform ${on ? "translate-x-5" : ""}`} />
         </button>
       </div>
-      {help && open ? <div className="mt-3 rounded-lg bg-secondary/50 p-3 text-sm leading-relaxed">{help}</div> : null}
-    </div>
-  )
-}
-
-/** What a person needs to know to tell whether the 30% ruling is theirs. Plain words; the rules are the Belastingdienst's, as in our gross-to-net report. */
-function RulingHelp({ floor, floorMaster, abroad, under30Master }: { floor: number; floorMaster: number; abroad: number; under30Master: boolean }): React.JSX.Element {
-  return (
-    <div className="flex flex-col gap-3">
-      <p className="font-medium">The 30% ruling means you pay no tax on 30% of your pay. You get it only if all three are true:</p>
-      <ol className="flex list-decimal flex-col gap-2 pl-5">
-        <li>
-          <strong>A Dutch employer brought you here from abroad.</strong> In the 24 months before your first day of work here, you lived outside the Netherlands for at least 16 months. You also lived more than 150 km from the Dutch border. Living just across the border in Belgium or Germany does not count.
-        </li>
-        <li>
-          <strong>Your pay is high enough.</strong> Before tax, at least {eur(floor)} a year. If you are under 30 and have a master&apos;s degree, at least {eur(floorMaster)} a year. This lower amount stops the month you turn 30. Below that amount, the ruling gives you nothing.
-        </li>
-        <li>
-          <strong>Your employer asks for it with you.</strong> It is not automatic, and you cannot ask for it alone.
-        </li>
-      </ol>
-      <p className="font-medium">What this means for you</p>
-      <ul className="flex list-disc flex-col gap-2 pl-5">
-        <li>
-          <strong>You studied in the Netherlands, then got a job here.</strong> Usually no. The months you studied here count as living here, so you fall short of the 16 months. The exception is a job you started right after you first arrived.
-        </li>
-        <li>
-          <strong>You studied or worked abroad and a Dutch company hired you.</strong> Probably yes, if you were far enough from the border for 16 of the last 24 months.
-        </li>
-        <li>
-          <strong>You did a PhD in the Netherlands.</strong> The 24 months are counted from before your PhD started. Living here during and after the PhD is allowed.
-        </li>
-        <li>
-          <strong>Your first-job pay is low.</strong> Many first jobs sit below the minimum, so the ruling would change nothing. The switch above shows what it is worth at this job.
-        </li>
-        <li>
-          <strong>How long it lasts.</strong> Up to 5 years.
-        </li>
-        <li>
-          <strong>From 2027.</strong> For most people the tax-free part drops from 30% to 27%, and the minimum pay goes up to 50,436 a year (38,338 for under 30 with a master&apos;s). People who started before 2024 keep 30%. This tool still counts 30%, with this year&apos;s amounts.
-        </li>
-      </ul>
-      <p className="rounded-md bg-background p-2">
-        <strong>From your profile:</strong>{" "}
-        {abroad >= 16 ? `you lived outside the Netherlands for ${abroad} of the last 24 months, so you meet the 16-month test. Check that you lived more than 150 km from the border.` : `you lived outside the Netherlands for ${abroad} of the last 24 months, which is under the 16 needed. The ruling is probably not yours. If that number is wrong, change it in your profile.`}{" "}
-        {under30Master ? `You are under 30 with a master's degree, so the lower pay minimum applies.` : `The pay minimum that applies to you is ${eur(floor)} a year.`}
-      </p>
-      <p className="text-muted-foreground">Source: the Dutch tax office (Belastingdienst) and our gross-to-net research. This is not tax advice. Ask your employer&apos;s payroll team before you count on it.</p>
     </div>
   )
 }
@@ -805,7 +724,6 @@ function NextMoves({ transition, postings, onPick }: { transition: Transition; p
 function CareerPath(): React.JSX.Element {
   const data = useData()
   const ref = data.reference!
-  const d = derive(data.profile)
   const choices = payChoicesOf(data.profile)
   const { ruling, masterFloor, route } = choices
   const choose = (patch: Partial<PayChoices>): void => {
@@ -825,7 +743,7 @@ function CareerPath(): React.JSX.Element {
             <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Count for me</h4>
             
             <div className="divide-y-[1.5px]">
-              <ToggleRow title="30% ruling" hint={ruling ? "30% of your pay is tax-free" : "Tax on all of your pay"} on={ruling} set={(v) => choose({ ruling: v })} helpLabel="Do I qualify?" help={<RulingHelp floor={ref.tax.ruling_30pct.min_salary} floorMaster={ref.tax.ruling_30pct.min_salary_under30_masters} abroad={data.profile.abroad} under30Master={masterFloor} />} />
+              <ToggleRow title="30% ruling" hint={ruling ? "30% of your pay is tax-free" : "Tax on all of your pay"} on={ruling} set={(v) => choose({ ruling: v })} />
               <ToggleRow title="Master's degree, under 30" hint="The ruling needs a lower salary" on={masterFloor} set={(v) => choose({ masterFloor: v })} />
               <div className="py-3">
                 <p className="font-medium">Visa</p>
@@ -845,7 +763,6 @@ function CareerPath(): React.JSX.Element {
                 <p className="mt-2 text-sm text-muted-foreground">{threshold === null ? "No salary minimum." : `Your visa needs ${eur(threshold)} a month.`}</p>
               </div>
             </div>
-            {!d.rulingEligible && ruling ? <p className="text-xs text-muted-foreground">Your answers say you may not qualify for the 30% ruling ({data.profile.abroad} of the last 24 months abroad, 16 needed). Only an employer and the tax office can confirm it.</p> : null}
           </section>
         )
       })()}

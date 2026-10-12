@@ -258,8 +258,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
         <div className="space-y-5">
           <h1 className="text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">We help you see which jobs you can really take.</h1>
           <p className="text-lg leading-8 text-muted-foreground">
-            Paste your LinkedIn link. We read your roles, degrees and skills from it, check every job against the rules that apply to you, and show
-            what it pays and what you would keep.
+            Paste your LinkedIn link.
           </p>
         </div>
         <Button size="lg" onClick={goNext} className="h-12 w-full cursor-pointer text-base">
@@ -295,12 +294,11 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
         </button>
         <div className="space-y-3">
           <h1 className="text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">See your odds on every job.</h1>
-          <p className="text-muted-foreground">Add your LinkedIn or CV to see your chance on every job.</p>
         </div>
         <input ref={cvInput} type="file" accept={cvAccept()} aria-label="Your CV" className="sr-only" onChange={(event) => void readCv(event.target.files?.[0])} />
         {linkedinDown ? (
           <div className="flex flex-col gap-3">
-            {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : <p className="text-sm text-muted-foreground">Reading LinkedIn is not working right now, so your CV is the quickest way in.</p>}
+            {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
             {cvButton(true)}
             <details className="rounded-lg border-[1.5px] px-4 py-3 text-sm">
               <summary className="cursor-pointer font-medium">Try LinkedIn anyway</summary>
@@ -329,7 +327,6 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
             {linkedinButton(true)}
             <p className="text-center text-sm text-muted-foreground">or</p>
             {cvButton(false)}
-            <p className="text-center text-xs text-muted-foreground">Your CV stays on your device.</p>
           </div>
         )}
         <div className="flex flex-col gap-1 border-t-[1.5px] pt-4">

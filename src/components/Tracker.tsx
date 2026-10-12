@@ -216,7 +216,7 @@ export function AddJobs({ panel, setPanel }: { panel: AddPanel; setPanel: (p: Ad
             ))}
             <textarea
               aria-label="The posting text"
-              placeholder="Paste the posting text. We read years asked, Dutch, degree and skills from it."
+              placeholder="Paste the posting text"
               value={one.text}
               onChange={(e) => setOne({ ...one, text: e.target.value })}
               className="min-h-24 rounded-lg border-[1.5px] bg-background px-3 py-2 text-sm"

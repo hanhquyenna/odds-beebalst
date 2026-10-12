@@ -293,7 +293,7 @@ function CompanyCard({ company: c, onClose }: { company: Company; onClose: () =>
           ) : null}
 
           <CardSection title={c.yours.length > 0 ? "Other open jobs" : "Open jobs"} count={otherOpen.length}>
-            {otherOpen.length === 0 ? <p className="text-sm text-muted-foreground">{c.open.length === 0 ? "No open jobs in the list right now." : "You have every open job here in your list."}</p> : <JobList posts={otherOpen} onOpen={setJob} status />}
+            {otherOpen.length === 0 ? <p className="text-sm text-muted-foreground">{c.open.length === 0 ? "No open jobs in the list right now." : "All open jobs are in your list."}</p> : <JobList posts={otherOpen} onOpen={setJob} status />}
           </CardSection>
 
         </div>

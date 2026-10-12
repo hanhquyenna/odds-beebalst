@@ -315,7 +315,6 @@ function DriveCard({ onProblem, onSignIn }: { onProblem: (text: string | null) =
         <>
           <div className="min-w-0">
             <p className="font-medium">Keep your files in your Google Drive</p>
-            <p className="mt-1 text-sm text-muted-foreground">odds sees only its own folder.</p>
           </div>
           {guest ? (
             <Button type="button" onClick={onSignIn} className="shrink-0 cursor-pointer">

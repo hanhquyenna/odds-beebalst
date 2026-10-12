@@ -244,7 +244,6 @@ export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.El
             ) : push.state === "ask" ? (
               <>
                 <p className="font-semibold">Get your jobs at 8 every morning</p>
-                <p className="text-sm text-muted-foreground">One message a day, with the new jobs that fit you.</p>
                 <Button disabled={busy} onClick={() => void turnOn()} className="mt-1 h-10 w-full cursor-pointer rounded-full">
                   {busy ? "Turning on…" : "Turn on notifications"}
                 </Button>

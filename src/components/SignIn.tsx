@@ -60,7 +60,6 @@ export function SignIn({ onCancel }: SignInProps): React.JSX.Element {
         </div>
         <div className="flex flex-col gap-2">
           <h1 className="text-2xl font-semibold tracking-tight">Welcome back</h1>
-          <p className="max-w-72 text-[0.95rem] text-muted-foreground">Sign in to keep your jobs, people and odds on every device.</p>
         </div>
       </div>
 
@@ -75,7 +74,6 @@ export function SignIn({ onCancel }: SignInProps): React.JSX.Element {
           {busy ? "Opening Google…" : "Continue with Google"}
         </button>
         {error ? <p className="text-center text-sm text-destructive">{error}</p> : null}
-        <p className="text-center text-xs text-muted-foreground">We only ask Google for your name, email and photo. You stay signed in on this device until you sign out.</p>
       </div>
     </div>
   )

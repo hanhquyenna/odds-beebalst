@@ -149,7 +149,7 @@ export function NotificationsRow({ session }: { session: Session | null }): Reac
   const ios = platformOf() === "ios"
   const status =
     push.state === "on"
-      ? "On for this phone. New jobs that fit you arrive at 8 every morning."
+      ? "On for this phone."
       : push.state === "blocked"
         ? ios
           ? "Off. Turn them on in Settings, Notifications, odds."
