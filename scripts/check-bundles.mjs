@@ -5,7 +5,8 @@ import { gzipSync } from "node:zlib"
 
 // Measured 5 Oct 2026 (213 kB first load, 134 kB largest chunk) + about 5%. Re-baseline only on a build that renders (an env-less build drops the app).
 const MAX_FIRST_LOAD_GZIP_KB = 224
-const MAX_CHUNK_GZIP_KB = 141
+// 146 since 12 Oct 2026: the PDF reader is pdf.js's legacy build (144.8 kB), which older iPhones and Androids need. It loads only when a PDF is chosen.
+const MAX_CHUNK_GZIP_KB = 146
 const dist = new URL("../dist/", import.meta.url)
 const dir = new URL("assets/", dist)
 let files
