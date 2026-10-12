@@ -19,7 +19,7 @@ const MAX_BATCH = 10
 const MAX_TEXT = 300
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, content-type, accept, mcp-protocol-version, mcp-session-id, last-event-id",
+  "Access-Control-Allow-Headers": "authorization, content-type, accept, apikey, x-client-info, mcp-protocol-version, mcp-session-id, last-event-id",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS, DELETE",
   "Access-Control-Expose-Headers": "mcp-session-id",
 }
@@ -249,6 +249,20 @@ const ME_TOOLS = [
     write: false,
   },
   {
+    name: "export_my_odds",
+    title: "Everything I keep on odds",
+    description: "In one call: the person's profile, every saved and applied job with where it stands, and their CVs and cover letters (names and links, not full texts: use read_document for a text). Use it when they ask for their information, or to plan before working through their jobs.",
+    inputSchema: { type: "object", properties: {} },
+    write: false,
+  },
+  {
+    name: "attach_document",
+    title: "Put a CV or cover letter on a job",
+    description: "Attaches one of the person's CVs or cover letters (from my_documents) to a job, in place of the one of that kind already on it. That is the CV application_kit then uses for the job. Do it for each job when they ask for a CV per job.",
+    inputSchema: { type: "object", properties: { job_id: jobId, document_id: { type: "string", description: "From my_documents." } }, required: ["job_id", "document_id"] },
+    write: true,
+  },
+  {
     name: "save_cover_letter",
     title: "Save a cover letter to Documents",
     description: "Saves a cover letter you wrote with the person to their odds Documents, and attaches it to a job when you give one. Ask them first. Documents hold thirty files at most.",
@@ -432,6 +446,11 @@ async function serveFile(req: Request, env: Env): Promise<Response> {
 }
 
 async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json> {
+  if (name === "export_my_odds") {
+    const [profile, jobs, documents] = await Promise.all(["my_profile", "my_jobs", "my_documents"].map((n) => callMe(env, me, n, args)))
+
+    return text({ profile: profile.structuredContent, jobs: jobs.structuredContent?.jobs ?? [], documents: documents.structuredContent?.documents ?? [] })
+  }
   const w = await worldFor(env)
   const uid = me.id
 
@@ -559,6 +578,16 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
     return text({ saved: true, document_id: id, name: args.name, attached_to: args.job_id ?? null, note: "It is in their odds Documents now." })
   }
 
+  if (name === "attach_document") {
+    if (!args.job_id || !w.byId.has(args.job_id)) return failed("No open job with that id.")
+    if (!args.document_id || !/^[0-9a-f-]{36}$/.test(args.document_id)) return failed("Give a document_id from my_documents.")
+    const d = (await svc(env, `documents?user_id=eq.${uid}&id=eq.${args.document_id}&select=id,kind,name`))?.[0]
+    if (!d) return failed("No document with that id in your Documents.")
+    await svc(env, "job_documents?on_conflict=user_id,posting_id,kind", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: uid, posting_id: args.job_id, kind: d.kind, document_id: d.id }) })
+
+    return text({ attached: true, job: core.jobLine(w.byId.get(args.job_id), w.ref), document: d.name, kind: d.kind === "cv" ? "CV" : "cover letter" })
+  }
+
   if (name === "save_job") {
     if (!args.job_id || !w.byId.has(args.job_id)) return failed("No open job with that id.")
     await svc(env, "saved_jobs", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ user_id: uid, posting_id: args.job_id }) })
@@ -590,7 +619,7 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
 // ---- JSON-RPC over HTTP ----
 
 const ME_INSTRUCTIONS =
-  "This is the person's own private link: you can see their profile (my_profile), their CVs and letters (my_documents, read_document), their saved and applied jobs (my_jobs), and everything to apply to one (application_kit). Use these instead of asking them to paste anything. Ask before saving a letter or marking a job applied. When filling in an employer's application form, never press submit yourself: let them check and send it."
+  "This is the person's own private link: you can see their profile (my_profile), their CVs and letters (my_documents, read_document), their saved and applied jobs (my_jobs), all of it in one call (export_my_odds), and everything to apply to one (application_kit). Find jobs for them with search_jobs and tailored_jobs, save them (save_job), and put the right CV on each job (attach_document). Use these instead of asking them to paste anything. Ask before saving a letter or marking a job applied. When filling in an employer's application form, never press submit yourself: let them check and send it."
 
 const INSTRUCTIONS =
   "odds lists open internship, traineeship and entry-level jobs in the Netherlands that do not require Dutch, for international students. Use search_jobs to find jobs, get_job to read one, company_profile for the employer, and interview_chance or tailored_jobs once you know the person's roles, education and skills. Chances are estimates from published hiring studies, not promises: say so. Link to the odds_link of each job you mention."

@@ -3413,8 +3413,8 @@ function tailor({ candidates, fitting, saved, chanceOf, profiles, liftOf, own = 
     if (interest === 0)
       continue;
     const lift = liftOf(post);
-    const note = best ? `Like the ${shortTitle(best.s.title)} at ${shortName(best.s.employer_display)} you saved` : mine.share > 0 ? `Close to your own work as ${shortTitle(own[mine.title])}: ${mine.words.slice(0, 2).join(", ")}` : lift ? `Fits your background: ${lift}` : "Fits your preferences";
-    const why = !best && mine.share === 0 && pf && pf.reasons.length > 0 ? `Fits your profile: ${pf.reasons.slice(0, 2).join("; ")}` : pf && pf.reasons.length > 0 && !/visa sponsor/.test(pf.reasons[0]) ? `${note} · ${pf.reasons[0]}` : note;
+    const note = best ? `Similar to your saved job at ${shortName(best.s.employer_display)}` : mine.share > 0 ? `Like your work as ${shortTitle(own[mine.title])}` : lift ? `Matches your background: ${lift}` : "Matches what you asked for";
+    const why = !best && mine.share === 0 && pf && pf.reasons.length > 0 ? `Matches your profile: ${pf.reasons.slice(0, 2).join("; ")}` : pf && pf.reasons.length > 0 && !/visa sponsor/.test(pf.reasons[0]) ? `${note} · ${pf.reasons[0]}` : note;
     const at = fieldOrder.length > 0 ? fieldOrder.indexOf(fieldOf(post) ?? "") : -1;
     scored.push({ post, chance: chanceOf(post), note: why, interest, fresh: freshness(post), rank: at < 0 ? fieldOrder.length : at, fit: pf?.score == null ? 3 : Math.floor(pf.score * 10) });
   }
@@ -3510,7 +3510,7 @@ function similarMix(saved, candidates, profiles, count = 5, today = new Date, op
         continue;
       used.add(x.job.id);
       perEmployer.set(emp, (perEmployer.get(emp) ?? 0) + 1);
-      out.push({ post: x.job, note: `Like the ${shortTitle(x.s.title)} at ${shortName(x.s.employer_display)} you saved` });
+      out.push({ post: x.job, note: `Similar to your saved job at ${shortName(x.s.employer_display)}` });
       n -= 1;
     }
   };
@@ -3571,13 +3571,13 @@ function profileFitFor(post, st, sig) {
     const skills = part("skills");
     const role = part("role");
     const field = part("field");
-    const reason = skills && skills.value >= 0.55 ? `skills: ${skills.detail}` : role && role.value >= 0.5 ? "the title matches your roles" : field && field.value >= 0.5 ? "the line of work your CV points to" : st.fit.score >= REASON_BAR ? "your CV matches what it asks for" : undefined;
+    const reason = skills && skills.value >= 0.55 ? skillsReason(skills.detail) : role && role.value >= 0.5 ? "the job title is like your past roles" : field && field.value >= 0.5 ? "the kind of work on your CV" : st.fit.score >= REASON_BAR ? "your CV fits what it asks for" : undefined;
     content.push({ w: CONTENT_WEIGHTS.cv, v: st.fit.score, reason });
   }
   const ind = industryOf(post);
   if (sig.industries.length > 0 && ind) {
     const hit = sig.industries.indexOf(ind);
-    content.push({ w: CONTENT_WEIGHTS.industry, v: hit === 0 ? 1 : hit > 0 ? 0.7 : 0, reason: hit >= 0 ? `the same industry as your time at ${sig.industryFrom[ind]}` : undefined });
+    content.push({ w: CONTENT_WEIGHTS.industry, v: hit === 0 ? 1 : hit > 0 ? 0.7 : 0, reason: hit >= 0 ? `same industry as ${sig.industryFrom[ind]}, where you worked` : undefined });
   }
   if (sig.wanted.size > 0) {
     const title = new Set(words(post.title.replace(/\([^)]*\)/g, " ")).map(stem));
@@ -3612,6 +3612,10 @@ function profileFitFor(post, st, sig) {
     score = Math.max(0, score - 0.1);
   const reasons = [...content, ...logistics].filter((p) => p.reason).sort((x, y) => Number(x.reason === SPONSOR_REASON) - Number(y.reason === SPONSOR_REASON) || y.w * y.v - x.w * x.v).map((p) => p.reason);
   return { score, reasons: reasons.slice(0, 3), blocked };
+}
+function skillsReason(detail) {
+  const must = detail.match(/(\d+) of (\d+) must-have/);
+  return must ? `you have ${must[1]} of the ${must[2]} skills it requires` : "you have some of the skills it lists";
 }
 
 // src/lib/fit-engine.ts
