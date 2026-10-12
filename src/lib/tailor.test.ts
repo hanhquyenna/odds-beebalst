@@ -58,7 +58,7 @@ describe("jobs tailored to you", () => {
     const rows = tailor({ candidates, fitting: new Set(["c"]), saved: [fin], chanceOf: (p) => chance[p.id], profiles: {}, liftOf: () => "your finance work" })
     expect(rows.map((r) => r.post.id)).toEqual(["a", "c"])
     expect(rows.every((r) => r.note.length > 0)).toBe(true)
-    expect(rows[0].note).toContain("you saved")
+    expect(rows[0].note).toContain("your saved job")
   })
   test("a job you would get but never look for sinks below one named like your own work, however good the chance", () => {
     const own = ["AI Marketing Content Specialist", "Finance Analyst (AI tooling)"]
@@ -68,7 +68,7 @@ describe("jobs tailored to you", () => {
     const chance = { copy: 0.7, content: 0.1, finai: 0.05 } as Record<string, number>
     const rows = tailor({ candidates: [copy, content, finAi], fitting: new Set(["copy", "content", "finai"]), saved: [], chanceOf: (p) => chance[p.id], profiles: {}, liftOf: () => null, own })
     expect(rows.map((r) => r.post.id).at(-1)).toBe("copy")
-    expect(rows[0].note).toContain("Close to your own work")
+    expect(rows[0].note).toContain("Like your work as")
   })
   test("newest first among jobs you are equally into; chance only breaks ties", () => {
     const own = ["Financial Analyst"]
@@ -149,7 +149,7 @@ describe("jobs tailored to you, with what the profile says", () => {
     const fits: Record<string, number> = { low: 0.2, high: 0.8 }
     const rows = tailor({ ...base, candidates: [mk("low", "Risk Analyst", "L", "Finance & accounting", { days_open: 1 }), mk("high", "Treasury Analyst", "H", "Finance & accounting", { days_open: 12 })], fitting: new Set(["low", "high"]), fitOf: (p) => ({ score: fits[p.id], reasons: ["skills: 2 of 2 must-have", "in Amsterdam, where you live"], blocked: null }) })
     expect(all(rows)).toEqual(["high", "low"])
-    expect(rows[0].note).toBe("Fits your profile: skills: 2 of 2 must-have; in Amsterdam, where you live")
+    expect(rows[0].note).toBe("Matches your profile: skills: 2 of 2 must-have; in Amsterdam, where you live")
   })
 
   test("a job outside the lines of work comes in when the profile fits it very well", () => {

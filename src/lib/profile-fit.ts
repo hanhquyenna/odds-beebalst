@@ -105,14 +105,14 @@ export function profileFitFor(post: Posting, st: Pick<Standing, "gates" | "fit">
     const skills = part("skills")
     const role = part("role")
     const field = part("field")
-    const reason = skills && skills.value >= 0.55 ? `skills: ${skills.detail}` : role && role.value >= 0.5 ? "the title matches your roles" : field && field.value >= 0.5 ? "the line of work your CV points to" : st.fit.score >= REASON_BAR ? "your CV matches what it asks for" : undefined
+    const reason = skills && skills.value >= 0.55 ? skillsReason(skills.detail) : role && role.value >= 0.5 ? "the job title is like your past roles" : field && field.value >= 0.5 ? "the kind of work on your CV" : st.fit.score >= REASON_BAR ? "your CV fits what it asks for" : undefined
     content.push({ w: CONTENT_WEIGHTS.cv, v: st.fit.score, reason })
   }
 
   const ind = industryOf(post)
   if (sig.industries.length > 0 && ind) {
     const hit = sig.industries.indexOf(ind)
-    content.push({ w: CONTENT_WEIGHTS.industry, v: hit === 0 ? 1 : hit > 0 ? 0.7 : 0, reason: hit >= 0 ? `the same industry as your time at ${sig.industryFrom[ind]}` : undefined })
+    content.push({ w: CONTENT_WEIGHTS.industry, v: hit === 0 ? 1 : hit > 0 ? 0.7 : 0, reason: hit >= 0 ? `same industry as ${sig.industryFrom[ind]}, where you worked` : undefined })
   }
 
   if (sig.wanted.size > 0) {
@@ -156,4 +156,11 @@ export function profileFitFor(post: Posting, st: Pick<Standing, "gates" | "fit">
     .map((p) => p.reason as string)
 
   return { score, reasons: reasons.slice(0, 3), blocked }
+}
+
+/** "3 of 4 must-have, 1 of 2 strong plus" in plain words. */
+function skillsReason(detail: string): string {
+  const must = detail.match(/(\d+) of (\d+) must-have/)
+
+  return must ? `you have ${must[1]} of the ${must[2]} skills it requires` : "you have some of the skills it lists"
 }

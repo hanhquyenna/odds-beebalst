@@ -62,7 +62,7 @@ describe("how well it fits: what the job is, times whether it can work", () => {
   test("the same industry as an employer they worked at, and the job named in their headline, are reasons in words", () => {
     const s = sig({ industries: ["Consulting"], industryFrom: { Consulting: "Deloitte" }, wanted: new Set(["analyst"]) })
     const f = profileFitFor(intern({ industry: "Consulting" }), st(), s)
-    expect(f.reasons.join(" | ")).toContain("same industry as your time at Deloitte")
+    expect(f.reasons.join(" | ")).toContain("same industry as Deloitte, where you worked")
     expect(f.reasons.join(" | ")).toContain("headline")
     expect(f.reasons.length).toBeLessThanOrEqual(3)
   })

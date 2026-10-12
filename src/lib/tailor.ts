@@ -191,14 +191,14 @@ export function tailor({ candidates, fitting, saved, chanceOf, profiles, liftOf,
     if (interest === 0) continue
     const lift = liftOf(post)
     const note = best
-      ? `Like the ${shortTitle(best.s.title)} at ${shortName(best.s.employer_display)} you saved`
+      ? `Similar to your saved job at ${shortName(best.s.employer_display)}`
       : mine.share > 0
-        ? `Close to your own work as ${shortTitle(own[mine.title])}: ${mine.words.slice(0, 2).join(", ")}`
+        ? `Like your work as ${shortTitle(own[mine.title])}`
         : lift
-          ? `Fits your background: ${lift}`
-          : "Fits your preferences"
+          ? `Matches your background: ${lift}`
+          : "Matches what you asked for"
     // What else the profile says about it, in one more phrase: "...: finance · in Amsterdam, where you live".
-    const why = !best && mine.share === 0 && pf && pf.reasons.length > 0 ? `Fits your profile: ${pf.reasons.slice(0, 2).join("; ")}` : pf && pf.reasons.length > 0 && !/visa sponsor/.test(pf.reasons[0]) ? `${note} · ${pf.reasons[0]}` : note
+    const why = !best && mine.share === 0 && pf && pf.reasons.length > 0 ? `Matches your profile: ${pf.reasons.slice(0, 2).join("; ")}` : pf && pf.reasons.length > 0 && !/visa sponsor/.test(pf.reasons[0]) ? `${note} · ${pf.reasons[0]}` : note
     const at = fieldOrder.length > 0 ? fieldOrder.indexOf(fieldOf(post) ?? "") : -1
     scored.push({ post, chance: chanceOf(post), note: why, interest, fresh: freshness(post), rank: at < 0 ? fieldOrder.length : at, fit: pf?.score == null ? 3 : Math.floor(pf.score * 10) })
   }
@@ -336,7 +336,7 @@ export function similarMix(saved: ReadonlyArray<Posting>, candidates: ReadonlyAr
       if (used.has(x.job.id) || (perEmployer.get(emp) ?? 0) >= cap) continue
       used.add(x.job.id)
       perEmployer.set(emp, (perEmployer.get(emp) ?? 0) + 1)
-      out.push({ post: x.job, note: `Like the ${shortTitle(x.s.title)} at ${shortName(x.s.employer_display)} you saved` })
+      out.push({ post: x.job, note: `Similar to your saved job at ${shortName(x.s.employer_display)}` })
       n -= 1
     }
   }

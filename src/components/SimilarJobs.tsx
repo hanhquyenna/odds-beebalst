@@ -33,7 +33,7 @@ export function SimilarJobs({ onOpen }: { onOpen: (post: Posting) => void }): Re
       <ul className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card max-md:-mx-5 max-md:rounded-none max-md:border-x-0">
         {rows.map((r) => (
           <li key={r.post.id} className="relative after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border last:after:hidden md:after:left-4">
-            <JobRow post={r.post} onOpen={() => onOpen(r.post)} note={r.note} dismissible />
+            <JobRow post={r.post} onOpen={() => onOpen(r.post)} dismissible />
           </li>
         ))}
       </ul>

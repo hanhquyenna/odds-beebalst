@@ -135,8 +135,6 @@ interface JobRowProps {
   status?: boolean
   /** Shows an X to say you are not interested: the job goes and is not recommended again. */
   dismissible?: boolean
-  /** A short line on why this job is shown here ("Like your saved MUFG internship: finance, internship, Amsterdam"). */
-  note?: string
 }
 
 /**
@@ -144,7 +142,7 @@ interface JobRowProps {
  * it went up. Everything else is inside. The whole row opens the job; the
  * bookmark saves it.
  */
-export function JobRow({ post, onOpen, status, dismissible, note }: JobRowProps): React.JSX.Element {
+export function JobRow({ post, onOpen, status, dismissible }: JobRowProps): React.JSX.Element {
   const data = useData()
   const hearBack = useHearBack(post)
   const kept = data.saved.has(post.id) || data.applications.some((a) => a.posting_id === post.id)
@@ -175,7 +173,6 @@ export function JobRow({ post, onOpen, status, dismissible, note }: JobRowProps)
                 </span>
               ) : null}
             </span>
-            {note ? <span className="line-clamp-2 text-sm text-muted-foreground">{note}</span> : null}
             <span className="truncate text-sm text-muted-foreground">{formatPlace(post.region)}</span>
             {post.closed_at ? <span className="w-fit rounded-md bg-red-600 px-2 py-0.5 text-xs font-medium text-white">Closed</span> : null}
             {post.dutch_required ? <span className="w-fit rounded-md border-[1.5px] border-brand/60 bg-brand/10 px-2 py-0.5 text-xs font-medium">Dutch needed</span> : null}
