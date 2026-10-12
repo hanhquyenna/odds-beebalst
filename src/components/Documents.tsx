@@ -228,7 +228,7 @@ function DocumentCard({ doc, jobs, missing, onDelete, onProblem }: DocumentCardP
             ) : doc.inDrive ? (
               <span className="rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground">In Google Drive</span>
             ) : null}
-            {jobs > 0 ? <span className="rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground">Sent with {jobs} {jobs === 1 ? "job" : "jobs"}</span> : null}
+            {jobs > 0 ? <span className="rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground">Used for {jobs} {jobs === 1 ? "job" : "jobs"}</span> : null}
           </p>
         </div>
       </div>
