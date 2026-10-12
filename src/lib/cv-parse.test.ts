@@ -132,3 +132,61 @@ describe("parseCv edge cases", () => {
     expect(s).toEqual(["Excel", "SQL", "Python", "R"])
   })
 })
+
+describe("parseCv: the layout where the company sits beside the dates and the title is on the next line", () => {
+  const cv = `KIEN PHUNG
+
+EDUCATION
+
+University of Amsterdam
+
+BSc Communication Science Expected June 2027
+
+SKILLS
+
+Financial Analysis: Financial modeling, DCF valuation, SQL, Excel
+
+Research & Analysis: Market research, data-driven
+recommendations
+
+Languages: English (Fluent), Dutch (Beginner)
+
+EXPERIENCE
+
+FLC Group Mar 2026 – Aug 2026
+Corporate Finance Specialist
+Hanoi, Vietnam
+• Built discounted cash flow models.
+
+BIDV May 2024 – Aug 2024
+Business Strategy & Market Analysis Intern
+Hanoi, Vietnam
+• Produced market insight reports.
+
+BeeBlast Oct 2025 – Present
+CEO & Co-Founder
+Amsterdam, Netherlands
+• Grew BeeBlast.`
+  test("the title is the title, the company the company, the place the place", () => {
+    const r = parseCv(cv)
+    expect(r.positions.map((p) => [p.Title, p["Company Name"], p.Location])).toEqual([
+      ["Corporate Finance Specialist", "FLC Group", "Hanoi, Vietnam"],
+      ["Business Strategy & Market Analysis Intern", "BIDV", "Hanoi, Vietnam"],
+      ["CEO & Co-Founder", "BeeBlast", "Amsterdam, Netherlands"],
+    ])
+    expect(r.positions[2]["Finished On"]).toBe("")
+  })
+  test("a school and its degree on two lines are one row, with the expected date as the end", () => {
+    const r = parseCv(cv)
+    expect(r.education).toHaveLength(1)
+    expect(r.education[0]).toMatchObject({ "Degree Name": "BSc Communication Science", "School Name": "University of Amsterdam", "End Date": "June 2027" })
+  })
+  test("skills drop their group label, spoken languages are not skills, and a wrapped line is joined", () => {
+    const r = parseCv(cv)
+    expect(r.skills.map((s) => s.Name)).toEqual(["Financial modeling", "DCF valuation", "SQL", "Excel", "Market research", "data-driven recommendations"])
+  })
+  test("the layouts that already worked are unchanged: title and company on the line with the dates", () => {
+    const r = parseCv("EXPERIENCE\nFinancial Analyst, Vietcombank, Hanoi, Vietnam  Mar 2021 - Aug 2023\n• IFRS reporting")
+    expect(r.positions[0]).toMatchObject({ Title: "Financial Analyst", "Company Name": "Vietcombank", Location: "Hanoi, Vietnam" })
+  })
+})

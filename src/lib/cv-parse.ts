@@ -49,6 +49,13 @@ function splitHeader(line: string): { title: string; company: string; place: str
 
 const fixDate = (s: string): string => s.replace(/\s+/g, " ").trim()
 
+/** Words that make a line a job title ("Corporate Finance Specialist", "CEO & Co-Founder"), as against a company name. */
+const TITLE_WORDS = /\b(intern|internship|stagiair|trainee|manager|analyst|engineer|specialist|consultant|director|founder|co-founder|ceo|cto|cfo|coo|officer|assistant|associate|developer|designer|lead|head|coordinator|executive|researcher|advisor|adviser|administrator|representative|owner|president|chief|scientist|architect|accountant|controller|auditor|strategist|planner|buyer|recruiter|teacher|nurse|technician|mechanic|clerk|agent|partner|apprentice|werkstudent|student assistant|medewerker|adviseur|stagiaire)\b/i
+/** "Hanoi, Vietnam" or "Amsterdam": a short place line, no digits, no bullet. */
+const looksLikePlace = (s: string): boolean => s.length >= 3 && s.length <= 50 && !/\d/.test(s) && !/^[-•*·▪◦●–—]/.test(s) && s.split(/\s+/).length <= 5
+const SCHOOL = /\b(universit(y|eit)|college|school|institute|institut|hogeschool|academy|academie|polytechnic|hbo|université|universidad|universidade|üniversite)\b/i
+const DEGREE = /\b(b\.?sc|m\.?sc|b\.?a|m\.?a|bba|mba|ph\.?d|bachelor|master|licen[cs]e|diploma|degree|b\.?tech|m\.?tech|b\.?eng|m\.?eng|llb|llm|associate degree|wo|hbo)\b/i
+
 export interface CvRows {
   positions: Row[]
   education: Row[]
@@ -61,6 +68,12 @@ export function parseCv(text: string): CvRows {
   const skills: Row[] = []
   let section: Section = "other"
   const lines = text.split("\n").map((l) => l.trim())
+  /** The index of the next line with text after i (CVs often leave a blank line between a school and its degree), or -1. */
+  const nextIdx = (i: number): number => {
+    for (let j = i + 1; j < lines.length && j <= i + 3; j++) if (lines[j] !== "") return j
+
+    return -1
+  }
   let current: Row | null = null
   let pending: string | null = null
   const bullets: string[] = []
@@ -90,8 +103,33 @@ export function parseCv(text: string): CvRows {
         flush()
         const remainder = clean(raw.replace(RANGE, ""))
         const header = remainder.length >= 3 ? remainder : (pending ?? "")
+        const above = pending
         pending = null
-        const { title, company, place } = splitHeader(header)
+        let { title, company, place } = splitHeader(header)
+        // Many CVs put only the company beside the dates and the title on the next line ("FLC Group  Mar 2026 - Aug 2026", then
+        // "Corporate Finance Specialist", then "Hanoi, Vietnam"), or the title on the line above. One name with no title word in it
+        // beside the dates, and a title word in the line below (or above), is the company.
+        if (remainder.length >= 3 && company === "" && !TITLE_WORDS.test(remainder)) {
+          const nj = nextIdx(i)
+          const next = nj >= 0 ? lines[nj] : ""
+          const nextIsPlain = next !== "" && !headingOf(next) && !/^[-•*·▪◦●–—]/.test(next) && !RANGE.test(next)
+          if (nextIsPlain && TITLE_WORDS.test(next)) {
+            const rest = splitHeader(clean(next))
+            company = remainder
+            title = rest.title
+            place = rest.company ? [rest.company, rest.place].filter(Boolean).join(", ") : ""
+            i = nj
+            const aj = nextIdx(i)
+            const after = aj >= 0 ? lines[aj] : ""
+            if (!place && after !== "" && !headingOf(after) && !RANGE.test(after) && looksLikePlace(clean(after))) {
+              place = clean(after)
+              i = aj
+            }
+          } else if (above && TITLE_WORDS.test(above)) {
+            company = remainder
+            title = above
+          }
+        }
         if (title.length >= 2) {
           current = { Title: title, "Company Name": company, Location: place, "Started On": fixDate(range[1]), "Finished On": ENDS_NOW.test(range[2].trim()) ? "" : fixDate(range[2]), Description: "" }
         }
@@ -106,15 +144,41 @@ export function parseCv(text: string): CvRows {
     }
     if (section === "education") {
       const range = RANGE.exec(raw)
-      const bare = clean(raw.replace(RANGE, ""))
+      const expected = new RegExp(`\\b(?:expected|expected graduation|graduating|verwacht)\\s*:?\\s*(${DATE})`, "iu").exec(raw)
+      const bare = clean(raw.replace(RANGE, "").replace(expected?.[0] ?? "", ""))
       if (bare.length >= 3) {
         const parts = bare.split(/\s*,\s*/)
-        education.push({ "Degree Name": parts[0] ?? bare, "School Name": parts[1] ?? "", "Field Of Study": "", "Start Date": range ? fixDate(range[1]) : "", "End Date": range ? fixDate(range[2]) : "", Notes: parts.slice(2).join(", ") })
+        const nj = nextIdx(i)
+        const nextRaw = nj >= 0 ? lines[nj] : ""
+        const next = clean(nextRaw.replace(RANGE, ""))
+        // The school on one line and the degree on the next ("University of Amsterdam", then "BSc Communication Science Expected June 2027"), or the other way round.
+        if (parts.length === 1 && SCHOOL.test(bare) && !DEGREE.test(bare) && next && DEGREE.test(next) && !headingOf(next)) {
+          const nextExpected = new RegExp(`\\b(?:expected|expected graduation|graduating|verwacht)\\s*:?\\s*(${DATE})`, "iu").exec(nextRaw)
+          const nextRange = RANGE.exec(nextRaw)
+          const degree = clean(next.replace(nextExpected?.[0] ?? "", ""))
+          education.push({ "Degree Name": degree, "School Name": bare, "Field Of Study": "", "Start Date": nextRange ? fixDate(nextRange[1]) : "", "End Date": nextRange ? fixDate(nextRange[2]) : nextExpected ? fixDate(nextExpected[1]) : "", Notes: "" })
+          i = nj
+        } else if (parts.length === 1 && DEGREE.test(bare) && !SCHOOL.test(bare) && next && SCHOOL.test(next) && !DEGREE.test(next) && !headingOf(next)) {
+          education.push({ "Degree Name": bare, "School Name": next, "Field Of Study": "", "Start Date": range ? fixDate(range[1]) : "", "End Date": range ? fixDate(range[2]) : expected ? fixDate(expected[1]) : "", Notes: "" })
+          i = nj
+        } else {
+          education.push({ "Degree Name": parts[0] ?? bare, "School Name": parts[1] ?? "", "Field Of Study": "", "Start Date": range ? fixDate(range[1]) : "", "End Date": range ? fixDate(range[2]) : expected ? fixDate(expected[1]) : "", Notes: parts.slice(2).join(", ") })
+        }
       }
       continue
     }
     if (section === "skills") {
-      for (const name of clean(raw).replace(/^skills?:/i, "").split(/[,;•|·]|\s{2,}/).map((s) => s.trim()).filter((s) => s.length >= 1 && s.length <= 40 && /[\p{L}\d]/u.test(s))) skills.push({ Name: name })
+      let line = clean(raw)
+      // A line that carries on from the one above (it starts in lower case) is joined to it, so a wrapped list is not cut into odd skills.
+      while (/^[a-zà-ÿ]/.test(clean(lines[i + 1] ?? "")) && clean(lines[i + 1] ?? "").length <= 40 && !headingOf(lines[i + 1] ?? "")) {
+        i++
+        line = `${line} ${clean(lines[i])}`
+      }
+      // "Financial Analysis: Financial modeling, SQL" is a group label and its skills; "Languages: ..." is not a skill list.
+      const labelled = /^([^:,]{2,40}):\s*(.+)$/.exec(line)
+      if (labelled && /^languages?$/i.test(labelled[1].trim())) continue
+      const list = labelled ? labelled[2] : line.replace(/^skills?:/i, "")
+      for (const name of list.split(/[,;•|·]|\s{2,}/).map((x) => x.trim()).filter((x) => x.length >= 1 && x.length <= 40 && /[\p{L}\d]/u.test(x))) skills.push({ Name: name })
     }
   }
   flush()
