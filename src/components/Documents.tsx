@@ -222,13 +222,13 @@ function DocumentCard({ doc, jobs, missing, onDelete, onProblem }: DocumentCardP
             <h3 className="line-clamp-2 font-medium leading-snug" title={doc.name}>{doc.name}</h3>
           )}
           <p className="mt-1 flex flex-wrap gap-1.5">
-            {doc.isMain ? <span className="rounded-md bg-brand/15 px-2 py-0.5 text-xs font-medium">Main</span> : null}
+            {doc.isMain ? <span className="rounded-md bg-brand/15 px-2 py-0.5 text-xs font-medium">Main CV</span> : null}
             {doc.inDrive && missing ? (
-              <span className="rounded-md bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">Not in your Drive</span>
+              <span className="rounded-md bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">Missing from Google Drive</span>
             ) : doc.inDrive ? (
-              <span className="rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground">In your Drive</span>
+              <span className="rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground">In Google Drive</span>
             ) : null}
-            {jobs > 0 ? <span className="rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground">On {jobs} {jobs === 1 ? "job" : "jobs"}</span> : null}
+            {jobs > 0 ? <span className="rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground">Sent with {jobs} {jobs === 1 ? "job" : "jobs"}</span> : null}
           </p>
         </div>
       </div>
@@ -250,7 +250,7 @@ function DocumentCard({ doc, jobs, missing, onDelete, onProblem }: DocumentCardP
         )}
         {doc.kind === "cv" && !doc.isMain ? (
           <Button type="button" variant="ghost" size="sm" onClick={() => void run(() => makeMain(doc.id))} className="cursor-pointer max-md:h-10">
-            Make main
+            Use as main CV
           </Button>
         ) : null}
         <span className="ml-auto flex items-center">
