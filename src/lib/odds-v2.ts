@@ -51,14 +51,40 @@ export function step(e: Effect): number {
  * "transferable" experience 3.9% (Mihut), which in the default pile below are strengths of about 1.7 and 0.65.
  */
 const RELEVANCE_WORTH: Record<Relevance | "none", number> = { same: 1, adjacent: 0.3, unrelated: 0.05, none: 0 }
-const RELEVANCE_SPAN = 1.5
+/**
+ * How far apart a role in the job's own line of work and nothing at all sit on the strength scale, before the learned multiplier (1.05):
+ * 0.86 x 1.05 = 0.9. No experiment varies this directly in callbacks. What there is points to 0.25 to 0.9: two years of unrelated
+ * experience instead of similar costs -0.25 (Paths2Include, recruiter ratings); a high against a low skills match was about 0.9 probit
+ * (Mihut 2022, 2,400 applications, callbacks). It was 1.5 before (a gap of 1.6), which put anyone with one related role well above
+ * most of a pile of applicants who mostly also have one; the top of the evidence is used.
+ */
+const RELEVANCE_SPAN = 0.86
 const RELEVANCE_FLOOR = 0.2
 /** What kind of role it was: a full job counts fully, an internship 0.8 of it (Nunley et al. 2016: an internship is worth about 55% of a post-graduation in-field job's +25%), a job for money about nothing (Kessler et al. 2019; Baert et al. 2016). */
 const KIND_WORTH = { job: 1, internship: 0.8, student: 0.15 } as const
+/**
+ * How far a line on a CV or profile can be believed. Nobody checks it: some people polish a CV or stretch it, and a role is easier to
+ * claim than to prove. So a role counts for less when it is short (under a year: a summer stint is not a job), when the employer is not one
+ * we know anything about (an unknown name can be anyone), and when it is the person's own business (founder, owner, freelance: only
+ * they say what it is). Weights, our judgement; no experiment varies them. A known employer and a year or more count in full.
+ * Cost, measured: callback experiments show recruiters do not mark down an unknown employer (Oreopoulos: a very large firm +0.05), so
+ * the employer weights lower the within-job AUC on Oreopoulos' held-out rows (0.687 with none; 0.646 at 0.85 / 0.92; 0.629 at 0.7 / 0.85).
+ * They are a product choice against stretched CVs, kept mild. The duration and own-business weights touch no experiment's rows.
+ */
+const EMPLOYER_TRUST: Record<EmployerTier, number> = { elite: 1, large: 1, mid: 1, small: 0.92, unknown: 0.85 }
+const OWN_BUSINESS = /\b(founder|co-?founder|owner|self[- ]employed|freelanc\w*|entrepreneur|zzp)\b/i
+const MIN_TRUST = 0.25
+export function roleTrust(r: { title: string; company: string; years: number }): number {
+  const duration = 0.5 + 0.5 * Math.min(1, Math.max(0, r.years))
+  const employer = OWN_BUSINESS.test(r.title) ? 0.5 : EMPLOYER_TRUST[employerTier(r.company)]
+
+  return Math.max(MIN_TRUST, duration * employer)
+}
+
 /** Years asked from which a job counts as senior for the shortfall penalty. */
 export const SENIOR_YEARS = 5
 /** What a degree in the job's line of work is worth for a first job when there is no work in it yet: 0.06 below a same-line internship. */
-const DEGREE_AS_FIRST_ROLE = 0.74
+const DEGREE_AS_FIRST_ROLE = 0.69
 
 /**
  * The employer's name. The one callback measure is Oreopoulos 2011: experience at a very large firm, OR 1.09 (1.16 within job) at a
@@ -115,7 +141,8 @@ export const EFFECTS = {
 const DUTCH_NOT_ASKED_SHARE = 0.3
 
 /** The most listed skills can move strength either way (our assumption). */
-const SKILL_SPAN = 0.2
+/** Listed skills: four experiments pool to +0.004 (scripts/research/meta_effects.py), so only a trace is kept. */
+const SKILL_SPAN = 0.06
 
 /** The years a level usually means when a posting does not say: our reading of Dutch job ads (junior 0-2, medior 2-5, senior 5+). */
 const LEVEL_YEARS: Partial<Record<NonNullable<Posting["level_view"]>, number>> = { Mid: 2, Senior: 5, Manager: 5, Director: 8 }
@@ -346,26 +373,31 @@ export function strengthParts(post: Posting, profile: Profile, ctx: V2Context = 
   let best = { worth: 0, role: null as null | { title: string; company: string; years: number }, rel: "none" as Relevance | "none", kind: "job" as keyof typeof KIND_WORTH }
   let relevantInternships = 0
   let relevantYears = 0
-  for (const r of base.roles) {
-    const kind: keyof typeof KIND_WORTH = isStudentJob(r.title) ? "student" : isInternshipTitle(r.title) ? "internship" : "job"
-    const rel = roleRelevance(r.title, post, jobFamily)
-    const worth = RELEVANCE_WORTH[rel] * KIND_WORTH[kind]
-    if (rel === "same" && kind === "internship") relevantInternships++
-    if (rel === "same" && kind === "job") relevantYears += r.years
-    if (worth > best.worth) best = { worth, role: r, rel, kind }
-  }
   // A degree in the line of work counts as relevant evidence for internships and first jobs, the way a matched CV does.
   const degreeFams = profile.education.map((e) => degreeFamily(`${e["Degree Name"] ?? ""} ${e["Field Of Study"] ?? ""}`))
   const degreeIn = jobFamily !== null && degreeFams.includes(jobFamily)
   const firstJob = isInternshipTitle(post.title) || post.level_view === "Internship" || post.level_view === "Entry" || post.role_kind === "internship" || post.role_kind === "entry_job" || post.role_kind === "traineeship"
-  let worth = best.worth
   // A first job or internship with a degree in its line of work: the degree reads almost like a first internship. Baert et al. 2021 (+12.6%
   // interview invitations for an internship) and Nunley et al. 2016 (+14%) put one relevant internship at about +0.09 to +0.10 probit over
-  // the same graduate without it, so the degree's worth sits that far below a same-line internship (0.8 x 1.5 x 1.05 shipped).
-  if (firstJob && degreeIn) worth = Math.max(worth, DEGREE_AS_FIRST_ROLE)
+  // the same graduate without it, so the degree's worth sits that far below a same-line internship.
+  const degreeOnly = firstJob && degreeIn ? DEGREE_AS_FIRST_ROLE : 0
+  for (const r of base.roles) {
+    const kind: keyof typeof KIND_WORTH = isStudentJob(r.title) ? "student" : isInternshipTitle(r.title) ? "internship" : "job"
+    const rel = roleRelevance(r.title, post, jobFamily)
+    const raw = RELEVANCE_WORTH[rel] * KIND_WORTH[kind]
+    const trust = roleTrust(r)
+    // What an unverifiable line adds is cut, not what the degree already gave: an internship nobody can check is worth less than a
+    // checked one, never less than having none (Baert, Nunley: an internship helps whoever the employer).
+    const worth = raw > degreeOnly ? degreeOnly + (raw - degreeOnly) * trust : raw * trust
+    if (rel === "same" && kind === "internship") relevantInternships++
+    if (rel === "same" && kind === "job") relevantYears += r.years * trust
+    if (worth > best.worth) best = { worth, role: r, rel, kind }
+  }
+  let worth = Math.max(best.worth, degreeOnly)
+  const bestTrust = best.role ? roleTrust(best.role) : 1
   parts.push({
     key: "relevance",
-    label: best.role ? `Most relevant: ${best.role.title}${best.role.company ? ` at ${best.role.company}` : ""} (${best.rel === "same" ? "same line of work" : best.rel === "adjacent" ? "a neighbouring line of work" : "another line of work"})` : degreeIn ? "Degree in this line of work, no work in it yet" : "No work in this line of work yet",
+    label: best.role ? `Most relevant: ${best.role.title}${best.role.company ? ` at ${best.role.company}` : ""} (${best.rel === "same" ? "same line of work" : best.rel === "adjacent" ? "a neighbouring line of work" : "another line of work"})${bestTrust < 0.95 ? `, counted at ${Math.round(bestTrust * 100)}%: a short stint, an employer we do not know or your own business cannot be checked` : ""}` : degreeIn ? "Degree in this line of work, no work in it yet" : "No work in this line of work yet",
     z: RELEVANCE_FLOOR + RELEVANCE_SPAN * worth,
     source: "Mihut 2022; Thijssen et al. 2019; Nunley et al. 2016",
   })

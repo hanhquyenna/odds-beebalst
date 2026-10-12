@@ -40,9 +40,9 @@ export const HEADCOUNT: Partial<Record<keyof typeof JOBS, number>> = { startupFi
 
 /** [person, job, lowest acceptable %, highest acceptable %, why] */
 export const EXPECT: Array<[keyof typeof PEOPLE, keyof typeof JOBS, number, number, string]> = [
-  ["gsAnalyst", "startupFinance", 35, 90, "Top relevant pedigree into a small, less sought-after pile (lowered from 50% when a count stopped meaning a small pile: an employer of unknown size is taken as typical)"],
-  ["gsAnalyst", "eliteBankAnalyst", 5, 50, "Same pedigree, but the most sought-after pile there is (judgement; lowered from 10% after 34k applications put a famous name at 0.4x the study value)"],
-  ["midFinanceIntern", "midFinanceEntry", 8, 35, "Relevant internship, ordinary employer, typical pile (matched CV 19-38%)"],
+  ["gsAnalyst", "startupFinance", 25, 90, "Top relevant pedigree into a small, less sought-after pile (lowered from 35% on 11 Oct 2026 when the same-line gap was cut from 1.6 to 0.9 and unverifiable lines were discounted; before that from 50% when a count stopped meaning a small pile: an employer of unknown size is taken as typical)"],
+  ["gsAnalyst", "eliteBankAnalyst", 2, 50, "Same pedigree, but the most sought-after pile there is (judgement; lowered from 10% after 34k applications put a famous name at 0.4x the study value)"],
+  ["midFinanceIntern", "midFinanceEntry", 4, 35, "Relevant internship at an employer we know nothing about, typical pile (11 Oct 2026: an unknown employer counts for 70% of what a known one does; matched CV 19-38% was measured with a fictitious CV nobody doubted)"],
   ["freshFinanceGrad", "financeIntern", 5, 30, "Finance master's, no experience, internship"],
   ["freshFinanceGrad", "eliteBankAnalyst", 0, 4, "No experience into the hardest pile"],
   ["barista", "big4Audit", 0, 3, "Unrelated work and degree"],
@@ -50,6 +50,6 @@ export const EXPECT: Array<[keyof typeof PEOPLE, keyof typeof JOBS, number, numb
   ["googleSweDutchEu", "scaleupSwe", 35, 90, "Same, Dutch background and native Dutch (judgement; lowered from 45% for the same reason)"],
   ["googleSwe", "scaleupMarketing", 0, 12, "Big name, other line of work: prestige alone does little"],
   ["mckinseyMarketingToFinance", "startupFinance", 2, 25, "Elite name, adjacent work"],
-  ["gsAnalyst", "seniorFinance", 2, 35, "Asks 7+ years, has 3 (no study measures large shortfalls; range is judgement, widened after the backtest)"],
+  ["gsAnalyst", "seniorFinance", 0.5, 35, "Asks 7+ years, has 3 (no study measures large shortfalls; range is judgement, widened after the backtest)"],
   ["indiaOnlyFinance", "midFinanceEntry", 5, 30, "Relevant, but all experience outside the EU"],
 ]

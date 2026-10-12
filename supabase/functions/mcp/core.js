@@ -541,11 +541,19 @@ function step(e) {
   return z;
 }
 var RELEVANCE_WORTH = { same: 1, adjacent: 0.3, unrelated: 0.05, none: 0 };
-var RELEVANCE_SPAN = 1.5;
+var RELEVANCE_SPAN = 0.86;
 var RELEVANCE_FLOOR = 0.2;
 var KIND_WORTH = { job: 1, internship: 0.8, student: 0.15 };
+var EMPLOYER_TRUST = { elite: 1, large: 1, mid: 1, small: 0.92, unknown: 0.85 };
+var OWN_BUSINESS = /\b(founder|co-?founder|owner|self[- ]employed|freelanc\w*|entrepreneur|zzp)\b/i;
+var MIN_TRUST = 0.25;
+function roleTrust(r) {
+  const duration = 0.5 + 0.5 * Math.min(1, Math.max(0, r.years));
+  const employer = OWN_BUSINESS.test(r.title) ? 0.5 : EMPLOYER_TRUST[employerTier(r.company)];
+  return Math.max(MIN_TRUST, duration * employer);
+}
 var SENIOR_YEARS = 5;
-var DEGREE_AS_FIRST_ROLE = 0.74;
+var DEGREE_AS_FIRST_ROLE = 0.69;
 var PRESTIGE = { elite: 0.15, large: 0.07, mid: 0, small: 0, unknown: 0 };
 var PRESTIGE_OFF_FIELD = 0.4;
 var ELITE_SAME_LINE = 0.15;
@@ -566,7 +574,7 @@ var EFFECTS = {
   foreignDegree: { or: 0.92, at: 0.1 }
 };
 var DUTCH_NOT_ASKED_SHARE = 0.3;
-var SKILL_SPAN = 0.2;
+var SKILL_SPAN = 0.06;
 var LEVEL_YEARS = { Mid: 2, Senior: 5, Manager: 5, Director: 8 };
 var YEAR_STEP = 0.08;
 var YEAR_CAP = 3;
@@ -706,26 +714,28 @@ function strengthParts(post, profile, ctx = {}) {
   let best = { worth: 0, role: null, rel: "none", kind: "job" };
   let relevantInternships = 0;
   let relevantYears = 0;
-  for (const r of base.roles) {
-    const kind = isStudentJob(r.title) ? "student" : isInternshipTitle(r.title) ? "internship" : "job";
-    const rel = roleRelevance(r.title, post, jobFamily);
-    const worth = RELEVANCE_WORTH[rel] * KIND_WORTH[kind];
-    if (rel === "same" && kind === "internship")
-      relevantInternships++;
-    if (rel === "same" && kind === "job")
-      relevantYears += r.years;
-    if (worth > best.worth)
-      best = { worth, role: r, rel, kind };
-  }
   const degreeFams = profile.education.map((e) => degreeFamily(`${e["Degree Name"] ?? ""} ${e["Field Of Study"] ?? ""}`));
   const degreeIn = jobFamily !== null && degreeFams.includes(jobFamily);
   const firstJob = isInternshipTitle(post.title) || post.level_view === "Internship" || post.level_view === "Entry" || post.role_kind === "internship" || post.role_kind === "entry_job" || post.role_kind === "traineeship";
-  let worth = best.worth;
-  if (firstJob && degreeIn)
-    worth = Math.max(worth, DEGREE_AS_FIRST_ROLE);
+  const degreeOnly = firstJob && degreeIn ? DEGREE_AS_FIRST_ROLE : 0;
+  for (const r of base.roles) {
+    const kind = isStudentJob(r.title) ? "student" : isInternshipTitle(r.title) ? "internship" : "job";
+    const rel = roleRelevance(r.title, post, jobFamily);
+    const raw = RELEVANCE_WORTH[rel] * KIND_WORTH[kind];
+    const trust = roleTrust(r);
+    const worth = raw > degreeOnly ? degreeOnly + (raw - degreeOnly) * trust : raw * trust;
+    if (rel === "same" && kind === "internship")
+      relevantInternships++;
+    if (rel === "same" && kind === "job")
+      relevantYears += r.years * trust;
+    if (worth > best.worth)
+      best = { worth, role: r, rel, kind };
+  }
+  let worth = Math.max(best.worth, degreeOnly);
+  const bestTrust = best.role ? roleTrust(best.role) : 1;
   parts.push({
     key: "relevance",
-    label: best.role ? `Most relevant: ${best.role.title}${best.role.company ? ` at ${best.role.company}` : ""} (${best.rel === "same" ? "same line of work" : best.rel === "adjacent" ? "a neighbouring line of work" : "another line of work"})` : degreeIn ? "Degree in this line of work, no work in it yet" : "No work in this line of work yet",
+    label: best.role ? `Most relevant: ${best.role.title}${best.role.company ? ` at ${best.role.company}` : ""} (${best.rel === "same" ? "same line of work" : best.rel === "adjacent" ? "a neighbouring line of work" : "another line of work"})${bestTrust < 0.95 ? `, counted at ${Math.round(bestTrust * 100)}%: a short stint, an employer we do not know or your own business cannot be checked` : ""}` : degreeIn ? "Degree in this line of work, no work in it yet" : "No work in this line of work yet",
     z: RELEVANCE_FLOOR + RELEVANCE_SPAN * worth,
     source: "Mihut 2022; Thijssen et al. 2019; Nunley et al. 2016"
   });
@@ -3665,7 +3675,7 @@ function hearBackFor(postings, profile, referrals, record) {
 }
 
 // src/lib/outcome-snapshot.ts
-var SNAPSHOT_MODEL = "odds-v2.7-no-counts-industry-standing";
+var SNAPSHOT_MODEL = "odds-v2.8-trust-gap-skills";
 var round = (x, digits = 4) => Math.round(x * 10 ** digits) / 10 ** digits;
 function chanceSnapshot(post, profile, ctx = {}) {
   const v2 = oddsV2(post, profile, ctx);

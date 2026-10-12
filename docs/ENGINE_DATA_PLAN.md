@@ -274,6 +274,32 @@ from weakest to strongest (0.8% to 40.6%) did not make sense. Checked against th
   `bun run check` 956 tests on a clean tree; e2e 9/9 (landing 310.2 kB, budget raised 310 -> 312 for these 0.3 kB). Not done yet: dropping
   the overqualified penalty (H2), the skills span (G6) and the pile model (I1).
 
+### L. After Kien's check of his own number (2026-10-12; SNAPSHOT_MODEL odds-v2.8-trust-gap-skills)
+Kien's Strategic Finance Intern job at Qogita showed 35% with every recommendation ticked (14% as he stood), for a 3-month consulting
+stint at an unknown company, a 5-month finance role and a founder role he claims himself. Reproduced exactly (engine v2.7), then:
+- [x] L1. **Same-line gap 1.6 -> 0.9** (`RELEVANCE_SPAN` 1.5 -> 0.86). Not identified by any field experiment; the evidence is 0.25 to 0.9
+      (Paths2Include -0.25; Mihut high vs low skills match about 0.9). The top is used.
+- [x] L2. **Skills +-0.2 -> +-0.06** (`SKILL_SPAN`): four experiments pool to +0.004. Ticking two skills had been worth +6.6 points.
+- [x] L3. **Not every line is believed equally** (`roleTrust`): under a year counts 50% rising to 100% at 12 months; an unknown employer 85%
+      (small 92%); your own business (founder, owner, freelance) 50%; floor 25%. Applied to what a role adds above a degree in the field
+      (an unverifiable internship is worth less than a checked one, never less than none: Baert 2021 and Nunley 2016). The part's label
+      says when a line is counted at less. **Cost, measured:** Oreopoulos held-out within-job AUC 0.6873 with no employer weights, 0.6461
+      at 85/92%, 0.6292 at 70/85%; NL 0.5701 -> 0.5705. Recruiters in callback studies do not mark down an unknown employer (Oreopoulos
+      very large firm +0.05), so this is a product choice against stretched CVs, kept mild. The duration and own-business weights touch no
+      experiment's rows.
+- [x] L4. First internship counted as +0.10 over a graduate with none (`DEGREE_AS_FIRST_ROLE` 0.69).
+- Result for the job: LinkedIn profile 14.2% -> 2.8% (all four ticks 34.1% -> 5.8%); with his CV on the job 1.6% (3.1% with all four).
+  Personas (Finance Intern, 180/10): weakest 1.2%; non-EU with MSc 5.2%; Dutch with one internship 9.7%; two internships incl. Goldman Sachs
+  13.7%; strongest 16.9% (was 32.6%). His 3,281 jobs with a referral on every one: highest 49.4% -> 27.9%, median 2.6% -> 1.8%.
+- Persona test ranges lowered where they encoded the old values (GS into a start-up 35 -> 25, elite bank 5 -> 2, relevant internship at an
+  unknown employer 8 -> 4, senior shortfall 2 -> 0.5), each with its reason in odds-v2.personas.ts.
+- **Still open, and now the biggest lever for his top jobs:** the pile. A job at an employer we cannot size is assumed 60 applicants and 10
+  interviews (a 17% average chance), so his best jobs (Product Marketing Internship at OMRON 24-28%) are mostly that assumption.
+  The pile model of section I (ridge on our own Dutch counts) has not been put in.
+- A CV on a job decides that job's chance (job-cv-profile.ts, shipped 0703ee2) and its reader was fixed for the layout "company beside
+  the dates, title on the next line" (400a346). The main CV's text (profile.cv) still reaches degree and skill detection for every job: on
+  Kien's profile it moves 575 of 3,281 jobs by at most 0.87 points. Not removed: profile.cv also holds LinkedIn's free text (certifications).
+
 ### J. Searched, not available (2026-10-11 evening)
 - Nunley, Pugh, Romero & Seals 2016 (internships, majors; Labour Economics): no public data. Arellano-Bover, Bussotti, Nunley & Seals (IZA DP 17552;
   majors, minors, extracurriculars, internship type): the IRB requires the firms to stay anonymous, no data. Braun et al. 2026 (arXiv 2604.01933,
@@ -289,6 +315,7 @@ from weakest to strongest (0.8% to 40.6%) did not make sense. Checked against th
 - No LinkedIn scraping without the user explicitly accepting the ToS risk (see report section on legal).
 
 ## Progress log
+- 2026-10-12: L (Kien's own 35% reproduced and traced; gap, skills and trust changes; pile still open).
 - 2026-10-11 (late): K1-K6 engine changes after Kien's review (see K).
 - 2026-10-11 (evening, session "Engine"): G (GEMM 5-country signals, GEMM NL full file, Phillips, Pan & Zhang, L'Horty), G6 meta-analysis, H (engine vs free / interactions / boosting / MLP: the engine wins on NL; the overqualified penalty is the one fault), I (pile model on our 1,203 Dutch counts: the tier constants do not rank and run 40% high; ridge is best), J (sources searched). No engine change made; three proposals wait for Kien.
 - 2026-10-11: plan written.
