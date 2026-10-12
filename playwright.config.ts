@@ -17,8 +17,10 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
-    { name: "desktop", use: { ...devices["Desktop Chrome"] }, testIgnore: /phone\.spec\.ts/ },
-    { name: "phone", use: { ...devices["iPhone 14"], browserName: "chromium" }, testMatch: /phone\.spec\.ts/ },
+    { name: "desktop", use: { ...devices["Desktop Chrome"] }, testIgnore: /phone.*\.spec\.ts/ },
+    // The phone flows run as an iPhone-sized and as an Android-sized screen (Chromium both: no WebKit on the build machine).
+    { name: "phone", use: { ...devices["iPhone 14"], browserName: "chromium" }, testMatch: /phone.*\.spec\.ts/ },
+    { name: "android", use: { ...devices["Pixel 7"] }, testMatch: /phone.*\.spec\.ts/ },
   ],
   webServer: {
     command: `bun run build && bunx vite preview --port ${PORT} --strictPort`,
