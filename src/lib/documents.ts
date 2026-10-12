@@ -20,6 +20,11 @@ function set(next: Store): void {
   listeners.forEach((l) => l())
 }
 
+/** The store as it is now, for code that is not a component (the snapshot taken when a job is marked applied). */
+export function documentStoreNow(): Store {
+  return store
+}
+
 export function useDocumentStore(): Store {
   return useSyncExternalStore(
     (l) => {

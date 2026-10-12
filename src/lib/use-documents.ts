@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo } from "react"
 import { useData } from "@/lib/data"
-import type { Profile } from "@/lib/types"
-import { attachedTo, mainCv, type DocKind } from "@/lib/document-model"
+import type { Posting, Profile } from "@/lib/types"
+import { mainCv, type DocKind } from "@/lib/document-model"
 import { addDocument, loadDocuments, signOutDocuments, syncWithDrive, useDocumentStore, type Added } from "@/lib/documents"
 import { loadDrive, useDrive } from "@/lib/drive"
+import { jobProfileOf, useCvReader, type JobProfile } from "@/lib/job-cv-profile"
+import type { Strength } from "@/lib/strength"
 import { takePendingCv } from "@/lib/pending-cv"
 
 const DRIVE_SYNC_GAP_MS = 30_000
@@ -93,13 +95,29 @@ export function useAddDocument(): (file: File, kind: DocKind, name?: string) => 
 }
 
 /**
- * The profile this job's chance is worked out from: the saved profile, with the CV put on this job (when there is one) in place of
- * the main CV. Every number on the job page must come from this one, or two figures on one page would disagree.
+ * The profile this job's chance is worked out from: the saved profile, or, when a CV is put on this job, the roles, degrees and skills of
+ * that CV (job-cv-profile.ts). Every number on the job page must come from this one, or two figures on one page would disagree.
  */
-export function useJobProfile(postingId: string): Profile {
+export function useJobProfileInfo(postingId: string): JobProfile {
   const { profile } = useData()
   const store = useDocumentStore()
-  const cv = attachedTo(store, postingId, "cv")
+  const ready = useCvReader(store.links.some((l) => l.postingId === postingId && l.kind === "cv"))
 
-  return useMemo(() => (cv ? { ...profile, cv: cv.body } : profile), [profile, cv])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => jobProfileOf(profile, store, postingId), [profile, store, postingId, ready])
+}
+
+export function useJobProfile(postingId: string): Profile {
+  return useJobProfileInfo(postingId).profile
+}
+
+/**
+ * How strong the saved profile reads for this job (strength.ts). That reading is of the saved profile, so a job whose chance comes from
+ * its own CV does not use it: the CV alone decides.
+ */
+export function useJobStrength(post: Pick<Posting, "id" | "family">): Strength | null {
+  const { strengthFor } = useData()
+  const { fromCv } = useJobProfileInfo(post.id)
+
+  return fromCv ? null : strengthFor(post)
 }

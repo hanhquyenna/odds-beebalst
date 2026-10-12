@@ -26,17 +26,21 @@ export interface FitEngineInput {
   shares: Parameters<typeof standing>[3]
   referrals?: ReadonlySet<string>
   strengthFor?: (post: Pick<Posting, "family">) => Strength | null
+  /** The profile a job's chance is worked out from when it has a CV of its own (job-cv-profile.ts); null or absent: the saved profile. */
+  cvProfileFor?: (postingId: string) => Profile | null
   /** The stage of each job you applied to, by posting id. */
   stages?: ReadonlyMap<string, Application["stage"]>
 }
 
-export function createFitEngine({ postings, profile, reference, shares, referrals, strengthFor, stages }: FitEngineInput): FitEngine {
+export function createFitEngine({ postings, profile, reference, shares, referrals, strengthFor, cvProfileFor, stages }: FitEngineInput): FitEngine {
   const signals = profileSignals(profile, industryByEmployer(postings))
   const stood = new Map<string, ReturnType<typeof standing>>()
   const stand = (post: Posting): ReturnType<typeof standing> => {
     let st = stood.get(post.id)
     if (!st) {
-      st = standing(post, profile, reference, shares, undefined, referrals?.has(post.id) ?? false, strengthFor?.(post) ?? null)
+      // A job with a CV of its own is worked out from that CV alone, and not from the saved profile's reading (strengthFor).
+      const own = cvProfileFor?.(post.id) ?? null
+      st = standing(post, own ?? profile, reference, shares, undefined, referrals?.has(post.id) ?? false, own ? null : (strengthFor?.(post) ?? null))
       stood.set(post.id, st)
     }
 

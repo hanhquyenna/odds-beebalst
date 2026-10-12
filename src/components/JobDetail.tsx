@@ -14,7 +14,7 @@ import { CareerLadder, FitCard, LockedPersonal, PayCard, Recommendations, UspStr
 import { Section } from "@/components/Section"
 import { JobDocuments } from "@/components/JobDocuments"
 import { useData } from "@/lib/data"
-import { useJobProfile } from "@/lib/use-documents"
+import { useJobProfile, useJobStrength } from "@/lib/use-documents"
 import { saved as notifySaved } from "@/lib/saved"
 import { isWhatIfActive, NO_WHAT_IF, standing, type WhatIf } from "@/lib/engine"
 import { stripMarkup } from "@/lib/format"
@@ -95,7 +95,7 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
   )
   const referral = data.referrals.has(post.id)
   // How strong your saved profile reads for this job. Until something has been read (or if the reader is off) the chance shows without it.
-  const strength = data.strengthFor(post)
+  const strength = useJobStrength(post)
   // A CV put on this job is what this job's chance is worked out from; without one it is the main CV in the profile.
   const profile = useJobProfile(post.id)
   const base = useMemo(

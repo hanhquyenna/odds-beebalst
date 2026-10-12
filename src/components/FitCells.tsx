@@ -4,6 +4,7 @@ import { useData } from "@/lib/data"
 import { pct, point, standing, type Standing } from "@/lib/engine"
 import { IMPORT_HINT, openLinkedInImport } from "@/lib/open-profile"
 import type { Posting } from "@/lib/types"
+import { useJobProfile, useJobStrength } from "@/lib/use-documents"
 
 /** How you stand on one job, worked out from your profile. Null until the reference data has loaded. */
 export function useFit(post: Posting): Standing | null {
@@ -25,14 +26,16 @@ export function useFit(post: Posting): Standing | null {
  * the same on every job and every place the number appears. Null where there is no estimate.
  */
 export function useOriginalChance(post: Posting): number | null {
-  const { profile, reference, shares, strengthFor } = useData()
+  const { reference, shares } = useData()
+  const profile = useJobProfile(post.id)
+  const strength = useJobStrength(post)
 
   return useMemo(() => {
     if (!reference || !shares) return null
-    const r = standing(post, profile, reference, shares, undefined, false, strengthFor(post)).rate
+    const r = standing(post, profile, reference, shares, undefined, false, strength).rate
 
     return r && !r.thin ? r.mid : null
-  }, [post, profile, reference, shares, strengthFor])
+  }, [post, profile, reference, shares, strength])
 }
 
 /**

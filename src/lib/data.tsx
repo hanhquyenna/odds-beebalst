@@ -29,7 +29,8 @@ import {
 import { saveChanceSnapshot } from "@/lib/outcome-log"
 import { chanceSnapshot } from "@/lib/outcome-snapshot"
 import { mergeSaved, pushSaved } from "@/lib/saved-sync"
-import { loadDocuments } from "@/lib/documents"
+import { documentStoreNow, loadDocuments } from "@/lib/documents"
+import { jobProfileOf } from "@/lib/job-cv-profile"
 import { loadAutoLogos, registerLogos, useAutoLogosReady } from "@/lib/stored-logos"
 import { DEFAULT_PROFILE, type Application, type PastSearch, type Person, type Posting, type Profile } from "@/lib/types"
 
@@ -624,7 +625,11 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
         return
       }
       // What the chance was when they applied is kept, so that when they hear back the model can be checked against it (outcome-snapshot.ts).
-      if (stage === "applied") saveChanceSnapshot(chanceSnapshot(post, profile, { referral: referrals.has(post.id), record: facts.strengthFor(post) }))
+      if (stage === "applied") {
+        // The chance kept is the one shown: from the CV put on this job when there is one, else from the saved profile.
+        const own = jobProfileOf(profile, documentStoreNow(), post.id)
+        saveChanceSnapshot(chanceSnapshot(post, own.profile, { referral: referrals.has(post.id), record: own.fromCv ? null : facts.strengthFor(post) }))
+      }
       // The server has the row now. A move or removal made while it saved is applied to it, and a later failure keeps it.
       try {
         const rows = await fetchApplications(byId)

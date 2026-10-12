@@ -11,7 +11,7 @@ import { Section } from "@/components/Section"
 import { TIERS, TIER_LABEL, type Requirement, type Tier } from "@/lib/requirements"
 import { standardNames, standardTiers } from "@/lib/standard"
 import { useData } from "@/lib/data"
-import { useJobProfile } from "@/lib/use-documents"
+import { useJobProfile, useJobProfileInfo, useJobStrength } from "@/lib/use-documents"
 import { ladderStats, poolOf, rungOf } from "@/lib/ladder"
 import { derive, eur, isInternship, levelOf, type Level, payChoicesOf, netMonth, pct, point, standing, thresholdLines, type Standing, type WhatIf, NO_WHAT_IF } from "@/lib/engine"
 import { EXAMPLE_PROFILE } from "@/lib/example"
@@ -53,6 +53,7 @@ function Info({ label, children }: { label: string; children: React.ReactNode })
 export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.JSX.Element {
   const [open, setOpen] = useState<boolean>(false)
   const original = useOriginalChance(post)
+  const { cvName, fromCv } = useJobProfileInfo(post.id)
   const r = st.rate
   // With no profile there is no chance to give yet: a "?" that leads to the import, never a "0%" that reads like a real figure.
   const chance = r && !r.thin ? point(r.mid) : st.needsProfile ? "?" : null
@@ -68,6 +69,9 @@ export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.J
         {chance !== null ? (
         <div className="flex flex-col gap-1 p-4 sm:p-5">
           <p className="text-[0.8125rem] text-muted-foreground">Interview chance</p>
+          {cvName ? (
+            <p className="text-xs text-muted-foreground">{fromCv ? `Worked out from your CV “${cvName}”` : `We could not read roles or degrees from “${cvName}”, so this uses your profile`}</p>
+          ) : null}
           {chance !== null ? (
             <>
               {st.needsProfile ? (
@@ -224,6 +228,7 @@ export function Recommendations({ post, base, whatIf, setWhatIf }: { post: Posti
   const shares = data.shares!
   const referral = data.referrals.has(post.id)
   const jobProfile = useJobProfile(post.id)
+  const jobStrength = useJobStrength(post)
   const d = derive(jobProfile)
   const active = whatIf.dutch || whatIf.degree || whatIf.student || whatIf.years > 0 || whatIf.skills.length > 0 || whatIf.tailor !== null
   const failed = (name: string): boolean => base.gates.find((g) => g.name === name)?.status === "fail"
@@ -234,7 +239,7 @@ export function Recommendations({ post, base, whatIf, setWhatIf }: { post: Posti
    * number only moves once the others are met too, and "No effect" when it does nothing. `gap` carries the "Needed" case so the reason can say why.
    */
   function worthOf(change: Partial<WhatIf>, asReferral = false): { badge: string; gap: boolean } {
-    const alt = standing(post, jobProfile, ref, shares, { ...NO_WHAT_IF, ...change }, asReferral || referral, data.strengthFor(post))
+    const alt = standing(post, jobProfile, ref, shares, { ...NO_WHAT_IF, ...change }, asReferral || referral, jobStrength)
     if (base.rate && alt.rate && !base.rate.thin && !alt.rate.thin) {
       const gain = (alt.rate.mid - base.rate.mid) * 100
       if (Math.abs(gain) >= 0.05) {
