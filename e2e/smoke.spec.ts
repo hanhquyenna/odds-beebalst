@@ -155,3 +155,13 @@ async function keptPool(): Promise<boolean> {
     }
   })
 }
+
+test("Claude sending someone to connect: sign in first, and the address goes back to the front page", async ({ page }) => {
+  const challenge = "0123456789012345678901234567890123456789012"
+  await page.goto(`/connect/claude?client_id=abc&redirect_uri=${encodeURIComponent("https://claude.ai/api/mcp/auth_callback")}&state=s&code_challenge=${challenge}&code_challenge_method=S256`)
+
+  const dialog = page.getByRole("dialog", { name: "Sign in to connect Claude" })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Continue with Google" })).toBeVisible()
+  await expect(page).toHaveURL(/\/$/)
+})

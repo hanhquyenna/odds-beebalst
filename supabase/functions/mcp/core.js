@@ -3606,13 +3606,14 @@ function profileFitFor(post, st, sig) {
 
 // src/lib/fit-engine.ts
 var STAGE_WEIGHT = { applied: 1.5, interview: 2.2, offer: 2.5, hired: 2.5, rejected: 0.7, no_reply: 0.7, withdrawn: 0.4 };
-function createFitEngine({ postings, profile, reference, shares, referrals, strengthFor, stages }) {
+function createFitEngine({ postings, profile, reference, shares, referrals, strengthFor, cvProfileFor, stages }) {
   const signals = profileSignals(profile, industryByEmployer(postings));
   const stood = new Map;
   const stand = (post) => {
     let st = stood.get(post.id);
     if (!st) {
-      st = standing(post, profile, reference, shares, undefined, referrals?.has(post.id) ?? false, strengthFor?.(post) ?? null);
+      const own = cvProfileFor?.(post.id) ?? null;
+      st = standing(post, own ?? profile, reference, shares, undefined, referrals?.has(post.id) ?? false, own ? null : strengthFor?.(post) ?? null);
       stood.set(post.id, st);
     }
     return st;

@@ -4,6 +4,7 @@ import { Footer } from "@/components/Footer"
 import type { ShellTab } from "@/components/AppShell"
 import { usePhone } from "@/lib/use-phone"
 import { NotifyPrompt } from "@/components/NotifyPrompt"
+import { connectWaiting } from "@/lib/connect-request"
 import { DevicePairing } from "@/components/DevicePairing"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -38,6 +39,7 @@ const JobDetail = lazy(() => import("@/components/JobDetail").then((module) => (
 const Documents = lazy(() => import("@/components/Documents").then((module) => ({ default: module.Documents })))
 const ProfilePage = lazy(() => import("@/components/ProfilePage").then((module) => ({ default: module.ProfilePage })))
 const AddToPhonePrompt = lazy(() => import("@/components/AddToPhonePrompt").then((module) => ({ default: module.AddToPhonePrompt })))
+const ConnectApproval = lazy(() => import("@/components/ConnectApproval").then((m) => ({ default: m.ConnectApproval })))
 const ClaudePage = lazy(() => import("@/components/ClaudeGuide").then((module) => ({ default: module.ClaudePage })))
 // Lazy because it is one view among several: first-timers never load the
 // boards and tables until they have answers, and returning users wait on it
@@ -86,6 +88,8 @@ export default function App(): React.JSX.Element {
   useDocumentsSync()
   const onboarded = data.profile.onboarded
   const installGuide = useInstallGuide()
+  // Claude sent someone here to connect: the card that asks them is loaded only then.
+  const [connectRequest] = useState<boolean>(connectWaiting)
   const phone = usePhone()
   // With answers already given the account is coming, so the welcome screen
   // must not flash first.
@@ -514,6 +518,11 @@ export default function App(): React.JSX.Element {
       ) : null}
       <NotifyPrompt session={data.session} />
       <DevicePairing />
+      {connectRequest ? (
+        <Suspense fallback={null}>
+          <ConnectApproval />
+        </Suspense>
+      ) : null}
     </div>
   )
 }

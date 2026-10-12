@@ -2,12 +2,14 @@
 // someone's interview chance and tailored list, with the app's own rules (core.js, bundled from src/lib by scripts/build-mcp-core.sh).
 //
 // Transport: MCP Streamable HTTP, stateless (every POST stands alone, answered as JSON; no server-sent stream is needed for tools).
-// Access, two levels. Without a key: the public anon key only, the same reads the app makes before anyone signs in; nothing writes.
-// With a person's private link (?key=odds_..., made on their profile, see migrations/20261010140000_claude_private_link.sql): also
+// Access: signed in only. A request without a person's key is answered 401 and the client signs them in (oauth.ts); a client may also
+// carry the private link of the profile page (the old way).
+// What a signed-in person gets (their key: oauth.ts, or ?key=odds_... from migrations/20261010140000_claude_private_link.sql): the job pool, and
 // their own profile, documents, saved jobs and applications, and they can save a cover letter to Documents and mark a job applied.
 // Every one of those reads and writes is filtered by the user id the key belongs to. Nothing calls a paid service (no Apify, no models).
 // @ts-ignore: bundled from src/lib by scripts/build-mcp-core.sh
 import * as core from "./core.js"
+import { handleOAuth, unauthorized } from "./oauth.ts"
 import { accessFor, contentOf, driveEnv, linkOf, pushIfConnected } from "../_shared/drive.ts"
 
 const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"]
@@ -632,6 +634,8 @@ async function answer(env: Env, me: Me | null, keyGiven: boolean, msg: Json): Pr
 
 export async function handle(req: Request, env: Env): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS })
+  const oauth = await handleOAuth(req, env, CORS)
+  if (oauth) return oauth
   if (req.method === "GET" && new URL(req.url).pathname.endsWith("/file")) return serveFile(req, env)
   // Stateless: no stream to open and no session to end.
   if (req.method !== "POST") return new Response(JSON.stringify({ error: "Use POST (MCP Streamable HTTP)." }), { status: 405, headers: { ...CORS, Allow: "POST, OPTIONS", "Content-Type": "application/json" } })
@@ -649,6 +653,8 @@ export async function handle(req: Request, env: Env): Promise<Response> {
   if (batch && (body.length === 0 || body.length > MAX_BATCH)) return new Response(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32600, message: `Send 1 to ${MAX_BATCH} messages at once.` } }), { status: 400, headers: { ...CORS, "Content-Type": "application/json" } })
   const key = keyOf(req)
   const me = key ? await whoIs(env, key).catch(() => null) : null
+  // Everything here is the person's own odds: without their sign-in (or with a link turned off) the client is sent to sign in.
+  if (!me) return unauthorized(env, CORS, key ? "This connection was turned off. Connect again from Claude." : undefined)
   const replies = (await Promise.all((batch ? body : [body]).map((m: Json) => answer(env, me, Boolean(key), m)))).filter((r) => r !== null)
   if (replies.length === 0) return new Response(null, { status: 202, headers: CORS })
 
