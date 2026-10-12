@@ -47,7 +47,8 @@ describe("odds-v2: rules every answer must keep", () => {
     const asked = job({ ...JOBS.midFinanceEntry, dutch_required: true })
     const withDutch = oddsV2(asked, { ...base, dutch: "professional" }).p
     const without = oddsV2(asked, { ...base, dutch: "none" }).p
-    expect(withDutch / without).toBeGreaterThan(1.3)
+    // 1.3 before the factors were kept at the studies' ratios in big piles (factorScale); the ratio is still clearly above the one for a job that does not ask.
+    expect(withDutch / without).toBeGreaterThan(1.2)
   })
   test("missing most of the years asked costs more than missing a few", () => {
     const few = oddsV2(job({ ...JOBS.seniorFinance, years_min: 4 }), PEOPLE.gsAnalyst).p

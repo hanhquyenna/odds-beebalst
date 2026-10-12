@@ -301,6 +301,245 @@ function relevanceOf(itemFamily, jobFamily) {
   }
   return NEIGHBOURS.some((g) => g.includes(itemFamily) && g.includes(jobFamily)) ? "adjacent" : "unrelated";
 }
+// src/lib/pile-model.json
+var pile_model_default = {
+  categorical: {
+    city: {
+      amersfoort: -0.15728619360478532,
+      amsterdam: 0.11441253525865946,
+      "amsterdam area": 0.10451763806971417,
+      breda: 0.10278405081378558,
+      delft: 0.11093524412789357,
+      eindhoven: -0.03878979961951995,
+      hoofddorp: -0.024224310575237926,
+      other: -0.16742182811614942,
+      rotterdam: -0.13551381309709898,
+      "the hague": -0.060485653873890426,
+      "the randstad": 0.24226153107326792,
+      utrecht: -0.036567092638491616,
+      venlo: -0.054622307818146996
+    },
+    degree_asked: {
+      bachelor: -0.10011157112320124,
+      master: 0.0011015845739924535,
+      other: 0.1257924500298225
+    },
+    family: {
+      "Consulting & strategy": -0.08323285153537424,
+      "Data, analytics & AI": 0.16194269970981512,
+      "Design & UX": -0.08277807759078157,
+      "Finance & accounting": 0.02273069505094011,
+      "HR & recruiting": -0.10076852309039279,
+      "Hardware & engineering": -0.06636950559014397,
+      "IT, cloud & security": -0.1698773236077078,
+      "Marketing & communications": -0.09637805383004604,
+      "Operations & supply chain": -0.07897466083994295,
+      "Product & project management": 0.06019913943996509,
+      "Research & academia": -0.04445567765675214,
+      "Risk, compliance & legal": -0.029007703525469886,
+      "Sales & account management": -0.2212347664806904,
+      "Software engineering": 0.14554316254302052,
+      other: 0.023069527563913853
+    },
+    industry: {
+      Accounting: -0.279883571575108,
+      Banking: 0.22167511822573135,
+      Construction: -0.16146214596077196,
+      Consulting: 0.024036345089923264,
+      "Energy & utilities": 0.025784704095034857,
+      "Financial services": 0.10777814786586169,
+      "Food & consumer goods": 0.019794674589556138,
+      "Health & life sciences": 0.022536729691973248,
+      "Hospitality & travel": 0.013810984873282958,
+      "IT services": 0.009988367319764102,
+      Manufacturing: 0.04893939087591298,
+      "Media & marketing": -0.1448791673603171,
+      "Retail & e-commerce": 0.154363910385793,
+      Semiconductors: 0.002568448559496894,
+      "Software & internet": -0.177850478539397,
+      "Staffing & recruiting": -0.062204485406157806,
+      "Transport & logistics": -0.008198913748996797,
+      other: -0.08004478411306953
+    },
+    job_type: {
+      fulltime: 0.3890666994703106,
+      internship: 0.41603066294364266,
+      other: 0.14914365519587172
+    },
+    level_view: {
+      Entry: 0.22158678246669083,
+      Internship: -0.07644714174427203,
+      Mid: 0.17216091814679432,
+      "Not stated": 0.07825422153887432,
+      Senior: 0.009013037128163953,
+      other: 0.057319183055899475
+    },
+    tier: {
+      elite: 0.03723906048063186,
+      mid: -0.01897948606785302,
+      other: 0.10019906072932765,
+      small: -0.05545239432680593,
+      unknown: -0.0630062408153006
+    },
+    workplace: {
+      hybrid: 0.16332468593781924,
+      onsite: 0.09670928049950109,
+      other: 0.09062439008269288
+    }
+  },
+  cv_spearman: 0.2959568378113969,
+  employers: 783,
+  intercept: 4.530015789994847,
+  mean_fitted: 4.59508316430868,
+  numeric: {
+    intern: {
+      coef: -0.07022172662786552,
+      mean: 0.4590690208667737,
+      sd: 0.49852192780395305
+    },
+    pay: {
+      coef: -0.07736729401809939,
+      mean: 0.32825040128410915,
+      sd: 0.46976503216140497
+    },
+    sponsor: {
+      coef: 0.15760395881332115,
+      mean: 0.3346709470304976,
+      sd: 0.47206477593795476
+    },
+    years: {
+      coef: 0.005543891823307057,
+      mean: -0.0826645264847512,
+      sd: 2.0117098072066213
+    }
+  },
+  rows: 1246,
+  vocab: {
+    city: [
+      "amsterdam",
+      "other",
+      "rotterdam",
+      "utrecht",
+      "eindhoven",
+      "amsterdam area",
+      "amersfoort",
+      "hoofddorp",
+      "venlo",
+      "the randstad",
+      "breda",
+      "the hague",
+      "delft"
+    ],
+    degree_asked: [
+      "none",
+      "bachelor",
+      "master"
+    ],
+    family: [
+      "Finance & accounting",
+      "Data, analytics & AI",
+      "Marketing & communications",
+      "Sales & account management",
+      "Operations & supply chain",
+      "Software engineering",
+      "none",
+      "Risk, compliance & legal",
+      "Hardware & engineering",
+      "Consulting & strategy",
+      "Product & project management",
+      "HR & recruiting",
+      "IT, cloud & security",
+      "Research & academia",
+      "Design & UX"
+    ],
+    industry: [
+      "none",
+      "Software & internet",
+      "Financial services",
+      "Manufacturing",
+      "Retail & e-commerce",
+      "Food & consumer goods",
+      "Consulting",
+      "other",
+      "IT services",
+      "Health & life sciences",
+      "Hospitality & travel",
+      "Banking",
+      "Construction",
+      "Energy & utilities",
+      "Media & marketing",
+      "Semiconductors",
+      "Staffing & recruiting",
+      "Transport & logistics",
+      "Accounting"
+    ],
+    job_type: [
+      "none",
+      "fulltime",
+      "internship"
+    ],
+    level_view: [
+      "Internship",
+      "Entry",
+      "none",
+      "Mid",
+      "Not stated",
+      "Senior"
+    ],
+    tier: [
+      "unknown",
+      "mid",
+      "elite",
+      "small"
+    ],
+    workplace: [
+      "none",
+      "hybrid",
+      "onsite"
+    ]
+  }
+};
+
+// src/lib/pile-model.ts
+var ANCHOR = 180;
+var RELATIVE_MIN = 0.45;
+var RELATIVE_MAX = 2.2;
+var TIER_PRIOR = { elite: Math.sqrt(600 / 180), large: Math.sqrt(220 / 180), mid: Math.sqrt(150 / 180), small: Math.sqrt(60 / 180), unknown: 1 };
+var cat = pile_model_default.categorical;
+var vocab = pile_model_default.vocab;
+var numeric = pile_model_default.numeric;
+var cityOf = (region) => (region ?? "").split(",")[0].trim().toLowerCase();
+function weight(feature, value) {
+  if (value === null || value === undefined || value === "" || value === "none")
+    return 0;
+  const seen = vocab[feature] ?? [];
+  return cat[feature]?.[seen.includes(value) ? value : "other"] ?? 0;
+}
+function logPile(post, tier) {
+  const numbers = {
+    intern: /intern|stage|stagiair/i.test(post.title) ? 1 : 0,
+    years: Math.min(8, Math.max(-1, post.years_min ?? -1)),
+    pay: post.pay_posted ? 1 : 0,
+    sponsor: post.ind_sponsor ? 1 : 0
+  };
+  let z = pile_model_default.intercept;
+  for (const [name, spec] of Object.entries(numeric))
+    z += spec.coef * ((numbers[name] - spec.mean) / spec.sd);
+  const city = cityOf(post.region);
+  z += weight("level_view", post.level_view);
+  z += weight("family", post.family);
+  z += weight("industry", post.industry);
+  z += weight("workplace", post.workplace);
+  z += weight("job_type", post.job_type);
+  z += weight("degree_asked", post.degree_asked);
+  z += weight("tier", tier);
+  z += weight("city", city);
+  return z;
+}
+function pileSize(post, tier) {
+  const relative = Math.min(RELATIVE_MAX, Math.max(RELATIVE_MIN, Math.exp(logPile(post, tier) - pile_model_default.mean_fitted)));
+  return Math.round(ANCHOR * relative * TIER_PRIOR[tier]);
+}
 // src/lib/employer-standing.json
 var employer_standing_default = {
   "proqr therapeutics": "small",
@@ -629,8 +868,7 @@ function stillReviewing(post, now = Date.now()) {
 }
 function pileFor(post, employerTierOfPost) {
   const interviews = /intern|stage|stagiair/i.test(post.title) ? 10 : 8;
-  const byTier = { elite: 600, large: 220, mid: 150, small: 60, unknown: 180 };
-  return { applicants: byTier[employerTierOfPost], interviews, source: "typical" };
+  return { applicants: Math.max(pileSize(post, employerTierOfPost), interviews + 1), interviews, source: "typical" };
 }
 function phi(x) {
   const t = 1 / (1 + 0.2316419 * Math.abs(x));
@@ -2270,7 +2508,7 @@ function workplaceOf(post, signal) {
   }
   return signal?.remote ? "Remote" : signal?.hybrid ? "Hybrid" : "On-site";
 }
-var cityOf = (post) => formatPlace(post.region).split(",")[0].trim();
+var cityOf2 = (post) => formatPlace(post.region).split(",")[0].trim();
 
 // src/lib/sources.ts
 var NAMES = {
@@ -3170,7 +3408,7 @@ function applyFilters(posts, filters, env = {}) {
     if (filters.industry.length > 0 && !filters.industry.includes(industryOf(post))) {
       return false;
     }
-    if (filters.city.length > 0 && !filters.city.includes(cityOf(post))) {
+    if (filters.city.length > 0 && !filters.city.includes(cityOf2(post))) {
       return false;
     }
     if (filters.type.length > 0) {
@@ -3591,9 +3829,9 @@ function profileFitFor(post, st, sig) {
   }
   const here = sig.city;
   if (here) {
-    const there = cityOf(post).toLowerCase();
+    const there = cityOf2(post).toLowerCase();
     if (there && there !== "location not stated")
-      logistics.push({ w: LOGISTICS_WEIGHTS.city, v: there === here ? 1 : 0, reason: there === here ? `in ${cityOf(post)}, where you live` : undefined });
+      logistics.push({ w: LOGISTICS_WEIGHTS.city, v: there === here ? 1 : 0, reason: there === here ? `in ${cityOf2(post)}, where you live` : undefined });
   }
   if (sig.needsPermit)
     logistics.push({ w: LOGISTICS_WEIGHTS.sponsor, v: post.ind_sponsor ? 1 : 0, reason: post.ind_sponsor ? SPONSOR_REASON : undefined });
@@ -3679,7 +3917,7 @@ function hearBackFor(postings, profile, referrals, record) {
 }
 
 // src/lib/outcome-snapshot.ts
-var SNAPSHOT_MODEL = "odds-v2.8-trust-gap-skills";
+var SNAPSHOT_MODEL = "odds-v2.9-pile-model";
 var round = (x, digits = 4) => Math.round(x * 10 ** digits) / 10 ** digits;
 function chanceSnapshot(post, profile, ctx = {}) {
   const v2 = oddsV2(post, profile, ctx);

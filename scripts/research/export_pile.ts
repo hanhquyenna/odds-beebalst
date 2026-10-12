@@ -5,8 +5,25 @@
  *   set -a; . ./.env.secrets; set +a; bun scripts/research/export_pile.ts   -> research-data/pile/pile_rows.jsonl
  */
 import { mkdirSync, writeFileSync } from "node:fs"
-import { projectedApplicants } from "../../src/lib/odds-v2"
 import { employerTier } from "../../src/lib/tiers"
+
+const DAY = 86_400_000
+const dayOf = (v: unknown): number | null => (v ? Math.floor(Date.parse(String(v)) / DAY) : null)
+/**
+ * The count a posting showed, carried forward to the end of its life exactly as the engine did before it stopped using posted counts
+ * (odds-v2 until v2.6): count x sqrt(open days / age at read), open = max(28, days since posted) capped at 60, factor 1 to 6; age 9 days
+ * when the posting date is not known. Kept here so the research can be repeated.
+ */
+function projectedApplicants(count: number, post: { posted_on: string | null; fetched_at: string | null }): { applicants: number; daysAfterPosting: number } {
+  const posted = dayOf(post.posted_on), read = dayOf(post.fetched_at)
+  if (read === null) return { applicants: count, daysAfterPosting: 0 }
+  const today = Math.floor(Date.now() / DAY)
+  const age = posted !== null && read >= posted ? Math.max(1, read - posted) : 9
+  const open = posted !== null ? Math.max(28, today - posted) : 28
+  const factor = Math.min(6, Math.max(1, Math.sqrt(Math.min(60, open) / age)))
+
+  return { applicants: Math.round(count * factor), daysAfterPosting: age }
+}
 
 const PAT = process.env.SUPABASE_ACCESS_TOKEN
 if (!PAT) throw new Error("Set SUPABASE_ACCESS_TOKEN (.env.secrets)")
@@ -33,7 +50,8 @@ const rows = await sql<Record<string, any>>(`
   where p.applicants is not null and p.applicants > 0`)
 
 const out = rows.map((r) => {
-  const tier = employerTier(r.employer_display || r.employer, r.employees ?? null)
+  // The tier the engine sees at run time: from the name alone (the app does not pass the employer headcount to the chance).
+  const tier = employerTier(r.employer_display || r.employer)
   const byTier: Record<string, number> = { elite: 600, large: 220, mid: 150, small: 60, unknown: 180 }
   const proj = projectedApplicants(Number(r.applicants), { posted_on: r.posted_on, fetched_at: r.fetched_at } as never)
   const text = String(r.applicants_text ?? "")

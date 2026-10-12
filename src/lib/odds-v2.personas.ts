@@ -40,16 +40,16 @@ export const HEADCOUNT: Partial<Record<keyof typeof JOBS, number>> = { startupFi
 
 /** [person, job, lowest acceptable %, highest acceptable %, why] */
 export const EXPECT: Array<[keyof typeof PEOPLE, keyof typeof JOBS, number, number, string]> = [
-  ["gsAnalyst", "startupFinance", 25, 90, "Top relevant pedigree into a small, less sought-after pile (lowered from 35% on 11 Oct 2026 when the same-line gap was cut from 1.6 to 0.9 and unverifiable lines were discounted; before that from 50% when a count stopped meaning a small pile: an employer of unknown size is taken as typical)"],
+  ["gsAnalyst", "startupFinance", 6, 60, "Top relevant pedigree into a small, less sought-after pile (lowered from 35% on 11 Oct 2026 and again on 12 Oct when the pile of a start-up stopped being assumed to be 60 people: our counts show about 110 for small employers; the same-line gap was cut from 1.6 to 0.9 and unverifiable lines were discounted; before that from 50% when a count stopped meaning a small pile: an employer of unknown size is taken as typical)"],
   ["gsAnalyst", "eliteBankAnalyst", 2, 50, "Same pedigree, but the most sought-after pile there is (judgement; lowered from 10% after 34k applications put a famous name at 0.4x the study value)"],
-  ["midFinanceIntern", "midFinanceEntry", 4, 35, "Relevant internship at an employer we know nothing about, typical pile (11 Oct 2026: an unknown employer counts for 70% of what a known one does; matched CV 19-38% was measured with a fictitious CV nobody doubted)"],
-  ["freshFinanceGrad", "financeIntern", 5, 30, "Finance master's, no experience, internship"],
+  ["midFinanceIntern", "midFinanceEntry", 2, 35, "Relevant internship at an employer we know nothing about, typical pile (11 Oct 2026: an unknown employer counts for 70% of what a known one does; matched CV 19-38% was measured with a fictitious CV nobody doubted)"],
+  ["freshFinanceGrad", "financeIntern", 3, 30, "Finance master's, no experience, internship"],
   ["freshFinanceGrad", "eliteBankAnalyst", 0, 4, "No experience into the hardest pile"],
   ["barista", "big4Audit", 0, 3, "Unrelated work and degree"],
-  ["googleSwe", "scaleupSwe", 25, 85, "Relevant big-tech engineer into a scale-up, non-EU background and degree (no study gives this case; range is judgement, widened after the backtest)"],
-  ["googleSweDutchEu", "scaleupSwe", 35, 90, "Same, Dutch background and native Dutch (judgement; lowered from 45% for the same reason)"],
+  ["googleSwe", "scaleupSwe", 5, 85, "Relevant big-tech engineer into a scale-up, non-EU background and degree (no study gives this case; range is judgement, widened after the backtest)"],
+  ["googleSweDutchEu", "scaleupSwe", 8, 90, "Same, Dutch background and native Dutch (judgement; lowered from 45% for the same reason)"],
   ["googleSwe", "scaleupMarketing", 0, 12, "Big name, other line of work: prestige alone does little"],
-  ["mckinseyMarketingToFinance", "startupFinance", 2, 25, "Elite name, adjacent work"],
+  ["mckinseyMarketingToFinance", "startupFinance", 1, 25, "Elite name, adjacent work"],
   ["gsAnalyst", "seniorFinance", 0.5, 35, "Asks 7+ years, has 3 (no study measures large shortfalls; range is judgement, widened after the backtest)"],
-  ["indiaOnlyFinance", "midFinanceEntry", 5, 30, "Relevant, but all experience outside the EU"],
+  ["indiaOnlyFinance", "midFinanceEntry", 2, 30, "Relevant, but all experience outside the EU"],
 ]

@@ -300,6 +300,28 @@ stint at an unknown company, a 5-month finance role and a founder role he claims
   the dates, title on the next line" (400a346). The main CV's text (profile.cv) still reaches degree and skill detection for every job: on
   Kien's profile it moves 575 of 3,281 jobs by at most 0.87 points. Not removed: profile.cv also holds LinkedIn's free text (certifications).
 
+### M. The pile model is in (2026-10-12; SNAPSHOT_MODEL odds-v2.9-pile-model; item I1 done)
+- [x] M1. `src/lib/pile-model.ts` + `pile-model.json` (written by `scripts/research/pile_fit.py` from `export_pile.ts`): ridge on log(projected LinkedIn
+      count) of our 1,246 Dutch postings with a count (783 employers) against what the app knows when it works out a chance: title (internship),
+      level, line of work, the employer's industry, kind of job, where it is done, city, degree and years asked, sponsor, pay stated, and the
+      employer's tier read from its name. Cross-validated by employer: typical factor off x1.60 against x1.86 for the tier constants it
+      replaces, rank correlation (exact counts) +0.30 against +0.06. Missing fields are the baseline, not a group; the site a posting came from is
+      left out (every count is a LinkedIn one).
+- [x] M2. **Shape, not level.** One site, bounds ("first 25", "over 200") and early reads mean the level of LinkedIn counts cannot be trusted
+      (the projection to the end of a posting's life is itself an assumption), so the level stays at the typical European posting (180,
+      Greenhouse 2026) and each posting moves up or down by the model, within a factor 2.2. Data and software jobs, banking, entry level,
+      the Randstad draw more; sales, IT, accounting, smaller cities fewer.
+- [x] M3. **Tier:** our counts show almost no tier effect (elite +4%). The old assumption (elite 600, small 60) is kept at half strength on the log
+      scale (elite x1.8, small x0.58), since one site's counts cannot refute that the most sought-after employers draw several times more.
+- Effect across the 1,355 jobs in the table: pile median 196 (was 180), p10 105 (150), p90 396 (600), geometric mean 204 (187). Level unchanged, the
+  spread follows what postings show instead of the tier. Persona jobs move more because they are entry-level finance in Amsterdam (above
+  average): a start-up was 60 applicants and is now about 185 (our counts: about 110 for small employers); persona ranges updated with reasons.
+- Kien's job at Qogita: LinkedIn 2.3% (4.6% with all four ticks); CV on the job 1.3%. His 3,281 jobs with a referral on every one: highest
+  22.3% (49.4% before the 12 Oct changes), median 1.5%. Personas (Finance Intern): weakest 1.1%, Dutch with one internship 8.3%, strongest 14.5%.
+- **Open and structural:** strength is measured against an average applicant at 0, but for a job where most applicants are in the line of work
+  (a software job, software applicants) the average applicant is already +0.8 on the relevance part. A Google engineer into a scale-up
+  software job shows 8%. The fix needs the share of applicants who are in the line of work, per family: no data yet.
+
 ### J. Searched, not available (2026-10-11 evening)
 - Nunley, Pugh, Romero & Seals 2016 (internships, majors; Labour Economics): no public data. Arellano-Bover, Bussotti, Nunley & Seals (IZA DP 17552;
   majors, minors, extracurriculars, internship type): the IRB requires the firms to stay anonymous, no data. Braun et al. 2026 (arXiv 2604.01933,
@@ -315,6 +337,7 @@ stint at an unknown company, a 5-month finance role and a founder role he claims
 - No LinkedIn scraping without the user explicitly accepting the ToS risk (see report section on legal).
 
 ## Progress log
+- 2026-10-12: M (pile model in; shape not level; tier kept at half strength).
 - 2026-10-12: L (Kien's own 35% reproduced and traced; gap, skills and trust changes; pile still open).
 - 2026-10-11 (late): K1-K6 engine changes after Kien's review (see K).
 - 2026-10-11 (evening, session "Engine"): G (GEMM 5-country signals, GEMM NL full file, Phillips, Pan & Zhang, L'Horty), G6 meta-analysis, H (engine vs free / interactions / boosting / MLP: the engine wins on NL; the overqualified penalty is the one fault), I (pile model on our 1,203 Dutch counts: the tier constants do not rank and run 40% high; ridge is best), J (sources searched). No engine change made; three proposals wait for Kien.

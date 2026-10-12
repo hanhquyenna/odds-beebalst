@@ -18,6 +18,7 @@
 import { derive } from "@/lib/engine"
 import { familyOfTitle } from "@/lib/field"
 import { relevanceOf, type Relevance } from "@/lib/strength"
+import { pileSize } from "@/lib/pile-model"
 import { employerTier, type EmployerTier } from "@/lib/tiers"
 import type { Posting, Profile } from "@/lib/types"
 
@@ -226,14 +227,14 @@ export function stillReviewing(post: Pick<Posting, "days_open" | "valid_through"
 }
 /**
  * The pile: how many people apply to a posting like this one. The count a posting shows ("48 applicants", "first 25") is not used: it is only one site, it
- * is often a bound ("first 25" is fewer than 25, "over 200" at least 200), and it moves while the job is open. The pile comes from the employer's size and
- * how sought-after it is (tiers.ts): Greenhouse 2026 puts a typical European posting at 183 applications; the most sought-after draw several times that.
+ * is often a bound ("first 25" is fewer than 25, "over 200" at least 200), and it moves while the job is open. The size comes from pile-model.ts: the typical
+ * European posting (Greenhouse 2026: 183 applications), moved up or down by what our own Dutch postings show about line of work, level, industry, city and
+ * the employer's tier (how sought-after it is, tiers.ts).
  */
 export function pileFor(post: Posting, employerTierOfPost: EmployerTier): Pile {
   const interviews = /intern|stage|stagiair/i.test(post.title) ? 10 : 8
-  const byTier: Record<EmployerTier, number> = { elite: 600, large: 220, mid: 150, small: 60, unknown: 180 }
 
-  return { applicants: byTier[employerTierOfPost], interviews, source: "typical" }
+  return { applicants: Math.max(pileSize(post, employerTierOfPost), interviews + 1), interviews, source: "typical" }
 }
 
 export interface Part {
