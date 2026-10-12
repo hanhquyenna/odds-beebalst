@@ -2,7 +2,6 @@ import { lazy, Suspense, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { createPhoneLink, startGuestSession, type Session } from "@/lib/auth"
 import { useData } from "@/lib/data"
-import { useWaitingPair } from "@/lib/pairing"
 import { notifyAnswerMessage } from "@/lib/notify-answer"
 import { iosOtherBrowser, isInstalled, platformOf, turnOnNotifications, usePush } from "@/lib/push"
 
@@ -66,13 +65,11 @@ export function NotifyPrompt({ session }: { session: Session | null }): React.JS
   const data = useData()
   const push = usePush()
   const [hidden, setHidden] = useState<boolean>(false)
-  const waitingPair = useWaitingPair()
   const [busy, setBusy] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
 
-  // While the app waits for a sign-in in the browser, that card is the one on screen.
   // Only once signed in: nothing asks before that.
-  if (hidden || !session || data.status !== "ready" || !isInstalled() || waitingPair) {
+  if (hidden || !session || data.status !== "ready" || !isInstalled()) {
     return null
   }
 

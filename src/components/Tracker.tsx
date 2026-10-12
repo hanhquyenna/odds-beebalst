@@ -180,7 +180,7 @@ export function AddJobs({ panel, setPanel }: { panel: AddPanel; setPanel: (p: Ad
           <div className="flex flex-col gap-3">
             <h3 className="font-heading text-lg font-medium">Upload a list</h3>
             {pending ? (
-              <ColumnMapper pending={pending} onChange={(mapping) => setPending({ ...pending, mapping })} onCancel={() => setPending(null)} onImport={() => { finish(pending.rows, pending.mapping); setPending(null) }} />
+              <ColumnMapper pending={pending} onChange={(mapping) => setPending({ ...pending, mapping })} onCancel={() => setPending(null)} onImport={() => { try { finish(pending.rows, pending.mapping) } catch { setMessage("Could not add those jobs. Check the file and try again.") } setPending(null) }} />
             ) : (
               <>
                 <p className="text-sm text-muted-foreground">A spreadsheet saved as CSV.</p>
@@ -253,7 +253,7 @@ function ColumnMapper({ pending, onChange, onCancel, onImport }: { pending: { na
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex min-w-0 max-w-full flex-col gap-3">
       <p className="text-sm text-muted-foreground">
         {pending.name}: {pending.rows.length} {pending.rows.length === 1 ? "row" : "rows"}. Check what each column is.
       </p>

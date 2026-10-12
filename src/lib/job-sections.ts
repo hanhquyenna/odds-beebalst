@@ -1,6 +1,5 @@
 /**
- * A posting sectioned, not edited. Every line of the employer's text is shown as written, under the employer's own heading. The only things done are:
- * the sections are put in one familiar order (about the role, the team, what you'll do, what we're looking for, what we offer, how to apply, the rest),
+ * A posting sectioned, not edited. Every line of the employer's text is shown as written, in the employer's order, under the employer's own heading. The only things done are:
  * lines the page broke in the middle of a sentence are joined, and bullets become lists. Employers use their own words for the same thing ("Tricks of the
  * trade", "Your superpowers", "Picnic perks"); each is recognised only to decide where its section goes, and is never changed or replaced.
  */
@@ -10,11 +9,13 @@ type SectionKey = "about" | "team" | "duties" | "requirements" | "offer" | "appl
 export type Block = { kind: "p"; text: string } | { kind: "ul"; items: string[] }
 
 export interface Section {
-  /** Which kind of section it is, which only decides its place in the order. */
+  /** Which kind of section it is, which only decides how it is shown. */
   key: SectionKey
   /** The employer's own heading, exactly as written. Empty for the opening text, which has none. */
   title: string
   blocks: Block[]
+  /** A part of the section before it (a requirements heading right under another one): shown as a smaller heading. */
+  sub?: boolean
 }
 
 export interface ParsedPosting {
@@ -26,9 +27,6 @@ export interface ParsedPosting {
   /** More than one standard section was found, so the layout says something. Otherwise the text is shown as plain paragraphs. */
   structured: boolean
 }
-
-/** The order sections are shown in. */
-const SECTION_ORDER: ReadonlyArray<SectionKey> = ["about", "team", "duties", "requirements", "offer", "apply", "other", "company", "legal"]
 
 const norm = (s: string): string => s.toLowerCase().replace(/[’‘´`]/g, "'").replace(/\s+/g, " ").trim()
 
@@ -330,7 +328,8 @@ export function parsePosting(text: string): ParsedPosting {
 
   // A heading the employer wrote stays, even with nothing under it ("Your profile" over "Qualifications"): it is shown as a bold line.
   const sections: Section[] = found.map((f) => ({ key: f.key, title: f.title, blocks: refine(toBlocks(f.lines)) })).filter((s) => s.title !== "" || s.blocks.length > 0)
-  const ordered = SECTION_ORDER.flatMap((key) => sections.filter((s) => s.key === key))
+  // The employer's own order, as written. A requirements heading right after another ("Education", "Languages" under "What you'll bring") is a part of it.
+  const ordered = sections.map((sec, i) => ({ ...sec, sub: sec.key === "requirements" && sec.title !== "" && i > 0 && sections[i - 1].key === "requirements" }))
   const standard = new Set(ordered.filter((s) => s.blocks.length > 0 && s.key !== "other" && s.key !== "company" && s.key !== "legal").map((s) => s.key))
 
   return { details, page, sections: ordered, structured: standard.size >= 2 }

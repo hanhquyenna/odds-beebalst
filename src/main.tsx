@@ -5,7 +5,6 @@ import App from "@/App"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { DataProvider } from "@/lib/data"
 import { takeConnectFromUrl } from "@/lib/connect-request"
-import { takePairFromUrl } from "@/lib/pairing"
 import { startPush } from "@/lib/push"
 import "@/index.css"
 
@@ -27,8 +26,6 @@ window.addEventListener("vite:preloadError", () => {
   }
   window.location.reload()
 })
-// A browser opened by a Home Screen app to sign in (?pair=…): keep the pair across the Google round trip.
-takePairFromUrl()
 // Claude sending someone here to connect (/connect/claude): keep its request across the sign-in.
 takeConnectFromUrl()
 

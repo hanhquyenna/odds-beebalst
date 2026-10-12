@@ -5,7 +5,6 @@ import type { ShellTab } from "@/components/AppShell"
 import { usePhone } from "@/lib/use-phone"
 import { NotifyPrompt } from "@/components/NotifyPrompt"
 import { connectWaiting } from "@/lib/connect-request"
-import { DevicePairing } from "@/components/DevicePairing"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Toaster } from "@/components/ui/sonner"
@@ -517,7 +516,6 @@ export default function App(): React.JSX.Element {
         </Suspense>
       ) : null}
       <NotifyPrompt session={data.session} />
-      <DevicePairing />
       {connectRequest ? (
         <Suspense fallback={null}>
           <ConnectApproval />

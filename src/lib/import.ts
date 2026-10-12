@@ -51,7 +51,7 @@ const slug = (text: string): string =>
     .replace(/^-|-$/g, "")
     .slice(0, 40)
 
-const norm = (text: string): string => text.toLowerCase().replace(/[^a-z0-9]/g, "")
+const norm = (text: string | null | undefined): string => (text ?? "").toLowerCase().replace(/[^a-z0-9]/g, "")
 
 const isUrl = (v: string): boolean => /^(https?:\/\/|www\.)\S+$/i.test(v.trim())
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]

@@ -21,12 +21,19 @@ export function currentAccessToken(): string | null {
   return accessToken
 }
 
+/**
+ * A request that never answers is cut off after this long. A Home Screen app is put to sleep while the person is elsewhere (the
+ * browser, another app) and a request in flight then never settles, which left the page waiting for ever.
+ */
+export const REQUEST_TIMEOUT_MS = 30_000
+
 const authedFetch: typeof fetch = (input, init) => {
   const headers = new Headers(init?.headers)
   headers.set("apikey", SUPABASE_ANON_KEY)
   headers.set("Authorization", `Bearer ${accessToken ?? SUPABASE_ANON_KEY}`)
+  const limit = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
 
-  return fetch(input, { ...init, headers })
+  return fetch(input, { ...init, headers, signal: init?.signal ? AbortSignal.any([init.signal, limit]) : limit })
 }
 
 /** PostgREST only. Auth is a handful of REST calls in auth.ts, so supabase-js stays out of the bundle. Anon key only. */

@@ -1,4 +1,4 @@
-import { ANON_KEY, SUPABASE_URL, currentAccessToken, setAccessToken } from "@/lib/supabase"
+import { ANON_KEY, REQUEST_TIMEOUT_MS, SUPABASE_URL, currentAccessToken, setAccessToken } from "@/lib/supabase"
 
 export interface Session {
   access_token: string
@@ -51,6 +51,7 @@ async function call(path: string, body: unknown): Promise<AuthResponse> {
     method: "POST",
     headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   })
   const data = (await response.json().catch(() => ({}))) as AuthResponse
   if (!response.ok) {
@@ -122,6 +123,7 @@ async function phoneLinkSession(): Promise<Session | null> {
       method: "POST",
       headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
       body: JSON.stringify({ action: "redeem", code }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     })
     if (!response.ok) {
       return null
@@ -145,6 +147,7 @@ export async function startGuestSession(): Promise<Session | null> {
       method: "POST",
       headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
       body: JSON.stringify({ action: "guest" }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     })
     if (!response.ok) {
       return null
@@ -178,57 +181,6 @@ export async function adoptGuest(previous: Session | null, real: Session): Promi
   }
 
   return data.moved ?? null
-}
-
-/**
- * Signing a Home Screen app in through the browser (it cannot finish a Google sign-in itself). The app starts a pair
- * and keeps its secret; the browser approves it once signed in; the app then collects its session.
- */
-async function pairCall(body: Record<string, unknown>, accessToken?: string, timeoutMs?: number): Promise<Response> {
-  return fetch(`${SUPABASE_URL}/functions/v1/account`, {
-    method: "POST",
-    headers: { apikey: ANON_KEY, "Content-Type": "application/json", ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
-    body: JSON.stringify(body),
-    signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
-  })
-}
-
-export async function startDevicePair(): Promise<{ id: string; secret: string; code: string; expires_at: string }> {
-  const response = await pairCall({ action: "pair-start" })
-  const data = (await response.json().catch(() => ({}))) as { id?: string; secret?: string; code?: string; expires_at?: string; error?: string }
-  if (!response.ok || !data.id || !data.secret || !data.code || !data.expires_at) {
-    throw new Error(data.error ?? "Could not start sign-in")
-  }
-
-  return { id: data.id, secret: data.secret, code: data.code, expires_at: data.expires_at }
-}
-
-export async function approveDevicePair(session: Session, id: string, code: string): Promise<void> {
-  const response = await pairCall({ action: "pair-approve", id, code: code.trim() }, session.access_token)
-  if (!response.ok) {
-    const data = (await response.json().catch(() => ({}))) as { error?: string }
-    throw new Error(data.error ?? "Could not connect the app")
-  }
-}
-
-/** The session once the browser has approved, "waiting" before that, null when the pair is gone (expired or used). */
-export async function claimDevicePair(id: string, secret: string): Promise<Session | "waiting" | null> {
-  // A request cut off while the Home Screen app sleeps never settles, which would stop every later check: give up on it after
-  // a while, and treat a failure that is not the pair's own (no network, the server busy) as "keep waiting", never "start over".
-  const response = await pairCall({ action: "pair-claim", id, secret }, undefined, 15_000).catch(() => null)
-  if (!response || response.status === 202 || response.status >= 500) {
-    return "waiting"
-  }
-  if (!response.ok) {
-    return null
-  }
-  const session = toSession((await response.json().catch(() => ({}))) as AuthResponse)
-  if (!session) {
-    return "waiting"
-  }
-  keep(session)
-
-  return session
 }
 
 /** A guest account's placeholder address, never shown as the person's email. */

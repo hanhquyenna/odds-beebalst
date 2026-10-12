@@ -23,8 +23,7 @@ function Blocks({ blocks }: { blocks: Block[] }): React.JSX.Element {
 }
 
 /**
- * The posting sectioned, not edited: every line is the employer's, under the employer's own heading in bold. Sections are only put in a familiar order
- * (the role, the team, what you'll do, what they ask, what they offer, how to apply), lines broken mid-sentence are joined, and bullets are lists.
+ * The posting sectioned, not edited: every line is the employer's, in their order, under their own heading in bold. Lines broken mid-sentence are joined and bullets are lists.
  */
 export function PostingText({ body }: { body: string }): React.JSX.Element {
   const text = useMemo(() => stripMarkup(body), [body])
@@ -44,8 +43,8 @@ export function PostingText({ body }: { body: string }): React.JSX.Element {
         </dl>
       ) : null}
       {shown.map((section, i) => (
-        <section key={`${section.key}-${section.title}-${i}`} className="flex flex-col gap-3">
-          {section.title ? <h3 className="text-base font-bold tracking-tight">{section.title}</h3> : null}
+        <section key={`${section.key}-${section.title}-${i}`} className={`flex flex-col gap-3 ${section.title && !section.sub && i > 0 ? "border-t-[1.5px] pt-6" : ""} ${section.sub ? "-mt-3" : ""}`}>
+          {section.title ? <h3 className={section.sub ? "text-sm font-bold tracking-tight uppercase text-muted-foreground" : "text-lg font-bold tracking-tight"}>{section.title}</h3> : null}
           {section.blocks.length > 0 ? <Blocks blocks={section.blocks} /> : null}
         </section>
       ))}

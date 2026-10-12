@@ -27,14 +27,14 @@ describe("parsePosting", () => {
       expect(keys(`${h}\n- one one one one\n- two two two two\n`)).toEqual(["offer"])
     }
   })
-  test("sections come out in the standard order whatever order the posting wrote them", () => {
+  test("sections stay in the order the posting wrote them", () => {
     const text = "What we offer\n- a\n- b\n\nQualifications\n- c\n- d\n\nResponsibilities\n- e\n- f\n\nJob Description\nThe role is great and you will love it a lot."
-    expect(keys(text)).toEqual(["about", "duties", "requirements", "offer"])
+    expect(keys(text)).toEqual(["offer", "requirements", "duties", "about"])
   })
-  test("the employer's own section about itself is kept apart from the role", () => {
+  test("the employer's own section about itself is kept apart from the role, in the order written", () => {
     const text = "About Picnic\n\nPicnic is an online supermarket that delivers groceries to homes across several countries.\n\nAbout the role\n\nYou will analyse data."
     const out = parsePosting(text)
-    expect(out.sections.map((s) => s.key)).toEqual(["about", "company"])
+    expect(out.sections.map((s) => s.key)).toEqual(["company", "about"])
   })
   test("nothing is lost: repeated paragraphs and emoji stay in the text, page buttons are kept apart", () => {
     const para = "As a Business Analyst Working Student at Picnic you will be at the forefront of innovation, tackling complex challenges."
@@ -74,7 +74,7 @@ describe("parsePosting", () => {
   })
   test("an unknown heading of the employer's own stays, under its own name", () => {
     const out = parsePosting("About the role\n\nYou will help.\n\nMake a difference\n\nWe care about the planet and our people a great deal.\n\nWhat we offer\n- a\n- b")
-    expect(out.sections.map((s) => s.title)).toEqual(["About the role", "What we offer", "Make a difference"])
+    expect(out.sections.map((s) => s.title)).toEqual(["About the role", "Make a difference", "What we offer"])
   })
   test("a heading that is page clutter on one site but is the whole posting on another keeps its text", () => {
     const long = "You have talent. Ready to make impact. We know that making an impact starts with that first contact with like-minded people. ".repeat(6)
