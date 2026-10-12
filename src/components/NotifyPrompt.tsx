@@ -71,7 +71,8 @@ export function NotifyPrompt({ session }: { session: Session | null }): React.JS
   const [error, setError] = useState<string | null>(null)
 
   // While the app waits for a sign-in in the browser, that card is the one on screen.
-  if (hidden || data.status !== "ready" || !isInstalled() || waitingPair) {
+  // Only once signed in: nothing asks before that.
+  if (hidden || !session || data.status !== "ready" || !isInstalled() || waitingPair) {
     return null
   }
 

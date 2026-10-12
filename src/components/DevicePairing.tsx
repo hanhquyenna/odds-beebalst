@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { adoptGuest, approveDevicePair, claimDevicePair, isGuestEmail, loadSession } from "@/lib/auth"
 import { useData } from "@/lib/data"
-import { cancelPairing, clearApproval, openInBrowser, pairUrl, useApprovalId, useWaitingPair } from "@/lib/pairing"
+import { cancelPairing, clearApproval, openInBrowser, pairUrl, useApproval, useWaitingPair } from "@/lib/pairing"
 import { isInstalled } from "@/lib/push"
 import { beginShooSignIn, rememberShooNext } from "@/lib/shoo"
 
@@ -15,10 +14,6 @@ function Card({ label, children }: { label: string; children: React.ReactNode })
       </div>
     </div>
   )
-}
-
-function Code({ code }: { code: string }): React.JSX.Element {
-  return <p className="font-mono text-3xl font-bold tracking-[0.3em] tabular-nums">{code}</p>
 }
 
 /** In the Home Screen app: waits for the browser sign-in and collects the session as soon as it is approved. */
@@ -83,9 +78,8 @@ function WaitingForBrowser(): React.JSX.Element | null {
   return (
     <Card label="Finish signing in in Safari">
       <h2 className="text-lg font-semibold tracking-tight">Finish signing in in your browser</h2>
-      <p className="text-sm text-muted-foreground">Sign in with Google there and type this code. Then come back here: you will be signed in.</p>
-      <Code code={pair.code} />
-      <Button type="button" variant="outline" onClick={() => openInBrowser(pairUrl(pair.id))} className="cursor-pointer">
+      <p className="text-sm text-muted-foreground">Sign in with Google there. Then come back here: you will be signed in.</p>
+      <Button type="button" variant="outline" onClick={() => openInBrowser(pairUrl(pair.id, pair.code))} className="cursor-pointer">
         Open the browser again
       </Button>
       <button type="button" onClick={cancelPairing} className="cursor-pointer text-sm text-muted-foreground underline underline-offset-4">
@@ -98,16 +92,31 @@ function WaitingForBrowser(): React.JSX.Element | null {
 /** In the browser opened by the app: sign in, confirm the code, and the app signs in by itself. */
 function ApproveInBrowser(): React.JSX.Element | null {
   const data = useData()
-  const id = useApprovalId()
+  const approval = useApproval()
   const [state, setState] = useState<"ask" | "busy" | "done">("ask")
   const [error, setError] = useState<string | null>(null)
-  const [code, setCode] = useState<string>("")
+  // A guest session here is not a sign-in: the app should get the account the person signs in with.
+  const signedIn = data.status === "ready" && data.session && !isGuestEmail(data.session.user.email) ? data.session : null
+  const token = signedIn?.access_token
 
-  if (!id || data.status !== "ready") {
+  // Signed in here: the app is connected without asking for anything.
+  useEffect(() => {
+    if (!approval || !signedIn || state !== "ask" || error) {
+      return
+    }
+    setState("busy")
+    approveDevicePair(signedIn, approval.id, approval.code)
+      .then(() => setState("done"))
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : "Could not connect the app.")
+        setState("ask")
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [approval?.id, token])
+
+  if (!approval || data.status !== "ready") {
     return null
   }
-  // A guest session here is not a sign-in: the app should get the account the person signs in with.
-  const signedIn = data.session && !isGuestEmail(data.session.user.email) ? data.session : null
 
   if (state === "done") {
     return (
@@ -150,30 +159,11 @@ function ApproveInBrowser(): React.JSX.Element | null {
   }
 
   return (
-    <Card label="Connect your odds app">
-      <h2 className="text-lg font-semibold tracking-tight">Connect your odds app?</h2>
-      <p className="text-sm text-muted-foreground">Type the code your odds app shows. Only connect your own phone.</p>
-      <Input aria-label="Code from your app" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} maxLength={6} autoComplete="one-time-code" className="text-center font-mono text-2xl tracking-[0.3em]" />
-      <Button
-        type="button"
-        disabled={state === "busy" || code.trim().length !== 6}
-        onClick={() => {
-          setState("busy")
-          setError(null)
-          approveDevicePair(signedIn, id, code)
-            .then(() => setState("done"))
-            .catch((e: unknown) => {
-              setError(e instanceof Error ? e.message : "Could not connect the app.")
-              setState("ask")
-            })
-        }}
-        className="cursor-pointer disabled:cursor-not-allowed"
-      >
-        {state === "busy" ? "Connecting…" : "Yes, connect"}
-      </Button>
+    <Card label="Connecting your odds app">
+      <h2 className="text-lg font-semibold tracking-tight">{error ? "Could not connect" : "Connecting your odds app…"}</h2>
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       <button type="button" onClick={clearApproval} className="cursor-pointer text-sm text-muted-foreground underline underline-offset-4">
-        No, it is not mine
+        {error ? "Close" : "Cancel"}
       </button>
     </Card>
   )

@@ -47,15 +47,16 @@ export function openInBrowser(url: string): void {
   }
 }
 
-export function pairUrl(id: string): string {
-  return `${window.location.origin}/?pair=${encodeURIComponent(id)}`
+/** The link carries the code, so the person types nothing: the browser approves with it once they are signed in. */
+export function pairUrl(id: string, code: string): string {
+  return `${window.location.origin}/?pair=${encodeURIComponent(id)}&code=${encodeURIComponent(code)}`
 }
 
 /** In the Home Screen app: start a pair and send the person to the browser to sign in. */
 export async function startPairing(): Promise<void> {
   const pair = await startDevicePair()
   write(WAITING_KEY, JSON.stringify(pair))
-  openInBrowser(pairUrl(pair.id))
+  openInBrowser(pairUrl(pair.id, pair.code))
 }
 
 export function cancelPairing(): void {
@@ -91,16 +92,24 @@ export function takePairFromUrl(): void {
   if (!id || !/^[A-Za-z0-9_-]{20,64}$/.test(id)) {
     return
   }
+  const code = params.get("code") ?? ""
+  if (!/^[A-Za-z0-9]{6}$/.test(code)) {
+    return
+  }
   params.delete("pair")
+  params.delete("code")
   window.history.replaceState(window.history.state, "", `${window.location.pathname}${params.size > 0 ? `?${params}` : ""}${window.location.hash}`)
-  write(APPROVE_KEY, id)
+  write(APPROVE_KEY, `${id}.${code}`)
 }
 
 export function clearApproval(): void {
   write(APPROVE_KEY, null)
 }
 
-/** The pair this browser was asked to approve, or null. */
-export function useApprovalId(): string | null {
-  return useSyncExternalStore(subscribe, () => readStored(APPROVE_KEY), () => null)
+/** The pair this browser was asked to approve (its id and code), or null. */
+export function useApproval(): { id: string; code: string } | null {
+  const raw = useSyncExternalStore(subscribe, () => readStored(APPROVE_KEY), () => null)
+  const at = raw ? raw.lastIndexOf(".") : -1
+
+  return raw && at > 0 ? { id: raw.slice(0, at), code: raw.slice(at + 1) } : null
 }
