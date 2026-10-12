@@ -123,10 +123,10 @@ const TIER_CHIP: Record<Tier, string> = {
 const TIER_RAIL: Record<Tier, string> = { must: "border-l-brand", strong: "border-l-brand/50", optional: "border-l-muted-foreground/30", nice: "border-l-border" }
 
 const TIER_NOTE: Record<Tier, string> = {
-  must: "the posting insists on these",
-  strong: "it says these clearly help",
-  optional: "preferred, a small help",
-  nice: "mentioned, barely counts",
+  must: "they ask for these",
+  strong: "these help a lot",
+  optional: "these help a little",
+  nice: "these barely matter",
 }
 
 type Kind = "skills" | "experience" | "education" | "language" | "qualities" | "conditions"
