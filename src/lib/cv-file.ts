@@ -97,8 +97,8 @@ interface PdfJs {
 
 /** The pdf.js module, loaded only when a PDF is chosen so it adds nothing to the page otherwise. */
 async function browserPdfJs(): Promise<PdfJs> {
-  const pdfjs = await import("pdfjs-dist")
-  const worker = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url")).default
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs")
+  const worker = (await import("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url")).default
   pdfjs.GlobalWorkerOptions.workerSrc = worker
 
   return pdfjs as unknown as PdfJs
@@ -156,7 +156,7 @@ export async function readCvFile(file: File, pdf: () => Promise<PdfJs> = browser
   let raw: string
   if (e === "txt" || e === "md" || e === "text" || file.type === "text/plain") {
     raw = await file.text()
-  } else if (e === "docx") {
+  } else if (e === "docx" || file.type.includes("wordprocessingml")) {
     raw = await docxToText(new Uint8Array(await file.arrayBuffer()))
   } else if (e === "pdf" || file.type === "application/pdf") {
     raw = await pdfToText(new Uint8Array(await file.arrayBuffer()), pdf)

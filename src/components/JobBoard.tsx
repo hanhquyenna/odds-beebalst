@@ -260,7 +260,7 @@ export function JobDrawer({ post, locked, onClose, onSwitch }: JobDrawerProps): 
     const here = history.state && typeof history.state === "object" && history.state.drawer === post.id
     // An entry for this job that we did not add (left over from before a reload) is not ours to go back from.
     if (!here) {
-      history.pushState({ drawer: post.id }, "")
+      history.pushState({ ...(history.state ?? {}), drawer: post.id }, "")
       pushedFor = post.id
     }
     const onPop = (): void => {

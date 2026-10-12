@@ -1,4 +1,5 @@
 import { useRef, useState } from "react"
+import { cvAccept } from "@/lib/cv-profile"
 import { cn } from "cn"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
@@ -10,7 +11,6 @@ import { MAX_DOCUMENTS, MAX_NAME, driveFileUrl, jobsUsing, previewOf, problemTex
 import { downloadDocument, makeMain, removeDocument, renameDocument, useDocumentStore } from "@/lib/documents"
 import { connectDrive, disconnectDrive, useDrive } from "@/lib/drive"
 
-const ACCEPT = ".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
 
 const sizeText = (bytes: number): string => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`)
 const dateText = (iso: string): string => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })
@@ -139,7 +139,7 @@ function Shelf({ kind, onProblem, onNote, onDelete }: ShelfProps): React.JSX.Ele
       </div>
       <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <li>
-          <input ref={input} type="file" accept={ACCEPT} aria-label={kind === "cv" ? "Upload a CV" : "Upload a cover letter"} className="sr-only" onChange={(e) => void take(e.target.files?.[0])} />
+          <input ref={input} type="file" accept={cvAccept()} aria-label={kind === "cv" ? "Upload a CV" : "Upload a cover letter"} className="sr-only" onChange={(e) => void take(e.target.files?.[0])} />
           <button
             type="button"
             disabled={full || busy}

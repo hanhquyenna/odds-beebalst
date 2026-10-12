@@ -59,6 +59,14 @@ const StatusColorsDialog = lazy(() => import("@/components/StatusColorsDialog").
 const InstallGuide = lazy(() => import("@/components/InstallGuide").then((module) => ({ default: module.InstallGuide })))
 
 type View = "account" | "answers" | "claude" | "documents" | "journey" | "jobs" | "signin"
+const VIEWS: readonly View[] = ["account", "answers", "claude", "documents", "journey", "jobs", "signin"]
+
+/** The view the current history entry was left on (after a reload), when it is one of ours. */
+function viewFromHistory(): View | null {
+  const seen = (history.state as { view?: unknown } | null)?.view
+
+  return typeof seen === "string" && VIEWS.includes(seen as View) && seen !== "signin" ? (seen as View) : null
+}
 
 /** The job id in a /job/<id> deep link. Null for any other path, or a malformed escape like /job/abc% that cannot be decoded. */
 function jobIdFromPath(pathname: string): string | null {
@@ -81,7 +89,7 @@ export default function App(): React.JSX.Element {
   const phone = usePhone()
   // With answers already given the account is coming, so the welcome screen
   // must not flash first.
-  const [view, setView] = useState<View>(() => (onboarded ? "account" : "journey"))
+  const [view, setViewNow] = useState<View>(() => viewFromHistory() ?? (onboarded ? "account" : "journey"))
   // Bumped when the jobs are opened, so the bell recounts against the mark
   // that visit just left.
   const [visits, setVisits] = useState<number>(0)
@@ -91,10 +99,42 @@ export default function App(): React.JSX.Element {
   const [page, setPage] = useState<StaticPage | null>(() => pageFromPath(location.pathname))
   const [sharedJobId, setSharedJobId] = useState<string | null>(() => jobIdFromPath(location.pathname))
 
+  /**
+   * Moving between the app's views adds a history entry, so the phone's back gesture and every Back button return to the
+   * view you came from (the job, the documents, the profile) instead of jumping to the account. "replace" is for moves
+   * the app makes by itself, which are not somewhere to go back to.
+   */
+  function setView(next: View, how: "push" | "replace" = "push"): void {
+    const state = (history.state && typeof history.state === "object" ? history.state : {}) as { idx?: number }
+    if (how === "push" && next !== view) {
+      history.pushState({ view: next, idx: (state.idx ?? 0) + 1 }, "")
+    } else {
+      history.replaceState({ ...state, view: next, idx: state.idx ?? 0 }, "")
+    }
+    setViewNow(next)
+    window.scrollTo(0, 0)
+  }
+
+  /** A Back button: the entry before this one when the app added it, otherwise the place a first visit would go. */
+  function back(fallback: View): void {
+    const state = history.state as { idx?: number } | null
+    if ((state?.idx ?? 0) > 0) history.back()
+    else setView(fallback, "replace")
+  }
+
+  // This entry knows its view, so a reload or a return to it shows the same view.
   useEffect(() => {
-    const onPop = (): void => {
+    const state = (history.state && typeof history.state === "object" ? history.state : {}) as { idx?: number }
+    history.replaceState({ ...state, view, idx: state.idx ?? 0 }, "")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const onPop = (event: PopStateEvent): void => {
       setPage(pageFromPath(location.pathname))
       setSharedJobId(jobIdFromPath(location.pathname))
+      const seen = (event.state as { view?: unknown } | null)?.view
+      if (typeof seen === "string" && VIEWS.includes(seen as View)) setViewNow(seen as View)
     }
     window.addEventListener("popstate", onPop)
 
@@ -106,16 +146,18 @@ export default function App(): React.JSX.Element {
     if (!onboarded || !data.session) return
     const outcome = takeDriveReturn()
     if (!outcome) return
-    setView("documents")
+    setView("documents", "replace")
     if (outcome === "connected") toast.success("Google Drive is connected. Your files are in the odds folder there.")
     else if (outcome === "failed") toast.error("Google Drive did not connect. Try again.")
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onboarded, data.session])
 
   // Signing in brings a saved profile down with it: from then on this is someone's account.
   useEffect(() => {
     if (onboarded && view === "journey" && homeVisits === 0 && data.session) {
-      setView("account")
+      setView("account", "replace")
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onboarded, view, homeVisits, data.session])
 
   // A one-question form wants a narrow column whatever the screen. A wall of
@@ -198,6 +240,7 @@ export default function App(): React.JSX.Element {
     window.addEventListener("careersim:open-profile", open)
 
     return () => window.removeEventListener("careersim:open-profile", open)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onboarded])
 
   // A "See how it works" link anywhere on the page opens that research report.
@@ -288,7 +331,7 @@ export default function App(): React.JSX.Element {
       clearDraft()
       showJobs()
     } else {
-      setView(next)
+      setView(next, "replace")
     }
   }
 
@@ -405,7 +448,7 @@ export default function App(): React.JSX.Element {
           </Suspense>
         ) : (
           <Suspense fallback={null}>
-            {view === "signin" ? <SignIn onCancel={() => setView(onboarded ? "account" : "journey")} /> : null}
+            {view === "signin" ? <SignIn onCancel={() => back(onboarded ? "account" : "journey")} /> : null}
 
             {(view === "account" || view === "jobs") && onboarded ? (
               <Suspense fallback={<JobListSkeleton />}>
@@ -415,16 +458,16 @@ export default function App(): React.JSX.Element {
 
             {view === "answers" && onboarded ? (
               <>
-                <ProfilePage onBack={() => setView("account")} onOpenDocuments={() => setView("documents")} onOpenClaude={() => goTab("claude")} />
+                <ProfilePage onBack={() => back("account")} onOpenDocuments={() => setView("documents")} onOpenClaude={() => goTab("claude")} />
                 <PhoneMore session={data.session} onOpenPage={openPage} signedIn={Boolean(data.session?.user.email) && !isGuestEmail(data.session?.user.email)} onSignIn={data.session?.user.email && !isGuestEmail(data.session.user.email) ? undefined : () => setView("signin")} onSignOut={handleSignOut} />
               </>
             ) : null}
 
-            {view === "claude" && onboarded ? <ClaudePage onBack={() => setView("account")} onSignIn={() => setView("signin")} onDocuments={() => setView("documents")} onJobs={showJobs} /> : null}
+            {view === "claude" && onboarded ? <ClaudePage onBack={() => back("account")} onSignIn={() => setView("signin")} onDocuments={() => setView("documents")} onJobs={showJobs} /> : null}
 
             {view === "documents" && onboarded ? (
               <Suspense fallback={null}>
-                <Documents onBack={() => setView("account")} onSignIn={() => setView("signin")} />
+                <Documents onBack={() => back("account")} onSignIn={() => setView("signin")} />
               </Suspense>
             ) : null}
 
@@ -436,7 +479,7 @@ export default function App(): React.JSX.Element {
                 mode={view === "answers" ? "edit" : "signup"}
                 atWelcome={homeVisits > 0}
                 atIntro={formEntry === "intro"}
-                onBack={() => (onboarded ? setView("account") : goHome())}
+                onBack={() => (onboarded ? back("account") : goHome())}
                 // Settings stay on the page after a save; signing up goes to the jobs.
                 onSaved={view === "answers" ? () => undefined : handleSaved}
                 onSignIn={() => setView("signin")}

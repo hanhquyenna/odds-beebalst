@@ -6,6 +6,12 @@ import type { Profile } from "@/lib/types"
 
 export const CV_ACCEPT = ".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
 
+/**
+ * What the file picker offers. A phone's picker greys out or hides files (Drive, iCloud, "Recents") when the list is
+ * narrow or a type is unknown to it, so on a touch screen it offers everything; the reader says what to do with a type it cannot read.
+ */
+export const cvAccept = (): string | undefined => (typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches ? undefined : CV_ACCEPT)
+
 /** The profile with this CV read into it. Throws an Error with a message a person can act on. */
 export async function profileWithCv(profile: Profile, file: File): Promise<Profile> {
   const [{ readCvFile, CvReadError }, { fillFromCv }] = await Promise.all([import("@/lib/cv-file"), import("@/lib/cv-parse")])

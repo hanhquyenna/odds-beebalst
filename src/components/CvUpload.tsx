@@ -1,4 +1,5 @@
 import { useId, useRef, useState } from "react"
+import { cvAccept } from "@/lib/cv-profile"
 import { Button } from "@/components/ui/button"
 import { CheckIcon, UploadIcon, XIcon } from "@/components/icons"
 
@@ -15,7 +16,6 @@ interface CvUploadProps {
   note?: string | null
 }
 
-const ACCEPT = ".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
 
 /** What the reader throws says what to do; anything else means the file would not open. */
 async function problemOf(err: unknown): Promise<string> {
@@ -67,7 +67,7 @@ export function CvUpload({ text, name, source, onChange, note }: CvUploadProps):
         ref={input}
         id={id}
         type="file"
-        accept={ACCEPT}
+        accept={cvAccept()}
         aria-label="Upload your CV"
         className="sr-only"
         onChange={(e) => void take(e.target.files?.[0])}

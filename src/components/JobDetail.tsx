@@ -207,7 +207,7 @@ function useBackEntry(id: string, onBack: () => void, enabled: boolean): void {
       return
     }
     if (!isOurEntry(id)) {
-      history.pushState({ job: id }, "")
+      history.pushState({ ...(history.state ?? {}), job: id }, "")
     }
     window.addEventListener("popstate", onBack)
 

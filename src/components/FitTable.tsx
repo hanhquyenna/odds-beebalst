@@ -9,7 +9,7 @@ import { useData, type Data } from "@/lib/data"
 import { profileFields } from "@/lib/field"
 import { fitFilters, withFitLanguage } from "@/lib/fit-filters"
 import { openLinkedInImport } from "@/lib/open-profile"
-import { CV_ACCEPT, profileWithCv } from "@/lib/cv-profile"
+import { cvAccept, profileWithCv } from "@/lib/cv-profile"
 import { oddsV2 } from "@/lib/odds-v2"
 import { tailor } from "@/lib/tailor"
 import { useCompanyProfiles } from "@/lib/company-profile"
@@ -155,7 +155,7 @@ function ImportPrompt({ what }: { what: string }): React.JSX.Element {
         <Button type="button" onClick={openLinkedInImport} className="cursor-pointer">
           Import LinkedIn
         </Button>
-        <input ref={input} type="file" accept={CV_ACCEPT} aria-label="Your CV" className="sr-only" onChange={(e) => void take(e.target.files?.[0])} />
+        <input ref={input} type="file" accept={cvAccept()} aria-label="Your CV" className="sr-only" onChange={(e) => void take(e.target.files?.[0])} />
         <Button type="button" variant="outline" disabled={reading} onClick={() => input.current?.click()} className="cursor-pointer">
           {reading ? "Reading…" : "Upload your CV"}
         </Button>

@@ -22,7 +22,7 @@ import {
   type Step,
 } from "@/lib/journey"
 import { clearDraft } from "@/lib/session"
-import { CV_ACCEPT, profileWithCv } from "@/lib/cv-profile"
+import { cvAccept, profileWithCv } from "@/lib/cv-profile"
 import { failureIsOurs } from "@/lib/linkedin-failure"
 import { rememberPendingCv } from "@/lib/pending-cv"
 import { isGuestEmail } from "@/lib/auth"
@@ -297,7 +297,7 @@ export function SeekerJourney({ mode, onBack, onSaved, onSignIn, onWelcome, onOp
           <h1 className="text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">See your odds on every job.</h1>
           <p className="text-muted-foreground">Add your LinkedIn or CV to see your chance on every job.</p>
         </div>
-        <input ref={cvInput} type="file" accept={CV_ACCEPT} aria-label="Your CV" className="sr-only" onChange={(event) => void readCv(event.target.files?.[0])} />
+        <input ref={cvInput} type="file" accept={cvAccept()} aria-label="Your CV" className="sr-only" onChange={(event) => void readCv(event.target.files?.[0])} />
         {linkedinDown ? (
           <div className="flex flex-col gap-3">
             {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : <p className="text-sm text-muted-foreground">Reading LinkedIn is not working right now, so your CV is the quickest way in.</p>}

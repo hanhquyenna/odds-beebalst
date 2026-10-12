@@ -1,4 +1,5 @@
 import { useRef, useState } from "react"
+import { cvAccept } from "@/lib/cv-profile"
 import { cn } from "cn"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { FileTextIcon, UploadIcon } from "@/components/icons"
@@ -10,7 +11,6 @@ import { KIND_LABEL, MAX_DOCUMENTS, attachedTo, driveFileUrl, mainCv, nameForJob
 import { attachDocument, detachDocument, useDocumentStore } from "@/lib/documents"
 import type { Posting } from "@/lib/types"
 
-const ACCEPT = ".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
 
 /**
  * The CV and the cover letter for this job, side by side: each one is picked from the library in Documents, or uploaded here,
@@ -126,7 +126,7 @@ function Slot({ post, kind }: { post: Posting; kind: DocKind }): React.JSX.Eleme
             ))}
           </select>
         </label>
-        <input ref={input} type="file" accept={ACCEPT} aria-label={`Upload a new ${label.toLowerCase()}`} className="sr-only" onChange={(e) => void take(e.target.files?.[0])} />
+        <input ref={input} type="file" accept={cvAccept()} aria-label={`Upload a new ${label.toLowerCase()}`} className="sr-only" onChange={(e) => void take(e.target.files?.[0])} />
         <Button type="button" variant="outline" size="sm" disabled={full || busy} onClick={() => input.current?.click()} className="cursor-pointer max-md:h-10">
           <UploadIcon className="size-4" aria-hidden="true" /> {busy ? "Reading…" : "Upload new"}
         </Button>
