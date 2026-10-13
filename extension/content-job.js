@@ -60,20 +60,38 @@ function peek(id) {
   })
 }
 
+/** Opens the browser's side panel on this tab (inside the press, which is what Chrome requires); where it cannot, the panel is drawn in the page. */
+function showPanel(then) {
+  chrome.runtime.sendMessage({ type: "open-side-panel" }, (answer) => {
+    const native = !chrome.runtime.lastError && Boolean(answer && answer.ok)
+    if (native) document.documentElement.dataset.oddsPanel = "side"
+    then(native)
+  })
+}
+
+
 function add() {
   const id = current.id
   draw("busy", "…", "Adding this job to odds")
-  chrome.runtime.sendMessage({ type: "add", url: location.href }, (answer) => {
-    if (current.id !== id) return
-    if (chrome.runtime.lastError || !answer) current = { ...current, phase: "error", message: "odds did not answer." }
-    else if (answer.status === "connect") current = { ...current, phase: "connect" }
-    else if (answer.status === "added" || answer.status === "exists") {
-      current = { ...current, phase: "ready", known: true, saved: true, chance: typeof answer.chance_pct === "number" ? answer.chance_pct : null, needsProfile: Boolean(answer.needs_profile) }
+  // The side panel opens first, at once, and the job drops into it when it is added (adding can take a while, the press cannot wait for it).
+  showPanel((native) => {
+    if (!native) openPanel()
+    chrome.runtime.sendMessage({ type: "add", url: location.href }, (answer) => {
+      if (current.id !== id) return
+      if (chrome.runtime.lastError || !answer) current = { ...current, phase: "error", message: "odds did not answer." }
+      else if (answer.status === "connect") current = { ...current, phase: "connect" }
+      else if (answer.status === "added" || answer.status === "exists") {
+        current = { ...current, phase: "ready", known: true, saved: true, chance: typeof answer.chance_pct === "number" ? answer.chance_pct : null, needsProfile: Boolean(answer.needs_profile) }
+        show()
+        const job = answer.job && answer.job.id ? { ...answer.job, chance_pct: current.chance } : null
+        if (job) {
+          if (native) chrome.runtime.sendMessage({ type: "panel-added", job })
+          else openPanel(job)
+        }
+        return
+      } else current = { ...current, phase: "error", message: answer.message || "That job could not be added." }
       show()
-      openPanel(answer.job && answer.job.id ? { ...answer.job, chance_pct: current.chance } : undefined)
-      return
-    } else current = { ...current, phase: "error", message: answer.message || "That job could not be added." }
-    show()
+    })
   })
 }
 
@@ -82,7 +100,7 @@ function press() {
   if (c.phase === "connect") return chrome.runtime.sendMessage({ type: "open-connect" })
   if (c.phase === "error") return peek(c.id)
   if (c.phase !== "ready" || c.closed) return
-  if (c.saved) return togglePanel()
+  if (c.saved) return showPanel((native) => (native ? undefined : togglePanel()))
   add()
 }
 
@@ -128,6 +146,8 @@ function sync() {
     button.type = "button"
     button.onclick = press
     document.documentElement.append(button)
+    // Odds may be framed in this tab from now on (the side panel needs it), so the first press has nothing left to wait for.
+    chrome.runtime.sendMessage({ type: "allow-frame" }, () => void chrome.runtime.lastError)
   }
   place()
   // Another job opened in the same page (LinkedIn does not reload): look it up, after a short pause so flicking through a list asks once.

@@ -27,6 +27,15 @@ async function allowOddsInTab(tabId) {
     ],
   })
 }
+// The tests switch the side panel off to try the panel drawn in the page; read ahead of time, because opening the side panel must not wait on anything.
+let panelInPageOnly = false
+chrome.storage.local.get("oddsPanelInPage").then((got) => {
+  panelInPageOnly = got.oddsPanelInPage === true
+})
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.oddsPanelInPage) panelInPageOnly = changes.oddsPanelInPage.newValue === true
+})
+
 /** The browser's own side panel is a page of the extension that belongs to no tab: it gets the same leave to frame odds (no web page can make such a request). */
 async function allowOddsInSidePanel() {
   await chrome.declarativeNetRequest.updateSessionRules({
@@ -132,6 +141,33 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   }
   if (message?.type === "peek" && typeof message.url === "string") {
     peek(message.url).then(reply)
+    return true
+  }
+  // A press on the odds button on a page: open the browser's side panel on that tab at once (it must happen inside the press), allowing odds to be framed there first.
+  if (message?.type === "open-side-panel" && sender.tab && typeof sender.tab.id === "number") {
+    const tabId = sender.tab.id
+    if (panelInPageOnly) {
+      reply({ ok: false, why: "in-page only" })
+      return false
+    }
+    // Called first thing, with nothing awaited before it: Chrome wants it inside the press. The frame rule was set when the job page was opened.
+    chrome.sidePanel
+      .open({ tabId })
+      .then(
+        () => reply({ ok: true }),
+        (e) => reply({ ok: false, why: String(e && e.message ? e.message : e).slice(0, 120) }),
+      )
+    return true
+  }
+  // A job page was opened in a tab: odds may be framed there from now on, so the side panel is ready when the button is pressed.
+  if (message?.type === "allow-frame" && sender.tab && typeof sender.tab.id === "number") {
+    allowOddsInTab(sender.tab.id).then(() => reply({ ok: true }), () => reply({ ok: false }))
+    return true
+  }
+  // A job was added from that tab: the side panel of that tab (and only that one) drops it in.
+  if (message?.type === "panel-added" && sender.tab && typeof sender.tab.id === "number" && message.job) {
+    chrome.runtime.sendMessage({ type: "panel-added", tabId: sender.tab.id, job: message.job }).catch(() => undefined)
+    reply({ ok: true })
     return true
   }
   if (message?.type === "panel" && sender.tab && typeof sender.tab.id === "number") {

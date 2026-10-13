@@ -126,7 +126,8 @@ const test = base.extend<{ context: BrowserContext; fake: Fake; extensionId: str
   context: async ({ fake, site }, provide) => {
     const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "odds-ext-")), { channel: "chromium", headless: true, ignoreHTTPSErrors: true, args: [`--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`, "--allow-running-insecure-content", `--host-resolver-rules=MAP odds.beeblast.co 127.0.0.1:${site.port}`, "--ignore-certificate-errors"] })
     const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"))
-    await worker.evaluate((port) => chrome.storage.local.set({ oddsApi: `http://localhost:${port}` }), fake.port)
+    // The panel drawn in the page is what most tests look at; one test switches this off and checks the browser's own side panel is asked for instead.
+    await worker.evaluate((port) => chrome.storage.local.set({ oddsApi: `http://localhost:${port}`, oddsPanelInPage: true }), fake.port)
     // LinkedIn: a page for any address, so the extension's script runs where it would on the real site.
     await context.route("https://*.linkedin.com/**", (route) => route.fulfill({ status: 200, contentType: "text/html", body: JOB_PAGE("LinkedIn job") }))
     // The odds site is not reached from these tests unless one serves it (see the panel test): anything else gets an empty page.
@@ -226,6 +227,24 @@ test("before connecting the button says Connect; connected, it shows your chance
   await page.waitForTimeout(700)
   await page.frameLocator("#odds-panel-frame").locator("#close").click()
   await expect(page.locator("#odds-panel-frame")).toHaveAttribute("data-open", "false")
+})
+
+test("with the browser's side panel on, pressing the button opens it at once, and no panel is drawn in the page", async ({ context, fake }) => {
+  const worker = context.serviceWorkers()[0]
+  await worker.evaluate(() => chrome.storage.local.set({ oddsPanelInPage: false }))
+  await connect(context)
+  const page = await context.newPage()
+  await page.goto(JOB)
+  await expect(page.locator("#odds-add")).toContainText("4.4%")
+  await page.locator("#odds-add").click()
+  await expect(page.locator("html")).toHaveAttribute("data-odds-panel", "side")
+  await expect(page.locator("#odds-add")).toContainText("✓ 4.4%")
+  expect(fake.calls).toHaveLength(1)
+  await expect(page.locator("#odds-panel-frame")).toHaveCount(0)
+  // Pressing it again, now that the job is kept, shows the side panel again and adds nothing.
+  await page.locator("#odds-add").click()
+  expect(fake.calls).toHaveLength(1)
+  await expect(page.locator("#odds-panel-frame")).toHaveCount(0)
 })
 
 test("a job odds does not hold yet shows ?%, a job already kept shows ✓ with its chance, a closed one says so", async ({ context, fake }) => {

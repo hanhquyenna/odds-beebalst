@@ -102,3 +102,15 @@ app.addEventListener("load", () => {
   appReady = false
 })
 refreshCount(false)
+
+// In the browser's side panel, the page that added a job tells it by way of the background; only the panel of that tab reacts.
+if (window.parent === window) {
+  chrome.runtime.onMessage.addListener((message) => {
+    if (!message || message.type !== "panel-added" || !message.job) return
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (chrome.runtime.lastError || !tabs[0] || tabs[0].id !== message.tabId) return
+      dropIn(message.job)
+      openJob(message.job.id)
+    })
+  })
+}
