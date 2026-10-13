@@ -318,6 +318,20 @@ test("odds still refuses to be framed anywhere the panel was not opened: another
   expect(page.frames().map((f) => f.url()).some((u) => u.startsWith("chrome-error:"))).toBe(true)
 })
 
+test("the popup's Show my jobs opens the panel on the LinkedIn tab, button or no button", async ({ context }) => {
+  await connect(context)
+  const page = await context.newPage()
+  await page.goto("https://www.linkedin.com/jobs/")
+  await expect(page.locator("#odds-add")).toHaveCount(0)
+  const worker = context.serviceWorkers()[0]
+  await worker.evaluate(async () => {
+    const api = (globalThis as unknown as { chrome: { tabs: { query(q: object): Promise<Array<{ id?: number }>>; sendMessage(id: number, m: object): Promise<unknown> } } }).chrome
+    const [tab] = await api.tabs.query({ active: true })
+    await api.tabs.sendMessage(tab.id as number, { type: "toggle-panel" })
+  })
+  await expect(page.locator("#odds-panel-frame")).toHaveAttribute("data-open", "true")
+})
+
 test("the popup says whether it is connected, and Disconnect forgets the key", async ({ context, extensionId }) => {
   const popup = await context.newPage()
   await popup.goto(`chrome-extension://${extensionId}/popup.html`)
@@ -326,6 +340,8 @@ test("the popup says whether it is connected, and Disconnect forgets the key", a
   await connect(context)
   await popup.reload()
   await expect(popup.locator("#line")).toContainText("Connected")
+  await expect(popup.locator("#line")).toContainText("beside Save")
+  await expect(popup.locator("#jobs")).toBeVisible()
   await popup.locator("#off").click()
   await expect(popup.locator("#main")).toHaveText("Connect odds")
 })
