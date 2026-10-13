@@ -9,7 +9,7 @@ function jobOpen() {
   return JOB_ADDRESS.test(location.pathname + location.search)
 }
 
-function render(state, text, link) {
+function render(state, text, link, note) {
   if (!button) return
   button.dataset.state = state
   button.replaceChildren()
@@ -20,35 +20,39 @@ function render(state, text, link) {
   label.className = "odds-text"
   label.textContent = text
   button.append(mark, label)
+  if (note) {
+    const bubble = document.createElement("span")
+    bubble.className = "odds-note"
+    bubble.textContent = note
+    button.append(bubble)
+  }
+  button.title = note ? `${text}. ${note}` : text
   button.onclick = link ? () => window.open(link, "_blank", "noopener") : null
 }
 
 function idle() {
-  render("idle", "Add to odds")
+  render("idle", "Add")
   button.onclick = add
-}
-
-function chanceWords(answer) {
-  if (typeof answer.chance_pct === "number") return `${answer.chance_pct}% interview chance`
-  return answer.needs_profile ? "Add your CV on odds to see your chance" : ""
 }
 
 function add() {
   if (button.dataset.state === "busy") return
-  render("busy", "Reading the job…")
+  render("busy", "Reading…")
   chrome.runtime.sendMessage({ type: "add", url: location.href }, (answer) => {
-    if (chrome.runtime.lastError || !answer) return render("problem", "odds did not answer. Try again.")
+    if (chrome.runtime.lastError || !answer) return render("problem", "Try again", null, "odds did not answer.")
     switch (answer.status) {
       case "connect":
-        render("problem", "Connect odds first")
+        render("problem", "Connect")
         button.onclick = () => chrome.runtime.sendMessage({ type: "open-connect" })
         break
       case "added":
-      case "exists":
-        render("done", ["Saved", chanceWords(answer)].filter(Boolean).join(". "), answer.odds_link)
+      case "exists": {
+        const chance = typeof answer.chance_pct === "number" ? ` · ${answer.chance_pct}%` : ""
+        render("done", `Saved${chance}`, answer.odds_link, answer.needs_profile ? "Add your CV on odds to see your chance." : null)
         break
+      }
       default:
-        render("problem", answer.message || "That job could not be added.")
+        render("problem", "Not added", null, answer.message || "That job could not be added.")
         button.onclick = idle
     }
   })

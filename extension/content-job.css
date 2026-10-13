@@ -1,11 +1,16 @@
 @font-face { font-family: "odds Inter Tight"; src: url("chrome-extension://__MSG_@@extension_id__/fonts/inter-tight.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
-#odds-add { all: initial; box-sizing: border-box; display: inline-flex; align-items: center; gap: 8px; max-width: 320px; padding: 9px 18px; border-radius: 999px; background: #f2802a; color: #fff; font: 700 15px/1.2 "odds Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif; cursor: pointer; border: 0; box-shadow: 0 4px 16px rgba(242, 128, 42, .35); vertical-align: middle; }
-/* No place found next to LinkedIn's own buttons: it floats at the right edge, above LinkedIn's messaging bar. */
-#odds-add[data-where="float"] { position: fixed; right: 24px; bottom: 96px; z-index: 2147483647; box-shadow: 0 6px 24px rgba(0, 0, 0, .28); }
+/* The size of LinkedIn's own buttons beside it (Save): 32px tall, a pill, 16px lettering. Quiet: an outline in odds orange, no fill. */
+#odds-add { all: initial; position: relative; box-sizing: border-box; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 16px; border-radius: 999px; background: transparent; color: #b8570d; border: 1px solid #e8914d; font: 600 16px/1 "odds Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif; white-space: nowrap; cursor: pointer; vertical-align: middle; }
 #odds-add[data-where="inline"] { margin-left: 8px; }
-#odds-add:hover { background: #e06f1c; }
-#odds-add[data-state="busy"] { cursor: progress; opacity: .85; }
-#odds-add[data-state="done"] { background: #0a7a3d; box-shadow: 0 4px 16px rgba(10, 122, 61, .3); }
-#odds-add[data-state="problem"] { background: #9c3a0e; }
-#odds-add .odds-mark { font-weight: 800; font-size: 17px; letter-spacing: -.045em; }
-#odds-add .odds-text { white-space: normal; font-weight: 700; }
+/* No place found next to LinkedIn's own buttons: it floats at the right edge, above LinkedIn's messaging bar. */
+#odds-add[data-where="float"] { position: fixed; right: 24px; bottom: 96px; z-index: 2147483647; background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, .15); }
+#odds-add:hover { background: rgba(242, 128, 42, .1); }
+#odds-add[data-where="float"]:hover { background: #fff4ec; }
+#odds-add[data-state="busy"] { cursor: progress; opacity: .7; }
+#odds-add[data-state="done"] { color: #0a7a3d; border-color: #6cc596; }
+#odds-add[data-state="done"]:hover { background: rgba(10, 122, 61, .08); }
+#odds-add[data-state="problem"] { color: #9c3a0e; border-color: #d99a78; }
+#odds-add .odds-mark { font-weight: 800; letter-spacing: -.045em; }
+#odds-add .odds-text { font-weight: 600; }
+/* A longer message sits under the button, so the button itself keeps its size. */
+#odds-add .odds-note { position: absolute; top: calc(100% + 6px); left: 0; z-index: 2147483647; width: max-content; max-width: 260px; padding: 8px 10px; border-radius: 8px; background: #fff; color: #333; border: 1px solid rgba(0, 0, 0, .15); box-shadow: 0 4px 14px rgba(0, 0, 0, .15); font: 400 13px/1.35 "odds Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif; white-space: normal; }
