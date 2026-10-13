@@ -17,10 +17,12 @@
     "service_worker": "background.js"
   },
   "permissions": [
-    "storage"
+    "storage",
+    "declarativeNetRequest"
   ],
   "host_permissions": [
-    "https://ukpmpyfcnbhngkgbnkxi.supabase.co/*"
+    "https://ukpmpyfcnbhngkgbnkxi.supabase.co/*",
+    "https://odds.beeblast.co/*"
   ],
   "content_scripts": [
     {
@@ -50,7 +52,10 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "fonts/inter-tight.woff2"
+        "fonts/inter-tight.woff2",
+        "panel.html",
+        "panel-frame.js",
+        "panel-frame.css"
       ],
       "matches": [
         "https://*.linkedin.com/*"

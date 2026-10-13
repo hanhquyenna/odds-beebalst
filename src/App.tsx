@@ -5,6 +5,7 @@ import type { ShellTab } from "@/components/AppShell"
 import { usePhone } from "@/lib/use-phone"
 import { NotifyPrompt } from "@/components/NotifyPrompt"
 import { connectWaiting } from "@/lib/connect-request"
+import { embedded } from "@/lib/embedded"
 import { extensionWaiting } from "@/lib/extension-connect"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -516,17 +517,17 @@ export default function App(): React.JSX.Element {
         </Suspense>
       ) : null}
       {/* Loaded only for a signed-in person on a phone browser, so the landing never carries the phone drawing. */}
-      {shell && data.session && data.status === "ready" && !installGuide && platformOf() !== "desktop" && !isInstalled() ? (
+      {shell && data.session && data.status === "ready" && !installGuide && !embedded && platformOf() !== "desktop" && !isInstalled() ? (
         <Suspense fallback={null}>
           <AddToPhonePrompt active />
         </Suspense>
       ) : null}
-      {shell && data.session && data.status === "ready" && !installGuide ? (
+      {shell && data.session && data.status === "ready" && !installGuide && !embedded ? (
         <Suspense fallback={null}>
           <BetaInvitePrompt active />
         </Suspense>
       ) : null}
-      <NotifyPrompt session={data.session} />
+      {embedded ? null : <NotifyPrompt session={data.session} />}
       {connectRequest ? (
         <Suspense fallback={null}>
           <ConnectApproval />

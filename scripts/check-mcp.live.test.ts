@@ -377,6 +377,21 @@ run("the connector, as a signed-in person", () => {
       expect(reads.length).toBe(0)
     })
 
+    test("a sign-in for the app in the panel: a real session of the person's own, from the extension key alone", async () => {
+      const got = await call(xkey, "session", {})
+      expect(got.status).toBe(200)
+      expect(typeof got.data.access_token).toBe("string")
+      expect(typeof got.data.refresh_token).toBe("string")
+      const who = await fetch(`${URL_}/auth/v1/user`, { headers: { apikey: anon, Authorization: `Bearer ${got.data.access_token}` } })
+      expect(who.status).toBe(200)
+      expect(((await who.json()) as Json).id).toBe(a.id)
+      // It reads their own rows and nobody else's.
+      const saved = await fetch(`${URL_}/rest/v1/saved_jobs?select=user_id`, { headers: { apikey: anon, Authorization: `Bearer ${got.data.access_token}` } })
+      expect(((await saved.json()) as Json[]).every((r) => r.user_id === a.id)).toBe(true)
+      expect((await call(a.key, "session", {})).status).toBe(401)
+      expect((await call("", "session", {})).status).toBe(401)
+    })
+
     test("the pool is the person's saved jobs, newest first, and no one else's", async () => {
       const mine = await call(xkey, "pool")
       expect(mine.status).toBe(200)

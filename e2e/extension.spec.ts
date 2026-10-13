@@ -1,9 +1,11 @@
-import { createServer, type IncomingMessage, type Server } from "node:http"
+import { execFileSync } from "node:child_process"
+import { createServer, request as httpRequest, type IncomingMessage, type Server } from "node:http"
+import { createServer as createTlsServer } from "node:https"
 import { chromium, expect, test as base, type BrowserContext } from "@playwright/test"
 import { join } from "node:path"
-import { mkdtempSync } from "node:fs"
+import { mkdtempSync, readFileSync } from "node:fs"
 import { FLOW_POSTINGS } from "./fixtures/postings"
-import { mockBackend } from "./mock"
+import { mockBackend, shot } from "./mock"
 import { tmpdir } from "node:os"
 
 /**
@@ -30,6 +32,7 @@ interface Fake {
   calls: Array<{ auth: string; body: { url?: string } }>
   peeks: string[]
   pools: number
+  sessions: number
   answer: Record<string, unknown>
   peek: Record<string, unknown>
   pool: Record<string, unknown>
@@ -40,6 +43,7 @@ async function fakeOdds(): Promise<Fake> {
     calls: [],
     peeks: [],
     pools: 0,
+    sessions: 0,
     answer: { status: "added", saved: true, chance_pct: 4.4, job: { id: "pabc", title: "Finance Intern" }, odds_link: "https://odds.beeblast.co/job/pabc" },
     peek: { known: true, id: "pabc", saved: false, chance_pct: 4.4, needs_profile: false },
     pool: { jobs: [{ id: "pabc", title: "Finance Intern", company: "Acme", city: "Amsterdam", status: "saved", chance_pct: 4.4, link: "https://odds.beeblast.co/job/pabc" }, { id: "pold", title: "Marketing Intern", company: "Beta", city: "Utrecht", status: "applied", chance_pct: null, link: "https://odds.beeblast.co/job/pold" }], total: 2 },
@@ -66,6 +70,9 @@ async function fakeOdds(): Promise<Fake> {
       if (path.endsWith("/ext/peek")) {
         fake.peeks.push(String(body.url))
         answer = fake.peek
+      } else if (path.endsWith("/ext/session")) {
+        fake.sessions++
+        answer = { access_token: "e2e-token", refresh_token: "e2e-refresh", expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: "00000000-0000-4000-8000-000000000001", email: "test.person@example.com" } }
       } else if (path.endsWith("/ext/pool")) {
         fake.pools++
         answer = fake.pool
@@ -79,19 +86,51 @@ async function fakeOdds(): Promise<Fake> {
   return fake
 }
 
-const test = base.extend<{ context: BrowserContext; fake: Fake; extensionId: string }>({
+/**
+ * odds.beeblast.co on this machine over real HTTPS, answering the way production does: the built app, with the headers that forbid framing. The
+ * browser is told to send that host here (host-resolver-rules), so the extension's header rule sees a real response, which a route fake would not give it.
+ */
+async function oddsSite(): Promise<{ server: Server; port: number }> {
+  const dir = mkdtempSync(join(tmpdir(), "odds-tls-"))
+  execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(dir, "k.pem"), "-out", join(dir, "c.pem"), "-days", "2", "-subj", "/CN=odds.beeblast.co", "-addext", "subjectAltName=DNS:odds.beeblast.co"], { stdio: "ignore" })
+  const server = createTlsServer({ key: readFileSync(join(dir, "k.pem")), cert: readFileSync(join(dir, "c.pem")) }, (req, res) => {
+    const up = httpRequest({ host: "localhost", port: 4319, path: req.url, method: req.method, headers: { ...req.headers, host: "localhost:4319" } }, (answer) => {
+      res.writeHead(answer.statusCode ?? 502, {
+        ...answer.headers,
+        "x-frame-options": "DENY",
+        "content-security-policy": "default-src 'self'; frame-ancestors 'none'; script-src 'self'; connect-src 'self' http://supabase.test; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:",
+      })
+      answer.pipe(res)
+    })
+    up.on("error", () => res.writeHead(502).end())
+    req.pipe(up)
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+
+  return { server, port: (server.address() as { port: number }).port }
+}
+
+const test = base.extend<{ context: BrowserContext; fake: Fake; extensionId: string; site: { server: Server; port: number } }>({
+  site: async ({ baseURL }, provide) => {
+    void baseURL
+    const site = await oddsSite()
+    await provide(site)
+    site.server.close()
+  },
   fake: async ({ baseURL }, provide) => {
     void baseURL
     const fake = await fakeOdds()
     await provide(fake)
     fake.server.close()
   },
-  context: async ({ fake }, provide) => {
-    const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "odds-ext-")), { channel: "chromium", headless: true, args: [`--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`, "--allow-running-insecure-content"] })
+  context: async ({ fake, site }, provide) => {
+    const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "odds-ext-")), { channel: "chromium", headless: true, ignoreHTTPSErrors: true, args: [`--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`, "--allow-running-insecure-content", `--host-resolver-rules=MAP odds.beeblast.co 127.0.0.1:${site.port}`, "--ignore-certificate-errors"] })
     const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"))
     await worker.evaluate((port) => chrome.storage.local.set({ oddsApi: `http://localhost:${port}` }), fake.port)
     // LinkedIn: a page for any address, so the extension's script runs where it would on the real site.
     await context.route("https://*.linkedin.com/**", (route) => route.fulfill({ status: 200, contentType: "text/html", body: JOB_PAGE("LinkedIn job") }))
+    // The odds site is not reached from these tests unless one serves it (see the panel test): anything else gets an empty page.
+    await context.route("https://odds.beeblast.co/**", (route) => route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>odds</title>" }))
     await provide(context)
     await context.close()
   },
@@ -177,18 +216,16 @@ test("before connecting the button says Connect; connected, it shows your chance
   expect(fake.calls[0].body.url).toBe(JOB)
   // Only the address goes to odds: no page text.
   expect(Object.keys(fake.calls[0].body)).toEqual(["url"])
-  // The panel slides in with their jobs, and the one just added jumps in.
-  await expect(page.locator("#odds-panel-host .panel")).toHaveAttribute("data-open", "true")
-  await expect(page.locator('#odds-panel-host li[data-new="true"]')).toContainText("Finance Intern")
-  await expect(page.locator("#odds-panel-host li")).toHaveCount(2)
-  await expect(page.locator("#odds-panel-host .count")).toHaveText("2")
-  // Pressing the button again hides it, and again shows it; the cross closes it.
+  // The panel slides in; pressing the button again hides it, and again shows it; the cross closes it.
+  await expect(page.locator("#odds-panel-frame")).toHaveAttribute("data-open", "true")
   await page.locator("#odds-add").click()
-  await expect(page.locator("#odds-panel-host .panel")).toHaveAttribute("data-open", "false")
+  await expect(page.locator("#odds-panel-frame")).toHaveAttribute("data-open", "false")
   await page.locator("#odds-add").click()
-  await expect(page.locator("#odds-panel-host .panel")).toHaveAttribute("data-open", "true")
-  await page.locator("#odds-panel-host .close").click()
-  await expect(page.locator("#odds-panel-host .panel")).toHaveAttribute("data-open", "false")
+  await expect(page.locator("#odds-panel-frame")).toHaveAttribute("data-open", "true")
+  // The slide takes a moment; the cross is pressed once the panel has settled.
+  await page.waitForTimeout(700)
+  await page.frameLocator("#odds-panel-frame").locator("#close").click()
+  await expect(page.locator("#odds-panel-frame")).toHaveAttribute("data-open", "false")
 })
 
 test("a job odds does not hold yet shows ?%, a job already kept shows ✓ with its chance, a closed one says so", async ({ context, fake }) => {
@@ -244,6 +281,41 @@ test("a key odds no longer accepts disconnects the extension", async ({ context,
   await expect(page.locator("#odds-add")).toContainText("Connect")
   expect(await worker.evaluate(async () => (await chrome.storage.local.get("oddsKey")).oddsKey ?? null)).toBeNull()
   expect(fake.calls).toHaveLength(0)
+})
+
+test("the odds app opens in the panel as production serves it (refusing frames), signed in by the extension, with the job dropped over it", async ({ context, fake }) => {
+  fake.answer = { status: "added", saved: true, chance_pct: 4.4, job: { id: "e2e-adyen-fin-analyst", title: "Junior Financial Analyst", company: "Adyen", city: "Amsterdam" } }
+  // The backend of the app is the usual fake; odds itself is the real HTTPS site of oddsSite() above, with production's headers (it may not be framed).
+  await mockBackend(context, FLOW_POSTINGS, [], true)
+  await context.unroute("https://odds.beeblast.co/**")
+  // The extension's own pages, and the odds site over the network, are not part of what the fake routes.
+  await context.route(/^chrome-extension:/, (route) => route.continue())
+  await context.route("https://odds.beeblast.co/**", (route) => route.continue())
+  // LinkedIn's page keeps a strict policy on what it may frame; the extension's panel must still open.
+  await context.route("https://www.linkedin.com/jobs/view/**", (route) => route.fulfill({ status: 200, contentType: "text/html", headers: { "content-security-policy": "default-src 'self' 'unsafe-inline'; frame-src 'self'" }, body: JOB_PAGE("LinkedIn job") }))
+  await connect(context)
+  const page = await context.newPage()
+  await page.goto(JOB)
+  await expect(page.locator("#odds-add")).toContainText("4.4%")
+  await page.locator("#odds-add").click()
+  const panel = page.frameLocator("#odds-panel-frame")
+  await expect(page.locator("#odds-panel-frame")).toHaveAttribute("data-open", "true")
+  // The job drops in over the app.
+  await expect(panel.locator("#toast .card")).toContainText("Junior Financial Analyst")
+  // The app itself loaded in the frame under it (not refused), and was signed in by the extension: it shows the job's page.
+  const app = panel.frameLocator("#app")
+  await expect(app.getByRole("heading", { name: "Junior Financial Analyst" }).first()).toBeVisible({ timeout: 25000 })
+  expect(fake.sessions).toBeGreaterThanOrEqual(1)
+  await shot(page, "ext-panel-app")
+})
+
+test("odds still refuses to be framed anywhere the panel was not opened: another tab, another page", async ({ context }) => {
+  await context.route("https://www.linkedin.com/feed/**", (route) => route.fulfill({ status: 200, contentType: "text/html", body: '<!doctype html><iframe id="x" src="https://odds.beeblast.co/"></iframe>' }))
+  await context.route("https://odds.beeblast.co/**", (route) => route.continue())
+  const page = await context.newPage()
+  await page.goto("https://www.linkedin.com/feed/")
+  await page.waitForTimeout(2500)
+  expect(page.frames().map((f) => f.url()).some((u) => u.startsWith("chrome-error:"))).toBe(true)
 })
 
 test("the popup says whether it is connected, and Disconnect forgets the key", async ({ context, extensionId }) => {

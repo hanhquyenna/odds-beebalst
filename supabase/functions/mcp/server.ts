@@ -987,6 +987,23 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
   const me = await extWho(env, keyOf(req)).catch(() => null)
   if (!me) return json(401, { error: "Connect the odds extension again." })
   if (route === "me" && req.method === "GET") return json(200, { ok: true })
+  // A real odds sign-in for the person, so the odds app opened inside the extension's panel is signed in as them. The extension key is as strong
+  // as that: it is kept only in the extension, rotates when they connect again, and Disconnect on the odds site cuts it off.
+  if (route === "session" && req.method === "POST") {
+    if (!env.serviceKey) return json(500, { error: "Not configured." })
+    const admin = { apikey: env.serviceKey, Authorization: `Bearer ${env.serviceKey}`, "Content-Type": "application/json" }
+    const user = await fetch(`${env.url}/auth/v1/admin/users/${me.id}`, { headers: admin }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+    const email = typeof user?.email === "string" ? user.email : ""
+    if (!email) return json(404, { error: "Account not found." })
+    const link = await fetch(`${env.url}/auth/v1/admin/generate_link`, { method: "POST", headers: admin, body: JSON.stringify({ type: "magiclink", email }) })
+    const made: Json = link.ok ? await link.json() : null
+    const tokenHash = made?.properties?.hashed_token ?? made?.hashed_token
+    if (!tokenHash) return json(503, { error: "Could not sign you in yet." })
+    const verified = await fetch(`${env.url}/auth/v1/verify`, { method: "POST", headers: { apikey: env.anonKey, "Content-Type": "application/json" }, body: JSON.stringify({ type: "magiclink", token_hash: tokenHash }) })
+    if (!verified.ok) return json(503, { error: "Could not sign you in yet." })
+
+    return json(200, await verified.json())
+  }
   // What the person's chance is for the job on the page, without saving it or paying for anything: only a job odds already holds can be answered.
   if (route === "peek" && req.method === "POST") {
     let address = ""

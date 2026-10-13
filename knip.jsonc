@@ -15,6 +15,8 @@
     "src/components/ui/**"
   ],
   "ignoreExportsUsedInFile": true,
+  // The extension's test makes a throwaway certificate for its local copy of the odds site (e2e/extension.spec.ts).
+  "ignoreBinaries": ["openssl"],
   "ignoreDependencies": [
     // Deno specifiers in supabase/functions (jsr:@std/..., npm:web-push), resolved by Deno, not package.json.
     "jsr",

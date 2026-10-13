@@ -5,6 +5,7 @@ import App from "@/App"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { DataProvider } from "@/lib/data"
 import { takeConnectFromUrl } from "@/lib/connect-request"
+import { embedded } from "@/lib/embedded"
 import { takeExtensionFromUrl } from "@/lib/extension-connect"
 import { startPush } from "@/lib/push"
 import "@/index.css"
@@ -31,6 +32,8 @@ window.addEventListener("vite:preloadError", () => {
 takeConnectFromUrl()
 // The odds browser extension sending someone here to connect (/connect/extension): same.
 takeExtensionFromUrl()
+// Shown inside the odds extension's panel: signed in by the extension.
+if (embedded) void import("@/lib/embed").then((m) => m.startEmbed())
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
