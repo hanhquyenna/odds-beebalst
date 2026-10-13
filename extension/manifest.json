@@ -4,22 +4,56 @@
   "short_name": "odds",
   "version": "0.1.0",
   "description": "On a LinkedIn job, one click keeps it in odds and shows your interview chance for it.",
-  "icons": { "16": "icons/icon-16.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" },
-  "action": { "default_title": "odds", "default_popup": "popup.html" },
-  "background": { "service_worker": "background.js" },
-  "permissions": ["storage"],
-  "host_permissions": ["https://ukpmpyfcnbhngkgbnkxi.supabase.co/*"],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "odds",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://ukpmpyfcnbhngkgbnkxi.supabase.co/*"
+  ],
   "content_scripts": [
     {
-      "matches": ["https://www.linkedin.com/jobs/*", "https://*.linkedin.com/jobs/*"],
-      "js": ["content-job.js"],
-      "css": ["content-job.css"],
+      "matches": [
+        "https://www.linkedin.com/jobs/*",
+        "https://*.linkedin.com/jobs/*"
+      ],
+      "js": [
+        "content-job.js"
+      ],
+      "css": [
+        "content-job.css"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://odds.beeblast.co/*"],
-      "js": ["content-site.js"],
+      "matches": [
+        "https://odds.beeblast.co/*"
+      ],
+      "js": [
+        "content-site.js"
+      ],
       "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "fonts/inter-tight.woff2"
+      ],
+      "matches": [
+        "https://*.linkedin.com/*"
+      ]
     }
   ]
 }

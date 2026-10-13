@@ -107,6 +107,22 @@ test("on a LinkedIn job the button is there; on a page that is not a job it is n
   await expect(view.locator("#odds-add")).toHaveCount(0)
 })
 
+test("next to LinkedIn's Save button when the page has one, at the edge when it has not; in odds orange with the odds lettering", async ({ context }) => {
+  await context.route("https://www.linkedin.com/jobs/view/**", (route) => route.fulfill({ status: 200, contentType: "text/html", body: `<!doctype html><main><div id="bar"><button aria-label="Easy Apply">Easy Apply</button><button aria-label="Save job">Save</button></div></main>` }))
+  const page = await context.newPage()
+  await page.goto("https://www.linkedin.com/jobs/view/4470863235/")
+  const pill = page.locator("#odds-add")
+  await expect(pill).toHaveAttribute("data-where", "inline")
+  expect(await pill.evaluate((el) => el.parentElement?.id)).toBe("bar")
+  expect(await pill.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(242, 128, 42)")
+  expect(await pill.evaluate((el) => getComputedStyle(el).position)).not.toBe("fixed")
+  // The odds lettering is loaded from the extension.
+  expect(await page.evaluate(() => document.fonts.check('700 15px "odds Inter Tight"'))).toBe(true)
+  await page.goto("https://www.linkedin.com/jobs/search/?currentJobId=4470863235")
+  await expect(page.locator("#odds-add")).toHaveAttribute("data-where", "float")
+  expect(await page.locator("#odds-add").evaluate((el) => getComputedStyle(el).position)).toBe("fixed")
+})
+
 test("before connecting, the button asks to connect; connected, it sends the page address with the key and shows the chance", async ({ context, fake }) => {
   const page = await context.newPage()
   await page.goto(JOB)

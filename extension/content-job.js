@@ -54,6 +54,28 @@ function add() {
   })
 }
 
+/** LinkedIn's own Save button of the open job, so odds can sit beside it. Null when the page has none (then odds floats at the edge). */
+function saveButton() {
+  const candidates = document.querySelectorAll("main button, .jobs-search__job-details button, .job-view-layout button")
+  for (const b of candidates) {
+    const label = (b.getAttribute("aria-label") || b.textContent || "").trim()
+    if (/^save\b/i.test(label) && b.offsetParent !== null && b.id !== "odds-add") return b
+  }
+  return null
+}
+
+/** Puts the button next to Save when there is one, else floating; moves it again when LinkedIn redraws the page. */
+function place() {
+  const save = saveButton()
+  const parent = save ? save.parentElement : document.documentElement
+  const where = save ? "inline" : "float"
+  if (button.parentElement !== parent || button.dataset.where !== where) {
+    button.dataset.where = where
+    if (save) save.after(button)
+    else parent.append(button)
+  }
+}
+
 function sync() {
   const open = jobOpen()
   if (!open) {
@@ -69,6 +91,7 @@ function sync() {
     document.documentElement.append(button)
     shownFor = ""
   }
+  place()
   // Another job opened in the same page (LinkedIn does not reload): start again for it.
   const here = location.pathname + location.search
   if (shownFor !== here && button.dataset.state !== "busy") {
