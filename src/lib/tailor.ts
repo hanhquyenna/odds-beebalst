@@ -151,6 +151,14 @@ export function freshForLists(post: Pick<Posting, "days_open" | "valid_through">
   return post.days_open !== null && post.days_open !== undefined && post.days_open <= LIST_MAX_AGE_DAYS
 }
 
+/** "Jobs tailored to you" shows only the last week, whatever the closing date says: a week-old list is one that is still worth opening. */
+export const TAILORED_MAX_AGE_DAYS = 7
+
+/** Posted in the last week. A posting with no date cannot be shown to be that new, so it is left out of the tailored list (it stays in "All jobs"). */
+export function freshForTailored(post: Pick<Posting, "days_open">): boolean {
+  return post.days_open !== null && post.days_open !== undefined && post.days_open <= TAILORED_MAX_AGE_DAYS
+}
+
 /** A closing date before today: the employer stopped taking applications, whatever the board still shows. */
 export function pastDeadline(post: Posting, today: Date): boolean {
   if (!post.valid_through) return false
@@ -176,7 +184,7 @@ export function tailor({ candidates, fitting, saved, chanceOf, profiles, liftOf,
   const ownSets = own.map(titleWords)
   const scored: Array<Tailored & { interest: Interest; fresh: number; rank: number; fit: number }> = []
   for (const post of candidates) {
-    if (pastDeadline(post, today) || !freshForLists(post, today)) continue
+    if (pastDeadline(post, today) || !freshForTailored(post)) continue
     const pf = fitOf?.(post)
     // Closed to this person (it asks for a student and they graduated, for a language they do not list): not worth a place in the list.
     if (pf?.blocked) continue

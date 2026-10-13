@@ -37,6 +37,7 @@ const SignIn = lazy(() => import("@/components/SignIn").then((module) => ({ defa
 const JobDetail = lazy(() => import("@/components/JobDetail").then((module) => ({ default: module.JobDetail })))
 const Documents = lazy(() => import("@/components/Documents").then((module) => ({ default: module.Documents })))
 const ProfilePage = lazy(() => import("@/components/ProfilePage").then((module) => ({ default: module.ProfilePage })))
+const BetaInvitePrompt = lazy(() => import("@/components/BetaInvitePrompt").then((module) => ({ default: module.BetaInvitePrompt })))
 const AddToPhonePrompt = lazy(() => import("@/components/AddToPhonePrompt").then((module) => ({ default: module.AddToPhonePrompt })))
 const ConnectApproval = lazy(() => import("@/components/ConnectApproval").then((m) => ({ default: m.ConnectApproval })))
 const ClaudePage = lazy(() => import("@/components/ClaudeGuide").then((module) => ({ default: module.ClaudePage })))
@@ -513,6 +514,11 @@ export default function App(): React.JSX.Element {
       {shell && data.session && data.status === "ready" && !installGuide && platformOf() !== "desktop" && !isInstalled() ? (
         <Suspense fallback={null}>
           <AddToPhonePrompt active />
+        </Suspense>
+      ) : null}
+      {shell && data.session && data.status === "ready" && !installGuide ? (
+        <Suspense fallback={null}>
+          <BetaInvitePrompt active />
         </Suspense>
       ) : null}
       <NotifyPrompt session={data.session} />

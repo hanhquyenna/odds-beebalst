@@ -303,201 +303,14 @@ function relevanceOf(itemFamily, jobFamily) {
 }
 // src/lib/pile-model.json
 var pile_model_default = {
-  categorical: {
-    city: {
-      amersfoort: -0.15728619360478532,
-      amsterdam: 0.11441253525865946,
-      "amsterdam area": 0.10451763806971417,
-      breda: 0.10278405081378558,
-      delft: 0.11093524412789357,
-      eindhoven: -0.03878979961951995,
-      hoofddorp: -0.024224310575237926,
-      other: -0.16742182811614942,
-      rotterdam: -0.13551381309709898,
-      "the hague": -0.060485653873890426,
-      "the randstad": 0.24226153107326792,
-      utrecht: -0.036567092638491616,
-      venlo: -0.054622307818146996
-    },
-    degree_asked: {
-      bachelor: -0.10011157112320124,
-      master: 0.0011015845739924535,
-      other: 0.1257924500298225
-    },
-    family: {
-      "Consulting & strategy": -0.08323285153537424,
-      "Data, analytics & AI": 0.16194269970981512,
-      "Design & UX": -0.08277807759078157,
-      "Finance & accounting": 0.02273069505094011,
-      "HR & recruiting": -0.10076852309039279,
-      "Hardware & engineering": -0.06636950559014397,
-      "IT, cloud & security": -0.1698773236077078,
-      "Marketing & communications": -0.09637805383004604,
-      "Operations & supply chain": -0.07897466083994295,
-      "Product & project management": 0.06019913943996509,
-      "Research & academia": -0.04445567765675214,
-      "Risk, compliance & legal": -0.029007703525469886,
-      "Sales & account management": -0.2212347664806904,
-      "Software engineering": 0.14554316254302052,
-      other: 0.023069527563913853
-    },
-    industry: {
-      Accounting: -0.279883571575108,
-      Banking: 0.22167511822573135,
-      Construction: -0.16146214596077196,
-      Consulting: 0.024036345089923264,
-      "Energy & utilities": 0.025784704095034857,
-      "Financial services": 0.10777814786586169,
-      "Food & consumer goods": 0.019794674589556138,
-      "Health & life sciences": 0.022536729691973248,
-      "Hospitality & travel": 0.013810984873282958,
-      "IT services": 0.009988367319764102,
-      Manufacturing: 0.04893939087591298,
-      "Media & marketing": -0.1448791673603171,
-      "Retail & e-commerce": 0.154363910385793,
-      Semiconductors: 0.002568448559496894,
-      "Software & internet": -0.177850478539397,
-      "Staffing & recruiting": -0.062204485406157806,
-      "Transport & logistics": -0.008198913748996797,
-      other: -0.08004478411306953
-    },
-    job_type: {
-      fulltime: 0.3890666994703106,
-      internship: 0.41603066294364266,
-      other: 0.14914365519587172
-    },
-    level_view: {
-      Entry: 0.22158678246669083,
-      Internship: -0.07644714174427203,
-      Mid: 0.17216091814679432,
-      "Not stated": 0.07825422153887432,
-      Senior: 0.009013037128163953,
-      other: 0.057319183055899475
-    },
-    tier: {
-      elite: 0.03723906048063186,
-      mid: -0.01897948606785302,
-      other: 0.10019906072932765,
-      small: -0.05545239432680593,
-      unknown: -0.0630062408153006
-    },
-    workplace: {
-      hybrid: 0.16332468593781924,
-      onsite: 0.09670928049950109,
-      other: 0.09062439008269288
-    }
-  },
-  cv_spearman: 0.2959568378113969,
+  categorical: { city: { amersfoort: -0.157, amsterdam: 0.114, "amsterdam area": 0.105, breda: 0.103, delft: 0.111, eindhoven: -0.039, hoofddorp: -0.024, other: -0.167, rotterdam: -0.136, "the hague": -0.06, "the randstad": 0.242, utrecht: -0.037, venlo: -0.055 }, degree_asked: { bachelor: -0.1, master: 0.001, other: 0.126 }, family: { "Consulting & strategy": -0.083, "Data, analytics & AI": 0.162, "Design & UX": -0.083, "Finance & accounting": 0.023, "HR & recruiting": -0.101, "Hardware & engineering": -0.066, "IT, cloud & security": -0.17, "Marketing & communications": -0.096, "Operations & supply chain": -0.079, "Product & project management": 0.06, "Research & academia": -0.044, "Risk, compliance & legal": -0.029, "Sales & account management": -0.221, "Software engineering": 0.146, other: 0.023 }, industry: { Accounting: -0.28, Banking: 0.222, Construction: -0.161, Consulting: 0.024, "Energy & utilities": 0.026, "Financial services": 0.108, "Food & consumer goods": 0.02, "Health & life sciences": 0.023, "Hospitality & travel": 0.014, "IT services": 0.01, Manufacturing: 0.049, "Media & marketing": -0.145, "Retail & e-commerce": 0.154, Semiconductors: 0.003, "Software & internet": -0.178, "Staffing & recruiting": -0.062, "Transport & logistics": -0.008, other: -0.08 }, job_type: { fulltime: 0.389, internship: 0.416, other: 0.149 }, level_view: { Entry: 0.222, Internship: -0.076, Mid: 0.172, "Not stated": 0.078, Senior: 0.009, other: 0.057 }, tier: { elite: 0.037, mid: -0.019, other: 0.1, small: -0.055, unknown: -0.063 }, workplace: { hybrid: 0.163, onsite: 0.097, other: 0.091 } },
+  cv_spearman: 0.296,
   employers: 783,
-  intercept: 4.530015789994847,
-  mean_fitted: 4.59508316430868,
-  numeric: {
-    intern: {
-      coef: -0.07022172662786552,
-      mean: 0.4590690208667737,
-      sd: 0.49852192780395305
-    },
-    pay: {
-      coef: -0.07736729401809939,
-      mean: 0.32825040128410915,
-      sd: 0.46976503216140497
-    },
-    sponsor: {
-      coef: 0.15760395881332115,
-      mean: 0.3346709470304976,
-      sd: 0.47206477593795476
-    },
-    years: {
-      coef: 0.005543891823307057,
-      mean: -0.0826645264847512,
-      sd: 2.0117098072066213
-    }
-  },
+  intercept: 4.53,
+  mean_fitted: 4.595,
+  numeric: { intern: { coef: -0.07, mean: 0.459, sd: 0.499 }, pay: { coef: -0.077, mean: 0.328, sd: 0.47 }, sponsor: { coef: 0.158, mean: 0.335, sd: 0.472 }, years: { coef: 0.006, mean: -0.083, sd: 2.012 } },
   rows: 1246,
-  vocab: {
-    city: [
-      "amsterdam",
-      "other",
-      "rotterdam",
-      "utrecht",
-      "eindhoven",
-      "amsterdam area",
-      "amersfoort",
-      "hoofddorp",
-      "venlo",
-      "the randstad",
-      "breda",
-      "the hague",
-      "delft"
-    ],
-    degree_asked: [
-      "none",
-      "bachelor",
-      "master"
-    ],
-    family: [
-      "Finance & accounting",
-      "Data, analytics & AI",
-      "Marketing & communications",
-      "Sales & account management",
-      "Operations & supply chain",
-      "Software engineering",
-      "none",
-      "Risk, compliance & legal",
-      "Hardware & engineering",
-      "Consulting & strategy",
-      "Product & project management",
-      "HR & recruiting",
-      "IT, cloud & security",
-      "Research & academia",
-      "Design & UX"
-    ],
-    industry: [
-      "none",
-      "Software & internet",
-      "Financial services",
-      "Manufacturing",
-      "Retail & e-commerce",
-      "Food & consumer goods",
-      "Consulting",
-      "other",
-      "IT services",
-      "Health & life sciences",
-      "Hospitality & travel",
-      "Banking",
-      "Construction",
-      "Energy & utilities",
-      "Media & marketing",
-      "Semiconductors",
-      "Staffing & recruiting",
-      "Transport & logistics",
-      "Accounting"
-    ],
-    job_type: [
-      "none",
-      "fulltime",
-      "internship"
-    ],
-    level_view: [
-      "Internship",
-      "Entry",
-      "none",
-      "Mid",
-      "Not stated",
-      "Senior"
-    ],
-    tier: [
-      "unknown",
-      "mid",
-      "elite",
-      "small"
-    ],
-    workplace: [
-      "none",
-      "hybrid",
-      "onsite"
-    ]
-  }
+  vocab: { city: ["amsterdam", "other", "rotterdam", "utrecht", "eindhoven", "amsterdam area", "amersfoort", "hoofddorp", "venlo", "the randstad", "breda", "the hague", "delft"], degree_asked: ["none", "bachelor", "master"], family: ["Finance & accounting", "Data, analytics & AI", "Marketing & communications", "Sales & account management", "Operations & supply chain", "Software engineering", "none", "Risk, compliance & legal", "Hardware & engineering", "Consulting & strategy", "Product & project management", "HR & recruiting", "IT, cloud & security", "Research & academia", "Design & UX"], industry: ["none", "Software & internet", "Financial services", "Manufacturing", "Retail & e-commerce", "Food & consumer goods", "Consulting", "other", "IT services", "Health & life sciences", "Hospitality & travel", "Banking", "Construction", "Energy & utilities", "Media & marketing", "Semiconductors", "Staffing & recruiting", "Transport & logistics", "Accounting"], job_type: ["none", "fulltime", "internship"], level_view: ["Internship", "Entry", "none", "Mid", "Not stated", "Senior"], tier: ["unknown", "mid", "elite", "small"], workplace: ["none", "hybrid", "onsite"] }
 };
 
 // src/lib/pile-model.ts
@@ -3611,6 +3424,10 @@ function freshForLists(post, today) {
   }
   return post.days_open !== null && post.days_open !== undefined && post.days_open <= LIST_MAX_AGE_DAYS;
 }
+var TAILORED_MAX_AGE_DAYS = 7;
+function freshForTailored(post) {
+  return post.days_open !== null && post.days_open !== undefined && post.days_open <= TAILORED_MAX_AGE_DAYS;
+}
 function pastDeadline(post, today) {
   if (!post.valid_through)
     return false;
@@ -3635,7 +3452,7 @@ function tailor({ candidates, fitting, saved, chanceOf, profiles, liftOf, own = 
   const ownSets = own.map(titleWords);
   const scored = [];
   for (const post of candidates) {
-    if (pastDeadline(post, today) || !freshForLists(post, today))
+    if (pastDeadline(post, today) || !freshForTailored(post))
       continue;
     const pf = fitOf?.(post);
     if (pf?.blocked)

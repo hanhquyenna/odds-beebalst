@@ -72,7 +72,7 @@ describe("jobs tailored to you", () => {
   })
   test("newest first among jobs you are equally into; chance only breaks ties", () => {
     const own = ["Financial Analyst"]
-    const old = job({ title: "Financial Analyst", employer: "Old", family: "Finance & accounting", id: "old", days_open: 12 })
+    const old = job({ title: "Financial Analyst", employer: "Old", family: "Finance & accounting", id: "old", days_open: 6 })
     const fresh = job({ title: "Financial Analyst", employer: "New", family: "Finance & accounting", id: "fresh", days_open: 1 })
     const rows = tailor({ candidates: [old, fresh], fitting: new Set(), saved: [], chanceOf: (p) => (p.id === "old" ? 0.9 : 0.1), profiles: {}, liftOf: () => null, own })
     expect(rows.map((r) => r.post.id)).toEqual(["fresh", "old"])
@@ -84,6 +84,15 @@ describe("jobs tailored to you", () => {
     const open = job({ title: "Financial Analyst", employer: "C", id: "open", valid_through: null })
     const rows = tailor({ candidates: [gone, lastDay, open], fitting: new Set(["gone", "last", "open"]), saved: [], chanceOf: () => 0.1, profiles: {}, liftOf: () => null, today })
     expect(rows.map((r) => r.post.id).sort()).toEqual(["last", "open"])
+  })
+  test("only the last seven days: an older job stays out, even when its closing date is still ahead", () => {
+    const today = new Date("2026-10-07T12:00:00")
+    const week = job({ title: "Financial Analyst", employer: "A", id: "week", days_open: 7 })
+    const older = job({ title: "Financial Analyst", employer: "B", id: "older", days_open: 8 })
+    const openEnded = job({ title: "Financial Analyst", employer: "C", id: "ahead", days_open: 17, valid_through: "2026-11-30" })
+    const undated = job({ title: "Financial Analyst", employer: "D", id: "undated", days_open: null })
+    const rows = tailor({ candidates: [week, older, openEnded, undated], fitting: new Set(["week", "older", "ahead", "undated"]), saved: [], chanceOf: () => 0.1, profiles: {}, liftOf: () => null, today })
+    expect(rows.map((r) => r.post.id)).toEqual(["week"])
   })
   test("nothing saved and nothing fitting gives an empty list, not an error", () => {
     expect(tailor({ candidates: [], fitting: new Set(), saved: [], chanceOf: () => 0, profiles: {}, liftOf: () => null })).toEqual([])
@@ -147,7 +156,7 @@ describe("jobs tailored to you, with what the profile says", () => {
 
   test("within the same tier the better fit comes first, then the newer; the fit's reasons are the note when nothing else explains the job", () => {
     const fits: Record<string, number> = { low: 0.2, high: 0.8 }
-    const rows = tailor({ ...base, candidates: [mk("low", "Risk Analyst", "L", "Finance & accounting", { days_open: 1 }), mk("high", "Treasury Analyst", "H", "Finance & accounting", { days_open: 12 })], fitting: new Set(["low", "high"]), fitOf: (p) => ({ score: fits[p.id], reasons: ["skills: 2 of 2 must-have", "in Amsterdam, where you live"], blocked: null }) })
+    const rows = tailor({ ...base, candidates: [mk("low", "Risk Analyst", "L", "Finance & accounting", { days_open: 1 }), mk("high", "Treasury Analyst", "H", "Finance & accounting", { days_open: 6 })], fitting: new Set(["low", "high"]), fitOf: (p) => ({ score: fits[p.id], reasons: ["skills: 2 of 2 must-have", "in Amsterdam, where you live"], blocked: null }) })
     expect(all(rows)).toEqual(["high", "low"])
     expect(rows[0].note).toBe("Matches your profile: skills: 2 of 2 must-have; in Amsterdam, where you live")
   })
@@ -164,7 +173,7 @@ describe("jobs tailored to you, with what the profile says", () => {
   })
 
   test("no more than two of one employer in the first places: a third moves behind the others", () => {
-    const rows = tailor({ ...base, candidates: [mk("a1", "Finance Intern Treasury", "A", "Finance & accounting", { region: "Utrecht" }), mk("a2", "Finance Intern Audit", "A"), mk("a3", "Finance Intern Tax", "A"), mk("b1", "Finance Intern Risk", "B", "Finance & accounting", { days_open: 13 })], fitting: new Set(["a1", "a2", "a3", "b1"]) })
+    const rows = tailor({ ...base, candidates: [mk("a1", "Finance Intern Treasury", "A", "Finance & accounting", { region: "Utrecht" }), mk("a2", "Finance Intern Audit", "A"), mk("a3", "Finance Intern Tax", "A"), mk("b1", "Finance Intern Risk", "B", "Finance & accounting", { days_open: 7 })], fitting: new Set(["a1", "a2", "a3", "b1"]) })
     expect(all(rows).indexOf("b1")).toBeLessThan(all(rows).indexOf("a3"))
     expect(rows).toHaveLength(4)
   })
