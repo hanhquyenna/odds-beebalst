@@ -240,6 +240,10 @@ export function Recommendations({ post, base, whatIf, setWhatIf }: { post: Posti
       if (Math.abs(gain) >= 0.05) {
         return { badge: `${gain > 0 ? "↑" : "↓"} ${Math.abs(gain).toFixed(1)}%`, gap: false }
       }
+      // A real gain too small for one decimal (a chance near the bottom): said so, rather than "No effect".
+      if (gain >= 0.005) {
+        return { badge: "↑ under 0.1%", gap: false }
+      }
     }
     if (alt.failing < base.failing) {
       return { badge: "Needed", gap: true }
