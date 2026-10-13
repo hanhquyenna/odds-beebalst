@@ -96,7 +96,8 @@ window.addEventListener("message", (event) => {
   }
 })
 
-document.getElementById("close").onclick = () => window.parent.postMessage({ source: "odds-panel", type: "close" }, "*")
+// Inside a page the cross asks the page to hide the panel; in the browser's own side panel it closes it.
+document.getElementById("close").onclick = () => (window.parent !== window ? window.parent.postMessage({ source: "odds-panel", type: "close" }, "*") : window.close())
 app.addEventListener("load", () => {
   appReady = false
 })

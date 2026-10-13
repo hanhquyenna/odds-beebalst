@@ -18,7 +18,8 @@
   },
   "permissions": [
     "storage",
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://ukpmpyfcnbhngkgbnkxi.supabase.co/*",
@@ -61,5 +62,9 @@
         "https://*.linkedin.com/*"
       ]
     }
-  ]
+  ],
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "minimum_chrome_version": "116"
 }

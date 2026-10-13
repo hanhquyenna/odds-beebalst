@@ -27,6 +27,23 @@ async function allowOddsInTab(tabId) {
     ],
   })
 }
+/** The browser's own side panel is a page of the extension that belongs to no tab: it gets the same leave to frame odds (no web page can make such a request). */
+async function allowOddsInSidePanel() {
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: [1_000_000],
+    addRules: [
+      {
+        id: 1_000_000,
+        priority: 1,
+        action: { type: "modifyHeaders", responseHeaders: [{ header: "x-frame-options", operation: "remove" }, { header: "content-security-policy", operation: "remove" }] },
+        condition: { urlFilter: "||odds.beeblast.co/", resourceTypes: ["sub_frame"], tabIds: [chrome.tabs.TAB_ID_NONE] },
+      },
+    ],
+  })
+}
+allowOddsInSidePanel()
+chrome.runtime.onStartup.addListener(allowOddsInSidePanel)
+
 chrome.tabs.onRemoved.addListener((tabId) => {
   chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [tabId] }).catch(() => undefined)
 })
@@ -119,6 +136,11 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   }
   if (message?.type === "panel" && sender.tab && typeof sender.tab.id === "number") {
     allowOddsInTab(sender.tab.id).then(() => reply({ ok: true }), () => reply({ ok: false }))
+    return true
+  }
+  // The popup is about to open the side panel on this tab: the tab may frame odds too, in case the panel's requests carry its id.
+  if (message?.type === "allow-tab" && typeof message.tabId === "number") {
+    allowOddsInTab(message.tabId).then(() => reply({ ok: true }), () => reply({ ok: false }))
     return true
   }
   if (message?.type === "session") {

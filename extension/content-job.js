@@ -141,10 +141,5 @@ function sync() {
   }
 }
 
-// The popup asks for the panel (a page that is not a job still has the script when it is a LinkedIn jobs page).
-chrome.runtime.onMessage.addListener((message) => {
-  if (message && message.type === "toggle-panel") togglePanel()
-})
-
 sync()
 setInterval(sync, 700)
