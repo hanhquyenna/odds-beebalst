@@ -29,9 +29,45 @@ async function shoo(): Promise<ShooAuthClient> {
   return client
 }
 
+// Shoo keeps the sign-in's one-time secret in sessionStorage, which belongs to one tab. A Home Screen app (or a phone browser that opens
+// Google in another window) can come back from Google in a different one, with no secret: "Missing PKCE verifier in sessionStorage".
+// So the secret is also kept in localStorage while Google is open, and put back if it is missing when we return.
+const PKCE_KEY = "shoo_pkce"
+
 /** Leaves the page for Google; Shoo sends the browser back to /auth/callback. */
 export async function beginShooSignIn(): Promise<void> {
-  await (await shoo()).startSignIn()
+  const auth = await shoo()
+  const store = Storage.prototype
+  // oxlint-disable-next-line typescript/unbound-method -- called back with the right storage below.
+  const original = store.setItem
+  store.setItem = function (this: Storage, key: string, value: string): void {
+    original.call(this, key, value)
+    if (key === PKCE_KEY && this === window.sessionStorage) {
+      try {
+        window.localStorage.setItem(PKCE_KEY, value)
+      } catch {
+        // fine without it
+      }
+    }
+  }
+  try {
+    await auth.startSignIn()
+  } finally {
+    store.setItem = original
+  }
+}
+
+/** The secret put back into this tab when Google returned somewhere else, then dropped from localStorage. */
+function restorePkce(): void {
+  try {
+    if (!window.sessionStorage.getItem(PKCE_KEY)) {
+      const kept = window.localStorage.getItem(PKCE_KEY)
+      if (kept) window.sessionStorage.setItem(PKCE_KEY, kept)
+    }
+    window.localStorage.removeItem(PKCE_KEY)
+  } catch {
+    // the sign-in then reports what is missing
+  }
 }
 
 interface BridgeReply {
@@ -73,6 +109,7 @@ export function completeShooSignIn(): Promise<Session> {
 
 async function finishShooSignIn(): Promise<Session> {
   const auth = await shoo()
+  restorePkce()
   let idToken: string
   try {
     const out = await auth.finishSignIn({ clearCallbackParams: true, redirectAfter: false })
