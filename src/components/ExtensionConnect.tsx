@@ -68,7 +68,7 @@ export function ExtensionConnect(): React.JSX.Element | null {
     return (
       <Card label="Extension connected">
         <h2 className="text-lg font-semibold tracking-tight">Connected</h2>
-        <p className="text-sm text-muted-foreground">Open a job on LinkedIn and press Add to odds.</p>
+        <p className="text-sm text-muted-foreground">Browse jobs on LinkedIn. Click an Odds percentage to open that job in the side panel.</p>
         <Button type="button" onClick={dropExtensionRequest} className="cursor-pointer">
           OK
         </Button>
@@ -79,7 +79,7 @@ export function ExtensionConnect(): React.JSX.Element | null {
   return (
     <Card label="Connect the odds extension">
       <h2 className="text-lg font-semibold tracking-tight">Connect the odds extension?</h2>
-      <p className="text-sm text-muted-foreground">It can add the job you are looking at to your odds and show your interview chance for it. It sends odds the address of the page only when you press its button.</p>
+      <p className="text-sm text-muted-foreground">It sends Odds the URLs of visible LinkedIn jobs to show your interview chances. New jobs are read automatically, up to 30 a day. Clicking a percentage saves that job and opens it in the side panel.</p>
       <Button
         type="button"
         disabled={state === "busy" || present === "looking"}

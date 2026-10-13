@@ -28,7 +28,6 @@ export interface JobLink {
   documentId: string
 }
 
-export const MAX_DOCUMENTS = 30
 export const MAX_NAME = 80
 
 export const KIND_LABEL: Record<DocKind, string> = { cv: "CV", cover_letter: "Cover letter" }
@@ -91,8 +90,6 @@ export const problemText = (err: unknown): string => (err instanceof DocumentErr
 /** What a database refusal means for the person. */
 export function explain(error: { code?: string; message?: string } | null): DocumentError {
   const text = error?.message ?? ""
-  if (error?.code === "P0001" || text.includes("document limit")) return new DocumentError(`You can keep ${MAX_DOCUMENTS} documents. Delete one to add another.`)
-  if (text.includes("documents_hash_unique")) return new DocumentError("You already saved this exact file.")
   if (text.includes("documents_name_unique")) return new DocumentError("You already have a document with that name. Pick another name.")
 
   return new DocumentError("That did not save. Try again.")

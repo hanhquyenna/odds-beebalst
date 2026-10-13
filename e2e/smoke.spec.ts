@@ -93,6 +93,21 @@ test("first visit: start, skip the profile, see your jobs, answer the questions 
   await expect(page.getByRole("combobox", { name: "Dutch" })).toHaveValue("professional")
 })
 
+test.describe("signed-in account", () => {
+  test.use({ signedIn: true })
+
+  test("opening manual entry keeps the CSV uploader open", async ({ page }) => {
+    await page.goto("/")
+    await page.getByRole("button", { name: "Upload your own jobs" }).click()
+    await expect(page.getByRole("heading", { name: "Upload a list" })).toBeVisible()
+
+    await page.getByRole("button", { name: "Add a job manually" }).click()
+    await expect(page.getByRole("heading", { name: "Upload a list" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Add a job manually" })).toBeVisible()
+    await expect(page.getByRole("textbox", { name: "Title" })).toBeVisible()
+  })
+})
+
 test("the long-read pages load, from a link and from the address bar", async ({ page }) => {
   const pages: ReadonlyArray<[string, string]> = [
     ["/how-it-works", "From a long list to the jobs that fit."],

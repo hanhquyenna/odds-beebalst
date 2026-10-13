@@ -7,7 +7,7 @@ import { ArrowLeftIcon, DownloadIcon, FileTextIcon, PencilIcon, PlusIcon, TrashI
 import { useData } from "@/lib/data"
 import { isGuestEmail } from "@/lib/auth"
 import { useAddDocument } from "@/lib/use-documents"
-import { MAX_DOCUMENTS, MAX_NAME, driveFileUrl, jobsUsing, previewOf, problemText, wordCount, type Doc, type DocKind } from "@/lib/document-model"
+import { MAX_NAME, driveFileUrl, jobsUsing, previewOf, problemText, wordCount, type Doc, type DocKind } from "@/lib/document-model"
 import { downloadDocument, makeMain, removeDocument, renameDocument, useDocumentStore } from "@/lib/documents"
 import { connectDrive, disconnectDrive, useDrive } from "@/lib/drive"
 
@@ -113,7 +113,6 @@ function Shelf({ kind, onProblem, onNote, onDelete }: ShelfProps): React.JSX.Ele
   const docs = store.docs.filter((d) => d.kind === kind)
   // The main CV first, then newest first: what is used most sits at the top left.
   const ordered = [...docs].sort((a, b) => Number(b.isMain) - Number(a.isMain) || b.createdAt.localeCompare(a.createdAt))
-  const full = store.docs.length >= MAX_DOCUMENTS
 
   async function take(file: File | undefined): Promise<void> {
     if (!file) return
@@ -142,7 +141,7 @@ function Shelf({ kind, onProblem, onNote, onDelete }: ShelfProps): React.JSX.Ele
           <input ref={input} type="file" accept={cvAccept()} aria-label={kind === "cv" ? "Upload a CV" : "Upload a cover letter"} className="sr-only" onChange={(e) => void take(e.target.files?.[0])} />
           <button
             type="button"
-            disabled={full || busy}
+            disabled={busy}
             onClick={() => input.current?.click()}
             className={`${TILE} w-full cursor-pointer items-center justify-center gap-2 border-dashed bg-secondary/30 text-center transition-colors duration-150 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60`}
           >
@@ -150,7 +149,7 @@ function Shelf({ kind, onProblem, onNote, onDelete }: ShelfProps): React.JSX.Ele
               <PlusIcon className="size-5" aria-hidden="true" />
             </span>
             <span className="font-medium">{busy ? "Reading…" : kind === "cv" ? "Upload a CV" : "Upload a cover letter"}</span>
-            <span className="text-xs text-muted-foreground">{full ? `Library full (${MAX_DOCUMENTS})` : "PDF, Word (.docx) or text, up to 8 MB"}</span>
+            <span className="text-xs text-muted-foreground">"PDF, Word (.docx) or text, up to 50 MB"</span>
           </button>
         </li>
         {ordered.map((doc) => (

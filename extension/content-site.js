@@ -16,3 +16,16 @@ window.addEventListener("message", (event) => {
   }
 })
 announce("present")
+
+// Chrome side panels do not reliably traverse an embedded document's history.
+// Give the app's visible Back control an explicit destination in this frame.
+if (window.parent !== window && /^chrome-extension:\/\//.test(document.referrer)) {
+  document.addEventListener("click", (event) => {
+    const back = event.target.closest?.("button")
+    if (!back || !/^[←\s]*Back$/.test(back.textContent.trim()) || !location.pathname.startsWith("/job/")) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    window.parent.postMessage({ source: "odds-site", type: "home" }, chrome.runtime.getURL("").replace(/\/$/, ""))
+    location.replace("/?embed=ext")
+  }, true)
+}

@@ -10,6 +10,16 @@
       ],
       "port": 5173,
       "autoPort": false
+    },
+    {
+      "name": "engine-check",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "cd /private/tmp/claude-502/-Users-kien-Documents-Files-odds-beebalst/a8092ef2-d203-41da-982a-ccd6026eaaf9/scratchpad/clean && /Users/kien/.bun/bin/bun run build && /Users/kien/.bun/bin/bunx vite preview --port 4180 --strictPort"
+      ],
+      "port": 4180,
+      "autoPort": false
     }
   ]
 }

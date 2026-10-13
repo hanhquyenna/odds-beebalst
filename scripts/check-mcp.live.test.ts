@@ -368,6 +368,10 @@ run("the connector, as a signed-in person", () => {
       expect(seen.data).toMatchObject({ known: true, id: held.id, saved: false })
       expect(typeof seen.data.chance_pct === "number" || seen.data.chance_pct === null).toBe(true)
       expect(((await db(`saved_jobs?user_id=eq.${a.id}&posting_id=eq.${held.id}&select=posting_id`)) as unknown[]).length).toBe(0)
+      const analyzed = await call(xkey, "analyze", { url: held.url })
+      expect(analyzed.status).toBe(200)
+      expect(analyzed.data).toMatchObject({ known: true, saved: false, job: { id: held.id } })
+      expect(((await db(`saved_jobs?user_id=eq.${a.id}&posting_id=eq.${held.id}&select=posting_id`)) as unknown[]).length).toBe(0)
       expect((await call(xkey, "add", { url: held.url })).data.saved).toBe(true)
       expect((await call(xkey, "peek", { url: held.url })).data.saved).toBe(true)
       expect((await call(xkey, "peek", { url: "https://www.linkedin.com/jobs/view/1999999998" })).data).toEqual({ known: false })
@@ -404,11 +408,80 @@ run("the connector, as a signed-in person", () => {
       expect((await call(a.key, "pool")).status).toBe(401)
     })
 
-    test("a link that is not a LinkedIn job, or no link, is refused before anything is paid", async () => {
+    test("a job on another site that odds holds under a longer address is found from any of its addresses", async () => {
+      const [held] = (await db("postings?select=id,url&url=like.*indeed.com/viewjob?jk=*&closed_at=is.null&limit=1")) as Array<{ id: string; url: string }>
+      const jk = /jk=([0-9a-f]{16})/.exec(held.url)![1]
+      const seen = await call(xkey, "peek", { url: `https://nl.indeed.com/jobs?q=intern&l=Amsterdam&vjk=${jk}` })
+      expect(seen.status).toBe(200)
+      expect(seen.data).toMatchObject({ known: true, id: held.id })
+    })
+
+    test("the jobs in view are looked up in one request, each with its own answer", async () => {
+      const [held] = (await db("postings?select=id,url&url=like.https://www.linkedin.com/jobs/view/*&closed_at=is.null&limit=1")) as Array<{ id: string; url: string }>
+      const unknown = "https://www.linkedin.com/jobs/view/1999999997"
+      const r = await call(xkey, "peek", { urls: [`${held.url}?trk=x`, unknown, "https://example.com/"] })
+      expect(r.status).toBe(200)
+      expect(r.data.results[`${held.url}?trk=x`]).toMatchObject({ known: true, id: held.id })
+      expect(r.data.results[unknown]).toEqual({ known: false })
+      expect(r.data.results["https://example.com/"].status).toBe("error")
+    })
+
+    test("a LinkedIn job as the browser read it from LinkedIn's public page is kept without paying for a read", async () => {
+      const id = `19${String(Date.now()).slice(-8)}`
+      const url = `https://www.linkedin.com/jobs/view/${id}`
+      const company = `Odds Live Check LI ${id}`
+      const posting = { title: "Marketing Intern", company, location: "Amsterdam, North Holland, Netherlands", description: "We are looking for a marketing intern to join our international team in Amsterdam. You work in English on campaigns, content and analytics for six months.", posted: null, valid: null, logo: null, employment: "Internship", applicants: "Be among the first 25 applicants", seniority: "Internship" }
+      try {
+        const r = await call(xkey, "analyze", { url, posting })
+        expect(r.status).toBe(200)
+        expect(r.data).toMatchObject({ status: "added", saved: false })
+        const [row] = (await db(`postings?select=id,ats,source,applicants_text,seniority&url=eq.${encodeURIComponent(url)}`)) as Json[]
+        expect(row).toMatchObject({ ats: "linkedin", source: "linkedin_user", applicants_text: "Be among the first 25 applicants", seniority: "Internship" })
+        const [read] = (await db(`extension_reads?user_id=eq.${a.id}&url=eq.${encodeURIComponent(url)}&select=paid`)) as Json[]
+        expect(read.paid).toBe(false)
+      } finally {
+        const rows = (await db(`postings?select=id&url=eq.${encodeURIComponent(url)}`)) as Array<{ id: string }>
+        for (const r of rows) await db(`postings?id=eq.${r.id}`, { method: "DELETE", prefer: "return=minimal" })
+        await db(`employer_facts?employer=eq.${encodeURIComponent(company)}`, { method: "DELETE", prefer: "return=minimal" })
+      }
+    })
+
+    test("a job page odds does not hold, as the person's browser read it, is kept for everyone and for them; only from their key", async () => {
+      const mark = hex(crypto.getRandomValues(new Uint8Array(6)))
+      // A host that does not exist: the server cannot read the page itself, so the browser's reading is what is kept.
+      const url = `https://careers.odds-live-check-${mark}.nl/jobs/data-intern`
+      const company = `Odds Live Check ${mark}`
+      const posting = { title: "Data Intern", company, location: "Amsterdam, North Holland, Netherlands", description: "We are looking for a data intern to join our international team in Amsterdam. You work in English with analysts and engineers on dashboards.", posted: new Date().toISOString().slice(0, 10), valid: null, logo: null, employment: "INTERN" }
+      try {
+        const r = await call(xkey, "add", { url: `${url}?utm_source=x`, posting })
+        expect(r.status).toBe(200)
+        expect(r.data).toMatchObject({ status: "added", saved: true, job: { title: "Data Intern" } })
+        const [row] = (await db(`postings?select=id,ats,source,employer,region,student_fit,posted_on&url=eq.${encodeURIComponent(url)}`)) as Json[]
+        expect(row).toMatchObject({ ats: "other", source: "web_user", employer: company, region: "Amsterdam, North Holland, Netherlands", student_fit: true })
+        expect(row.posted_on).toBe(posting.posted)
+        expect((await call(xkey, "peek", { url })).data).toMatchObject({ known: true, id: row.id, saved: true })
+        // It counted as one page read, not as a paid LinkedIn read.
+        expect(((await db(`extension_reads?user_id=eq.${a.id}&url=eq.${encodeURIComponent(url)}&select=id`)) as unknown[]).length).toBe(1)
+        // The same posting from anyone without the extension's key is not taken.
+        const outsider = await fetch(`${URL_}/functions/v1/jobs/add`, { method: "POST", headers: { "Content-Type": "application/json", apikey: anon, Authorization: `Bearer ${anon}` }, body: JSON.stringify({ url: `${url}-2`, posting }) })
+        expect(outsider.status).toBe(422)
+      } finally {
+        const rows = (await db(`postings?select=id&url=like.*odds-live-check-${mark}*`)) as Array<{ id: string }>
+        for (const r of rows) {
+          await db(`saved_jobs?posting_id=eq.${r.id}`, { method: "DELETE", prefer: "return=minimal" })
+          await db(`postings?id=eq.${r.id}`, { method: "DELETE", prefer: "return=minimal" })
+        }
+        await db(`employer_facts?employer=eq.${encodeURIComponent(company)}`, { method: "DELETE", prefer: "return=minimal" })
+      }
+    })
+
+    test("a link that is not one job, or no link, is refused before anything is paid", async () => {
       expect((await call(xkey, "add", { url: "https://www.glassdoor.com/job-listing/x-JV_IC1.htm?jl=123" })).status).toBe(422)
+      expect((await call(xkey, "add", { url: "https://www.glassdoor.com/Job/amsterdam-jobs-SRCH_IL.0,9.htm" })).status).toBe(422)
       expect((await call(xkey, "add", { url: "https://www.linkedin.com/feed/" })).status).toBe(422)
       expect((await call(xkey, "add", {})).status).toBe(422)
-      expect((await call(xkey, "add", { url: "x".repeat(5000) })).status).toBe(413)
+      // A request carries a job's whole description at most: anything far larger is refused unread.
+      expect((await call(xkey, "add", { url: "x".repeat(160_000) })).status).toBe(413)
     })
 
     test("at thirty new jobs in a day the next unknown one is refused before it is read", async () => {
@@ -416,6 +489,8 @@ run("the connector, as a signed-in person", () => {
       const r = await call(xkey, "add", { url: "https://www.linkedin.com/jobs/view/1999999999" })
       expect(r.status).toBe(429)
       expect(r.data.message).toContain("30 new jobs a day")
+      // Jobs read from their pages have their own allowance: thirty paid LinkedIn reads do not stop them.
+      expect((await call(xkey, "add", { url: "https://careers.odds-live-check.nl/jobs/x" })).data.status).not.toBe("limit")
       // Another person is not held back by it.
       const bKey = await makeKey(b.id)
       expect((await call(bKey, "me")).status).toBe(200)

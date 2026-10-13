@@ -17,7 +17,7 @@ import { choicesFor, peopleChoices, ViewControls } from "@/components/ViewSettin
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ColumnsBy, PipelineBoard } from "@/components/PipelineBoard"
 import { STEPS, stepOf } from "@/components/job-steps"
-import { AddJobs, Tracker, type AddPanel } from "@/components/Tracker"
+import { AddJobs, panelWith, Tracker, type AddPanel } from "@/components/Tracker"
 import { TrackerTable } from "@/components/TrackerTable"
 import { SimilarJobs } from "@/components/SimilarJobs"
 import { ClaudePromo } from "@/components/ClaudeGuide"
@@ -163,7 +163,7 @@ export function Account({ looking, onStartLooking, onStopLooking, onOpenClaude }
       ) : (
         <>
           <ViewControls view={view} {...choicesFor(layout === "board" ? "board" : "table", data.profile.columns)} properties={layout === "table" ? choicesFor("table", data.profile.columns).properties : []} />
-          <DataMenu count={shown.length} onImport={() => setAddPanel("upload")} onAdd={() => setAddPanel("one")} onExport={() => exportJobs(shown)} />
+          <DataMenu count={shown.length} onImport={() => setAddPanel((current) => panelWith(current, "upload"))} onAdd={() => setAddPanel((current) => panelWith(current, "one"))} onExport={() => exportJobs(shown)} />
         </>
       )}
     </span>
@@ -217,7 +217,7 @@ export function Account({ looking, onStartLooking, onStopLooking, onOpenClaude }
                   <Button type="button" onClick={onStartLooking} className="cursor-pointer max-md:h-10">
                     See jobs tailored to you
                   </Button>
-                  <ToolButton pressed={addPanel === "upload"} onClick={() => setAddPanel(addPanel === "upload" ? null : "upload")}>
+                  <ToolButton pressed={addPanel === "upload" || addPanel === "both"} onClick={() => setAddPanel((current) => panelWith(current, "upload"))}>
                     <UploadIcon className="size-4" aria-hidden="true" /> Upload your own jobs
                   </ToolButton>
                 </div>

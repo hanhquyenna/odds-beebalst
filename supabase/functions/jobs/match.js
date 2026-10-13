@@ -1,21 +1,3 @@
-// src/lib/months.ts
-var TABLE = {
-  0: ["jan", "ene", "gen", "oca"],
-  1: ["feb", "fev", "sub"],
-  2: ["mar", "mrt", "mor", "mrz"],
-  3: ["apr", "abr", "avr", "nis"],
-  4: ["may", "mei", "mai", "mag"],
-  5: ["jun", "giu", "haz"],
-  6: ["jul", "tem", "lug"],
-  7: ["aug", "ago", "aou", "agu"],
-  8: ["sep", "set", "eyl"],
-  9: ["oct", "okt", "out", "ott", "eki"],
-  10: ["nov", "kas"],
-  11: ["dec", "dez", "dic", "ara"]
-};
-var BY_WORD = new Map(Object.entries(TABLE).flatMap(([i, words]) => words.map((w) => [w, Number(i)])));
-var MONTH_PREFIXES = [...BY_WORD.keys(), "jui"];
-var MONTH_PATTERN = `(?:${MONTH_PREFIXES.join("|")})[\\p{L}]{0,8}\\.?`;
 // src/lib/family-model.json
 var family_model_default = {
   families: ["Consulting & strategy", "Customer support & service", "Data, analytics & AI", "Design & UX", "Finance & accounting", "HR & recruiting", "Hardware & engineering", "Healthcare & life sciences", "IT, cloud & security", "Marketing & communications", "Operations & supply chain", "Product & project management", "Research & academia", "Risk, compliance & legal", "Sales & account management", "Software engineering"],
@@ -102,7 +84,9 @@ function familyPosterior(tokens) {
   const sum = exp.reduce((a, b) => a + b, 0);
   return exp.map((e) => e / sum);
 }
-var titleTokens = (text) => words(text).map(stem);
+var ALIAS = Object.fromEntries(["teach", "teacher", "teaching", "tutor", "lectur", "lecturer", "instructor", "docent", "leraar", "onderwijs", "educator"].map((w) => [stem(w), stem("postdoc")]));
+var titleTokens = (text) => words(text).map(stem).map((t) => ALIAS[t] ?? t);
+var familyMemo = new Map;
 var skillTokens = (skills) => [...skills].map((s) => `skill:${s.toLowerCase()}`);
 var cache = new WeakMap;
 function itemsOf(profile) {
@@ -161,6 +145,67 @@ function guessFamily(title, skills) {
   const best = Math.max(...post);
   return best >= 0.6 ? M.families[post.indexOf(best)] : null;
 }
+// src/lib/pile-model.json
+var pile_model_default = {
+  categorical: { city: { amersfoort: -0.157, amsterdam: 0.114, "amsterdam area": 0.105, breda: 0.103, delft: 0.111, eindhoven: -0.039, hoofddorp: -0.024, other: -0.167, rotterdam: -0.136, "the hague": -0.06, "the randstad": 0.242, utrecht: -0.037, venlo: -0.055 }, degree_asked: { bachelor: -0.1, master: 0.001, other: 0.126 }, family: { "Consulting & strategy": -0.083, "Data, analytics & AI": 0.162, "Design & UX": -0.083, "Finance & accounting": 0.023, "HR & recruiting": -0.101, "Hardware & engineering": -0.066, "IT, cloud & security": -0.17, "Marketing & communications": -0.096, "Operations & supply chain": -0.079, "Product & project management": 0.06, "Research & academia": -0.044, "Risk, compliance & legal": -0.029, "Sales & account management": -0.221, "Software engineering": 0.146, other: 0.023 }, industry: { Accounting: -0.28, Banking: 0.222, Construction: -0.161, Consulting: 0.024, "Energy & utilities": 0.026, "Financial services": 0.108, "Food & consumer goods": 0.02, "Health & life sciences": 0.023, "Hospitality & travel": 0.014, "IT services": 0.01, Manufacturing: 0.049, "Media & marketing": -0.145, "Retail & e-commerce": 0.154, Semiconductors: 0.003, "Software & internet": -0.178, "Staffing & recruiting": -0.062, "Transport & logistics": -0.008, other: -0.08 }, job_type: { fulltime: 0.389, internship: 0.416, other: 0.149 }, level_view: { Entry: 0.222, Internship: -0.076, Mid: 0.172, "Not stated": 0.078, Senior: 0.009, other: 0.057 }, tier: { elite: 0.037, mid: -0.019, other: 0.1, small: -0.055, unknown: -0.063 }, workplace: { hybrid: 0.163, onsite: 0.097, other: 0.091 } },
+  cv_spearman: 0.296,
+  employers: 783,
+  intercept: 4.53,
+  mean_fitted: 4.595,
+  numeric: { intern: { coef: -0.07, mean: 0.459, sd: 0.499 }, pay: { coef: -0.077, mean: 0.328, sd: 0.47 }, sponsor: { coef: 0.158, mean: 0.335, sd: 0.472 }, years: { coef: 0.006, mean: -0.083, sd: 2.012 } },
+  rows: 1246,
+  vocab: { city: ["amsterdam", "other", "rotterdam", "utrecht", "eindhoven", "amsterdam area", "amersfoort", "hoofddorp", "venlo", "the randstad", "breda", "the hague", "delft"], degree_asked: ["none", "bachelor", "master"], family: ["Finance & accounting", "Data, analytics & AI", "Marketing & communications", "Sales & account management", "Operations & supply chain", "Software engineering", "none", "Risk, compliance & legal", "Hardware & engineering", "Consulting & strategy", "Product & project management", "HR & recruiting", "IT, cloud & security", "Research & academia", "Design & UX"], industry: ["none", "Software & internet", "Financial services", "Manufacturing", "Retail & e-commerce", "Food & consumer goods", "Consulting", "other", "IT services", "Health & life sciences", "Hospitality & travel", "Banking", "Construction", "Energy & utilities", "Media & marketing", "Semiconductors", "Staffing & recruiting", "Transport & logistics", "Accounting"], job_type: ["none", "fulltime", "internship"], level_view: ["Internship", "Entry", "none", "Mid", "Not stated", "Senior"], tier: ["unknown", "mid", "elite", "small"], workplace: ["none", "hybrid", "onsite"] }
+};
+
+// src/lib/pile-model.ts
+var TIER_PRIOR = { elite: Math.sqrt(600 / 180), large: Math.sqrt(220 / 180), mid: Math.sqrt(150 / 180), small: Math.sqrt(60 / 180), unknown: 1 };
+var cat = pile_model_default.categorical;
+var vocab = pile_model_default.vocab;
+var numeric = pile_model_default.numeric;
+// src/lib/tiers.ts
+var WHOLE = new Set(["shell", "apple", "meta", "meta platforms", "amazon", "bain", "bain & company", "bcg", "ey", "ing", "ing bank", "ing group", "citi", "ubs", "imc", "imc trading", "da vinci", "da vinci derivatives", "citadel", "citadel securities", "stripe", "mollie", "aws"]);
+var tierMemo = new Map;
+
+// src/lib/odds-v2.ts
+var stepMemo = new WeakMap;
+var EFFECTS = {
+  underqualified: { or: 0.53, at: 0.46 },
+  overqualified: { or: 0.85, at: 0.12 },
+  nonEu: { or: 0.66, at: 0.3 },
+  euNonNative: { or: 0.88, at: 0.46 },
+  foreignExperienceOnly: { or: 0.72, at: 0.1 },
+  dutchNone: { or: 1 / 1.91, at: 0.147 },
+  dutchBasic: { or: 1.39 / 1.91, at: 0.147 },
+  dutchProfessional: { or: 1.74 / 1.91, at: 0.147 },
+  referral: { or: 1.22, at: 0.35 },
+  tailored: { or: 1.145, at: 0.125 },
+  degreeInField: { or: 1.2, at: 0.17 },
+  degreeBelowAsked: { or: 0.7, at: 0.46 },
+  foreignDegree: { or: 0.92, at: 0.1 }
+};
+var degreeMemo = new Map;
+var thresholdMemo = new Map;
+var relevanceMemo = new Map;
+var POSITION_KEYS = new Set(["relevance", "years", "underqualified", "overqualified", "degreeBelowAsked"]);
+
+// src/lib/months.ts
+var TABLE = {
+  0: ["jan", "ene", "gen", "oca"],
+  1: ["feb", "fev", "sub"],
+  2: ["mar", "mrt", "mor", "mrz"],
+  3: ["apr", "abr", "avr", "nis"],
+  4: ["may", "mei", "mai", "mag"],
+  5: ["jun", "giu", "haz"],
+  6: ["jul", "tem", "lug"],
+  7: ["aug", "ago", "aou", "agu"],
+  8: ["sep", "set", "eyl"],
+  9: ["oct", "okt", "out", "ott", "eki"],
+  10: ["nov", "kas"],
+  11: ["dec", "dez", "dic", "ara"]
+};
+var BY_WORD = new Map(Object.entries(TABLE).flatMap(([i, words]) => words.map((w) => [w, Number(i)])));
+var MONTH_PREFIXES = [...BY_WORD.keys(), "jui"];
+var MONTH_PATTERN = `(?:${MONTH_PREFIXES.join("|")})[\\p{L}]{0,8}\\.?`;
 
 // src/lib/languages.ts
 var LANGUAGES = ["german", "french", "spanish", "italian", "portuguese", "polish", "czech", "greek", "swedish", "norwegian", "danish", "finnish", "turkish", "arabic", "russian", "japanese", "chinese", "mandarin", "korean", "hungarian", "romanian", "bulgarian", "ukrainian", "hebrew", "hindi", "thai", "vietnamese", "indonesian"];
@@ -1175,7 +1220,24 @@ var NAMES = {
 };
 var EMPLOYER_SYSTEMS = new Set(["workday", "greenhouse", "ashby", "smartrecruiters", "successfactors", "recruitee", "lever", "teamtailor", "personio", "workable"]);
 function sourceOf(p) {
-  const ats = (p.ats ?? "").toLowerCase();
+  const recorded = (p.ats ?? "").toLowerCase();
+  let fromUrl = "";
+  if (!recorded || recorded === "other") {
+    try {
+      const host = new URL(p.url ?? "").hostname.toLowerCase().replace(/^www\./, "");
+      if (host === "linkedin.com" || host.endsWith(".linkedin.com"))
+        fromUrl = "linkedin";
+      else if (host === "magnet.me" || host.endsWith(".magnet.me"))
+        fromUrl = "magnet.me";
+      else if (host === "indeed.com" || host.endsWith(".indeed.com"))
+        fromUrl = "indeed";
+      else if (host === "glassdoor.com" || host.endsWith(".glassdoor.com"))
+        fromUrl = "glassdoor";
+      else if (host === "academictransfer.com" || host.endsWith(".academictransfer.com"))
+        fromUrl = "academictransfer";
+    } catch {}
+  }
+  const ats = fromUrl || recorded;
   return { name: NAMES[ats] ?? (EMPLOYER_SYSTEMS.has(ats) ? "Employer site" : "Other"), url: p.url, ats };
 }
 function sourceNamesOf(p) {
@@ -1896,6 +1958,8 @@ var intern_pay_default = {
 var INTERN_MARKET = intern_pay_default.market;
 var INTERN_POSTINGS = intern_pay_default.postings;
 var INTERN_EMPLOYERS = intern_pay_default.employers;
+var ENTRY_AGE_FACTOR = { finance_business: 0.675, tech: 0.708, other: 0.691 };
+var isEntry = (post) => post.level_view === "Entry" || post.role_kind === "entry_job";
 var TRAINEE_PAY = { low: 2450, high: 3500 };
 function payMid(post, reference) {
   if (formatHourly(post.pay_posted)) {
@@ -1913,7 +1977,7 @@ function payMid(post, reference) {
     return null;
   }
   const band = reference && post.cbs_group ? reference.bands[post.cbs_group] : null;
-  return band ? { month: Number(band.p50_hourly) * 2080 * 1.08 / 12, basis: "Typical" } : null;
+  return band ? { month: Number(band.p50_hourly) * 2080 * 1.08 * (isEntry(post) ? ENTRY_AGE_FACTOR[post.cat] : 1) / 12, basis: "Typical" } : null;
 }
 
 // src/lib/filters.ts
@@ -1996,7 +2060,11 @@ function matchesWords(post, words) {
 }
 function applyFilters(posts, filters, env = {}) {
   const words = plain(filters.query).split(/\s+/).filter(Boolean);
+  const today = new Date().toISOString().slice(0, 10);
   return posts.filter((post) => {
+    if (post.valid_through && /^\d{4}-\d{2}-\d{2}/.test(post.valid_through) && post.valid_through.slice(0, 10) < today) {
+      return false;
+    }
     if (filters.sponsorOnly && !post.ind_sponsor) {
       return false;
     }

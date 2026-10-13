@@ -7,7 +7,7 @@ import { Section } from "@/components/Section"
 import { useData } from "@/lib/data"
 import { requestSignIn } from "@/lib/sign-in-request"
 import { useAddDocument } from "@/lib/use-documents"
-import { KIND_LABEL, MAX_DOCUMENTS, attachedTo, driveFileUrl, nameForJob, previewOf, problemText, type Doc, type DocKind } from "@/lib/document-model"
+import { KIND_LABEL, attachedTo, driveFileUrl, nameForJob, previewOf, problemText, type Doc, type DocKind } from "@/lib/document-model"
 import { attachDocument, detachDocument, useDocumentStore } from "@/lib/documents"
 import type { Posting } from "@/lib/types"
 
@@ -54,7 +54,6 @@ function Slot({ post, kind }: { post: Posting; kind: DocKind }): React.JSX.Eleme
   const attached = attachedTo(store, post.id, kind)
   // Only what the person put on this job is shown. The main CV is not put on a job for them.
   const shown: Doc | undefined = attached
-  const full = store.docs.length >= MAX_DOCUMENTS
   const label = KIND_LABEL[kind]
 
   async function choose(id: string): Promise<void> {
@@ -72,8 +71,7 @@ function Slot({ post, kind }: { post: Posting; kind: DocKind }): React.JSX.Eleme
     setBusy(true)
     setProblem(null)
     try {
-      const { added } = await add(file, kind, nameForJob(kind, post))
-      await attachDocument(post.id, added.doc.id)
+      await add(file, kind, nameForJob(kind, post), post.id)
     } catch (err) {
       setProblem(problemText(err))
     } finally {
@@ -126,11 +124,10 @@ function Slot({ post, kind }: { post: Posting; kind: DocKind }): React.JSX.Eleme
           </select>
         </label>
         <input ref={input} type="file" accept={cvAccept()} aria-label={`Upload a new ${label.toLowerCase()}`} className="sr-only" onChange={(e) => void take(e.target.files?.[0])} />
-        <Button type="button" variant="outline" size="sm" disabled={full || busy} onClick={() => input.current?.click()} className="cursor-pointer max-md:h-10">
+        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => input.current?.click()} className="cursor-pointer max-md:h-10">
           <UploadIcon className="size-4" aria-hidden="true" /> {busy ? "Reading…" : "Upload new"}
         </Button>
       </div>
-      {full ? <p className="text-xs text-muted-foreground">Your library is full ({MAX_DOCUMENTS}). Delete one in Documents to upload another.</p> : null}
       {problem ? (
         <p role="alert" className="text-sm text-destructive">
           {problem}

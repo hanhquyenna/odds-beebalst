@@ -13,7 +13,7 @@ import { handleOAuth, unauthorized } from "./oauth.ts"
 import { accessFor, contentOf, driveEnv, linkOf, pushIfConnected } from "../_shared/drive.ts"
 import { cleanAnswers, missingAnswers, type Answers } from "../_shared/application-answers.ts"
 import { cleanCv, cvText, renderCvPdf } from "../_shared/cv-template.ts"
-import { parseJobUrl } from "../_shared/job-intake.ts"
+import { heldFilter, jobLink, type JobLink } from "../_shared/job-sites.ts"
 // @ts-ignore: npm specifier, resolved by Deno
 import * as PDFLib from "npm:pdf-lib@1.17.1"
 
@@ -49,7 +49,7 @@ interface Me {
 
 // ---- Reading the pool, kept for a few minutes per warm instance ----
 
-const PAGE = 1000
+const PAGE = 250
 const COLUMNS =
   "id,employer,employer_display,ats,source,title,region,cat,cbs_group,url,ind_sponsor,ind_sponsor_name,years_min,dutch_required,visa_mention,junior_title,degree_asked,skills,pay_posted,applicants,applicants_text,valid_through,seniority,posted_at,days_open,freshness_state,fetched_at,title_clean,level_jev,level_conf,usable,industry,workplace,job_type,dutch_jev,family,closed_at,last_checked,posted_on,skill_tiers,enrollment,level_view,kept_id,pick_rank,role_kind,work_signals"
 const KEEP_MS = 10 * 60 * 1000
@@ -107,12 +107,14 @@ async function whoIs(env: Env, key: string): Promise<Me | null> {
   return { id: row.user_id, email, key }
 }
 
-async function readAll(env: Env, table: string, columns: string): Promise<Json[]> {
+async function readAll(env: Env, table: string, columns: string, pageSize = PAGE): Promise<Json[]> {
   const out: Json[] = []
-  for (let from = 0; ; from += PAGE * 4) {
-    const pages = await Promise.all([0, 1, 2, 3].map((i) => rest(env, `${table}?select=${columns}&order=id`, { headers: { Range: `${from + i * PAGE}-${from + (i + 1) * PAGE - 1}` } })))
-    for (const p of pages) out.push(...p)
-    if (pages.some((p) => p.length < PAGE)) return out
+  // The app_jobs view ranks the full pool. Four simultaneous wide reads exceeded the Free database's
+  // statement timeout; smaller sequential pages keep each request within its memory and CPU budget.
+  for (let from = 0; ; from += pageSize) {
+    const page = await rest(env, `${table}?select=${columns}&order=id`, { headers: { Range: `${from}-${from + pageSize - 1}` } })
+    out.push(...page)
+    if (page.length < pageSize) return out
   }
 }
 
@@ -127,6 +129,25 @@ async function load(env: Env): Promise<World> {
   const pool = core.preparePool(rows)
 
   return { pool, byId: new Map(pool.map((p: Json) => [p.id, p])), ref: core.makeReference(bands, ages, tax[0]?.params, transitions), signals: core.signalsOf(pool), shares: core.sharesOf(pool), at: Date.now() }
+}
+
+// A badge needs reference data and category totals, not the full ranked job pool.
+// Keep identical category inputs while avoiding dozens of wide page reads.
+let extensionContext: Promise<Pick<World, "ref" | "shares">> | null = null
+let extensionContextAt = 0
+function extensionContextFor(env: Env): Promise<Pick<World, "ref" | "shares">> {
+  if (!extensionContext || Date.now() - extensionContextAt > KEEP_MS) {
+    extensionContextAt = Date.now()
+    extensionContext = Promise.all([
+      readAll(env, "app_jobs", "id,cat,dutch_required,dutch_jev,visa_mention,years_min,junior_title,skills", 1000),
+      rest(env, "cbs_bands?select=*"), rest(env, "cbs_age_factors?select=sector,age_band,factor"),
+      rest(env, "tax_params?select=params&year=eq.2026"), rest(env, "transitions?select=*"),
+    ]).then(([rows, bands, ages, tax, transitions]) => ({
+      ref: core.makeReference(bands, ages, tax[0]?.params, transitions),
+      shares: core.sharesOf(rows.filter((row: Json) => !row.dutch_required && (row.dutch_jev ?? 0) < 0.8)),
+    })).catch(error => { extensionContext = null; throw error })
+  }
+  return extensionContext
 }
 
 function worldFor(env: Env): Promise<World> {
@@ -967,8 +988,12 @@ async function answer(env: Env, me: Me | null, keyGiven: boolean, msg: Json): Pr
 // ---- The browser extension (own key, own routes: /mcp/ext/...) ----
 
 const EXT_KEY_RE = /^oddsx_[0-9a-f]{48}$/
-/** Jobs the extension may have read for one person in a day when we do not hold them yet (each read costs money). Jobs we hold are free and unlimited. */
+/** LinkedIn jobs the extension may have read for one person in a day when we do not hold them yet (each read costs money). Jobs we hold are free and unlimited. */
 const EXT_DAILY_READS = 30
+/** Jobs from any other site a person's browser may hand over in a day: free to read, but each one goes into the table everyone sees. */
+const EXT_DAILY_PAGE_READS = 300
+/** A job we hold, found by the address it was stored under (job boards loaded in bulk kept longer ones: heldFilter finds those by the job's id). */
+const heldJob = (env: Env, link: JobLink): Promise<Json[] | null> => rest(env, `postings?select=id,closed_at&${heldFilter(link)}&order=closed_at.desc.nullsfirst&limit=1`).catch(() => [])
 
 async function extWho(env: Env, key: string): Promise<Me | null> {
   if (!EXT_KEY_RE.test(key) || !env.serviceKey) return null
@@ -980,7 +1005,7 @@ async function extWho(env: Env, key: string): Promise<Me | null> {
   return { id: row.user_id, email: null, key }
 }
 
-/** The job at a LinkedIn link: kept for them, read first if we do not hold it, with their interview chance. */
+/** The job at a job page's link (LinkedIn, Indeed, Glassdoor, Magnet.me, an employer's own page...): kept for them, read first if we do not hold it, with their interview chance. */
 async function handleExt(req: Request, env: Env): Promise<Response> {
   const json = (status: number, body: Json): Response => new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } })
   const route = new URL(req.url).pathname.replace(/^.*\/ext\//, "")
@@ -1005,25 +1030,44 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     return json(200, await verified.json())
   }
   // What the person's chance is for the job on the page, without saving it or paying for anything: only a job odds already holds can be answered.
+  // A list of jobs at once ({ urls }, up to 25: the jobs in view) answers { results: { url: answer } }, with the person's profile and the reference read once.
   if (route === "peek" && req.method === "POST") {
-    let address = ""
+    let body: Json = null
     try {
       const raw = await req.text()
-      if (raw.length > 4000) return json(413, { error: "Too large." })
-      address = String((JSON.parse(raw) as Json)?.url ?? "")
+      if (raw.length > 20_000) return json(413, { error: "Too large." })
+      body = JSON.parse(raw)
     } catch {
-      return json(400, { error: "Send { url }." })
+      return json(400, { error: "Send { url } or { urls }." })
     }
-    const wanted = parseJobUrl(address)
-    if (!wanted) return json(422, { status: "unsupported", message: "Only LinkedIn job pages for now." })
-    const held = (await rest(env, `postings?select=id,closed_at&url=eq.${encodeURIComponent(wanted.url)}&limit=1`).catch(() => []))?.[0]
-    if (!held) return json(200, { known: false })
-    if (held.closed_at) return json(200, { known: true, closed: true, id: held.id })
-    const [rows, mine, profile, w] = await Promise.all([rest(env, `app_jobs?select=${COLUMNS}&id=eq.${encodeURIComponent(held.id)}`).catch(() => []), svc(env, `saved_jobs?user_id=eq.${me.id}&posting_id=eq.${encodeURIComponent(held.id)}&select=posting_id`), myProfile(env, me), worldFor(env)])
-    const post = rows?.[0] ? core.preparePool(rows)[0] : null
-    const chance = post && core.hasProfile(profile) ? core.chanceFor(post, profile, w.ref, w.shares) : null
+    const many = Array.isArray(body?.urls)
+    const urls: string[] = (many ? body.urls : [body?.url]).slice(0, 25).map((u: unknown) => (typeof u === "string" ? u : ""))
+    const links = urls.map((u) => jobLink(u, true))
+    if (!many && !links[0]) return json(422, { status: "unsupported", message: "odds cannot tell which job this page is." })
+    const helds = await Promise.all(links.map((l) => (l ? heldJob(env, l).then((r) => r?.[0] ?? null) : Promise.resolve(null))))
+    const ids = [...new Set(helds.filter((h) => h && !h.closed_at).map((h) => String(h.id)))]
+    const inList = ids.map((id) => encodeURIComponent(id)).join(",")
+    const [rows, mine, profile, w] = await Promise.all([
+      ids.length ? rest(env, `app_jobs?select=${COLUMNS}&id=in.(${inList})`).catch(() => []) : [],
+      ids.length ? svc(env, `saved_jobs?user_id=eq.${me.id}&posting_id=in.(${inList})&select=posting_id`) : [],
+      myProfile(env, me),
+      extensionContextFor(env),
+    ])
+    const posts = new Map(core.preparePool(rows ?? []).map((p: Json) => [String(p.id), p]))
+    const saved = new Set((mine ?? []).map((m: Json) => String(m.posting_id)))
+    const answerFor = (link: JobLink | null, held: Json): Json => {
+      if (!link) return { status: "error", message: "odds cannot tell which job this page is." }
+      if (!held) return { known: false }
+      if (held.closed_at) return { known: true, closed: true, id: held.id }
+      const post = posts.get(String(held.id))
+      const chance = post && core.hasProfile(profile) ? core.chanceFor(post, profile, w.ref, w.shares) : null
 
-    return json(200, { known: true, id: held.id, saved: (mine ?? []).length > 0, chance_pct: chance?.chance_pct ?? null, needs_profile: !core.hasProfile(profile) })
+      return { known: true, id: held.id, job: post ? core.jobLine(post, w.ref) : { id: held.id }, saved: saved.has(String(held.id)), chance_pct: chance?.chance_pct ?? null, needs_profile: !core.hasProfile(profile) }
+    }
+    const answers = links.map((l, i) => answerFor(l, helds[i]))
+    if (!many) return json(200, answers[0])
+
+    return json(200, { results: Object.fromEntries(urls.map((u, i) => [u, answers[i]])) })
   }
   // The person's saved jobs, newest first, for the panel the extension opens on LinkedIn.
   if (route === "pool" && req.method === "GET") {
@@ -1033,46 +1077,55 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
 
     return json(200, { jobs, total: all.length })
   }
-  if (route !== "add" || req.method !== "POST") return json(404, { error: "Not found." })
+  if (!["add", "analyze"].includes(route) || req.method !== "POST") return json(404, { error: "Not found." })
 
   let url = ""
+  // The job as the person's browser read it from the page (for LinkedIn, its public page of the job), so odds need not read it itself.
+  let posting: Json = null
   try {
     const raw = await req.text()
-    if (raw.length > 4000) return json(413, { error: "Too large." })
-    url = String((JSON.parse(raw) as Json)?.url ?? "")
+    if (raw.length > 150_000) return json(413, { error: "Too large." })
+    const body = JSON.parse(raw) as Json
+    url = String(body?.url ?? "")
+    posting = body?.posting && typeof body.posting === "object" ? body.posting : null
   } catch {
     return json(400, { error: "Send { url }." })
   }
-  const parsed = parseJobUrl(url)
-  if (!parsed) return json(422, { status: "unsupported", message: "Only LinkedIn job pages for now." })
+  const parsed = jobLink(url, true)
+  if (!parsed) return json(422, { status: "unsupported", message: "odds cannot tell which job this page is." })
 
-  // Free first: do we already hold this job? Only a job we do not hold is read (paid), and that is limited per person.
-  const held = await rest(env, `postings?select=id,closed_at&url=eq.${encodeURIComponent(parsed.url)}&limit=1`).catch(() => [])
+  // Free first: do we already hold this job? Only a job we do not hold is read, and that is limited per person (LinkedIn reads cost money).
+  const held = await heldJob(env, parsed)
   if (!held?.[0]) {
     const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
-    const used = await svc(env, `extension_reads?user_id=eq.${me.id}&created_at=gte.${since}&select=id`)
-    if ((used ?? []).length >= EXT_DAILY_READS) return json(429, { status: "limit", message: `Up to ${EXT_DAILY_READS} new jobs a day. Jobs odds already has are not counted.` })
-    await svc(env, "extension_reads", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ user_id: me.id, url: parsed.url }) })
+    // Only a LinkedIn job odds reads itself costs money; one the person's browser read from LinkedIn's public page does not.
+    const paid = parsed.site === "linkedin" && !posting
+    const cap = paid ? EXT_DAILY_READS : EXT_DAILY_PAGE_READS
+    const used = await svc(env, `extension_reads?user_id=eq.${me.id}&created_at=gte.${since}&paid=is.${paid}&select=id`)
+    if ((used ?? []).length >= cap) return json(429, { status: "limit", message: `Up to ${cap} new jobs a day. Jobs odds already has are not counted.` })
+    await svc(env, "extension_reads", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ user_id: me.id, url: parsed.url, paid }) })
   }
-  const added = await fetch(`${env.url}/functions/v1/jobs/add`, { method: "POST", headers: { "Content-Type": "application/json", apikey: env.anonKey, Authorization: `Bearer ${env.anonKey}` }, body: JSON.stringify({ url: parsed.url }), signal: AbortSignal.timeout(120_000) }).catch(() => null)
-  const result: Json = added ? await added.json().catch(() => ({})) : {}
-  if (!added || !added.ok) return json(added?.status === 429 ? 429 : 502, { status: "error", message: result?.error ?? "odds could not read that job. Try again in a minute." })
-  if (result.status !== "added" && result.status !== "exists") {
-    const message = result.status === "closed" ? "That job is closed." : result.status === "not_netherlands" ? `That job is in ${result.place || "another country"}. odds keeps jobs in the Netherlands.` : (result.message ?? "That job could not be read.")
-
-    return json(200, { status: result.status ?? "error", message })
+  // A known job needs only saving; do not call the scraper/company enrichment again.
+  const existing = held?.[0]
+  if (existing?.closed_at) return json(200, { status: "closed", message: "That job is closed." })
+  let result: Json = { status: "exists", id: existing?.id }
+  if (!existing) {
+    // With the service key, so jobs/add takes the posting the browser read (and any job page, not only the job sites it knows): this route knows who sent it and counts it.
+    const added = await fetch(`${env.url}/functions/v1/jobs/add`, { method: "POST", headers: { "Content-Type": "application/json", apikey: env.serviceKey ?? env.anonKey, Authorization: `Bearer ${env.serviceKey ?? env.anonKey}` }, body: JSON.stringify(posting ? { url: parsed.url, posting } : { url: parsed.url }), signal: AbortSignal.timeout(120_000) }).catch(() => null)
+    result = added ? await added.json().catch(() => ({})) : {}
+    if (!added || !added.ok) return json(added?.status === 429 ? 429 : 502, { status: "error", message: result?.error ?? "odds could not read that job. Try again in a minute." })
+    if (result.status !== "added" && result.status !== "exists") return json(200, { status: result.status ?? "error", message: result.status === "closed" ? "That job is closed." : result.message ?? "That job could not be read." })
   }
-
   const id: string = result.id
-  await svc(env, "saved_jobs", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ user_id: me.id, posting_id: id }) })
+  if (route === "add") await svc(env, "saved_jobs", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ user_id: me.id, posting_id: id }) })
   const rows = await rest(env, `app_jobs?select=${COLUMNS}&id=eq.${encodeURIComponent(id)}`).catch(() => [])
-  const w = await worldFor(env)
+  const w = await extensionContextFor(env)
   const post = rows?.[0] ? core.preparePool(rows)[0] : null
   const profile = await myProfile(env, me)
   const chance = post && core.hasProfile(profile) ? core.chanceFor(post, profile, w.ref, w.shares) : null
   const line = post ? core.jobLine(post, w.ref) : { id, title: result.title ?? null, company: result.employer ?? null }
 
-  return json(200, { status: result.status, saved: true, job: line, odds_link: `https://odds.beeblast.co/job/${id}`, chance_pct: chance?.chance_pct ?? null, needs_profile: !core.hasProfile(profile) })
+  return json(200, { status: result.status, known: true, saved: route === "add", job: line, odds_link: `https://odds.beeblast.co/job/${id}`, chance_pct: chance?.chance_pct ?? null, needs_profile: !core.hasProfile(profile) })
 }
 
 export async function handle(req: Request, env: Env): Promise<Response> {

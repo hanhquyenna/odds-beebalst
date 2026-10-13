@@ -14,6 +14,7 @@ import { CareerLadder, FitCard, LockedPersonal, PayCard, Recommendations, UspStr
 import { Section } from "@/components/Section"
 import { JobDocuments } from "@/components/JobDocuments"
 import { useData } from "@/lib/data"
+import { embedded } from "@/lib/embedded"
 import { useJobProfile, useJobStrength } from "@/lib/use-documents"
 import { saved as notifySaved } from "@/lib/saved"
 import { isWhatIfActive, NO_WHAT_IF, standing, type WhatIf } from "@/lib/engine"
@@ -44,7 +45,9 @@ interface JobDetailProps {
  * whether you clear it, your chance, what you keep after tax, your permit.
  */
 export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locked }: JobDetailProps): React.JSX.Element {
-  useBackEntry(post.id, onBack, !pane)
+  // In the extension's panel the app shares the tab's history with the job site beside it (LinkedIn adds an entry for every job picked in its
+  // list), so it keeps out of that history: Back goes straight back to the jobs, never to the site's previous page.
+  useBackEntry(post.id, onBack, !pane && !embedded)
   const data = useData()
   const [body, setBody] = useState<string | null>(post.body ?? null)
   // The ticks under Recommendations are kept per job, so they are there next time, and every change shows the same "Saved." notice.
@@ -115,7 +118,7 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
   return (
     <div className={pane ? "flex w-full flex-col gap-8 px-5 py-6 sm:px-8 sm:py-8" : "mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8"}>
       {pane ? null : (
-        <button type="button" onClick={() => history.back()} className="cursor-pointer self-start text-sm font-medium text-primary">
+        <button type="button" onClick={() => (embedded ? onBack() : history.back())} className="cursor-pointer self-start text-sm font-medium text-primary">
           &larr; Back
         </button>
       )}

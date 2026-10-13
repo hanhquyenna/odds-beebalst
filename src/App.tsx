@@ -116,7 +116,8 @@ export default function App(): React.JSX.Element {
    */
   function setView(next: View, how: "push" | "replace" = "push"): void {
     const state = (history.state && typeof history.state === "object" ? history.state : {}) as { idx?: number }
-    if (how === "push" && next !== view) {
+    // In the extension's panel the tab's history is shared with the job site beside it: the app replaces its entry instead of adding to it.
+    if (how === "push" && next !== view && !embedded) {
       history.pushState({ view: next, idx: (state.idx ?? 0) + 1 }, "")
     } else {
       history.replaceState({ ...state, view: next, idx: state.idx ?? 0 }, "")
@@ -128,7 +129,7 @@ export default function App(): React.JSX.Element {
   /** A Back button: the entry before this one when the app added it, otherwise the place a first visit would go. */
   function back(fallback: View): void {
     const state = history.state as { idx?: number } | null
-    if ((state?.idx ?? 0) > 0) history.back()
+    if ((state?.idx ?? 0) > 0 && !embedded) history.back()
     else setView(fallback, "replace")
   }
 
@@ -207,7 +208,9 @@ export default function App(): React.JSX.Element {
   }
 
   function closeSharedJob(): void {
-    history.pushState({}, "", "/")
+    // In the extension's panel nothing is added to the tab's history (it is shared with the job site beside the panel).
+    if (embedded) history.replaceState({}, "", "/")
+    else history.pushState({}, "", "/")
     setSharedJobId(null)
     setPage(null)
     window.scrollTo(0, 0)

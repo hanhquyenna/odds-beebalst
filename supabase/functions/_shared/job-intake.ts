@@ -1,4 +1,5 @@
-// Turns one LinkedIn job, as the job-details reader returns it, into a row for public.postings. Pure functions: no network, no clock of their own.
+// Turns one job, as the LinkedIn job-details reader returns it (or a job page's own JobPosting, put in the same shape), into a row for public.postings.
+// Pure functions: no network, no clock of their own.
 // shared by the jobs Edge Function (/jobs/add, Deno) and the tests (bun). The rules are the ones the loaders use (app/build_data.py, backend/dutch_rules.py), so a job
 // that someone pastes is read exactly like one found by a search.
 import { guessFamily } from "./job-family.ts"
@@ -166,6 +167,14 @@ export interface JobDetails {
   "company.name"?: string
   "company.url"?: string
   "company.logo"?: string
+  /** When the job was posted, when the page says so (job boards other than LinkedIn); an ISO date or date-time. */
+  posted?: string | null
+}
+
+/** Where a job came from: its board (postings.ats) and how it reached odds (postings.source). */
+export interface Origin {
+  ats: string
+  source: string
 }
 
 /** What the reader said about the job as a whole: usable, closed, or no job found. */
@@ -194,7 +203,7 @@ export async function idFor(url: string, employer: string, title: string, place:
 }
 
 /** The row to insert. Only call this for a job readVerdict called "open". `today` is a YYYY-MM-DD day. */
-export async function rowFromDetails(item: JobDetails, parsed: ParsedUrl, known: KnownEmployer | null, today: string, nowIso: string): Promise<Record<string, unknown>> {
+export async function rowFromDetails(item: JobDetails, parsed: ParsedUrl, known: KnownEmployer | null, today: string, nowIso: string, from: Origin = { ats: "linkedin", source: "linkedin_user" }): Promise<Record<string, unknown>> {
   const title = (item.title ?? "").trim()
   const employer = (item["company.name"] ?? "").trim()
   const place = (item.location ?? "").trim()
@@ -207,13 +216,15 @@ export async function rowFromDetails(item: JobDetails, parsed: ParsedUrl, known:
   const inNl = inNetherlands(place)
   const applicants = Number(item.applicants)
   const skills = skillsOf(text)
+  const postedOn = item.posted && /^\d{4}-\d{2}-\d{2}/.test(item.posted) && item.posted.slice(0, 10) <= today ? item.posted.slice(0, 10) : null
+  const days = postedOn ? Math.max(0, Math.round((Date.parse(today) - Date.parse(postedOn)) / 86_400_000)) : null
 
   return {
     id: await idFor(parsed.url, employer, title, place),
     employer,
     employer_display: known?.employer_display ?? employer,
-    ats: "linkedin",
-    source: "linkedin_user",
+    ats: from.ats,
+    source: from.source,
     title,
     region: place || "—",
     cat: catOf(code),
@@ -236,10 +247,11 @@ export async function rowFromDetails(item: JobDetails, parsed: ParsedUrl, known:
     valid_through: item.valid_through ? item.valid_through.slice(0, 10) : null,
     seniority: item.seniority_level || null,
     body: text.slice(0, 60000),
-    // The reader gives no posting date, so none is claimed: the job shows as just added, not as posted on a day we do not know.
-    posted_at: null,
-    days_open: null,
-    freshness_state: "unknown",
+    // LinkedIn's reader gives no posting date, so none is claimed there: the job shows as just added, not as posted on a day we do not know.
+    posted_at: postedOn,
+    posted_on: postedOn,
+    days_open: days,
+    freshness_state: days === null ? "unknown" : days <= 6 ? "fresh" : days <= 45 ? "active" : "aging",
     fetched_at: today,
     english,
     restricted,

@@ -101,7 +101,7 @@ export function CvUpload({ text, name, source, onChange, note }: CvUploadProps):
         >
           <UploadIcon className="size-6 text-muted-foreground" aria-hidden="true" />
           <span className="text-sm font-medium">{busy ? "Reading your CV…" : "Choose your CV, or drop it here"}</span>
-          <span className="text-xs text-muted-foreground">PDF, Word (.docx) or text, up to 8 MB</span>
+          <span className="text-xs text-muted-foreground">PDF, Word (.docx) or text, up to 50 MB</span>
         </label>
       )}
 

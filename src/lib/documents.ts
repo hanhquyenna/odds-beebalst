@@ -1,6 +1,6 @@
 /**
  * The CVs and cover letters a person keeps (table documents, files in the private bucket "documents"). Each is named, so a
- * version can be reused on any job: a job points at a document (job_documents) and never copies it. At most thirty per person.
+ * version can be reused on any job: a job points at a document (job_documents) and never copies it.
  * The file is read in the browser into text (cv-file.ts), the text is what the chance is worked out from, and the original
  * file is kept so "download" gives back exactly what was uploaded.
  *
@@ -9,7 +9,7 @@
 import { useSyncExternalStore } from "react"
 import { currentAccessToken, ANON_KEY, SUPABASE_URL, supabase } from "@/lib/supabase"
 import { driveFile, driveState, renameInDrive, syncDrive, trashInDrive } from "@/lib/drive"
-import { DocumentError, MAX_DOCUMENTS, MAX_NAME, explain, freeName, mimeOf, nameFromFile, sha256Hex, type Doc, type DocKind, type Store } from "@/lib/document-model"
+import { DocumentError, MAX_NAME, explain, freeName, mimeOf, nameFromFile, sha256Hex, type Doc, type DocKind, type Store } from "@/lib/document-model"
 
 const EMPTY: Store = { userId: null, status: "idle", docs: [], links: [] }
 let store: Store = EMPTY
@@ -123,13 +123,12 @@ export interface Added {
 }
 
 /**
- * Reads the file, then saves its row and its original. The row goes first so the limit and the duplicate checks refuse
- * before anything is uploaded; if the upload then fails the row is taken back, so no half-saved document is left.
+ * Reads and uploads the original, then saves the library row and optional job attachment together.
+ * Failed saves clean up the uploaded file; uncertain responses are checked before cleanup.
  */
-export async function addDocument(file: File, kind: DocKind, wanted?: string): Promise<Added> {
+export async function addDocument(file: File, kind: DocKind, wanted?: string, postingId?: string): Promise<Added> {
   const userId = store.userId
   if (!userId) throw new DocumentError("Sign in to keep documents.")
-  if (store.docs.length >= MAX_DOCUMENTS) throw new DocumentError(`You can keep ${MAX_DOCUMENTS} documents. Delete one to add another.`)
 
   // Read here, in the browser: the text is what the chance is worked out from. Loaded only when a file is chosen.
   const { readCvFile, CvReadError } = await import("@/lib/cv-file")
@@ -146,26 +145,37 @@ export async function addDocument(file: File, kind: DocKind, wanted?: string): P
   const id = crypto.randomUUID()
   const path = `${userId}/${id}`
   // The first CV is the main one: the chance on every job starts from it.
-  const main = kind === "cv" && !store.docs.some((d) => d.kind === "cv" && d.isMain)
 
-  const inserted = await supabase
-    .from("documents")
-    .insert({ id, user_id: userId, kind, name, file_name: file.name.slice(0, 255), mime, size_bytes: file.size, content_hash: hash, body: text, path, is_main: main })
-    .select(COLUMNS)
-    .single()
-  if (inserted.error) throw explain(inserted.error)
-
-  if (!(await putFile(path, file, mime))) {
-    await supabase.from("documents").delete().eq("id", id)
+  if (!(await putFile(path, file, mime).catch(() => false))) {
+    await removeFile(path)
     throw new DocumentError("The file did not upload. Try again.")
   }
+  // The library row and optional job attachment commit together, after the file is safely uploaded.
+  const inserted = await supabase.rpc("save_document", {
+    document: { id, kind, name, file_name: file.name.slice(0, 255), mime, size_bytes: file.size, content_hash: hash, body: text, path },
+    posting: postingId ?? null,
+  }).single()
+  let row: Row | null = inserted.data as Row | null
+  if (inserted.error) {
+    // A response may be lost after commit. Check before deleting a successfully saved file.
+    const saved = await supabase.from("documents").select(COLUMNS).eq("id", id).maybeSingle()
+    if (saved.error) throw new DocumentError("We could not confirm the upload. Refresh Documents before trying again.")
+    if (!saved.data) {
+      await removeFile(path)
+      throw explain(inserted.error)
+    }
+    row = saved.data as Row
+  }
 
-  const doc = toDoc(inserted.data as Row)
-  set({ ...store, docs: [...store.docs, doc].sort(byAge) })
+  const doc = toDoc(row!)
+  if (store.userId !== userId) return { doc, becameMain: false }
+  set({ ...store, docs: [...store.docs, doc].sort(byAge), links: postingId
+    ? [...store.links.filter((l) => !(l.postingId === postingId && l.kind === kind)), { postingId, kind, documentId: id }]
+    : store.links })
   // With Drive connected the file goes on into their odds folder there; it is already safe here if that fails.
   if (driveState().status === "on") void syncWithDrive()
 
-  return { doc, becameMain: main }
+  return { doc, becameMain: doc.isMain }
 }
 
 export async function renameDocument(id: string, wanted: string): Promise<void> {
@@ -269,7 +279,7 @@ async function runSync(): Promise<void> {
   const result = await syncDrive().catch(() => null)
   if (!result || !userId || store.userId !== userId) return
   // Moved files now have their Drive ids: read the list again so "Open in Drive" points at them.
-  if (result.moved > 0) await loadDocuments(userId)
+  if (result.moved > 0 || (result.imported ?? 0) > 0) await loadDocuments(userId)
   if (result.renamed.length > 0 && store.userId === userId) {
     const names = new Map(result.renamed.map((r) => [r.id, r.name]))
     set({ ...store, docs: store.docs.map((d) => (names.has(d.id) ? { ...d, name: names.get(d.id)! } : d)) })
@@ -285,8 +295,7 @@ async function runSync(): Promise<void> {
       const hash = await sha256Hex(await file.arrayBuffer())
       const r = await supabase.from("documents").update({ body, content_hash: hash, size_bytes: file.size, drive_md5: change.md5 }).eq("id", doc.id)
       if (r.error) {
-        // Same file as another document now: keep the old text, but stop reading it again on every visit.
-        await supabase.from("documents").update({ drive_md5: change.md5 }).eq("id", doc.id)
+        // Retry on the next sync; do not mark stale text as current.
         continue
       }
       if (store.userId !== userId) return

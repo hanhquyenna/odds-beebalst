@@ -11,6 +11,7 @@ import {
   pushDoc,
   pushIfConnected,
   syncDocs,
+  importDriveFiles,
   type DocRow,
   type DriveEnv,
   type DriveLink,
@@ -72,6 +73,11 @@ function rest(u: URL, method: string, body: Uint8Array): Response {
   const match = (r: object): boolean => Object.entries(where).every(([k, v]) => String((r as Record<string, unknown>)[k]) === v)
   if (table === "documents") {
     if (method === "GET") return json(200, docs.filter(match))
+    if (method === "POST") {
+      const doc = JSON.parse(text(body)) as DocRow & { user_id: string }
+      if (!docs.some((d) => d.user_id === doc.user_id && d.drive_file_id === doc.drive_file_id)) docs.push(doc)
+      return json(201, undefined)
+    }
     if (method === "PATCH") {
       const patch = JSON.parse(text(body)) as Partial<DocRow>
       for (const d of docs.filter(match)) {
@@ -150,6 +156,10 @@ function google(u: URL, method: string, body: Uint8Array, headers: Record<string
   const id = /^\/drive\/v3\/files\/?(.*)$/.exec(u.pathname)?.[1]
   if (id === undefined) return json(404, {})
   if (id === "" && method === "POST") return json(200, { id: newFile(JSON.parse(text(body)) as { name: string; mimeType: string; parents?: string[] }).id })
+  if (id === "" && method === "GET") {
+    const folder = /^'([^']+)'/.exec(u.searchParams.get("q") ?? "")?.[1]
+    return json(200, { files: [...drive.values()].filter((f) => !f.trashed && f.parents.includes(folder ?? "")).map((f) => ({ id: f.id, name: f.name, mimeType: f.mimeType, size: String(f.content.length) })) })
+  }
   const f = drive.get(decodeURIComponent(id))
   if (!f) return json(404, {})
   if (method === "GET" && u.searchParams.get("alt") === "media") return new Response(f.content)
@@ -527,5 +537,20 @@ describe("the drive function, route by route", () => {
     const r = await post("sync", "user-token")
     expect(r.status).toBe(409)
     expect(links).toHaveLength(0)
+  })
+})
+
+describe("files added directly to the Odds Drive folders", () => {
+  test("imports new supported files once, with separate names even for identical bytes", async () => {
+    const link = await connect()
+    newFile({ name: "Finance.txt", mimeType: "text/plain", parents: [link.cv_folder_id] }, bytes("CV content"))
+    newFile({ name: "Finance.txt", mimeType: "text/plain", parents: [link.cv_folder_id] }, bytes("CV content"))
+    newFile({ name: "ignore.png", mimeType: "image/png", parents: [link.cv_folder_id] }, bytes("image"))
+    newFile({ name: "Elsewhere.txt", parents: ["other-folder"] }, bytes("private"))
+    expect(await importDriveFiles(env, link, "access")).toBe(2)
+    expect(docs.filter((d) => d.name.startsWith("Finance")).map((d) => d.name)).toEqual(["Finance", "Finance (2)"])
+    expect(await importDriveFiles(env, link, "access")).toBe(0)
+    const result = await syncDocs(env, link, "access")
+    expect(result.changed.length).toBeGreaterThanOrEqual(2)
   })
 })

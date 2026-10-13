@@ -1,4 +1,4 @@
-import { XIcon } from "@/components/icons"
+import { DownloadIcon, UploadIcon, XIcon } from "@/components/icons"
 import { useMemo, useRef, useState } from "react"
 import { JobRow } from "@/components/JobBoard"
 import { trackerSortValue } from "@/components/tracker-values"
@@ -12,7 +12,9 @@ import { addJob, JOB_LINK } from "@/lib/add-job"
 import { TARGETS, guessMapping, readJobs, type ImportedJob, type Mapping, type Target } from "@/lib/import"
 import type { Posting, ViewName } from "@/lib/types"
 
-const TEMPLATE = "Title,Company,Location,Link,Pay,Contact,Deadline\nFinancial Analyst,ING,Amsterdam,https://example.com/job,,Sanne de Vries,2026-11-15\n"
+// Mirrors the job properties shown in the tracker, so a sheet started here fits
+// the same Notion-style table rather than a second, unrelated schema.
+const TEMPLATE = "Job,Company,Location,Link,Description,Pay,Deadline,Contact,Notes\nMarketing Intern,Company name,Amsterdam,https://example.com/job,Paste the job description here,,2026-12-31,Recruiter name,Replace this sample row with your own job\n"
 
 interface TrackerProps {
   posts: ReadonlyArray<Posting>
@@ -54,7 +56,16 @@ export function Tracker({ posts, onOpen, viewName, rowLimit, footer, dismissible
 }
 
 /** Bring your own jobs: add one by hand (the small link under the jobs), or upload a spreadsheet saved as CSV (the button beside Sort). The form opens below the jobs. */
-export type AddPanel = "one" | "upload" | null
+export type AddPanel = "one" | "upload" | "both" | null
+
+/** Open one add flow alongside the other instead of replacing it. */
+export function panelWith(current: AddPanel, next: "one" | "upload"): AddPanel {
+  if (current === null) return next
+  if (current === "both") return next === "one" ? "upload" : "one"
+  if (current === next) return null
+
+  return "both"
+}
 
 export function AddJobs({ panel, setPanel }: { panel: AddPanel; setPanel: (p: AddPanel) => void }): React.JSX.Element {
   const data = useData()
@@ -167,7 +178,7 @@ export function AddJobs({ panel, setPanel }: { panel: AddPanel; setPanel: (p: Ad
   return (
     <div className="flex flex-col gap-3">
       <p>
-        <button type="button" aria-expanded={panel === "one"} onClick={() => setPanel(panel === "one" ? null : "one")} className="cursor-pointer text-sm underline underline-offset-4 hover:text-foreground">
+        <button type="button" aria-expanded={panel === "one" || panel === "both"} onClick={() => setPanel(panel === "upload" ? "both" : panel ?? "one")} className="cursor-pointer text-sm underline underline-offset-4 hover:text-foreground">
           Add a job manually
         </button>
       </p>
@@ -176,26 +187,34 @@ export function AddJobs({ panel, setPanel }: { panel: AddPanel; setPanel: (p: Ad
           <button type="button" aria-label="Close" onClick={() => { setPanel(null); setMessage(null) }} className="absolute top-3 right-3 flex size-8 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
             <XIcon className="size-4" aria-hidden="true" />
           </button>
-          {panel === "upload" ? (
+          {panel === "upload" || panel === "both" ? (
           <div className="flex flex-col gap-3">
             <h3 className="font-heading text-lg font-medium">Upload a list</h3>
             {pending ? (
               <ColumnMapper pending={pending} onChange={(mapping) => setPending({ ...pending, mapping })} onCancel={() => setPending(null)} onImport={() => { try { finish(pending.rows, pending.mapping) } catch { setMessage("Could not add those jobs. Check the file and try again.") } setPending(null) }} />
             ) : (
               <>
-                <p className="text-sm text-muted-foreground">A spreadsheet saved as CSV.</p>
-                <input ref={file} type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" aria-label="Upload a CSV of jobs" onChange={(e) => upload(e.target.files)} className="text-sm" />
-                <a href={`data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE)}`} download="my-jobs-template.csv" className="w-fit text-sm font-medium text-primary underline">
-                  Download a template
-                </a>
+                <p className="max-w-xl text-sm text-muted-foreground">Bring your jobs into the same table you use here. Upload a CSV from Notion, Excel, or Google Sheets; you can check every column before anything is added.</p>
+                <input ref={file} type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" aria-label="Upload a CSV of jobs" onChange={(e) => upload(e.target.files)} className="sr-only" />
+                <button type="button" onClick={() => file.current?.click()} className="group flex min-h-36 w-full max-w-xl cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-foreground/25 bg-secondary/35 px-5 py-6 text-center transition-colors hover:border-foreground/45 hover:bg-secondary/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground">
+                  <span className="flex size-10 items-center justify-center rounded-full border bg-card text-foreground shadow-sm"><UploadIcon className="size-5" aria-hidden="true" /></span>
+                  <span className="text-sm font-medium">Choose a CSV file</span>
+                  <span className="text-xs text-muted-foreground">CSV, TSV, or plain text</span>
+                </button>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                  <span className="text-muted-foreground">Need a starting point?</span>
+                  <a href={`data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE)}`} download="odds-jobs-template.csv" className="inline-flex items-center gap-1 font-medium text-primary underline underline-offset-4 hover:text-foreground">
+                    <DownloadIcon className="size-4" aria-hidden="true" /> Download the job tracker template
+                  </a>
+                </div>
+                <p className="text-xs text-muted-foreground">The template uses the tracker’s job fields. Replace its example row before importing; extra columns are kept as Notion-style properties.</p>
               </>
             )}
           </div>
-          ) : (
+          ) : null}
+          {panel === "one" || panel === "both" ? (
           <>
-          <AddFromLinkedIn onDone={setMessage} />
-          <details className="group">
-            <summary className="w-fit cursor-pointer text-sm font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground">Or add a job by hand</summary>
+          <h3 className="font-heading text-lg font-medium">Add a job manually</h3>
           <form
             className="mt-3 flex flex-col gap-2"
             onSubmit={(e) => {
@@ -225,9 +244,12 @@ export function AddJobs({ panel, setPanel }: { panel: AddPanel; setPanel: (p: Ad
               Add to tracker
             </Button>
           </form>
+          <details className="group">
+            <summary className="w-fit cursor-pointer text-sm font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground">Or add from LinkedIn</summary>
+            <div className="mt-3"><AddFromLinkedIn onDone={setMessage} /></div>
           </details>
           </>
-          )}
+          ) : null}
           {message ? (
             <p role="status" className="text-sm font-medium">
               {message}

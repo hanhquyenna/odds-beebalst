@@ -8,7 +8,7 @@ function show(connected) {
   off.hidden = !connected
   site.hidden = !connected
   if (connected) {
-    line.textContent = "Connected. On a LinkedIn job, odds shows your interview chance beside Save. Open odds here for all your jobs, on any page."
+    line.textContent = "Connected. Odds shows your interview chance beside jobs on LinkedIn, Indeed, Glassdoor, Magnet.me and employers' job pages, beside Save. Click a percentage to keep that job here."
     main.textContent = "Open odds in the side panel"
     main.onclick = openSidePanel
   } else {

@@ -299,6 +299,7 @@ export async function pushIfConnected(uid: string, docId: string): Promise<void>
 
 export interface SyncOutcome {
   moved: number
+  imported?: number
   changed: Array<{ id: string; md5: string }>
   missing: string[]
   renamed: Array<{ id: string; name: string }>
@@ -309,9 +310,47 @@ export interface SyncOutcome {
  * reported (the browser reads it again: it has the readers), a deleted one is reported, and a rename in Drive becomes the
  * document's name. When that name is already taken by another document, the Drive file gets the odds name back instead.
  */
+/** Only the two Odds folders are scanned. Pagination keeps large libraries complete. */
+export async function importDriveFiles(env: DriveEnv, link: DriveLink, token: string): Promise<number> {
+  const known = await docsOf(env, link.user_id)
+  const ids = new Set(known.map((d) => d.drive_file_id))
+  let imported = 0
+  for (const [kind, folder] of [["cv", link.cv_folder_id], ["cover_letter", link.letter_folder_id]] as const) {
+    let pageToken: string | undefined
+    do {
+      const params = new URLSearchParams({ q: `'${folder.replace(/'/g, "\\'")}' in parents and trashed = false`, fields: "nextPageToken,files(id,name,mimeType,size)", pageSize: "1000", ...(pageToken ? { pageToken } : {}) })
+      const response = await g(token, `${DRIVE}?${params}`)
+      if (!response.ok) throw new Error(`Drive import: ${response.status}`)
+      const page = await response.json() as { nextPageToken?: string; files: Array<{ id: string; name: string; mimeType: string; size?: string }> }
+      for (const file of page.files) {
+        if (ids.has(file.id) || !/\.(pdf|docx|txt|md)$/i.test(file.name) || !file.size || Number(file.size) > 50 * 1024 * 1024 || Number(file.size) < 1) continue
+        const base = file.name.replace(/\.[^.]+$/, "").replace(/\s+/g, " ").trim().slice(0, 80) || "Document"
+        let name = base
+        let n = 2
+        while (known.some((d) => d.kind === kind && d.name.toLowerCase() === name.toLowerCase())) {
+          const suffix = ` (${n++})`
+          name = base.slice(0, 80 - suffix.length) + suffix
+        }
+        const id = crypto.randomUUID()
+        const doc = { id, user_id: link.user_id, kind, name, file_name: file.name.slice(0, 255), mime: file.mimeType,
+          size_bytes: Number(file.size), content_hash: "0".repeat(64), body: "", path: `${link.user_id}/${id}`,
+          is_main: false, drive_file_id: file.id, drive_md5: null }
+        await svc(env, "documents?on_conflict=user_id,drive_file_id", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify(doc) })
+        ids.add(file.id)
+        known.push(doc)
+        imported++
+      }
+      pageToken = page.nextPageToken
+    } while (pageToken)
+  }
+  return imported
+}
+
 export async function syncDocs(env: DriveEnv, link: DriveLink, token: string): Promise<SyncOutcome> {
   const moved = await pushAll(env, link, token)
   const out: SyncOutcome = { moved, changed: [], missing: [], renamed: [] }
+  const imported = await importDriveFiles(env, link, token)
+  if (imported > 0) out.imported = imported
   for (const doc of await docsOf(env, link.user_id)) {
     if (!doc.drive_file_id) continue
     let meta: DriveMeta | null

@@ -1,15 +1,15 @@
 /**
- * Reads a CV file (PDF, Word .docx, or plain text) into text, in the browser. The file itself never leaves the device and is not
- * stored: only the text goes into the profile (profile.cv), where every other part of the app already reads it.
+ * Reads a CV file (PDF, Word .docx, or plain text) into text in the browser. This reader does not upload files;
+ * the Documents workflow separately stores the original and the extracted text.
  *
  * Failures say what to do, because a CV that "uploaded" but read as nothing would quietly give a wrong chance:
  *   - an old .doc, or any type we do not read: save it as .docx or PDF
  *   - a PDF with no text (a scan or a photo): paste the text instead
- *   - a file over 8 MB
+ *   - a file over 50 MB
  *
  * Nothing heavy loads with the page: fflate loads only when a Word file is chosen, pdf.js only when a PDF is.
  */
-export const MAX_CV_BYTES = 8 * 1024 * 1024
+export const MAX_CV_BYTES = 50 * 1024 * 1024
 export const MAX_CV_CHARS = 20_000
 
 export type CvFailure = "too-big" | "unsupported" | "old-word" | "empty" | "damaged"
@@ -23,7 +23,7 @@ export class CvReadError extends Error {
 }
 
 export const CV_MESSAGES: Record<CvFailure, string> = {
-  "too-big": "That file is over 8 MB. Export your CV as a PDF or Word file without images.",
+  "too-big": "That file is over 50 MB. Export your CV as a PDF or Word file without images.",
   unsupported: "We read PDF, Word (.docx) and text files. Save your CV as one of those.",
   "old-word": "That is an old Word format (.doc). Save it as .docx or PDF and upload it again.",
   empty: "We found no text in that file. A scanned page or a photo has none. Upload a PDF or Word file made from a document, or paste the text.",

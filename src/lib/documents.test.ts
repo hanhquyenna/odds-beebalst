@@ -36,8 +36,6 @@ describe("names", () => {
 
 describe("what a refusal means", () => {
   test("the limit, a repeated file and a repeated name each say what to do", () => {
-    expect(explain({ code: "P0001", message: "document limit" }).message).toContain("30 documents")
-    expect(explain({ code: "23505", message: 'duplicate key value violates unique constraint "documents_hash_unique"' }).message).toContain("exact file")
     expect(explain({ code: "23505", message: 'duplicate key value violates unique constraint "documents_name_unique"' }).message).toContain("name")
     expect(explain({ message: "boom" }).message).toBe("That did not save. Try again.")
   })

@@ -16,6 +16,7 @@ import { toast } from "sonner"
 import { formatAge, formatPlace } from "@/lib/format"
 import { prefetchOn } from "@/lib/prefetch"
 import type { Posting } from "@/lib/types"
+import { embedded } from "@/lib/embedded"
 
 // Lazy: the drawer opens on a click, so the detail pane stays off the landing page's first load. Pointing at the list fetches it.
 const loadJobDetail = (): Promise<typeof import("@/components/JobDetail")> => import("@/components/JobDetail")
@@ -256,7 +257,8 @@ export function JobDrawer({ post, locked, onClose, onSwitch }: JobDrawerProps): 
     document.body.style.overflow = "hidden"
     const here = history.state && typeof history.state === "object" && history.state.drawer === post.id
     // An entry for this job that we did not add (left over from before a reload) is not ours to go back from.
-    if (!here) {
+    // Not in the extension's panel, whose tab history belongs to the job site beside it too.
+    if (!here && !embedded) {
       history.pushState({ ...(history.state ?? {}), drawer: post.id }, "")
       pushedFor = post.id
     }

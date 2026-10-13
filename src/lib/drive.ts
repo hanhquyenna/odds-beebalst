@@ -94,6 +94,7 @@ export async function disconnectDrive(): Promise<void> {
 export interface SyncResult {
   /** Files that went from odds into Drive on this sync. */
   moved: number
+  imported?: number
   /** Files changed in Drive since odds last read them, with Drive's checksum now. */
   changed: Array<{ id: string; md5: string }>
   /** Files renamed in Drive: their documents carry the new name now. */
@@ -109,10 +110,10 @@ export async function syncDrive(): Promise<SyncResult | null> {
 
     return null
   }
-  const out = (await r.json()) as { email: string | null; folder: string; moved: number; changed: SyncResult["changed"]; renamed?: SyncResult["renamed"]; missing: string[] }
+  const out = (await r.json()) as { email: string | null; folder: string; moved: number; imported?: number; changed: SyncResult["changed"]; renamed?: SyncResult["renamed"]; missing: string[] }
   set({ ...state, status: "on", email: out.email, folder: out.folder, missing: new Set(out.missing) })
 
-  return { moved: out.moved, changed: out.changed, renamed: out.renamed ?? [] }
+  return { moved: out.moved, imported: out.imported, changed: out.changed, renamed: out.renamed ?? [] }
 }
 
 /** The original file from their Drive. */
