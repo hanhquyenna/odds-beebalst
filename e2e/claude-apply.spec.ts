@@ -22,7 +22,7 @@ test.describe("signed in: answers for application forms and Claude's message dra
     await shot(page, "profile-answers")
   })
 
-  test("a draft Claude wrote for someone on a job can be copied, opened and marked sent", async ({ page, context }) => {
+  test("a draft Claude wrote for someone on a job can be copied, approved for Claude to send, taken back and marked sent", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"])
     const sent: string[] = []
     await page.route("**/rest/v1/outreach_drafts*", async (route) => {
@@ -43,9 +43,16 @@ test.describe("signed in: answers for application forms and Claude's message dra
     await expect(page.getByRole("button", { name: "Copied" })).toBeVisible()
     expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("Hi Cy")
     await shot(page, "outreach-draft")
-    await page.getByRole("button", { name: "I sent it" }).click()
+    await page.getByRole("button", { name: "Let Claude send it" }).click()
     await expect.poll(() => sent.length).toBe(1)
-    expect(JSON.parse(sent[0])).toMatchObject({ status: "sent" })
+    expect(JSON.parse(sent[0])).toMatchObject({ status: "approved" })
+    await expect(page.getByText(/Claude may send it/)).toBeVisible()
+    await page.getByRole("button", { name: "Take back" }).click()
+    await expect.poll(() => sent.length).toBe(2)
+    expect(JSON.parse(sent[1])).toMatchObject({ status: "draft" })
+    await page.getByRole("button", { name: "I sent it" }).click()
+    await expect.poll(() => sent.length).toBe(3)
+    expect(JSON.parse(sent[2])).toMatchObject({ status: "sent" })
     await expect(page.getByRole("button", { name: "I sent it" })).toHaveCount(0)
   })
 

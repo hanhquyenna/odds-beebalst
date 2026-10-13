@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { CHANNEL_WORDS, markDraftSent, personAfterSent, removeDraft, useDrafts, type Draft } from "@/lib/outreach"
+import { CHANNEL_WORDS, markDraftSent, personAfterSent, removeDraft, setDraftApproved, useDrafts, type Draft } from "@/lib/outreach"
 import { useData } from "@/lib/data"
 import { saved } from "@/lib/saved"
 
@@ -18,6 +18,14 @@ function DraftCard({ draft }: { draft: Draft }): React.JSX.Element {
       },
       () => setProblem("Could not copy. Select the text and copy it."),
     )
+  }
+  async function approve(on: boolean): Promise<void> {
+    setProblem(null)
+    try {
+      await setDraftApproved(draft.id, on)
+    } catch (e) {
+      setProblem(e instanceof Error ? e.message : "Could not save that.")
+    }
   }
   async function sent(): Promise<void> {
     setProblem(null)
@@ -37,11 +45,11 @@ function DraftCard({ draft }: { draft: Draft }): React.JSX.Element {
     <li className="flex flex-col gap-2 rounded-lg border-[1.5px] p-3 text-sm">
       <p className="text-xs font-medium text-muted-foreground">
         {CHANNEL_WORDS[draft.channel]} {draft.personId ? "" : `to ${draft.toName}`}
-        {draft.status === "sent" ? " · sent" : ""}
+        {draft.status === "sent" ? " · sent" : draft.status === "approved" ? " · Claude may send it" : ""}
       </p>
       {draft.subject ? <p className="font-medium">{draft.subject}</p> : null}
       <p className="whitespace-pre-wrap">{draft.body}</p>
-      {draft.status === "draft" ? (
+      {draft.status !== "sent" ? (
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" size="sm" onClick={copy} className="cursor-pointer max-md:h-10">
             {copied ? "Copied" : draft.subject ? "Copy message" : "Copy"}
@@ -51,6 +59,15 @@ function DraftCard({ draft }: { draft: Draft }): React.JSX.Element {
               Open their page
             </a>
           ) : null}
+          {draft.status === "draft" ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => void approve(true)} className="cursor-pointer max-md:h-10">
+              Let Claude send it
+            </Button>
+          ) : (
+            <Button type="button" variant="outline" size="sm" onClick={() => void approve(false)} className="cursor-pointer max-md:h-10">
+              Take back
+            </Button>
+          )}
           <Button type="button" size="sm" onClick={() => void sent()} className="cursor-pointer max-md:h-10">
             I sent it
           </Button>

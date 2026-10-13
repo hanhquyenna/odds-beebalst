@@ -18,7 +18,7 @@ export interface Draft {
   channel: Channel
   subject: string | null
   body: string
-  status: "draft" | "sent"
+  status: "draft" | "approved" | "sent"
   createdAt: string
   sentAt: string | null
   /** True once the person's stage and messages were brought up to date with this draft being sent. */
@@ -36,7 +36,7 @@ interface Row {
   channel: Channel
   subject: string | null
   body: string
-  status: "draft" | "sent"
+  status: "draft" | "approved" | "sent"
   created_at: string
   sent_at: string | null
   applied_at: string | null
@@ -115,6 +115,13 @@ export async function markDraftSent(id: string, applied: boolean): Promise<void>
   const { error } = await supabase.from("outreach_drafts").update({ status: "sent", sent_at: now, ...(applied ? { applied_at: now } : {}) }).eq("id", id)
   if (error) throw new Error("Could not save that. Try again.")
   set(drafts.map((d) => (d.id === id ? { ...d, status: "sent", sentAt: now, applied: applied || d.applied } : d)))
+}
+
+/** The person lets Claude send this one (or takes that back). Claude sends only approved drafts, and only when asked. */
+export async function setDraftApproved(id: string, on: boolean): Promise<void> {
+  const { error } = await supabase.from("outreach_drafts").update({ status: on ? "approved" : "draft", approved_at: on ? new Date().toISOString() : null }).eq("id", id).neq("status", "sent")
+  if (error) throw new Error("Could not save that. Try again.")
+  set(drafts.map((d) => (d.id === id && d.status !== "sent" ? { ...d, status: on ? "approved" : "draft" } : d)))
 }
 
 export async function markDraftApplied(id: string): Promise<void> {

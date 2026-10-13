@@ -327,7 +327,7 @@ const ME_TOOLS = [
     name: "save_outreach",
     title: "Save an outreach message draft",
     description:
-      "Saves a message you wrote for one person at an employer (a LinkedIn connection note, a LinkedIn message, or an email) as a draft the person sees on odds. You only draft: the person sends it, because messages go out in their name. Write it from their real background and the job, short, specific, one clear ask, never pushy, and no claim that is not true. A LinkedIn note is 300 characters at most. Ask them before saving a batch.",
+      "Saves a message you wrote for one person at an employer (a LinkedIn connection note, a LinkedIn message, or an email) as a draft the person sees on odds. You only draft: it is sent only after the person approves it (approve_outreach, or the button on odds), because messages go out in their name. Write it from their real background and the job, short, specific, one clear ask, never pushy, and no claim that is not true. A LinkedIn note is 300 characters at most. Ask them before saving a batch.",
     inputSchema: {
       type: "object",
       properties: {
@@ -347,13 +347,27 @@ const ME_TOOLS = [
     name: "my_outreach",
     title: "My outreach drafts",
     description: "The message drafts saved for the person (waiting to be sent, or sent), newest first. Give job_id or draft_status to narrow them.",
-    inputSchema: { type: "object", properties: { job_id: jobId, draft_status: { type: "string", enum: ["draft", "sent"] } } },
+    inputSchema: { type: "object", properties: { job_id: jobId, draft_status: { type: "string", enum: ["draft", "approved", "sent"] } } },
+    write: false,
+  },
+  {
+    name: "approve_outreach",
+    title: "Approve drafts for sending",
+    description: "Marks drafts (from my_outreach) as approved to send. Use it only when the person has just said, in this chat, to send them: that is their permission, for those messages only, up to ten at a time. Messages they approve on odds count the same. Then outreach_to_send gives what to send.",
+    inputSchema: { type: "object", properties: { draft_ids: { type: "array", items: { type: "string" }, description: "Up to ten draft_ids from my_outreach." } }, required: ["draft_ids"] },
+    write: true,
+  },
+  {
+    name: "outreach_to_send",
+    title: "Approved messages to send now",
+    description: "The drafts the person approved, ready to send, with the steps for each channel, and how many more may go today (a daily limit keeps their LinkedIn account safe). Send only these, only that many, exactly as written, in their own signed-in browser, then mark_contacted each one.",
+    inputSchema: { type: "object", properties: {} },
     write: false,
   },
   {
     name: "mark_contacted",
     title: "Mark a message sent",
-    description: "Records that the person sent a draft (from my_outreach). Only after they tell you they sent it. On odds that person then shows as Contacted.",
+    description: "Records that a draft went out: right after you sent an approved one, or when the person tells you they sent a draft themselves. On odds that person then shows as Contacted.",
     inputSchema: { type: "object", properties: { draft_id: { type: "string" } }, required: ["draft_id"] },
     write: true,
   },
@@ -447,7 +461,8 @@ function cleanArgs(v: Json): Json {
     to_name: str(a.to_name, 200),
     to_url: str(a.to_url, 500),
     draft_id: str(a.draft_id, 64),
-    draft_status: ["draft", "sent"].includes(a.draft_status) ? a.draft_status : undefined,
+    draft_status: ["draft", "approved", "sent"].includes(a.draft_status) ? a.draft_status : undefined,
+    draft_ids: strs(a.draft_ids, 10).map((x) => x.slice(0, 64)),
   }
 }
 
@@ -575,8 +590,20 @@ async function myAnswers(env: Env, uid: string): Promise<Answers> {
 const HOW_TO_APPLY =
   "1) Open apply_at in the person's own browser (their Chrome keeps them signed in to sites). 2) If the page asks to sign in or create an account (Workday, LinkedIn, company portals), STOP and tell them: 'Please sign in (or create the account) in this tab, then tell me to continue.' Never type their password, never create the account for them, never answer a CAPTCHA or a verification code. Wait for them to say continue. 3) Fill the form from `you`, `standard_answers`, `cv` and `cover_letter`. For an upload field, download file_url (their CV or letter as a file) and attach it; if you cannot attach files, ask them to. For a question that none of these answers, do not invent an answer: ask them, and offer to keep it with save_application_answers. 4) Stop before submitting: show them what you filled in and let them press send. 5) Only after they say it is sent, mark_applied."
 
+/** Messages that may go out in a day, from the person's own LinkedIn or mail: few, so their account stays in good standing. */
+const DAILY_SEND_CAP = 10
+
 const HOW_TO_SEND =
-  "The person sends it themselves, in their own LinkedIn or email, in their name. You may open the person's page or compose window and put the text in, then stop and let them press send. Keep to a few a day: LinkedIn limits automatic-looking activity. Afterwards, mark_contacted."
+  "A draft is only a draft until the person approves it (approve_outreach, after they say so in the chat, or the button on odds). Then outreach_to_send lists what may go out. Never send anything that is not in that list, never change the words, and never send more than remaining_today."
+
+const SEND_STEPS: Record<string, string> = {
+  linkedin_note: "Open their LinkedIn page (to_url) in the person's browser, signed in as them. Choose Connect (under More if it is hidden), then Add a note, paste the message, and send. If LinkedIn offers no note (they are already connected, or the invitation limit is reached), stop and tell the person.",
+  linkedin_message: "Open their LinkedIn page (to_url), choose Message, paste the message, and send.",
+  email: "Open a new email to to_url in the person's webmail, put in the subject and the message, and send.",
+}
+
+const SEND_RULES =
+  "Work in the person's own signed-in browser. Leave 30 to 90 seconds between messages. If LinkedIn shows a warning, a CAPTCHA, a verification step or a weekly limit, stop at once, tell the person, and do not try again or get around it. After each message that went out, call mark_contacted with its draft_id. Tell the person at the end what was sent."
 
 /**
  * Saves a CV or a letter the way the app does: the row first (so the limit and the same-name check refuse before anything is stored),
@@ -620,7 +647,8 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
   // Tools that only read or write the person's own rows do not wait for the whole job pool (a cold copy of this function takes seconds to load it).
   const w = NO_POOL.has(name) ? (null as never) : await worldFor(env)
   const uid = me.id
-  const knownJob = async (id: string): Promise<boolean> => (await worldFor(env)).byId.has(id)
+  // One row read, not the whole pool: the job is open if the app_jobs view has it.
+  const knownJob = async (id: string): Promise<boolean> => ((await rest(env, `app_jobs?select=id&id=eq.${encodeURIComponent(id)}`)) ?? []).length > 0
 
   if (name === "my_profile") {
     const p = await myProfile(env, me)
@@ -806,7 +834,7 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
     })
     if (saved?.failed) return failed(saved.failed)
 
-    return text({ saved: true, draft_id: saved[0].id, for: toName, channel: args.channel, how_to_send: HOW_TO_SEND, note: "It is on their odds, under the person, ready to copy. You do not send it." })
+    return text({ saved: true, draft_id: saved[0].id, for: toName, channel: args.channel, how_to_send: HOW_TO_SEND, note: "It is on their odds, under the person, ready to copy. It goes out only if they approve it." })
   }
 
   if (name === "my_outreach") {
@@ -814,6 +842,27 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
     const rows = await svc(env, `outreach_drafts?user_id=eq.${uid}${filter}&select=id,person_id,posting_id,to_name,to_url,channel,subject,body,status,created_at,sent_at&order=created_at.desc&limit=100`)
 
     return text({ drafts: (rows ?? []).map((d: Json) => ({ draft_id: d.id, for: d.to_name, linkedin_or_email: d.to_url, person_id: d.person_id, job_id: d.posting_id, channel: d.channel, subject: d.subject, message: d.body, status: d.status, written: String(d.created_at).slice(0, 10), sent: d.sent_at ? String(d.sent_at).slice(0, 10) : null })) })
+  }
+
+  if (name === "approve_outreach") {
+    const ids = [...new Set(args.draft_ids as string[])].filter((x) => /^[0-9a-f-]{36}$/.test(x))
+    if (ids.length === 0) return failed("Give draft_ids from my_outreach (up to ten).")
+    const done = await svc(env, `outreach_drafts?user_id=eq.${uid}&status=eq.draft&id=in.(${ids.join(",")})`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ status: "approved", approved_at: new Date().toISOString() }) })
+    const approved = new Set((done ?? []).map((d: Json) => d.id))
+
+    return text({ approved: [...approved], not_approved: ids.filter((x) => !approved.has(x)), note: approved.size > 0 ? "Now outreach_to_send lists them." : "None of those is a waiting draft of theirs (already approved or sent, or not theirs)." })
+  }
+
+  if (name === "outreach_to_send") {
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+    const [ready, sentToday] = await Promise.all([
+      svc(env, `outreach_drafts?user_id=eq.${uid}&status=eq.approved&select=id,to_name,to_url,channel,subject,body,posting_id&order=approved_at.asc&limit=50`),
+      svc(env, `outreach_drafts?user_id=eq.${uid}&status=eq.sent&sent_at=gte.${since}&select=id`),
+    ])
+    const remaining = Math.max(0, DAILY_SEND_CAP - (sentToday ?? []).length)
+    const go = (ready ?? []).slice(0, remaining).map((d: Json) => ({ draft_id: d.id, for: d.to_name, to_url: d.to_url, channel: d.channel, subject: d.subject, message: d.body, job_id: d.posting_id, steps: SEND_STEPS[d.channel] }))
+
+    return text({ to_send: go, waiting_for_tomorrow: Math.max(0, (ready ?? []).length - go.length), sent_last_24h: (sentToday ?? []).length, daily_limit: DAILY_SEND_CAP, remaining_today: remaining, rules: SEND_RULES, note: go.length === 0 ? "Nothing approved to send right now." : undefined })
   }
 
   if (name === "mark_contacted") {
@@ -872,7 +921,7 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
 // ---- JSON-RPC over HTTP ----
 
 const ME_INSTRUCTIONS =
-  "This is the person's own private link: you can see their profile (my_profile), their CVs and letters (my_documents, read_document), their saved and applied jobs (my_jobs), all of it in one call (export_my_odds), and everything to apply to one (application_kit). Find jobs for them with search_jobs and tailored_jobs, save them (save_job), and put the right CV on each job (attach_document), or make one for the job in odds's one format (save_cv). Use these instead of asking them to paste anything. APPLYING: application_kit gives the form's answers (standard_answers); fill an application only from it, their profile and CV: ask them for anything else, and keep what they tell you with save_application_answers. If the form needs a sign-in or a new account, stop and ask them to do that step in the browser, then continue when they say so: never type their password or solve a CAPTCHA. Never press submit yourself: let them check and send it, then mark_applied. REACHING OUT: my_people lists the people they keep at employers; write short, specific, true messages with save_outreach and let them send them (you may open the compose window and stop); after they say it is sent, mark_contacted. Ask before saving a CV, a letter, answers or a batch of drafts, and before marking anything applied or contacted."
+  "This is the person's own private link: you can see their profile (my_profile), their CVs and letters (my_documents, read_document), their saved and applied jobs (my_jobs), all of it in one call (export_my_odds), and everything to apply to one (application_kit). Find jobs for them with search_jobs and tailored_jobs, save them (save_job), and put the right CV on each job (attach_document), or make one for the job in odds's one format (save_cv). Use these instead of asking them to paste anything. APPLYING: application_kit gives the form's answers (standard_answers); fill an application only from it, their profile and CV: ask them for anything else, and keep what they tell you with save_application_answers. If the form needs a sign-in or a new account, stop and ask them to do that step in the browser, then continue when they say so: never type their password or solve a CAPTCHA. Never press submit yourself: let them check and send it, then mark_applied. REACHING OUT: my_people lists the people they keep at employers; write short, specific, true messages with save_outreach. A message goes out only after they approve it (approve_outreach, once they have said so in the chat, or the button on odds): then outreach_to_send lists what to send and how many may go today; send exactly those, in their signed-in browser, and mark_contacted each. If they have not approved, they send it themselves. Ask before saving a CV, a letter, answers or a batch of drafts, and before marking anything applied."
 
 const INSTRUCTIONS =
   "odds lists open internship, traineeship and entry-level jobs in the Netherlands that do not require Dutch, for international students. Use search_jobs to find jobs, get_job to read one, company_profile for the employer, and interview_chance or tailored_jobs once you know the person's roles, education and skills. Chances are estimates from published hiring studies, not promises: say so. Link to the odds_link of each job you mention."

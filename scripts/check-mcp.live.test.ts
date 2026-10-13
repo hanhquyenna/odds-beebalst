@@ -68,6 +68,8 @@ async function tool(who: Who, name: string, args: Json = {}): Promise<{ ok: bool
   const result = out.result
   const message = String(result?.content?.[0]?.text ?? "")
 
+  if (result?.isError && process.env.DEBUG_MCP) console.log(`TOOL ${name} FAILED: ${message}`)
+
   return { ok: !result?.isError, data: result?.structuredContent ?? null, message }
 }
 
@@ -131,8 +133,8 @@ run("the connector, as a signed-in person", () => {
   test("lists the new tools, writes marked as writes", async () => {
     const out = await rpc(a, "tools/list")
     const byName = new Map<string, Json>(out.result.tools.map((t: Json) => [t.name, t]))
-    for (const n of ["my_application_answers", "my_people", "my_outreach"]) expect(byName.get(n)?.annotations.readOnlyHint).toBe(true)
-    for (const n of ["save_application_answers", "save_cv", "save_outreach", "mark_contacted"]) expect(byName.get(n)?.annotations.readOnlyHint).toBe(false)
+    for (const n of ["my_application_answers", "my_people", "my_outreach", "outreach_to_send"]) expect(byName.get(n)?.annotations.readOnlyHint).toBe(true)
+    for (const n of ["save_application_answers", "save_cv", "save_outreach", "approve_outreach", "mark_contacted"]) expect(byName.get(n)?.annotations.readOnlyHint).toBe(false)
     for (const t of out.result.tools) expect(t.inputSchema.type).toBe("object")
   })
 
@@ -244,7 +246,7 @@ run("the connector, as a signed-in person", () => {
       const note = await tool(a, "save_outreach", { person_id: "p-1", job_id: jobs[0].id, channel: "linkedin_note", body: "Hi Ada, I am applying to the finance internship and would value your view." })
       expect(note.ok).toBe(true)
       expect(note.data.for).toBe("Ada Lovelace")
-      expect(note.data.how_to_send).toContain("themselves")
+      expect(note.data.how_to_send).toContain("approves")
       expect((await tool(a, "save_outreach", { person_id: "p-1", channel: "linkedin_note", body: "x".repeat(301) })).message).toContain("300")
       expect((await tool(a, "save_outreach", { person_id: "p-1", channel: "email", body: "Hello" })).message).toContain("subject")
       expect((await tool(a, "save_outreach", { person_id: "p-9", channel: "linkedin_message", body: "Hello" })).message).toContain("No person")
@@ -271,6 +273,45 @@ run("the connector, as a signed-in person", () => {
       const draft = (await tool(a, "my_outreach", { draft_status: "draft" })).data.drafts[0]
       expect((await tool(b, "mark_contacted", { draft_id: draft.draft_id })).message).toContain("No draft")
       expect((await tool(a, "my_outreach", { draft_status: "draft" })).data.drafts).toHaveLength(1)
+    })
+  })
+
+  describe("sending approved messages", () => {
+    const newDraft = async (n: number): Promise<string> => (await tool(a, "save_outreach", { person_id: "p-2", channel: "linkedin_message", body: `Hello Bo, message ${n}.` })).data.draft_id
+
+    test("nothing is sent that was not approved; approving is per draft and only for their own", async () => {
+      const [d1, d2] = [await newDraft(1), await newDraft(2)]
+      expect((await tool(a, "outreach_to_send")).data.to_send).toEqual([])
+      const approved = await tool(a, "approve_outreach", { draft_ids: [d1, crypto.randomUUID(), "not-an-id"] })
+      expect(approved.data.approved).toEqual([d1])
+      expect(approved.data.not_approved).toHaveLength(1)
+      expect((await tool(a, "approve_outreach", { draft_ids: [] })).ok).toBe(false)
+      expect((await tool(b, "approve_outreach", { draft_ids: [d2] })).data.approved).toEqual([])
+      const send = (await tool(a, "outreach_to_send")).data
+      expect(send.to_send.map((x: Json) => x.draft_id)).toEqual([d1])
+      expect(send.to_send[0]).toMatchObject({ channel: "linkedin_message", message: "Hello Bo, message 1.", to_url: "https://www.linkedin.com/in/bo" })
+      expect(send.to_send[0].steps).toContain("Message")
+      expect(send.remaining_today).toBe(9)
+      expect(send.rules).toContain("30 to 90 seconds")
+      expect((await tool(b, "outreach_to_send")).data.to_send).toEqual([])
+      // Approving again does nothing; the other draft is still only a draft.
+      expect((await tool(a, "approve_outreach", { draft_ids: [d1] })).data.approved).toEqual([])
+      expect((await tool(a, "my_outreach", { draft_status: "approved" })).data.drafts.map((d: Json) => d.draft_id)).toEqual([d1])
+      expect((await tool(b, "mark_contacted", { draft_id: d1 })).message).toContain("No draft")
+      expect((await tool(a, "mark_contacted", { draft_id: d1 })).ok).toBe(true)
+      expect((await tool(a, "outreach_to_send")).data).toMatchObject({ to_send: [], sent_last_24h: 2, remaining_today: 8 })
+    })
+
+    test("a daily limit holds back the rest until tomorrow", async () => {
+      const ids: string[] = []
+      for (let i = 0; i < 9; i++) ids.push(await newDraft(10 + i))
+      await db("outreach_drafts?user_id=eq." + a.id + "&id=in.(" + ids.slice(0, 8).join(",") + ")", { method: "PATCH", body: { status: "sent", sent_at: new Date().toISOString() }, prefer: "return=minimal" })
+      await tool(a, "approve_outreach", { draft_ids: [ids[8], await newDraft(30)] })
+      const send = (await tool(a, "outreach_to_send")).data
+      expect(send.sent_last_24h).toBe(10)
+      expect(send.remaining_today).toBe(0)
+      expect(send.to_send).toEqual([])
+      expect(send.waiting_for_tomorrow).toBe(2)
     })
   })
 

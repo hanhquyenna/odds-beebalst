@@ -364,7 +364,7 @@ function Tasks({ onDocuments, onJobs }: { onDocuments?: () => void; onJobs?: () 
         : task === "letter"
           ? `Write a cover letter for ${jobName} using ${cvName}, and save it to my Documents.`
           : task === "reach"
-            ? `Look at the people I keep for ${jobName} and write a short, honest message to each one, using ${cvName}. Save them as drafts. I will send them myself.`
+            ? `Look at the people I keep for ${jobName} and write a short, honest message to each one, using ${cvName}. Save them as drafts. I will tell you which ones to send.`
             : `Find internships and first jobs in the Netherlands that fit ${cvName} and don't need Dutch.`
 
   return (
@@ -452,7 +452,7 @@ function Tasks({ onDocuments, onJobs }: { onDocuments?: () => void; onJobs?: () 
           <Message text={message} />
           {task === "apply" ? <p className="text-xs text-muted-foreground">You press send.</p> : null}
           {task === "cv" || task === "letter" ? <p className="text-xs text-muted-foreground">Saved to Documents.</p> : null}
-          {task === "reach" ? <p className="text-xs text-muted-foreground">The drafts show under each person. You send them.</p> : null}
+          {task === "reach" ? <p className="text-xs text-muted-foreground">The drafts show under each person. Nothing goes out until you approve it.</p> : null}
         </Step>
       </ol>
     </div>
@@ -463,6 +463,7 @@ const FAQ: ReadonlyArray<{ q: string; a: string }> = [
   { q: "What is Claude?", a: "An AI assistant made by Anthropic, at claude.ai. You chat with it the way you'd text a person. It works on the web, in the desktop app and in the phone app, and once you connect odds it works in all of them." },
   { q: "What can Claude see?", a: "Your odds profile, the CVs and cover letters in your Documents, and the jobs you saved or applied to. Nothing else from your account." },
   { q: "Can it send an application by itself?", a: "No. It fills in the form and stops. You always check it and press send yourself." },
+  { q: "Can Claude send my messages on LinkedIn?", a: "Only the ones you approve. It writes drafts first. Tap Let Claude send it on a draft, or tell Claude to send it, and it sends from your own LinkedIn in your browser, at most ten a day and a little apart. LinkedIn does not like automatic activity, so keep it small. If LinkedIn shows a warning, Claude stops." },
   { q: "What if a website asks me to sign in?", a: "Claude stops and tells you. You sign in on that page yourself, then tell Claude to carry on. It never types your password or makes an account for you." },
   { q: "What can it change?", a: "It can save a CV or a cover letter to your Documents, keep the answers forms ask for, save message drafts, save a job, and mark a job as applied or a message as sent. It can't delete anything." },
   { q: "How do I disconnect?", a: "Tap Disconnect at the top of this page. Claude loses access straight away." },
