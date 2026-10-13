@@ -1,3 +1,4 @@
+import { ApplicationAnswers } from "@/components/ApplicationAnswers"
 import { ClaudeProfileRow } from "@/components/ClaudeGuide"
 import { ArrowLeftIcon, CameraIcon, PlusIcon, XIcon } from "@/components/icons"
 import { useRef, useState } from "react"
@@ -360,6 +361,12 @@ export function ProfilePage({ onBack, onOpenDocuments, onOpenClaude }: ProfilePa
           </label>
         </div>
       </Section>
+
+      {data.session ? (
+        <Section id="profile-answers" title="Answers for application forms">
+          <ApplicationAnswers />
+        </Section>
+      ) : null}
 
       <Section id="profile-cv" title="Your CV">
         <Button variant="outline" onClick={onOpenDocuments} className="cursor-pointer">

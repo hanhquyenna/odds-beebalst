@@ -11,6 +11,10 @@
 import * as core from "./core.js"
 import { handleOAuth, unauthorized } from "./oauth.ts"
 import { accessFor, contentOf, driveEnv, linkOf, pushIfConnected } from "../_shared/drive.ts"
+import { cleanAnswers, missingAnswers, type Answers } from "../_shared/application-answers.ts"
+import { cleanCv, cvText, renderCvPdf } from "../_shared/cv-template.ts"
+// @ts-ignore: npm specifier, resolved by Deno
+import * as PDFLib from "npm:pdf-lib@1.17.1"
 
 const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"]
 /** Public endpoint: what one request may ask for, so no single call can make the server do much work. */
@@ -249,6 +253,111 @@ const ME_TOOLS = [
     write: false,
   },
   {
+    name: "my_application_answers",
+    title: "My standard application answers",
+    description: "The answers application forms keep asking (phone, right to work in the Netherlands, pay expected, start date, hours a week, notice period, relocation) as the person saved them on odds, and which are still empty. Use them to fill a form. Never invent one that is empty: ask the person once, then save it with save_application_answers.",
+    inputSchema: { type: "object", properties: {} },
+    write: false,
+  },
+  {
+    name: "save_application_answers",
+    title: "Save standard application answers",
+    description: "Saves answers the person just gave you (only those: never guess one) so every later application uses the same. Send only the fields to set or change; an empty text clears a field. Ask them to confirm the wording first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        answers: {
+          type: "object",
+          properties: {
+            phone: { type: "string" },
+            website: { type: "string", description: "Portfolio, personal site or GitHub." },
+            work_authorization: { type: "string", description: "Right to work in the Netherlands, in their words, e.g. 'I need a work permit; the employer sponsors it as a recognised sponsor.'" },
+            expected_salary: { type: "string", description: "As a form wants it, e.g. 'EUR 600 a month' or 'negotiable'." },
+            start_date: { type: "string" },
+            hours_per_week: { type: "string" },
+            notice_period: { type: "string" },
+            relocation: { type: "string" },
+            notes: { type: "string", description: "Anything else forms ask that stays the same." },
+          },
+        },
+      },
+      required: ["answers"],
+    },
+    write: true,
+  },
+  {
+    name: "save_cv",
+    title: "Make a CV in odds's format and save it",
+    description:
+      "Makes a CV from the content you give, always in the same format (A4 PDF, one column, plain headings: it reads cleanly in employers' systems), saves it to the person's Documents and attaches it to a job when you give one. Use it to prepare a CV for one job: read their CV (read_document) and my_profile, keep every fact true, and choose and reword what fits the job. Send content only, never layout. Ask them first and tell them what you changed. Thirty files at most.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "A short name, e.g. 'CV Givaudan pricing'." },
+        job_id: jobId,
+        cv: {
+          type: "object",
+          description: "The CV content.",
+          properties: {
+            name: { type: "string" },
+            headline: { type: "string" },
+            contact: { type: "object", properties: { email: { type: "string" }, phone: { type: "string" }, place: { type: "string" }, linkedin: { type: "string" }, website: { type: "string" } } },
+            summary: { type: "string", description: "Two or three lines at most." },
+            experience: { type: "array", description: "Newest first, at most 8.", items: { type: "object", properties: { title: { type: "string" }, company: { type: "string" }, location: { type: "string" }, start: { type: "string", description: "e.g. 'Mar 2026'" }, end: { type: "string", description: "e.g. 'Aug 2026' or 'Present'" }, bullets: { type: "array", items: { type: "string" }, description: "At most 8, one line each." } }, required: ["title", "company"] } },
+            education: { type: "array", items: { type: "object", properties: { school: { type: "string" }, degree: { type: "string" }, field: { type: "string" }, start: { type: "string" }, end: { type: "string", description: "e.g. 'Jun 2027' or 'Expected Jun 2027'" }, details: { type: "string" } }, required: ["school"] } },
+            skills: { type: "array", description: "Rows like { label: 'Finance', items: [...] }, or plain strings.", items: { type: "object", properties: { label: { type: "string" }, items: { type: "array", items: { type: "string" } } } } },
+            projects: { type: "array", items: { type: "object", properties: { name: { type: "string" }, when: { type: "string" }, bullets: { type: "array", items: { type: "string" } } }, required: ["name"] } },
+            languages: { type: "array", items: { type: "string" } },
+          },
+          required: ["name", "contact"],
+        },
+      },
+      required: ["name", "cv"],
+    },
+    write: true,
+  },
+  {
+    name: "my_people",
+    title: "People I can contact",
+    description: "The people the person keeps on odds at employers (name, role, company, the job, where the contact stands, their LinkedIn), and for a job the people odds found there that are not added yet. Give job_id to see one job's. Use it to plan outreach.",
+    inputSchema: { type: "object", properties: { job_id: jobId } },
+    write: false,
+  },
+  {
+    name: "save_outreach",
+    title: "Save an outreach message draft",
+    description:
+      "Saves a message you wrote for one person at an employer (a LinkedIn connection note, a LinkedIn message, or an email) as a draft the person sees on odds. You only draft: the person sends it, because messages go out in their name. Write it from their real background and the job, short, specific, one clear ask, never pushy, and no claim that is not true. A LinkedIn note is 300 characters at most. Ask them before saving a batch.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        person_id: { type: "string", description: "A person_id from my_people, when the message is for someone on their list." },
+        to_name: { type: "string", description: "Who it is for, when they are not on the list." },
+        to_url: { type: "string", description: "Their LinkedIn address or email, when they are not on the list." },
+        job_id: jobId,
+        channel: { type: "string", enum: ["linkedin_note", "linkedin_message", "email"] },
+        subject: { type: "string", description: "Email only." },
+        body: { type: "string" },
+      },
+      required: ["channel", "body"],
+    },
+    write: true,
+  },
+  {
+    name: "my_outreach",
+    title: "My outreach drafts",
+    description: "The message drafts saved for the person (waiting to be sent, or sent), newest first. Give job_id or draft_status to narrow them.",
+    inputSchema: { type: "object", properties: { job_id: jobId, draft_status: { type: "string", enum: ["draft", "sent"] } } },
+    write: false,
+  },
+  {
+    name: "mark_contacted",
+    title: "Mark a message sent",
+    description: "Records that the person sent a draft (from my_outreach). Only after they tell you they sent it. On odds that person then shows as Contacted.",
+    inputSchema: { type: "object", properties: { draft_id: { type: "string" } }, required: ["draft_id"] },
+    write: true,
+  },
+  {
     name: "export_my_odds",
     title: "Everything I keep on odds",
     description: "In one call: the person's profile, every saved and applied job with where it stands, and their CVs and cover letters (names and links, not full texts: use read_document for a text). Use it when they ask for their information, or to plan before working through their jobs.",
@@ -328,6 +437,17 @@ function cleanArgs(v: Json): Json {
     name: str(a.name, 80),
     letter: str(a.text, 20000),
     stage: ["applied", "interview", "offer", "hired", "rejected", "no_reply", "withdrawn"].includes(a.stage) ? a.stage : "applied",
+    // Checked where they are used (cleanCv, cleanAnswers): the shape is theirs.
+    cv: a.cv,
+    answers: a.answers,
+    channel: ["linkedin_note", "linkedin_message", "email"].includes(a.channel) ? a.channel : undefined,
+    body: str(a.body, 3000),
+    subject: str(a.subject, 200),
+    person_id: str(a.person_id, 80),
+    to_name: str(a.to_name, 200),
+    to_url: str(a.to_url, 500),
+    draft_id: str(a.draft_id, 64),
+    draft_status: ["draft", "sent"].includes(a.draft_status) ? a.draft_status : undefined,
   }
 }
 
@@ -445,14 +565,62 @@ async function serveFile(req: Request, env: Env): Promise<Response> {
   return new Response(r.body, { status: 200, headers: { ...CORS, "Content-Type": row.mime || "application/octet-stream", "Content-Disposition": `attachment; filename="${String(row.file_name).replace(/["\\\r\n]/g, "")}"`, "Cache-Control": "private, no-store" } })
 }
 
+/** Their standard application answers (table application_answers): the same ones every application form asks. */
+async function myAnswers(env: Env, uid: string): Promise<Answers> {
+  const rows = await svc(env, `application_answers?user_id=eq.${uid}&select=data`)
+
+  return cleanAnswers(rows?.[0]?.data)
+}
+
+const HOW_TO_APPLY =
+  "1) Open apply_at in the person's own browser (their Chrome keeps them signed in to sites). 2) If the page asks to sign in or create an account (Workday, LinkedIn, company portals), STOP and tell them: 'Please sign in (or create the account) in this tab, then tell me to continue.' Never type their password, never create the account for them, never answer a CAPTCHA or a verification code. Wait for them to say continue. 3) Fill the form from `you`, `standard_answers`, `cv` and `cover_letter`. For an upload field, download file_url (their CV or letter as a file) and attach it; if you cannot attach files, ask them to. For a question that none of these answers, do not invent an answer: ask them, and offer to keep it with save_application_answers. 4) Stop before submitting: show them what you filled in and let them press send. 5) Only after they say it is sent, mark_applied."
+
+const HOW_TO_SEND =
+  "The person sends it themselves, in their own LinkedIn or email, in their name. You may open the person's page or compose window and put the text in, then stop and let them press send. Keep to a few a day: LinkedIn limits automatic-looking activity. Afterwards, mark_contacted."
+
+/**
+ * Saves a CV or a letter the way the app does: the row first (so the limit and the same-name check refuse before anything is stored),
+ * then the file, taken back if the file fails; attached to a job when given; pushed to their Drive when it is connected.
+ */
+async function saveDocument(env: Env, uid: string, d: { kind: "cv" | "cover_letter"; name: string; fileName: string; mime: string; bytes: Uint8Array; textBody: string; jobId?: string; label: string }): Promise<Json> {
+  const count = (await svc(env, `documents?user_id=eq.${uid}&select=id`))?.length ?? 0
+  if (count >= 30) return failed("Their Documents are full (thirty files). Ask them to delete one in odds first.")
+  const id = crypto.randomUUID()
+  const path = `${uid}/${id}`
+  try {
+    await svc(env, "documents", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ id, user_id: uid, kind: d.kind, name: d.name, file_name: d.fileName, mime: d.mime, size_bytes: d.bytes.length, content_hash: await sha256hex(d.bytes), body: d.textBody, path, is_main: false }) })
+  } catch (e) {
+    const m = e instanceof Error ? e.message : ""
+    console.error(`save ${d.label}: ${m}`)
+
+    return failed(m.includes("hash") ? `That exact ${d.label} is already in their Documents.` : m.includes(" 409 ") || m.includes("23505") || m.includes("unique") ? `A ${d.label} with that name is already in their Documents. Pick another name.` : m.includes("document limit") ? "Their Documents are full (thirty files). Ask them to delete one in odds first." : `Could not save the ${d.label}. Try again.`)
+  }
+  const up = await fetch(`${env.url}/storage/v1/object/documents/${path}`, { method: "POST", headers: { apikey: env.serviceKey!, Authorization: `Bearer ${env.serviceKey}`, "Content-Type": d.mime }, body: d.bytes })
+  if (!up.ok) {
+    await svc(env, `documents?id=eq.${id}&user_id=eq.${uid}`, { method: "DELETE" }).catch(() => undefined)
+
+    return failed("Could not save the file. Try again.")
+  }
+  if (d.jobId) await svc(env, "job_documents?on_conflict=user_id,posting_id,kind", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: uid, posting_id: d.jobId, kind: d.kind, document_id: id }) }).catch(() => undefined)
+  // With their Google Drive connected, the file goes on into odds/CVs or odds/Cover letters there; if Drive fails it stays in the bucket
+  // and the app's next sync moves it.
+  await pushIfConnected(uid, id).catch(() => undefined)
+
+  return text({ saved: true, document_id: id, name: d.name, kind: d.label, attached_to: d.jobId ?? null, note: "It is in their odds Documents now." })
+}
+
+const NO_POOL = new Set(["my_profile", "my_documents", "read_document", "my_application_answers", "save_application_answers", "my_people", "save_outreach", "my_outreach", "mark_contacted", "save_cv", "save_cover_letter"])
+
 async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json> {
   if (name === "export_my_odds") {
     const [profile, jobs, documents] = await Promise.all(["my_profile", "my_jobs", "my_documents"].map((n) => callMe(env, me, n, args)))
 
     return text({ profile: profile.structuredContent, jobs: jobs.structuredContent?.jobs ?? [], documents: documents.structuredContent?.documents ?? [] })
   }
-  const w = await worldFor(env)
+  // Tools that only read or write the person's own rows do not wait for the whole job pool (a cold copy of this function takes seconds to load it).
+  const w = NO_POOL.has(name) ? (null as never) : await worldFor(env)
   const uid = me.id
+  const knownJob = async (id: string): Promise<boolean> => (await worldFor(env)).byId.has(id)
 
   if (name === "my_profile") {
     const p = await myProfile(env, me)
@@ -523,11 +691,12 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
     const id = args.job_id ?? ""
     const post = w.byId.get(id)
     if (!post) return failed("No open job with that id. Use my_jobs or search_jobs.")
-    const [profile, body, attached, mainCv] = await Promise.all([
+    const [profile, body, attached, mainCv, answers] = await Promise.all([
       myProfile(env, me),
       rest(env, `postings?select=body&id=eq.${encodeURIComponent(id)}`).catch(() => []),
       svc(env, `job_documents?user_id=eq.${uid}&posting_id=eq.${encodeURIComponent(id)}&select=kind,document_id`),
-      svc(env, `documents?user_id=eq.${uid}&is_main=eq.true&select=id,name,body`),
+      svc(env, `documents?user_id=eq.${uid}&is_main=eq.true&select=id,name`),
+      myAnswers(env, uid),
     ])
     const pick = async (kind: string): Promise<Json> => {
       const a = (attached ?? []).find((x: Json) => x.kind === kind)
@@ -535,47 +704,131 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
       return (await svc(env, `documents?user_id=eq.${uid}&id=eq.${a.document_id}&select=id,name,body`))?.[0] ?? null
     }
     const [cv, letter] = await Promise.all([pick("cv"), pick("cover_letter")])
-    const useCv = cv ?? mainCv?.[0] ?? null
+    const missing = missingAnswers(answers)
 
     return text({
       job: core.jobLine(post, w.ref),
       apply_at: post.url,
       posting: String(body?.[0]?.body ?? "").slice(0, 8000),
       you: { name: profile.name || null, email: me.email, linkedin: profile.linkedin ?? null, place: profile.place || null },
-      cv: useCv ? { name: useCv.name, document_id: useCv.id, file_url: fileUrl(env, me, useCv.id), text: useCv.body, from: cv ? "attached to this job" : "your main CV" } : null,
+      // Only the CV the person put on this job. The main CV is not put on a job for them: it is offered, and the choice is theirs.
+      cv: cv ? { name: cv.name, document_id: cv.id, file_url: fileUrl(env, me, cv.id), text: cv.body, from: "attached to this job" } : null,
+      cv_note: cv ? undefined : `No CV is on this job yet.${mainCv?.[0] ? ` Their main CV is "${mainCv[0].name}" (document_id ${mainCv[0].id}).` : ""} Choose the one that fits this job from my_documents (ask them if it is not clear), or make one for it with save_cv, then attach_document it, and read it with read_document.`,
       cover_letter: letter ? { name: letter.name, document_id: letter.id, file_url: fileUrl(env, me, letter.id), text: letter.body } : null,
-      how_to_apply: "Open apply_at in the browser, fill the form from you, cv and cover_letter, and stop before submitting: the person checks it and presses send. For an upload field, download file_url (the original PDF or Word file, from their Google Drive or odds) and attach it; if you cannot attach files, ask the person to attach it. Afterwards, mark_applied.",
+      standard_answers: answers,
+      not_answered_yet: missing,
+      how_to_apply: HOW_TO_APPLY,
     })
+  }
+
+  if (name === "my_application_answers") {
+    const answers = await myAnswers(env, uid)
+
+    return text({ answers, not_answered_yet: missingAnswers(answers), note: "Never invent an empty one: ask the person, then save_application_answers." })
+  }
+
+  if (name === "save_application_answers") {
+    const given = cleanAnswers(args.answers)
+    const raw = args.answers && typeof args.answers === "object" ? (args.answers as Json) : {}
+    // An empty text clears a field; a field not sent stays.
+    const cleared = Object.keys(raw).filter((k) => typeof raw[k] === "string" && raw[k].trim() === "")
+    if (Object.keys(given).length === 0 && cleared.length === 0) return failed("Send at least one answer, e.g. { answers: { phone: '+31 6 ...' } }.")
+    const merged: Json = { ...(await myAnswers(env, uid)), ...given }
+    for (const k of cleared) delete merged[k]
+    await svc(env, "application_answers?on_conflict=user_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: uid, data: merged, updated_at: new Date().toISOString() }) })
+
+    return text({ saved: true, answers: merged, not_answered_yet: missingAnswers(merged), note: "They can read and change these on their odds profile." })
+  }
+
+  if (name === "save_cv") {
+    if (!args.name || !args.name.trim()) return failed("Give the CV a name, e.g. 'CV Givaudan pricing'.")
+    if (args.job_id && !(await knownJob(args.job_id))) return failed("No open job with that id.")
+    const checked = cleanCv(args.cv)
+    if ("error" in checked) return failed(checked.error)
+    let bytes: Uint8Array
+    try {
+      bytes = await renderCvPdf(PDFLib as never, checked.cv)
+    } catch (e) {
+      console.error(`save_cv pdf: ${e instanceof Error ? e.message : String(e)}`)
+
+      return failed("Could not make the PDF. Try again with a shorter CV.")
+    }
+
+    return saveDocument(env, uid, { kind: "cv", name: args.name, fileName: `${args.name.replace(/[^\w .-]+/g, "").trim() || "CV"}.pdf`, mime: "application/pdf", bytes, textBody: cvText(checked.cv), jobId: args.job_id, label: "CV" })
+  }
+
+  if (name === "my_people") {
+    const [rows, drafts] = await Promise.all([svc(env, `profiles?user_id=eq.${uid}&select=data`), svc(env, `outreach_drafts?user_id=eq.${uid}&select=id,person_id,status,channel`)])
+    const data: Json = rows?.[0]?.data ?? {}
+    const jobId = args.job_id
+    const mine: Json[] = Array.isArray(data.people) ? data.people : []
+    const people = mine
+      .filter((p) => !jobId || p.jobId === jobId)
+      .map((p) => ({
+        person_id: p.id,
+        name: p.name,
+        role: p.role || null,
+        company: p.company || null,
+        job_id: p.jobId ?? null,
+        status: p.status,
+        contact: p.contact || null,
+        place: p.place || null,
+        notes: p.notes || null,
+        drafts: (drafts ?? []).filter((d: Json) => d.person_id === p.id).map((d: Json) => ({ draft_id: d.id, channel: d.channel, status: d.status })),
+      }))
+    const found = jobId ? data.peopleFound?.[jobId] : null
+    const have = new Set(mine.map((p) => String(p.contact ?? "").toLowerCase()))
+    const suggested = Array.isArray(found?.pool) ? found.pool.filter((f: Json) => f?.url && !have.has(String(f.url).toLowerCase())).slice(0, 15).map((f: Json) => ({ name: f.name, headline: f.headline || null, place: f.place || null, linkedin: f.url })) : []
+
+    return text({ people, suggested, note: people.length === 0 && suggested.length === 0 ? "Nobody yet. They find people on a job's page on odds (People at the company), or you can draft for someone they name with save_outreach (to_name, to_url)." : undefined })
+  }
+
+  if (name === "save_outreach") {
+    if (!args.channel || !args.body?.trim()) return failed("Give a channel (linkedin_note, linkedin_message or email) and the message body.")
+    if (args.channel === "linkedin_note" && args.body.length > 300) return failed(`A LinkedIn note is 300 characters at most; this is ${args.body.length}. Shorten it.`)
+    if (args.channel === "email" && !args.subject?.trim()) return failed("An email needs a subject.")
+    if (args.job_id && !(await knownJob(args.job_id))) return failed("No open job with that id.")
+    let toName = args.to_name?.trim()
+    let toUrl = args.to_url?.trim() || null
+    if (args.person_id) {
+      const rows = await svc(env, `profiles?user_id=eq.${uid}&select=data`)
+      const person = (Array.isArray(rows?.[0]?.data?.people) ? rows[0].data.people : []).find((p: Json) => p.id === args.person_id)
+      if (!person) return failed("No person with that person_id on their list. Use my_people.")
+      toName = person.name
+      toUrl = toUrl ?? (person.contact || null)
+    }
+    if (!toName) return failed("Say who it is for: a person_id from my_people, or to_name.")
+    const saved = await svc(env, "outreach_drafts", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ user_id: uid, person_id: args.person_id ?? null, posting_id: args.job_id ?? null, to_name: toName, to_url: toUrl, channel: args.channel, subject: args.channel === "email" ? args.subject : null, body: args.body }) }).catch((e) => {
+      const m = e instanceof Error ? e.message : ""
+      console.error(`save_outreach: ${m}`)
+
+      return { failed: m.includes("outreach limit") ? "Their drafts are full (three hundred). Ask them to clear some on odds." : "Could not save the draft. Try again." }
+    })
+    if (saved?.failed) return failed(saved.failed)
+
+    return text({ saved: true, draft_id: saved[0].id, for: toName, channel: args.channel, how_to_send: HOW_TO_SEND, note: "It is on their odds, under the person, ready to copy. You do not send it." })
+  }
+
+  if (name === "my_outreach") {
+    const filter = `${args.job_id ? `&posting_id=eq.${encodeURIComponent(args.job_id)}` : ""}${args.draft_status ? `&status=eq.${args.draft_status}` : ""}`
+    const rows = await svc(env, `outreach_drafts?user_id=eq.${uid}${filter}&select=id,person_id,posting_id,to_name,to_url,channel,subject,body,status,created_at,sent_at&order=created_at.desc&limit=100`)
+
+    return text({ drafts: (rows ?? []).map((d: Json) => ({ draft_id: d.id, for: d.to_name, linkedin_or_email: d.to_url, person_id: d.person_id, job_id: d.posting_id, channel: d.channel, subject: d.subject, message: d.body, status: d.status, written: String(d.created_at).slice(0, 10), sent: d.sent_at ? String(d.sent_at).slice(0, 10) : null })) })
+  }
+
+  if (name === "mark_contacted") {
+    if (!args.draft_id || !/^[0-9a-f-]{36}$/.test(args.draft_id)) return failed("Give a draft_id from my_outreach.")
+    const done = await svc(env, `outreach_drafts?user_id=eq.${uid}&id=eq.${args.draft_id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ status: "sent", sent_at: new Date().toISOString() }) })
+    if (!done?.[0]) return failed("No draft with that id.")
+
+    return text({ done: true, for: done[0].to_name, note: "On odds that person now shows as Contacted." })
   }
 
   if (name === "save_cover_letter") {
     if (!args.name || !args.letter?.trim()) return failed("Give the letter a name and its text.")
-    const count = (await svc(env, `documents?user_id=eq.${uid}&select=id`))?.length ?? 0
-    if (count >= 30) return failed("Their Documents are full (thirty files). Ask them to delete one in odds first.")
     const bytes = new TextEncoder().encode(args.letter)
-    const id = crypto.randomUUID()
-    const path = `${uid}/${id}`
-    const fileName = `${args.name.replace(/[^\w .-]+/g, "").trim() || "Cover letter"}.txt`
-    // The row first, so the limit and the duplicate-name check refuse before anything is stored; taken back if the file fails.
-    try {
-      await svc(env, "documents", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ id, user_id: uid, kind: "cover_letter", name: args.name, file_name: fileName, mime: "text/plain", size_bytes: bytes.length, content_hash: await sha256hex(bytes), body: args.letter, path, is_main: false }) })
-    } catch (e) {
-      const m = e instanceof Error ? e.message : ""
-      console.error(`save_cover_letter: ${m}`)
 
-      return failed(m.includes("hash") ? "That exact letter is already in their Documents." : m.includes(" 409 ") || m.includes("23505") || m.includes("unique") ? "A cover letter with that name is already in their Documents. Pick another name." : m.includes("document limit") ? "Their Documents are full (thirty files). Ask them to delete one in odds first." : "Could not save it to Documents.")
-    }
-    const up = await fetch(`${env.url}/storage/v1/object/documents/${path}`, { method: "POST", headers: { apikey: env.serviceKey!, Authorization: `Bearer ${env.serviceKey}`, "Content-Type": "text/plain" }, body: bytes })
-    if (!up.ok) {
-      await svc(env, `documents?id=eq.${id}&user_id=eq.${uid}`, { method: "DELETE" }).catch(() => undefined)
-      return failed("Could not save the file. Try again.")
-    }
-    if (args.job_id) await svc(env, "job_documents", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: uid, posting_id: args.job_id, kind: "cover_letter", document_id: id }) }).catch(() => undefined)
-    // With their Google Drive connected, the letter goes on into odds/Cover letters there; if Drive fails it stays in the bucket
-    // and the app's next sync moves it.
-    await pushIfConnected(uid, id).catch(() => undefined)
-
-    return text({ saved: true, document_id: id, name: args.name, attached_to: args.job_id ?? null, note: "It is in their odds Documents now." })
+    return saveDocument(env, uid, { kind: "cover_letter", name: args.name, fileName: `${args.name.replace(/[^\w .-]+/g, "").trim() || "Cover letter"}.txt`, mime: "text/plain", bytes, textBody: args.letter, jobId: args.job_id, label: "cover letter" })
   }
 
   if (name === "attach_document") {
@@ -619,7 +872,7 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
 // ---- JSON-RPC over HTTP ----
 
 const ME_INSTRUCTIONS =
-  "This is the person's own private link: you can see their profile (my_profile), their CVs and letters (my_documents, read_document), their saved and applied jobs (my_jobs), all of it in one call (export_my_odds), and everything to apply to one (application_kit). Find jobs for them with search_jobs and tailored_jobs, save them (save_job), and put the right CV on each job (attach_document). Use these instead of asking them to paste anything. Ask before saving a letter or marking a job applied. When filling in an employer's application form, never press submit yourself: let them check and send it."
+  "This is the person's own private link: you can see their profile (my_profile), their CVs and letters (my_documents, read_document), their saved and applied jobs (my_jobs), all of it in one call (export_my_odds), and everything to apply to one (application_kit). Find jobs for them with search_jobs and tailored_jobs, save them (save_job), and put the right CV on each job (attach_document), or make one for the job in odds's one format (save_cv). Use these instead of asking them to paste anything. APPLYING: application_kit gives the form's answers (standard_answers); fill an application only from it, their profile and CV: ask them for anything else, and keep what they tell you with save_application_answers. If the form needs a sign-in or a new account, stop and ask them to do that step in the browser, then continue when they say so: never type their password or solve a CAPTCHA. Never press submit yourself: let them check and send it, then mark_applied. REACHING OUT: my_people lists the people they keep at employers; write short, specific, true messages with save_outreach and let them send them (you may open the compose window and stop); after they say it is sent, mark_contacted. Ask before saving a CV, a letter, answers or a batch of drafts, and before marking anything applied or contacted."
 
 const INSTRUCTIONS =
   "odds lists open internship, traineeship and entry-level jobs in the Netherlands that do not require Dutch, for international students. Use search_jobs to find jobs, get_job to read one, company_profile for the employer, and interview_chance or tailored_jobs once you know the person's roles, education and skills. Chances are estimates from published hiring studies, not promises: say so. Link to the odds_link of each job you mention."

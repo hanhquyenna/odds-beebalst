@@ -333,11 +333,13 @@ function Message({ text }: { text: string }): React.JSX.Element {
   )
 }
 
-type Task = "apply" | "letter" | "find"
+type Task = "apply" | "cv" | "letter" | "reach" | "find"
 
 const TASKS: ReadonlyArray<{ id: Task; label: string }> = [
   { id: "apply", label: "Apply for a job" },
+  { id: "cv", label: "Make a CV for a job" },
   { id: "letter", label: "Write a cover letter" },
+  { id: "reach", label: "Message people there" },
   { id: "find", label: "Find jobs" },
 ]
 
@@ -356,14 +358,18 @@ function Tasks({ onDocuments, onJobs }: { onDocuments?: () => void; onJobs?: () 
   const jobName = job ? `${job.title} at ${job.employer_display}` : "this job"
   const message =
     task === "apply"
-      ? `Apply for ${jobName} using ${cvName}. Fill in the form, then stop so I can check it before I send it.`
-      : task === "letter"
-        ? `Write a cover letter for ${jobName} using ${cvName}, and save it to my Documents.`
-        : `Find internships and first jobs in the Netherlands that fit ${cvName} and don't need Dutch.`
+      ? `Apply for ${jobName} using ${cvName}. Fill in the form. If it needs me to sign in or make an account, stop and tell me, and carry on when I say so. Stop before sending so I can check it.`
+      : task === "cv"
+        ? `Make a CV for ${jobName} from ${cvName}. Keep everything true, choose and reword what fits the job, save it to my Documents and put it on that job.`
+        : task === "letter"
+          ? `Write a cover letter for ${jobName} using ${cvName}, and save it to my Documents.`
+          : task === "reach"
+            ? `Look at the people I keep for ${jobName} and write a short, honest message to each one, using ${cvName}. Save them as drafts. I will send them myself.`
+            : `Find internships and first jobs in the Netherlands that fit ${cvName} and don't need Dutch.`
 
   return (
     <div className={`${card} flex flex-col gap-5 p-4 sm:p-5`}>
-      <div role="tablist" aria-label="What do you want Claude to do?" className="grid grid-cols-3 gap-1 rounded-lg border-[1.5px] p-1 text-sm font-medium">
+      <div role="tablist" aria-label="What do you want Claude to do?" className="grid grid-cols-2 gap-1 sm:grid-cols-5 rounded-lg border-[1.5px] p-1 text-sm font-medium">
         {TASKS.map((t) => (
           <button
             key={t.id}
@@ -379,7 +385,7 @@ function Tasks({ onDocuments, onJobs }: { onDocuments?: () => void; onJobs?: () 
       </div>
 
       <ol className="flex flex-col gap-5">
-        <Step n={1} title="Choose a CV from your Documents">
+        <Step n={1} title={task === "cv" ? "Choose the CV to start from" : "Choose a CV from your Documents"}>
           {cvs.length > 0 ? (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {cvs.map((d) => (
@@ -445,7 +451,8 @@ function Tasks({ onDocuments, onJobs }: { onDocuments?: () => void; onJobs?: () 
         <Step n={needsJob ? 3 : 2} title="Copy this and send it to Claude">
           <Message text={message} />
           {task === "apply" ? <p className="text-xs text-muted-foreground">You press send.</p> : null}
-          {task === "letter" ? <p className="text-xs text-muted-foreground">Saved to Documents.</p> : null}
+          {task === "cv" || task === "letter" ? <p className="text-xs text-muted-foreground">Saved to Documents.</p> : null}
+          {task === "reach" ? <p className="text-xs text-muted-foreground">The drafts show under each person. You send them.</p> : null}
         </Step>
       </ol>
     </div>
@@ -456,7 +463,8 @@ const FAQ: ReadonlyArray<{ q: string; a: string }> = [
   { q: "What is Claude?", a: "An AI assistant made by Anthropic, at claude.ai. You chat with it the way you'd text a person. It works on the web, in the desktop app and in the phone app, and once you connect odds it works in all of them." },
   { q: "What can Claude see?", a: "Your odds profile, the CVs and cover letters in your Documents, and the jobs you saved or applied to. Nothing else from your account." },
   { q: "Can it send an application by itself?", a: "No. It fills in the form and stops. You always check it and press send yourself." },
-  { q: "What can it change?", a: "It can save a cover letter to your Documents, save a job and mark a job as applied. It can't delete anything." },
+  { q: "What if a website asks me to sign in?", a: "Claude stops and tells you. You sign in on that page yourself, then tell Claude to carry on. It never types your password or makes an account for you." },
+  { q: "What can it change?", a: "It can save a CV or a cover letter to your Documents, keep the answers forms ask for, save message drafts, save a job, and mark a job as applied or a message as sent. It can't delete anything." },
   { q: "How do I disconnect?", a: "Tap Disconnect at the top of this page. Claude loses access straight away." },
   { q: "Does it cost money?", a: "odds is free. On Claude's side you need a plan that lets you add custom connectors. To fill in forms on company websites, Claude also uses Claude in Chrome." },
   { q: "How sure are the chances?", a: "They're estimates, the same as on the job pages: based on hiring research and how many people apply. Use them to decide where to start, not as a promise." },

@@ -15,6 +15,7 @@ import { useData } from "@/lib/data"
 import { pageFromPath, pathForPage, type StaticPage } from "@/lib/pages"
 import { clearSeenRooms, saveSeenRooms } from "@/lib/seen"
 import { useDocumentsSync } from "@/lib/use-documents"
+import { useOutreachSync } from "@/lib/use-outreach"
 import { isGuestEmail } from "@/lib/auth"
 import { isInstalled, openInstallGuide, platformOf, useInstallGuide } from "@/lib/push"
 import { clearDraft } from "@/lib/session"
@@ -86,6 +87,7 @@ function jobIdFromPath(pathname: string): string | null {
 export default function App(): React.JSX.Element {
   const data = useData()
   useDocumentsSync()
+  useOutreachSync()
   const onboarded = data.profile.onboarded
   const installGuide = useInstallGuide()
   // Claude sent someone here to connect: the card that asks them is loaded only then.

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { useData } from "@/lib/data"
 import { suggestReferrals } from "@/lib/linkedin"
 import { useRemembered } from "@/lib/remembered"
+import { OutreachDrafts } from "@/components/OutreachDrafts"
 import { PersonPanel } from "@/components/PersonPanel"
 import { departmentOf } from "@/lib/field"
 import { GROUP_POOL, PEOPLE_GROUPS, dropPerson, isUrl, linkedinHref, linkedinSearches, moreIn, openIn, rankForJob, readPast, revealIn, startGroups, whyThisPerson, type PeopleGroup, type Suggestion } from "@/lib/suggest"
@@ -306,6 +307,7 @@ function FindPeople({ post }: { post: Posting }): React.JSX.Element {
       )}
       {problem ? <p role="status" className="text-sm text-muted-foreground">{problem}</p> : null}
       {!rec && (notLookedUp || problem) ? <MoreOnLinkedIn post={post} /> : null}
+      <OutreachDrafts postingId={post.id} />
     </div>
   )
 }
@@ -424,6 +426,7 @@ export function PersonDetails({ person, onClose }: { person: Person; onClose: ()
             Notes
             <textarea value={person.notes} onChange={(e) => put({ notes: e.target.value })} placeholder="What you want to remember" className="min-h-20 w-full rounded-md border-[1.5px] border-input bg-background px-2.5 py-2 text-foreground focus:border-ring focus:outline-none" />
           </label>
+          <OutreachDrafts personId={person.id} />
           <button type="button" onClick={() => { data.removePerson(person.id); onClose() }} className="flex w-fit cursor-pointer items-center gap-1.5 text-muted-foreground hover:text-destructive">
             <TrashIcon className="size-4" aria-hidden="true" /> Remove from my list
           </button>
