@@ -55,9 +55,9 @@ export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.J
   const original = useOriginalChance(post)
   const r = st.rate
   // With no profile there is no chance to give yet: a "?" that leads to the import, never a "0%" that reads like a real figure.
-  const chance = r && !r.thin ? point(r.mid) : st.needsProfile ? "?" : null
+  const chance = r ? point(r.mid) : st.needsProfile ? "?" : null
   // The number against what it was before anything you did (a referral, a ticked recommendation): green and up, or red and down, with the original in the hover.
-  const gain = r && !r.thin && original !== null ? (r.mid - original) * 100 : 0
+  const gain = r && original !== null ? (r.mid - original) * 100 : 0
   const missing = st.gates.filter((g) => g.status === "fail").map((g) => MISSING_WORDS[g.name])
   const studentGate = st.gates.find((g) => g.name === "Student")
 
@@ -234,7 +234,8 @@ export function Recommendations({ post, base, whatIf, setWhatIf }: { post: Posti
    */
   function worthOf(change: Partial<WhatIf>, asReferral = false): { badge: string; gap: boolean } {
     const alt = standing(post, jobProfile, ref, shares, { ...NO_WHAT_IF, ...change }, asReferral || referral, jobStrength)
-    if (base.rate && alt.rate && !base.rate.thin && !alt.rate.thin) {
+    // Whether few postings of this kind exist (rate.thin) does not change the figure, so it does not hide what a change does to it.
+    if (base.rate && alt.rate) {
       const gain = (alt.rate.mid - base.rate.mid) * 100
       if (Math.abs(gain) >= 0.05) {
         return { badge: `${gain > 0 ? "↑" : "↓"} ${Math.abs(gain).toFixed(1)}%`, gap: false }

@@ -1,4 +1,5 @@
 import { levelOf, type Level } from "@/lib/engine"
+import { guessFamily } from "@/lib/field"
 import { formatPosted } from "@/lib/format"
 import type { Posting } from "@/lib/types"
 
@@ -64,11 +65,19 @@ export function poolOf(posts: ReadonlyArray<Posting>, like?: Posting): { posts: 
   if (!like) {
     return { posts: [...posts], name: "all postings" }
   }
-  if (like.family) {
-    return { posts: posts.filter((p) => p.family === like.family), name: like.family }
+  // A job added by hand has no line of work yet: it is read from its title and skills, the same way the chance does it.
+  const family = like.family ?? guessFamily(like.title_clean ?? like.title, like.skills ?? [])
+  if (family) {
+    return { posts: posts.filter((p) => p.family === family), name: family }
   }
 
-  return { posts: posts.filter((p) => p.cat === like.cat), name: like.cat === "tech" ? "tech jobs" : like.cat === "finance_business" ? "finance and business jobs" : "all other jobs" }
+  const sameCat = posts.filter((p) => p.cat === like.cat)
+  // A job with no line of work and no kind either (added by hand) is read against every posting rather than against none.
+  if (sameCat.length === 0) {
+    return { posts: [...posts], name: "all postings" }
+  }
+
+  return { posts: sameCat, name: like.cat === "tech" ? "tech jobs" : like.cat === "finance_business" ? "finance and business jobs" : "all other jobs" }
 }
 
 /** What each rung of the ladder looks like in postings like this job: years asked, pay stated, titles, how many are open. */

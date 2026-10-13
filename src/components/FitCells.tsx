@@ -34,7 +34,7 @@ export function useOriginalChance(post: Posting): number | null {
     if (!reference || !shares) return null
     const r = standing(post, profile, reference, shares, undefined, false, strength).rate
 
-    return r && !r.thin ? r.mid : null
+    return r ? r.mid : null
   }, [post, profile, reference, shares, strength])
 }
 
@@ -64,7 +64,7 @@ export function ChanceCell({ st, post }: { st: Standing | null; post: Posting })
   }
   return (
     <span className="font-medium tabular-nums" title={`Estimate ${point(st.rate.mid)} (studies range ${pct(st.rate.low, 1)}–${pct(st.rate.high, 1)}) per application${st.rate.thin ? ". Few postings of this kind to compare with." : ""}${st.failing > 0 ? `. This job also asks for: ${st.gates.filter((g) => g.status === "fail").map((g) => g.name).join(", ")}.` : ""}`}>
-      <Moved delta={original !== null && !st.rate.thin ? (st.rate.mid - original) * 100 : 0} min={0.05} wasText={original === null ? "" : point(original)}>
+      <Moved delta={original !== null ? (st.rate.mid - original) * 100 : 0} min={0.05} wasText={original === null ? "" : point(original)}>
         {point(st.rate.mid)}
       </Moved>
     </span>
