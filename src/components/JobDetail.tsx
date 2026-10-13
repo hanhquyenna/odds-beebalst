@@ -96,7 +96,7 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
   const referral = data.referrals.has(post.id)
   // How strong your saved profile reads for this job. Until something has been read (or if the reader is off) the chance shows without it.
   const strength = useJobStrength(post)
-  // A CV put on this job is what this job's chance is worked out from; without one it is the main CV in the profile.
+  // A CV put on this job is what this job's chance is worked out from; without one it is the saved profile.
   const profile = useJobProfile(post.id)
   const base = useMemo(
     () => (data.reference && data.shares ? standing(job, profile, data.reference, data.shares, NO_WHAT_IF, referral, strength) : null),

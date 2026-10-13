@@ -7,7 +7,7 @@ import { Section } from "@/components/Section"
 import { useData } from "@/lib/data"
 import { requestSignIn } from "@/lib/sign-in-request"
 import { useAddDocument } from "@/lib/use-documents"
-import { KIND_LABEL, MAX_DOCUMENTS, attachedTo, driveFileUrl, mainCv, nameForJob, previewOf, problemText, type Doc, type DocKind } from "@/lib/document-model"
+import { KIND_LABEL, MAX_DOCUMENTS, attachedTo, driveFileUrl, nameForJob, previewOf, problemText, type Doc, type DocKind } from "@/lib/document-model"
 import { attachDocument, detachDocument, useDocumentStore } from "@/lib/documents"
 import type { Posting } from "@/lib/types"
 
@@ -52,8 +52,8 @@ function Slot({ post, kind }: { post: Posting; kind: DocKind }): React.JSX.Eleme
   const [problem, setProblem] = useState<string | null>(null)
   const library = store.docs.filter((d) => d.kind === kind)
   const attached = attachedTo(store, post.id, kind)
-  // A job with no CV of its own uses the main CV: shown as such, so the card is never empty when a CV is in use.
-  const shown: Doc | undefined = attached ?? (kind === "cv" ? mainCv(store) : undefined)
+  // Only what the person put on this job is shown. The main CV is not put on a job for them.
+  const shown: Doc | undefined = attached
   const full = store.docs.length >= MAX_DOCUMENTS
   const label = KIND_LABEL[kind]
 
@@ -93,7 +93,6 @@ function Slot({ post, kind }: { post: Posting; kind: DocKind }): React.JSX.Eleme
           <>
             <p className="flex flex-wrap items-center gap-2">
               <span className="min-w-0 truncate font-medium">{shown.name}</span>
-              {!attached ? <span className="rounded-md bg-brand/15 px-2 py-0.5 text-xs font-medium">Main CV</span> : null}
             </p>
             {previewOf(shown.body) ? <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{previewOf(shown.body)}</p> : null}
             {shown.driveFileId ? (
@@ -117,7 +116,7 @@ function Slot({ post, kind }: { post: Posting; kind: DocKind }): React.JSX.Eleme
             disabled={library.length === 0}
             className="absolute inset-0 cursor-pointer opacity-0"
           >
-            <option value="">{kind === "cv" ? "Use my main CV" : "No cover letter"}</option>
+            <option value="">{kind === "cv" ? "No CV on this job" : "No cover letter"}</option>
             {library.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.name}
