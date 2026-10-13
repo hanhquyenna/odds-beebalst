@@ -29,6 +29,7 @@
         "https://*.linkedin.com/jobs/*"
       ],
       "js": [
+        "panel.js",
         "content-job.js"
       ],
       "css": [

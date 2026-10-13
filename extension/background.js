@@ -32,9 +32,53 @@ async function addJob(url) {
   return res.ok || body.status ? body : { status: "error", message: "odds could not do that. Try again in a minute." }
 }
 
+/** Whether odds already holds the job at this address, and the person's chance for it. Nothing is saved or paid for. */
+async function peek(url) {
+  const key = await savedKey()
+  if (!key) return { status: "connect" }
+  let res
+  try {
+    res = await fetch(`${await apiBase()}/ext/peek`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: JSON.stringify({ url }), signal: AbortSignal.timeout(60000) })
+  } catch {
+    return { status: "error", message: "odds did not answer." }
+  }
+  if (res.status === 401) {
+    await chrome.storage.local.remove(KEY)
+    return { status: "connect" }
+  }
+  const body = await res.json().catch(() => ({}))
+  return res.ok ? { status: "ok", ...body } : { status: "error", message: body.message || "odds could not look that job up." }
+}
+
+/** The person's saved jobs, for the panel. */
+async function pool() {
+  const key = await savedKey()
+  if (!key) return { status: "connect" }
+  let res
+  try {
+    res = await fetch(`${await apiBase()}/ext/pool`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(60000) })
+  } catch {
+    return { status: "error", message: "odds did not answer." }
+  }
+  if (res.status === 401) {
+    await chrome.storage.local.remove(KEY)
+    return { status: "connect" }
+  }
+  const body = await res.json().catch(() => ({}))
+  return res.ok ? { status: "ok", ...body } : { status: "error", message: "Could not load your jobs." }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message?.type === "add" && typeof message.url === "string") {
     addJob(message.url).then(reply)
+    return true
+  }
+  if (message?.type === "peek" && typeof message.url === "string") {
+    peek(message.url).then(reply)
+    return true
+  }
+  if (message?.type === "pool") {
+    pool().then(reply)
     return true
   }
   if (message?.type === "status") {

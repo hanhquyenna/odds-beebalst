@@ -323,9 +323,13 @@ run("the connector, as a signed-in person", () => {
 
       return { status: res.status, data: await res.json() }
     }
+    const made = new Map<string, string>()
     const makeKey = async (userId: string): Promise<string> => {
+      const had = made.get(userId)
+      if (had) return had
       const k = `oddsx_${hex(crypto.getRandomValues(new Uint8Array(24)))}`
       await db("extension_keys", { method: "POST", body: { user_id: userId, key_hash: await sha(k), hint: k.slice(-4) }, prefer: "return=minimal" })
+      made.set(userId, k)
 
       return k
     }
@@ -354,6 +358,35 @@ run("the connector, as a signed-in person", () => {
       const two = await call(xkey, "add", { url: held.url })
       expect(two.data.status).toBe("exists")
       expect(((await db(`saved_jobs?user_id=eq.${a.id}&posting_id=eq.${held.id}&select=posting_id`)) as unknown[]).length).toBe(1)
+    })
+
+    test("peek gives the chance for a job odds holds without saving it, and says so for one it does not hold", async () => {
+      const [held] = (await db("postings?select=id,url&url=like.https://www.linkedin.com/jobs/view/*&closed_at=is.null&limit=1&order=id.desc")) as Array<{ id: string; url: string }>
+      await db(`saved_jobs?user_id=eq.${a.id}&posting_id=eq.${held.id}`, { method: "DELETE", prefer: "return=minimal" })
+      const seen = await call(xkey, "peek", { url: `${held.url}?trackingId=x` })
+      expect(seen.status).toBe(200)
+      expect(seen.data).toMatchObject({ known: true, id: held.id, saved: false })
+      expect(typeof seen.data.chance_pct === "number" || seen.data.chance_pct === null).toBe(true)
+      expect(((await db(`saved_jobs?user_id=eq.${a.id}&posting_id=eq.${held.id}&select=posting_id`)) as unknown[]).length).toBe(0)
+      expect((await call(xkey, "add", { url: held.url })).data.saved).toBe(true)
+      expect((await call(xkey, "peek", { url: held.url })).data.saved).toBe(true)
+      expect((await call(xkey, "peek", { url: "https://www.linkedin.com/jobs/view/1999999998" })).data).toEqual({ known: false })
+      expect((await call(xkey, "peek", { url: "https://www.glassdoor.com/job-listing/x" })).status).toBe(422)
+      expect((await call(a.key, "peek", { url: held.url })).status).toBe(401)
+      const reads = (await db(`extension_reads?user_id=eq.${a.id}&select=id`)) as unknown[]
+      expect(reads.length).toBe(0)
+    })
+
+    test("the pool is the person's saved jobs, newest first, and no one else's", async () => {
+      const mine = await call(xkey, "pool")
+      expect(mine.status).toBe(200)
+      expect(mine.data.jobs.length).toBeGreaterThan(0)
+      expect(mine.data.jobs[0]).toHaveProperty("title")
+      expect(mine.data.jobs[0].link).toMatch(/^https:\/\/odds\.beeblast\.co\/job\//)
+      expect(mine.data.total).toBeGreaterThanOrEqual(mine.data.jobs.length)
+      const bKey = await makeKey(b.id)
+      expect((await call(bKey, "pool")).data.jobs).toEqual([])
+      expect((await call(a.key, "pool")).status).toBe(401)
     })
 
     test("a link that is not a LinkedIn job, or no link, is refused before anything is paid", async () => {

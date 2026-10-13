@@ -1,61 +1,89 @@
-// Runs on LinkedIn job pages. Shows one button, "Add to odds", while a job is open. Nothing is read until it is pressed, and then only the
-// address of the page: odds looks the job up (or reads it) itself.
-const JOB_ADDRESS = /\/jobs\/view\/(?:[^/?#]*-)?\d{8,12}|[?&]currentJobId=\d{8,12}/
+// Runs on LinkedIn job pages. One quiet button beside Save shows "odds" and the person's interview chance for the job that is open, "?%" when
+// odds does not hold that job yet. Pressing it keeps the job in odds and slides the odds panel in (panel.js); pressing it again hides it.
+// Only the address of the page goes to odds, and only the page of a job that is open.
+const JOB_ID_IN_ADDRESS = /(?:\/jobs\/view\/(?:[^/?#]*-)?|[?&]currentJobId=)(\d{8,12})/
 
 let button = null
-let shownFor = ""
+/** The job the button is showing: its id, and what odds said about it. */
+let current = { id: "", phase: "peeking", chance: null, saved: false, known: false, closed: false, needsProfile: false }
 
-function jobOpen() {
-  return JOB_ADDRESS.test(location.pathname + location.search)
+function jobOnPage() {
+  const found = JOB_ID_IN_ADDRESS.exec(location.pathname + location.search)
+  return found ? found[1] : null
 }
 
-function render(state, text, link, note) {
+function draw(state, label, title, note) {
   if (!button) return
   button.dataset.state = state
   button.replaceChildren()
   const mark = document.createElement("span")
   mark.className = "odds-mark"
   mark.textContent = "odds"
-  const label = document.createElement("span")
-  label.className = "odds-text"
-  label.textContent = text
-  button.append(mark, label)
+  const text = document.createElement("span")
+  text.className = "odds-text"
+  text.textContent = label
+  button.append(mark, text)
   if (note) {
     const bubble = document.createElement("span")
     bubble.className = "odds-note"
     bubble.textContent = note
     button.append(bubble)
   }
-  button.title = note ? `${text}. ${note}` : text
-  button.onclick = link ? () => window.open(link, "_blank", "noopener") : null
+  button.title = title
 }
 
-function idle() {
-  render("idle", "Add")
-  button.onclick = add
+const percent = (n) => (typeof n === "number" ? `${n}%` : "?%")
+
+/** Draws the button for whatever is known about the open job. */
+function show() {
+  if (!button) return
+  const c = current
+  if (c.phase === "peeking") return draw("busy", "…", "Looking up your chance for this job")
+  if (c.phase === "connect") return draw("problem", "Connect", "Connect odds to see your interview chance here")
+  if (c.phase === "error") return draw("problem", "?%", "Try again", c.message || "odds did not answer.")
+  if (c.closed) return draw("idle", "closed", "This job is closed")
+  if (c.saved) return draw("done", `✓ ${percent(c.chance)}`, "Saved in odds. Press to show your jobs", c.needsProfile ? "Add your CV on odds to see your chance." : null)
+  const known = c.known ? `Your interview chance for this job is ${percent(c.chance)}. Press to save it in odds` : "odds does not have this job yet. Press to add it and see your chance"
+  draw("idle", percent(c.chance), known, c.known && c.needsProfile ? "Add your CV on odds to see your chance." : null)
+}
+
+function peek(id) {
+  current = { id, phase: "peeking", chance: null, saved: false, known: false, closed: false, needsProfile: false }
+  show()
+  chrome.runtime.sendMessage({ type: "peek", url: location.href }, (answer) => {
+    if (current.id !== id) return
+    if (chrome.runtime.lastError || !answer) current = { ...current, phase: "error" }
+    else if (answer.status === "connect") current = { ...current, phase: "connect" }
+    else if (answer.status !== "ok") current = { ...current, phase: "error", message: answer.message }
+    else current = { ...current, phase: "ready", known: Boolean(answer.known), closed: Boolean(answer.closed), saved: Boolean(answer.saved), chance: typeof answer.chance_pct === "number" ? answer.chance_pct : null, needsProfile: Boolean(answer.needs_profile) }
+    show()
+  })
 }
 
 function add() {
-  if (button.dataset.state === "busy") return
-  render("busy", "Reading…")
+  const id = current.id
+  draw("busy", "…", "Adding this job to odds")
   chrome.runtime.sendMessage({ type: "add", url: location.href }, (answer) => {
-    if (chrome.runtime.lastError || !answer) return render("problem", "Try again", null, "odds did not answer.")
-    switch (answer.status) {
-      case "connect":
-        render("problem", "Connect")
-        button.onclick = () => chrome.runtime.sendMessage({ type: "open-connect" })
-        break
-      case "added":
-      case "exists": {
-        const chance = typeof answer.chance_pct === "number" ? ` · ${answer.chance_pct}%` : ""
-        render("done", `Saved${chance}`, answer.odds_link, answer.needs_profile ? "Add your CV on odds to see your chance." : null)
-        break
-      }
-      default:
-        render("problem", "Not added", null, answer.message || "That job could not be added.")
-        button.onclick = idle
-    }
+    if (current.id !== id) return
+    if (chrome.runtime.lastError || !answer) current = { ...current, phase: "error", message: "odds did not answer." }
+    else if (answer.status === "connect") current = { ...current, phase: "connect" }
+    else if (answer.status === "added" || answer.status === "exists") {
+      current = { ...current, phase: "ready", known: true, saved: true, chance: typeof answer.chance_pct === "number" ? answer.chance_pct : null, needsProfile: Boolean(answer.needs_profile) }
+      show()
+      openPanel(answer.job && answer.job.id ? { ...answer.job, chance_pct: current.chance } : undefined)
+      return
+    } else current = { ...current, phase: "error", message: answer.message || "That job could not be added." }
+    show()
   })
+}
+
+function press() {
+  const c = current
+  if (c.phase === "connect") return chrome.runtime.sendMessage({ type: "open-connect" })
+  if (c.phase === "error") return peek(c.id)
+  if (c.phase !== "ready" || c.closed) return
+  if (c.saved) return togglePanel()
+  add()
 }
 
 /** LinkedIn's own Save button of the open job, so odds can sit beside it. Null when the page has none (then odds floats at the edge). */
@@ -83,27 +111,33 @@ function place() {
   }
 }
 
+let waiting = 0
+
 function sync() {
-  const open = jobOpen()
-  if (!open) {
+  const id = jobOnPage()
+  if (!id) {
     button?.remove()
     button = null
-    shownFor = ""
+    current = { ...current, id: "" }
+    closePanel()
     return
   }
   if (!button) {
     button = document.createElement("button")
     button.id = "odds-add"
     button.type = "button"
+    button.onclick = press
     document.documentElement.append(button)
-    shownFor = ""
   }
   place()
-  // Another job opened in the same page (LinkedIn does not reload): start again for it.
-  const here = location.pathname + location.search
-  if (shownFor !== here && button.dataset.state !== "busy") {
-    shownFor = here
-    idle()
+  // Another job opened in the same page (LinkedIn does not reload): look it up, after a short pause so flicking through a list asks once.
+  if (current.id !== id) {
+    current = { id, phase: "peeking", chance: null, saved: false, known: false, closed: false, needsProfile: false }
+    show()
+    window.clearTimeout(waiting)
+    waiting = window.setTimeout(() => {
+      if (current.id === id) peek(id)
+    }, 350)
   }
 }
 

@@ -987,6 +987,35 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
   const me = await extWho(env, keyOf(req)).catch(() => null)
   if (!me) return json(401, { error: "Connect the odds extension again." })
   if (route === "me" && req.method === "GET") return json(200, { ok: true })
+  // What the person's chance is for the job on the page, without saving it or paying for anything: only a job odds already holds can be answered.
+  if (route === "peek" && req.method === "POST") {
+    let address = ""
+    try {
+      const raw = await req.text()
+      if (raw.length > 4000) return json(413, { error: "Too large." })
+      address = String((JSON.parse(raw) as Json)?.url ?? "")
+    } catch {
+      return json(400, { error: "Send { url }." })
+    }
+    const wanted = parseJobUrl(address)
+    if (!wanted) return json(422, { status: "unsupported", message: "Only LinkedIn job pages for now." })
+    const held = (await rest(env, `postings?select=id,closed_at&url=eq.${encodeURIComponent(wanted.url)}&limit=1`).catch(() => []))?.[0]
+    if (!held) return json(200, { known: false })
+    if (held.closed_at) return json(200, { known: true, closed: true, id: held.id })
+    const [rows, mine, profile, w] = await Promise.all([rest(env, `app_jobs?select=${COLUMNS}&id=eq.${encodeURIComponent(held.id)}`).catch(() => []), svc(env, `saved_jobs?user_id=eq.${me.id}&posting_id=eq.${encodeURIComponent(held.id)}&select=posting_id`), myProfile(env, me), worldFor(env)])
+    const post = rows?.[0] ? core.preparePool(rows)[0] : null
+    const chance = post && core.hasProfile(profile) ? core.chanceFor(post, profile, w.ref, w.shares) : null
+
+    return json(200, { known: true, id: held.id, saved: (mine ?? []).length > 0, chance_pct: chance?.chance_pct ?? null, needs_profile: !core.hasProfile(profile) })
+  }
+  // The person's saved jobs, newest first, for the panel the extension opens on LinkedIn.
+  if (route === "pool" && req.method === "GET") {
+    const mine = await callMe(env, me, "my_jobs", {})
+    const all: Json[] = mine.structuredContent?.jobs ?? []
+    const jobs = all.filter((j) => j.title).slice(0, 40).map((j) => ({ id: j.id, title: j.title, company: j.company ?? null, city: j.city ?? null, status: j.status, chance_pct: j.chance_pct ?? null, still_open: j.still_open !== false, link: `https://odds.beeblast.co/job/${j.id}` }))
+
+    return json(200, { jobs, total: all.length })
+  }
   if (route !== "add" || req.method !== "POST") return json(404, { error: "Not found." })
 
   let url = ""
