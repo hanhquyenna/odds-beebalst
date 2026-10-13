@@ -318,10 +318,14 @@ run("the connector, as a signed-in person", () => {
   describe("the browser extension", () => {
     let xkey = ""
     const call = async (key: string, route: string, body?: Json): Promise<{ status: number; data: Json }> => {
+      const started = Date.now()
       const init = { method: body === undefined ? "GET" : "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: body === undefined ? undefined : JSON.stringify(body) }
       const res = REMOTE ? await fetch(`${REMOTE}/ext/${route}`, init) : await handle(new Request(`${URL_}/functions/v1/mcp/ext/${route}`, init), { url: URL_, anonKey: anon, serviceKey: service })
 
-      return { status: res.status, data: await res.json() }
+      const data = await res.json()
+      if (process.env.TIMING) console.log(`TIMING ${route}${body?.urls ? ` x${body.urls.length}` : ""} ${Date.now() - started}ms ${res.headers.get("server-timing") ?? ""}`)
+
+      return { status: res.status, data }
     }
     const made = new Map<string, string>()
     const makeKey = async (userId: string): Promise<string> => {

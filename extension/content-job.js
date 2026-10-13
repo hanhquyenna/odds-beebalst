@@ -300,7 +300,7 @@ function sync() {
     window.clearTimeout(waiting)
     waiting = window.setTimeout(() => {
       if (current.id === job.id) peek(job)
-    }, 350)
+    }, 150)
   }
 }
 
@@ -343,7 +343,8 @@ const visibility = new IntersectionObserver((entries) => {
     cardQueue.push(id)
   }
   drainCards()
-})
+  // Looked up a screen and a half before they scroll into view, so they are ready by the time they are seen.
+}, { rootMargin: "1200px 0px" })
 /** Whether jobs in this site's lists are read from their own pages as they come into view (a request to the site each). */
 const READS_LIST = SITE.readable && SITE.fetchable
 function drainCards() {

@@ -135,17 +135,55 @@ async function load(env: Env): Promise<World> {
 // Keep identical category inputs while avoiding dozens of wide page reads.
 let extensionContext: Promise<Pick<World, "ref" | "shares">> | null = null
 let extensionContextAt = 0
+/** After this long the stored reference is worked out again, in the background; the stored one is used meanwhile. */
+const CONTEXT_STALE_MS = 30 * 60 * 1000
+
+/** Works the reference out from the tables (reads every open job: a second or more) and stores it for every instance to read. */
+async function computeExtensionContext(env: Env): Promise<Pick<World, "ref" | "shares">> {
+  const [rows, bands, ages, tax, transitions] = await Promise.all([
+    readAll(env, "app_jobs", "id,cat,dutch_required,dutch_jev,visa_mention,years_min,junior_title,skills", 1000),
+    rest(env, "cbs_bands?select=*"), rest(env, "cbs_age_factors?select=sector,age_band,factor"),
+    rest(env, "tax_params?select=params&year=eq.2026"), rest(env, "transitions?select=*"),
+  ])
+  const context = {
+    ref: core.makeReference(bands, ages, tax[0]?.params, transitions),
+    shares: core.sharesOf(rows.filter((row: Json) => !row.dutch_required && (row.dutch_jev ?? 0) < 0.8)),
+  }
+  await svc(env, "extension_context", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ id: 1, data: context, computed_at: new Date().toISOString() }) }).catch(() => undefined)
+
+  return context
+}
+
+/** Supabase's Edge runtime: work that goes on after the answer is sent. */
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined
+
+/**
+ * What a chance is measured against. Kept by this instance for KEEP_MS; a new instance reads the stored one (one small row) instead of working it out,
+ * and works it out again in the background when the stored one is old. Only with nothing stored yet does an answer wait for the whole computation.
+ */
 function extensionContextFor(env: Env): Promise<Pick<World, "ref" | "shares">> {
   if (!extensionContext || Date.now() - extensionContextAt > KEEP_MS) {
     extensionContextAt = Date.now()
-    extensionContext = Promise.all([
-      readAll(env, "app_jobs", "id,cat,dutch_required,dutch_jev,visa_mention,years_min,junior_title,skills", 1000),
-      rest(env, "cbs_bands?select=*"), rest(env, "cbs_age_factors?select=sector,age_band,factor"),
-      rest(env, "tax_params?select=params&year=eq.2026"), rest(env, "transitions?select=*"),
-    ]).then(([rows, bands, ages, tax, transitions]) => ({
-      ref: core.makeReference(bands, ages, tax[0]?.params, transitions),
-      shares: core.sharesOf(rows.filter((row: Json) => !row.dutch_required && (row.dutch_jev ?? 0) < 0.8)),
-    })).catch(error => { extensionContext = null; throw error })
+    extensionContext = svc(env, "extension_context?id=eq.1&select=data,computed_at")
+      .catch(() => null)
+      .then((rows: Json) => {
+        const stored = rows?.[0]
+        if (!stored?.data?.ref || !stored?.data?.shares) return computeExtensionContext(env)
+        if (Date.now() - Date.parse(stored.computed_at) > CONTEXT_STALE_MS) {
+          const again = computeExtensionContext(env).catch(() => undefined)
+          try {
+            if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(again)
+          } catch {
+            // no runtime to keep it going: it finishes while this instance lives
+          }
+        }
+
+        return stored.data as Pick<World, "ref" | "shares">
+      })
+      .catch((error) => {
+        extensionContext = null
+        throw error
+      })
   }
   return extensionContext
 }
@@ -995,11 +1033,36 @@ const EXT_DAILY_PAGE_READS = 300
 /** A job we hold, found by the address it was stored under (job boards loaded in bulk kept longer ones: heldFilter finds those by the job's id). */
 const heldJob = (env: Env, link: JobLink): Promise<Json[] | null> => rest(env, `postings?select=id,closed_at&${heldFilter(link)}&order=closed_at.desc.nullsfirst&limit=1`).catch(() => [])
 
+/**
+ * Keys and profiles seen in the last minute, kept by this instance: a list of jobs coming into view asks several times a second, and each answer
+ * waited on the same two reads. A key cut off on odds stops working within the minute; a new CV counts within the minute.
+ */
+const EXT_KEEP_MS = 60_000
+const extKeys = new Map<string, { me: Me; at: number }>()
+const extProfiles = new Map<string, { profile: Promise<Json>; at: number }>()
+function extProfile(env: Env, me: Me): Promise<Json> {
+  const kept = extProfiles.get(me.id)
+  if (kept && Date.now() - kept.at < EXT_KEEP_MS) return kept.profile
+  const profile = myProfile(env, me)
+  extProfiles.set(me.id, { profile, at: Date.now() })
+  profile.catch(() => extProfiles.delete(me.id))
+
+  return profile
+}
+
 async function extWho(env: Env, key: string): Promise<Me | null> {
   if (!EXT_KEY_RE.test(key) || !env.serviceKey) return null
-  const rows = await svc(env, `extension_keys?key_hash=eq.${await sha256hex(key)}&select=user_id,last_used_at`)
+  const hash = await sha256hex(key)
+  const kept = extKeys.get(hash)
+  if (kept && Date.now() - kept.at < EXT_KEEP_MS) return kept.me
+  const rows = await svc(env, `extension_keys?key_hash=eq.${hash}&select=user_id,last_used_at`)
   const row = rows?.[0]
-  if (!row) return null
+  if (!row) {
+    extKeys.delete(hash)
+
+    return null
+  }
+  extKeys.set(hash, { me: { id: row.user_id, email: null, key }, at: Date.now() })
   if (!row.last_used_at || Date.now() - Date.parse(row.last_used_at) > 600_000) void svc(env, `extension_keys?user_id=eq.${row.user_id}`, { method: "PATCH", body: JSON.stringify({ last_used_at: new Date().toISOString() }) }).catch(() => undefined)
 
   return { id: row.user_id, email: null, key }
@@ -1044,16 +1107,21 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     const urls: string[] = (many ? body.urls : [body?.url]).slice(0, 25).map((u: unknown) => (typeof u === "string" ? u : ""))
     const links = urls.map((u) => jobLink(u, true))
     if (!many && !links[0]) return json(422, { status: "unsupported", message: "odds cannot tell which job this page is." })
-    const helds = await Promise.all(links.map((l) => (l ? heldJob(env, l).then((r) => r?.[0] ?? null) : Promise.resolve(null))))
-    const ids = [...new Set(helds.filter((h) => h && !h.closed_at).map((h) => String(h.id)))]
-    const inList = ids.map((id) => encodeURIComponent(id)).join(",")
-    const [rows, mine, profile, w] = await Promise.all([
-      ids.length ? rest(env, `app_jobs?select=${COLUMNS}&id=in.(${inList})`).catch(() => []) : [],
-      ids.length ? svc(env, `saved_jobs?user_id=eq.${me.id}&posting_id=in.(${inList})&select=posting_id`) : [],
-      myProfile(env, me),
-      extensionContextFor(env),
-    ])
-    const posts = new Map(core.preparePool(rows ?? []).map((p: Json) => [String(p.id), p]))
+    // One read per job, all at once: the open jobs straight from app_jobs (which carries their address), alongside the person's profile, the
+    // reference and their saved jobs. Only a job app_jobs does not have is looked for again among all postings, to tell a closed job from one
+    // odds does not hold.
+    const early = Promise.all([extProfile(env, me), extensionContextFor(env), svc(env, `saved_jobs?user_id=eq.${me.id}&select=posting_id`)])
+    early.catch(() => undefined)
+    const t0 = Date.now()
+    const marks: string[] = []
+    early.then(() => marks.push(`early;dur=${Date.now() - t0}`)).catch(() => undefined)
+    const open: Json[] = await Promise.all(links.map((l) => (l ? rest(env, `app_jobs?select=${COLUMNS}&${heldFilter(l)}&limit=1`).then((r) => r?.[0] ?? null).catch(() => null) : Promise.resolve(null))))
+    marks.push(`open;dur=${Date.now() - t0}`)
+    const helds: Json[] = await Promise.all(links.map((l, i) => (open[i] ? Promise.resolve(open[i]) : l ? heldJob(env, l).then((r) => r?.[0] ?? null) : Promise.resolve(null))))
+    marks.push(`held;dur=${Date.now() - t0}`)
+    const [profile, w, mine] = await early
+    marks.push(`waited;dur=${Date.now() - t0}`)
+    const posts = new Map(core.preparePool(open.filter(Boolean)).map((p: Json) => [String(p.id), p]))
     const saved = new Set((mine ?? []).map((m: Json) => String(m.posting_id)))
     const answerFor = (link: JobLink | null, held: Json): Json => {
       if (!link) return { status: "error", message: "odds cannot tell which job this page is." }
@@ -1065,9 +1133,15 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
       return { known: true, id: held.id, job: post ? core.jobLine(post, w.ref) : { id: held.id }, saved: saved.has(String(held.id)), chance_pct: chance?.chance_pct ?? null, needs_profile: !core.hasProfile(profile) }
     }
     const answers = links.map((l, i) => answerFor(l, helds[i]))
-    if (!many) return json(200, answers[0])
+    marks.push(`chance;dur=${Date.now() - t0}`)
+    const timed = (r: Response): Response => {
+      r.headers.set("Server-Timing", marks.join(", "))
 
-    return json(200, { results: Object.fromEntries(urls.map((u, i) => [u, answers[i]])) })
+      return r
+    }
+    if (!many) return timed(json(200, answers[0]))
+
+    return timed(json(200, { results: Object.fromEntries(urls.map((u, i) => [u, answers[i]])) }))
   }
   // The person's saved jobs, newest first, for the panel the extension opens on LinkedIn.
   if (route === "pool" && req.method === "GET") {
@@ -1095,13 +1169,17 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
   if (!parsed) return json(422, { status: "unsupported", message: "odds cannot tell which job this page is." })
 
   // Free first: do we already hold this job? Only a job we do not hold is read, and that is limited per person (LinkedIn reads cost money).
-  const held = await heldJob(env, parsed)
+  // Only a LinkedIn job odds reads itself costs money; one the person's browser read from LinkedIn's public page does not.
+  const paid = parsed.site === "linkedin" && !posting
+  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+  // What the answer needs at the end is asked for now, alongside: the person's profile, the reference, and the day's reads so far.
+  const early = Promise.all([extProfile(env, me), extensionContextFor(env)])
+  // An answer that returns before using it (a closed job, the day's allowance) must not leave it failing unheard.
+  early.catch(() => undefined)
+  const [held, usedToday] = await Promise.all([heldJob(env, parsed), svc(env, `extension_reads?user_id=eq.${me.id}&created_at=gte.${since}&paid=is.${paid}&select=id`)])
   if (!held?.[0]) {
-    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
-    // Only a LinkedIn job odds reads itself costs money; one the person's browser read from LinkedIn's public page does not.
-    const paid = parsed.site === "linkedin" && !posting
     const cap = paid ? EXT_DAILY_READS : EXT_DAILY_PAGE_READS
-    const used = await svc(env, `extension_reads?user_id=eq.${me.id}&created_at=gte.${since}&paid=is.${paid}&select=id`)
+    const used = usedToday
     if ((used ?? []).length >= cap) return json(429, { status: "limit", message: `Up to ${cap} new jobs a day. Jobs odds already has are not counted.` })
     await svc(env, "extension_reads", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ user_id: me.id, url: parsed.url, paid }) })
   }
@@ -1117,11 +1195,13 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     if (result.status !== "added" && result.status !== "exists") return json(200, { status: result.status ?? "error", message: result.status === "closed" ? "That job is closed." : result.message ?? "That job could not be read." })
   }
   const id: string = result.id
-  if (route === "add") await svc(env, "saved_jobs", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ user_id: me.id, posting_id: id }) })
-  const rows = await rest(env, `app_jobs?select=${COLUMNS}&id=eq.${encodeURIComponent(id)}`).catch(() => [])
-  const w = await extensionContextFor(env)
+  // Saving it, reading its row, and the profile and reference asked for at the start: all at once.
+  const [, rows, [profile, w]] = await Promise.all([
+    route === "add" ? svc(env, "saved_jobs", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ user_id: me.id, posting_id: id }) }) : null,
+    rest(env, `app_jobs?select=${COLUMNS}&id=eq.${encodeURIComponent(id)}`).catch(() => []),
+    early,
+  ])
   const post = rows?.[0] ? core.preparePool(rows)[0] : null
-  const profile = await myProfile(env, me)
   const chance = post && core.hasProfile(profile) ? core.chanceFor(post, profile, w.ref, w.shares) : null
   const line = post ? core.jobLine(post, w.ref) : { id, title: result.title ?? null, company: result.employer ?? null }
 
