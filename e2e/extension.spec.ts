@@ -108,12 +108,21 @@ test("on a LinkedIn job the button is there; on a page that is not a job it is n
 })
 
 test("next to LinkedIn's Save button when the page has one, at the edge when it has not; in odds orange with the odds lettering", async ({ context }) => {
-  await context.route("https://www.linkedin.com/jobs/view/**", (route) => route.fulfill({ status: 200, contentType: "text/html", body: `<!doctype html><main><div id="bar"><button aria-label="Easy Apply">Easy Apply</button><button aria-label="Save job">Save</button></div></main>` }))
+  // The structure of the job page as LinkedIn serves it (October 2026, copied from a real one, names and texts removed): each button in a wrapper of its own, the wrappers in one row.
+  await context.route("https://www.linkedin.com/jobs/view/**", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: `<!doctype html><main id="workspace"><div class="top"><div id="row" style="display:flex;gap:8px"><div class="wrap"><button class="a" type="button" aria-label="Easy Apply to this job"><span><span>Easy Apply</span></span></button></div><div class="wrap"><button class="a" type="button" aria-label="Save the job"><span><span>Save</span></span></button></div></div></div><ul><li><button aria-label="Dismiss Marketing Intern job">x</button></li></ul></main>`,
+    }),
+  )
   const page = await context.newPage()
   await page.goto("https://www.linkedin.com/jobs/view/4470863235/")
   const pill = page.locator("#odds-add")
   await expect(pill).toHaveAttribute("data-where", "inline")
-  expect(await pill.evaluate((el) => el.parentElement?.id)).toBe("bar")
+  expect(await pill.evaluate((el) => el.parentElement?.id)).toBe("row")
+  // After the Save wrapper, in the same row, not inside it.
+  expect(await pill.evaluate((el) => el.previousElementSibling?.querySelector("button")?.getAttribute("aria-label"))).toBe("Save the job")
   expect(await pill.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(242, 128, 42)")
   expect(await pill.evaluate((el) => getComputedStyle(el).position)).not.toBe("fixed")
   // The odds lettering is loaded from the extension.

@@ -67,11 +67,14 @@ function saveButton() {
 /** Puts the button next to Save when there is one, else floating; moves it again when LinkedIn redraws the page. */
 function place() {
   const save = saveButton()
-  const parent = save ? save.parentElement : document.documentElement
-  const where = save ? "inline" : "float"
-  if (button.parentElement !== parent || button.dataset.where !== where) {
+  let anchor = save
+  // LinkedIn wraps each button in a div of its own: go up to the one that sits in the row beside Easy Apply, and join that row.
+  while (anchor && anchor.parentElement && anchor.parentElement.children.length === 1 && anchor.parentElement !== document.body) anchor = anchor.parentElement
+  const parent = anchor ? anchor.parentElement : document.documentElement
+  const where = anchor ? "inline" : "float"
+  if (button.parentElement !== parent || button.dataset.where !== where || (anchor && anchor.nextElementSibling !== button)) {
     button.dataset.where = where
-    if (save) save.after(button)
+    if (anchor) anchor.after(button)
     else parent.append(button)
   }
 }
