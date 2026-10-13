@@ -315,6 +315,65 @@ run("the connector, as a signed-in person", () => {
     })
   })
 
+  describe("the browser extension", () => {
+    let xkey = ""
+    const call = async (key: string, route: string, body?: Json): Promise<{ status: number; data: Json }> => {
+      const init = { method: body === undefined ? "GET" : "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: body === undefined ? undefined : JSON.stringify(body) }
+      const res = REMOTE ? await fetch(`${REMOTE}/ext/${route}`, init) : await handle(new Request(`${URL_}/functions/v1/mcp/ext/${route}`, init), { url: URL_, anonKey: anon, serviceKey: service })
+
+      return { status: res.status, data: await res.json() }
+    }
+    const makeKey = async (userId: string): Promise<string> => {
+      const k = `oddsx_${hex(crypto.getRandomValues(new Uint8Array(24)))}`
+      await db("extension_keys", { method: "POST", body: { user_id: userId, key_hash: await sha(k), hint: k.slice(-4) }, prefer: "return=minimal" })
+
+      return k
+    }
+
+    test("only its own key opens it: not Claude's key, not none, not a wrong one", async () => {
+      xkey = await makeKey(a.id)
+      expect((await call(xkey, "me")).status).toBe(200)
+      expect((await call(a.key, "me")).status).toBe(401)
+      expect((await call("", "me")).status).toBe(401)
+      expect((await call(`oddsx_${"0".repeat(48)}`, "me")).status).toBe(401)
+      expect((await call(xkey, "nope", {})).status).toBe(404)
+    })
+
+    test("a job odds already holds is kept for the person with their chance, at no cost, and again is the same", async () => {
+      const [held] = (await db("postings?select=id,url,title&url=like.https://www.linkedin.com/jobs/view/*&closed_at=is.null&limit=1")) as Array<{ id: string; url: string; title: string }>
+      const before = ((await db(`extension_reads?user_id=eq.${a.id}&select=id`)) as unknown[]).length
+      const one = await call(xkey, "add", { url: `${held.url}?trackingId=abc&utm=x` })
+      expect(one.status).toBe(200)
+      expect(one.data.status).toBe("exists")
+      expect(one.data.saved).toBe(true)
+      expect(one.data.job.id).toBe(held.id)
+      expect(one.data.odds_link).toBe(`https://odds.beeblast.co/job/${held.id}`)
+      expect(typeof one.data.chance_pct === "number" || one.data.chance_pct === null).toBe(true)
+      expect(((await db(`saved_jobs?user_id=eq.${a.id}&posting_id=eq.${held.id}&select=posting_id`)) as unknown[]).length).toBe(1)
+      expect(((await db(`extension_reads?user_id=eq.${a.id}&select=id`)) as unknown[]).length).toBe(before)
+      const two = await call(xkey, "add", { url: held.url })
+      expect(two.data.status).toBe("exists")
+      expect(((await db(`saved_jobs?user_id=eq.${a.id}&posting_id=eq.${held.id}&select=posting_id`)) as unknown[]).length).toBe(1)
+    })
+
+    test("a link that is not a LinkedIn job, or no link, is refused before anything is paid", async () => {
+      expect((await call(xkey, "add", { url: "https://www.glassdoor.com/job-listing/x-JV_IC1.htm?jl=123" })).status).toBe(422)
+      expect((await call(xkey, "add", { url: "https://www.linkedin.com/feed/" })).status).toBe(422)
+      expect((await call(xkey, "add", {})).status).toBe(422)
+      expect((await call(xkey, "add", { url: "x".repeat(5000) })).status).toBe(413)
+    })
+
+    test("at thirty new jobs in a day the next unknown one is refused before it is read", async () => {
+      await db("extension_reads", { method: "POST", body: Array.from({ length: 30 }, () => ({ user_id: a.id, url: "https://www.linkedin.com/jobs/view/1000000001" })), prefer: "return=minimal" })
+      const r = await call(xkey, "add", { url: "https://www.linkedin.com/jobs/view/1999999999" })
+      expect(r.status).toBe(429)
+      expect(r.data.message).toContain("30 new jobs a day")
+      // Another person is not held back by it.
+      const bKey = await makeKey(b.id)
+      expect((await call(bKey, "me")).status).toBe(200)
+    })
+  })
+
   test("the existing tools still work for them", async () => {
     expect((await tool(a, "my_profile")).data.name).toBe("Test Person")
     expect((await tool(a, "my_jobs")).data.jobs.map((j: Json) => j.id)).toContain(jobs[0].id)

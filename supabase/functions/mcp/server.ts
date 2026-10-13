@@ -13,6 +13,7 @@ import { handleOAuth, unauthorized } from "./oauth.ts"
 import { accessFor, contentOf, driveEnv, linkOf, pushIfConnected } from "../_shared/drive.ts"
 import { cleanAnswers, missingAnswers, type Answers } from "../_shared/application-answers.ts"
 import { cleanCv, cvText, renderCvPdf } from "../_shared/cv-template.ts"
+import { parseJobUrl } from "../_shared/job-intake.ts"
 // @ts-ignore: npm specifier, resolved by Deno
 import * as PDFLib from "npm:pdf-lib@1.17.1"
 
@@ -963,8 +964,74 @@ async function answer(env: Env, me: Me | null, keyGiven: boolean, msg: Json): Pr
   }
 }
 
+// ---- The browser extension (own key, own routes: /mcp/ext/...) ----
+
+const EXT_KEY_RE = /^oddsx_[0-9a-f]{48}$/
+/** Jobs the extension may have read for one person in a day when we do not hold them yet (each read costs money). Jobs we hold are free and unlimited. */
+const EXT_DAILY_READS = 30
+
+async function extWho(env: Env, key: string): Promise<Me | null> {
+  if (!EXT_KEY_RE.test(key) || !env.serviceKey) return null
+  const rows = await svc(env, `extension_keys?key_hash=eq.${await sha256hex(key)}&select=user_id,last_used_at`)
+  const row = rows?.[0]
+  if (!row) return null
+  if (!row.last_used_at || Date.now() - Date.parse(row.last_used_at) > 600_000) void svc(env, `extension_keys?user_id=eq.${row.user_id}`, { method: "PATCH", body: JSON.stringify({ last_used_at: new Date().toISOString() }) }).catch(() => undefined)
+
+  return { id: row.user_id, email: null, key }
+}
+
+/** The job at a LinkedIn link: kept for them, read first if we do not hold it, with their interview chance. */
+async function handleExt(req: Request, env: Env): Promise<Response> {
+  const json = (status: number, body: Json): Response => new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } })
+  const route = new URL(req.url).pathname.replace(/^.*\/ext\//, "")
+  const me = await extWho(env, keyOf(req)).catch(() => null)
+  if (!me) return json(401, { error: "Connect the odds extension again." })
+  if (route === "me" && req.method === "GET") return json(200, { ok: true })
+  if (route !== "add" || req.method !== "POST") return json(404, { error: "Not found." })
+
+  let url = ""
+  try {
+    const raw = await req.text()
+    if (raw.length > 4000) return json(413, { error: "Too large." })
+    url = String((JSON.parse(raw) as Json)?.url ?? "")
+  } catch {
+    return json(400, { error: "Send { url }." })
+  }
+  const parsed = parseJobUrl(url)
+  if (!parsed) return json(422, { status: "unsupported", message: "Only LinkedIn job pages for now." })
+
+  // Free first: do we already hold this job? Only a job we do not hold is read (paid), and that is limited per person.
+  const held = await rest(env, `postings?select=id,closed_at&url=eq.${encodeURIComponent(parsed.url)}&limit=1`).catch(() => [])
+  if (!held?.[0]) {
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+    const used = await svc(env, `extension_reads?user_id=eq.${me.id}&created_at=gte.${since}&select=id`)
+    if ((used ?? []).length >= EXT_DAILY_READS) return json(429, { status: "limit", message: `Up to ${EXT_DAILY_READS} new jobs a day. Jobs odds already has are not counted.` })
+    await svc(env, "extension_reads", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ user_id: me.id, url: parsed.url }) })
+  }
+  const added = await fetch(`${env.url}/functions/v1/jobs/add`, { method: "POST", headers: { "Content-Type": "application/json", apikey: env.anonKey, Authorization: `Bearer ${env.anonKey}` }, body: JSON.stringify({ url: parsed.url }), signal: AbortSignal.timeout(120_000) }).catch(() => null)
+  const result: Json = added ? await added.json().catch(() => ({})) : {}
+  if (!added || !added.ok) return json(added?.status === 429 ? 429 : 502, { status: "error", message: result?.error ?? "odds could not read that job. Try again in a minute." })
+  if (result.status !== "added" && result.status !== "exists") {
+    const message = result.status === "closed" ? "That job is closed." : result.status === "not_netherlands" ? `That job is in ${result.place || "another country"}. odds keeps jobs in the Netherlands.` : (result.message ?? "That job could not be read.")
+
+    return json(200, { status: result.status ?? "error", message })
+  }
+
+  const id: string = result.id
+  await svc(env, "saved_jobs", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ user_id: me.id, posting_id: id }) })
+  const rows = await rest(env, `app_jobs?select=${COLUMNS}&id=eq.${encodeURIComponent(id)}`).catch(() => [])
+  const w = await worldFor(env)
+  const post = rows?.[0] ? core.preparePool(rows)[0] : null
+  const profile = await myProfile(env, me)
+  const chance = post && core.hasProfile(profile) ? core.chanceFor(post, profile, w.ref, w.shares) : null
+  const line = post ? core.jobLine(post, w.ref) : { id, title: result.title ?? null, company: result.employer ?? null }
+
+  return json(200, { status: result.status, saved: true, job: line, odds_link: `https://odds.beeblast.co/job/${id}`, chance_pct: chance?.chance_pct ?? null, needs_profile: !core.hasProfile(profile) })
+}
+
 export async function handle(req: Request, env: Env): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS })
+  if (new URL(req.url).pathname.includes("/ext/")) return handleExt(req, env)
   const oauth = await handleOAuth(req, env, CORS)
   if (oauth) return oauth
   if (req.method === "GET" && new URL(req.url).pathname.endsWith("/file")) return serveFile(req, env)

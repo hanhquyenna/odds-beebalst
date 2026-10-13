@@ -5,6 +5,7 @@ import type { ShellTab } from "@/components/AppShell"
 import { usePhone } from "@/lib/use-phone"
 import { NotifyPrompt } from "@/components/NotifyPrompt"
 import { connectWaiting } from "@/lib/connect-request"
+import { extensionWaiting } from "@/lib/extension-connect"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Toaster } from "@/components/ui/sonner"
@@ -40,6 +41,7 @@ const Documents = lazy(() => import("@/components/Documents").then((module) => (
 const ProfilePage = lazy(() => import("@/components/ProfilePage").then((module) => ({ default: module.ProfilePage })))
 const BetaInvitePrompt = lazy(() => import("@/components/BetaInvitePrompt").then((module) => ({ default: module.BetaInvitePrompt })))
 const AddToPhonePrompt = lazy(() => import("@/components/AddToPhonePrompt").then((module) => ({ default: module.AddToPhonePrompt })))
+const ExtensionConnect = lazy(() => import("@/components/ExtensionConnect").then((m) => ({ default: m.ExtensionConnect })))
 const ConnectApproval = lazy(() => import("@/components/ConnectApproval").then((m) => ({ default: m.ConnectApproval })))
 const ClaudePage = lazy(() => import("@/components/ClaudeGuide").then((module) => ({ default: module.ClaudePage })))
 // Lazy because it is one view among several: first-timers never load the
@@ -92,6 +94,7 @@ export default function App(): React.JSX.Element {
   const installGuide = useInstallGuide()
   // Claude sent someone here to connect: the card that asks them is loaded only then.
   const [connectRequest] = useState<boolean>(connectWaiting)
+  const [extensionRequest] = useState<boolean>(extensionWaiting)
   const phone = usePhone()
   // With answers already given the account is coming, so the welcome screen
   // must not flash first.
@@ -527,6 +530,11 @@ export default function App(): React.JSX.Element {
       {connectRequest ? (
         <Suspense fallback={null}>
           <ConnectApproval />
+        </Suspense>
+      ) : null}
+      {extensionRequest ? (
+        <Suspense fallback={null}>
+          <ExtensionConnect />
         </Suspense>
       ) : null}
     </div>

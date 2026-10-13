@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; width: 280px; padding: 16px; font: 14px/1.4 -apple-system, system-ui, "Segoe UI", sans-serif; color: #111; }
+  h1 { margin: 0 0 4px; font-size: 18px; letter-spacing: -.02em; }
+  p { margin: 6px 0 12px; color: #555; }
+  button { width: 100%; padding: 9px 12px; border: 0; border-radius: 8px; background: #111; color: #fff; font: 600 14px inherit; cursor: pointer; }
+  button.quiet { background: none; color: #555; text-decoration: underline; font-weight: 400; margin-top: 4px; }
+</style>
+</head>
+<body>
+  <h1>odds</h1>
+  <p id="line">Checking…</p>
+  <button id="main" hidden></button>
+  <button id="off" class="quiet" hidden>Disconnect</button>
+  <script src="popup.js"></script>
+</body>
+</html>

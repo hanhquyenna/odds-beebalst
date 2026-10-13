@@ -61,7 +61,7 @@ export function jobRows(page: Page): Locator {
 }
 
 /** Routes every request of the context: Supabase to fixtures, logos to a pixel, the app itself through, anything else is a failure. */
-async function mockBackend(context: BrowserContext, postings: Posting[], problems: string[], signedIn: boolean): Promise<void> {
+export async function mockBackend(context: BrowserContext, postings: Posting[], problems: string[], signedIn: boolean): Promise<void> {
   const sorted = [...postings].sort((a, b) => a.id.localeCompare(b.id))
   await context.route("**/*", async (route: Route): Promise<void> => {
     const url = new URL(route.request().url())
