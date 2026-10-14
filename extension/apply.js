@@ -7,7 +7,9 @@
   const PAGE = globalThis.oddsPage
   if (!A || !PAGE || !/(^|\.)linkedin\.com$/.test(location.hostname)) return
 
-  const MODAL = '[data-test-modal-id="easy-apply-modal"]'
+  // The Easy Apply form: LinkedIn's classic modal, or the <dialog> of its newer job pages ("Apply to <company>").
+  const MODAL = '[data-test-modal-id="easy-apply-modal"], dialog[data-testid="dialog"]'
+  const modalOnPage = () => [...document.querySelectorAll(MODAL)].find((m) => m.matches("[data-test-modal-id]") || (m.open && /^apply to\b/i.test(m.querySelector("h2, h1")?.innerText.trim() || ""))) || null
   const NEXT = /continue to next step|review your application|^next$|^review$/i
   const SUBMIT = /submit/i
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -23,13 +25,15 @@
 
   /** One question of the step: its words, how it is asked, and the element(s) to answer it with. */
   function questionOf(group) {
-    const labelEl = group.querySelector("legend, label, [data-test-form-builder-radio-button-form-component__title]")
-    const label = A.questionText(labelEl?.innerText || group.getAttribute("aria-label") || "")
+    // The classic form labels a question; the newer one often names it only on the field (aria-label) or the radio choices, and writes it in a <p>.
+    const labelEl = [...group.querySelectorAll("legend, label, [data-test-form-builder-radio-button-form-component__title]")].find((l) => l.innerText.trim())
+    const field = group.querySelector("input, select, textarea")
+    const label = A.questionText(labelEl?.innerText || group.getAttribute("aria-label") || field?.getAttribute("aria-label") || group.querySelector('[role="radio"]')?.getAttribute("aria-label") || group.querySelector("p")?.innerText || "")
     if (!label) return null
     const select = group.querySelector("select")
     if (select) return { group, label, kind: "select", el: select, options: [...select.options].map((o) => o.text.trim()) }
     const radios = [...group.querySelectorAll('input[type="radio"]')]
-    if (radios.length) return { group, label, kind: "radio", el: radios, options: radios.map((r) => (group.querySelector(`label[for="${CSS.escape(r.id)}"]`)?.innerText || r.value || "").trim()) }
+    if (radios.length) return { group, label, kind: "radio", el: radios, options: radios.map((r) => (group.querySelector(`label[for="${CSS.escape(r.id)}"]`)?.innerText || r.closest('[role="radio"]')?.innerText || r.value || "").trim()) }
     if (group.querySelector('input[type="checkbox"]')) return { group, label, kind: "checkbox", el: [...group.querySelectorAll('input[type="checkbox"]')] }
     const area = group.querySelector("textarea")
     if (area) return { group, label, kind: "textarea", el: area }
@@ -78,6 +82,8 @@
       const i = A.chooseOption(q.options, answer, q.label)
       if (i < 0) return false
       q.el[i].click()
+      // The newer form listens on the choice around the radio.
+      if (!q.el[i].checked) q.el[i].closest('[role="radio"]')?.click()
       return true
     }
     if (q.kind === "checkbox") return false
@@ -101,14 +107,16 @@
   async function chooseCv(modal, kit) {
     if (!kit.cv?.for_this_job) return
     const want = [kit.cv.file_name, kit.cv.name].filter(Boolean).map((n) => n.toLowerCase().replace(/\.[a-z]+$/, ""))
-    const cards = [...modal.querySelectorAll('input[type="radio"][id^="jobsDocumentCardToggle"]')]
+    const cards = documentRadios(modal)
     if (!cards.length && !modal.querySelector('input[type="file"]')) return
-    const mine = cards.find((r) => want.some((w) => (r.getAttribute("aria-label") || "").toLowerCase().includes(w)))
+    const nameOf = (r) => (r.getAttribute("aria-label") || r.closest('[role="radio"]')?.getAttribute("aria-label") || "").toLowerCase()
+    const mine = cards.find((r) => want.some((w) => nameOf(r).includes(w)))
     if (mine) {
       if (!mine.checked) mine.click()
+      if (!mine.checked) mine.closest('[role="radio"]')?.click()
       return
     }
-    const upload = modal.querySelector('input[type="file"][id*="upload-resume"], input[type="file"][name="file"]')
+    const upload = modal.querySelector('input[type="file"][id*="upload-resume"], input[type="file"][name="file"]') || [...modal.querySelectorAll('input[type="file"]')].find((f) => /resume|cv|pdf/i.test(`${f.accept} ${f.id} ${f.name} ${f.getAttribute("aria-label") || ""}`))
     if (!upload || session.uploaded) return
     const file = await ask({ type: "cv-file", doc: kit.cv.id })
     if (file?.status !== "ok") return
@@ -126,14 +134,41 @@
     if (!bar) {
       bar = document.createElement("div")
       bar.className = "odds-apply-bar"
-      const where = modal.querySelector(".artdeco-modal__content, [data-test-modal] .jobs-easy-apply-content") || modal.querySelector('[role="dialog"]') || modal
-      where.prepend(bar)
+      const header = modal.matches("dialog") ? modal.querySelector("header") : null
+      if (header) header.after(bar)
+      else (modal.querySelector(".artdeco-modal__content, [data-test-modal] .jobs-easy-apply-content") || modal.querySelector('[role="dialog"]') || modal).prepend(bar)
     }
     bar.dataset.state = state
     bar.textContent = text
   }
 
-  const questionsOf = (modal) => [...modal.querySelectorAll("[data-test-form-element]")].filter(shown).map(questionOf).filter(Boolean)
+  /** The form's questions, one box each: LinkedIn marks them in its classic form; in the newer one a question is its fieldset, or the smallest
+   *  box holding a field and its label. */
+  function groupsOf(modal) {
+    const marked = [...modal.querySelectorAll("[data-test-form-element]")]
+    if (marked.length) return marked
+    const groups = new Set()
+    for (const el of modal.querySelectorAll('fieldset, select, textarea, input:not([type="hidden"]):not([type="file"])')) {
+      if (el.tagName !== "FIELDSET" && el.closest("fieldset")) continue
+      if (el.tagName === "FIELDSET") {
+        groups.add(el)
+        continue
+      }
+      const label = el.id ? modal.querySelector(`label[for="${CSS.escape(el.id)}"]`) : null
+      let box = el.parentElement
+      while (label && box && box !== modal && !box.contains(label)) box = box.parentElement
+      // No label: the box whose own <p> asks the question.
+      for (let up = 0; !label && up < 4 && box && box !== modal && !box.querySelector(":scope > p"); up++) box = box.parentElement
+      if (box && box !== modal) groups.add(box)
+    }
+    return [...groups]
+  }
+  /** The CVs LinkedIn keeps, as radios (not a question: chosen by chooseCv). */
+  const documentRadios = (modal) => [...modal.querySelectorAll('input[type="radio"]')].filter((r) => /^jobsDocumentCardToggle/.test(r.id) || /\.(pdf|docx?)$/i.test(r.closest('[role="radio"]')?.getAttribute("aria-label") || ""))
+  const questionsOf = (modal) => {
+    const documents = new Set(documentRadios(modal))
+    return groupsOf(modal).filter((g) => shown(g) && ![...g.querySelectorAll('input[type="radio"]')].some((r) => documents.has(r))).map(questionOf).filter(Boolean)
+  }
   const signature = (modal) => [modal.querySelector("h3")?.innerText || "", ...questionsOf(modal).map((q) => q.label), nextButton(modal) ? labelOfButton(nextButton(modal)) : "submit"].join("|")
 
   /** Waits until the form shows another step (or closes); false when it did not within the time. */
@@ -219,7 +254,7 @@
   async function watchSent(job) {
     for (let waited = 0; waited < 20000; waited += 500) {
       await sleep(500)
-      const said = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], .artdeco-modal')].some((d) => /application (was )?sent|your application was sent|sent your application|application submitted/i.test(d.innerText || ""))
+      const said = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], .artdeco-modal, dialog[open]')].some((d) => /application (was )?sent|your application was sent|sent your application|application submitted/i.test(d.innerText || ""))
       if (!said) continue
       let done = await ask({ type: "applied", url: job.url })
       if (done?.status !== "ok") {
@@ -245,6 +280,28 @@
     true,
   )
 
+  /** The open job's Apply (Easy Apply, or Apply on the employer's site), not one in a list of other jobs. */
+  function applyButton() {
+    const classic = [...document.querySelectorAll("#jobs-apply-button-id, .jobs-apply-button")].find(shown)
+    if (classic) return classic
+    return [...document.querySelectorAll("main button, main a[role='button'], button")].find((b) => shown(b) && /^(easy apply\b|apply$|apply on\b|apply to this job)/i.test(labelOfButton(b)) && !b.closest("[data-job-id], [data-occludable-job-id], .job-card-container, a[href*='similar-jobs'], dialog")) || null
+  }
+
+  /** Where the employer takes applications for a LinkedIn job, as LinkedIn's own page knows it (the person's session), or null. */
+  async function offsiteUrl(id) {
+    try {
+      const csrf = /JSESSIONID="?([^";]+)/.exec(document.cookie)?.[1]
+      if (!csrf) return null
+      const res = await fetch(`/voyager/api/jobs/jobPostings/${id}`, { credentials: "include", headers: { "csrf-token": csrf, accept: "application/json" }, signal: AbortSignal.timeout(8000) })
+      if (!res.ok) return null
+      const body = await res.json()
+      const url = (body?.data || body)?.applyMethod?.["com.linkedin.voyager.jobs.OffsiteApply"]?.companyApplyUrl
+      return typeof url === "string" && /^https:\/\//.test(url) ? url : null
+    } catch {
+      return null
+    }
+  }
+
   // The form opens in a modal LinkedIn adds to the page when Easy Apply is pressed.
   // Opened from "odds apply" in the panel: the application is started here, Easy Apply pressed (and filled in above), or the employer's own
   // Apply pressed, which opens their form (filled in by apply-any.js, the intent going along to that tab).
@@ -255,10 +312,15 @@
     for (let waited = 0; waited < 15000; waited += 300) {
       await sleep(300)
       if (PAGE.site.open?.()?.id !== wanted) continue
-      const button = [...document.querySelectorAll("#jobs-apply-button-id, .jobs-apply-button")].find(shown)
+      const button = applyButton()
       if (!button) continue
       await ask({ type: "apply-started" })
-      if (!/easy apply/i.test(labelOfButton(button))) await ask({ type: "apply-follow" })
+      if (/easy apply/i.test(labelOfButton(button))) return button.click()
+      // Applied for on the employer's site: their form is opened in this tab straight away (a scripted press on LinkedIn's Apply would open a
+      // window Chrome blocks), and filled in there by apply-any.js.
+      const there = await offsiteUrl(wanted)
+      if (there) return ask({ type: "apply-go", url: there })
+      await ask({ type: "apply-follow" })
       button.click()
       return
     }
@@ -271,7 +333,7 @@
     looking = true
     requestAnimationFrame(() => {
       looking = false
-      const modal = document.querySelector(MODAL)
+      const modal = modalOnPage()
       if (modal && (!session || session.modal !== modal)) run(modal)
       if (!modal && session && !session.submitted) session = null
     })

@@ -322,6 +322,17 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     })
     return true
   }
+  // A LinkedIn job applied for on the employer's site: their form opens in the same tab, which is still applying for that job.
+  if (message?.type === "apply-go" && sender.tab && typeof sender.tab.id === "number" && typeof message.url === "string" && /^https:\/\//.test(message.url)) {
+    const tabId = sender.tab.id
+    intentOf(tabId).then(async (intent) => {
+      if (!intent) return reply({ ok: false })
+      await setIntent(tabId, { job: intent.job, at: Date.now(), followed: true })
+      await chrome.tabs.update(tabId, { url: message.url })
+      reply({ ok: true })
+    })
+    return true
+  }
   // Applying: what the form needs, the person's own answers kept, the job marked applied, their CV for the upload.
   if (message?.type === "apply-kit" && typeof message.url === "string") {
     ext("apply-kit", { method: "POST", body: JSON.stringify({ url: message.url }) }).then(reply)

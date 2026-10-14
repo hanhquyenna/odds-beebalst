@@ -18,6 +18,7 @@ export {
   CalendarPlus as CalendarPlusIcon,
   Camera as CameraIcon,
   Check as CheckIcon,
+  Sparkle as SparkleIcon,
   CaretDown as ChevronDownIcon,
   CaretLeft as ChevronLeftIcon,
   CaretRight as ChevronRightIcon,

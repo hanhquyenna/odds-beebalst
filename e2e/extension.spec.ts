@@ -44,6 +44,8 @@ interface Fake {
   answersByUrl: Record<string, Record<string, unknown>>
   analyzeAnswer?: Record<string, unknown>
   addDelays: Record<string, number>
+  /** How long look-ups take to answer. */
+  peekDelay: number
   pools: number
   sessions: number
   answer: Record<string, unknown>
@@ -63,6 +65,7 @@ async function fakeOdds(): Promise<Fake> {
     analyzed: [],
     answersByUrl: {},
     addDelays: {},
+    peekDelay: 0,
     pools: 0,
     sessions: 0,
     answer: { status: "added", saved: true, chance_pct: 4.4, job: { id: "pabc", title: "Finance Intern" }, odds_link: "https://odds.beeblast.co/job/pabc" },
@@ -124,7 +127,7 @@ async function fakeOdds(): Promise<Fake> {
 
         return
       }
-      const delay = path.endsWith("/ext/add") ? fake.addDelays[String(body.url)] ?? 0 : 0
+      const delay = path.endsWith("/ext/add") ? fake.addDelays[String(body.url)] ?? 0 : path.endsWith("/ext/peek") ? fake.peekDelay : 0
       setTimeout(() => res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify(answer)), delay)
     })
   })
@@ -336,9 +339,7 @@ test("says what happened for a job that cannot be added, and for a person withou
   await page.locator("#odds-add").click()
   await expect(page.locator("#odds-add")).toContainText("That job is in Germany")
   await expect(page.locator("#odds-add")).toHaveAttribute("data-state", "problem")
-  // Pressing it again looks the job up again.
-  await page.locator("#odds-add").click()
-  await expect(page.locator("#odds-add")).toHaveAttribute("data-state", "idle")
+  // Pressing it again adds it again (a press always opens the job, never only looks it up).
   fake.answer = { status: "exists", saved: true, chance_pct: null, needs_profile: true, job: { id: "pabc", title: "Finance Intern" } }
   await page.locator("#odds-add").click()
   await expect(page.locator("#odds-add")).toContainText("Add your CV on odds to see your chance")
@@ -1143,4 +1144,116 @@ test("odds apply on a LinkedIn job: Easy Apply is pressed by odds and filled in,
   await page.reload()
   await page.waitForTimeout(2500)
   await expect(modal).toHaveCount(0)
+})
+
+/** LinkedIn's newer job page as it is drawn since autumn 2026 (hashed classes, captured from the real page): the job's chips link to the job
+ *  itself, Apply and Save are plain buttons named by aria-label, Easy Apply is a <dialog> whose questions are named on the field or the choice. */
+const NEW_LINKEDIN = (apply: string): string => `<!doctype html><html><head><meta charset="utf-8"></head><body><main>
+<h1>Data Intern</h1><p>Acme · Amsterdam</p>
+<div class="chips"><a href="https://www.linkedin.com/jobs/view/4470000302/" style="display:inline-block;padding:6px 12px;border:1px solid #333;border-radius:999px">On-site</a>
+<a href="https://www.linkedin.com/jobs/view/4470000302/" style="display:inline-block;padding:6px 12px;border:1px solid #333;border-radius:999px">Full-time</a></div>
+<div class="row" style="display:flex;gap:8px;margin-top:12px"><button class="hcb1" aria-label="${apply}" style="height:40px;border-radius:999px;padding:0 16px;background:#0a66c2;color:#fff;border:0">${apply.startsWith("Easy") ? "Easy Apply" : "Apply"}</button><button class="hcb1" aria-label="Save the job" style="height:40px;border-radius:999px;padding:0 16px">Save</button></div>
+</main>
+<script>
+const steps = [
+  { title: "Contact info", html: \`<div><label for="_r_1">Email address*</label><select id="_r_1" required><option></option><option>kien@example.com</option></select></div>
+    <div><label for="_r_2">Phone country code*</label><select id="_r_2" required><option></option><option value="nl">Netherlands (+31)</option></select></div>
+    <div><label for="_r_3">Mobile phone number*</label><input id="_r_3" type="tel" required></div>\` },
+  { title: "Resume", html: \`<fieldset role="radiogroup"><div role="radio" aria-label="Kien_Old_CV.pdf"><input id="_r_4" type="radio" name="cv" checked><label for="_r_4"></label></div>
+    <div role="radio" aria-label="Kien_Data_CV.pdf"><input id="_r_5" type="radio" name="cv"><label for="_r_5"></label></div></fieldset>\` },
+  { title: "Additional Questions", html: \`<div><label for="_r_6">What is your level of proficiency in Dutch?*</label><select id="_r_6" required><option>Select an option</option><option>None</option><option>Conversational</option><option>Professional</option></select></div>
+    <fieldset role="radiogroup"><div><div role="radio" aria-label="Will you now or in the future require visa sponsorship?"><input id="_r_7" type="radio" name="sp"><label for="_r_7"></label><p>Yes</p></div>
+    <div role="radio" aria-label="Will you now or in the future require visa sponsorship?"><input id="_r_8" type="radio" name="sp"><label for="_r_8"></label><p>No</p></div></div></fieldset>
+    <div><p>Hoeveel jaar werk je al met SQL? *</p><div><div><input id="_r_9" required aria-label="Hoeveel jaar werk je al met SQL? " type="text"></div><div><p>0/20</p></div></div></div>\` },
+  { title: "Review your application", html: "<p>Review</p>" },
+]
+let at = 0
+window.submits = 0
+window.seen = {}
+function draw() {
+  const d = document.querySelector("dialog[data-testid=dialog]")
+  const last = at === steps.length - 1
+  d.querySelector(".body").innerHTML = "<h3>" + steps[at].title + "</h3>" + steps[at].html
+  d.querySelector(".buttons").innerHTML = '<button aria-label="Dismiss">x</button>' + (last ? "<button>Submit application</button>" : at === steps.length - 2 ? "<button>Review</button>" : "<button>Next</button>")
+}
+document.addEventListener("click", (event) => {
+  const b = event.target.closest("button")
+  if (!b) return
+  const label = (b.getAttribute("aria-label") || b.innerText).trim()
+  if (label === "Easy Apply to this job") {
+    document.body.insertAdjacentHTML("beforeend", '<dialog data-testid="dialog" aria-labelledby="dialog-header"><header><h2 id="dialog-header">Apply to Acme</h2></header><div class="body"></div><div class="buttons"></div></dialog>')
+    document.querySelector("dialog").showModal()
+    draw()
+  }
+  if (label === "Apply on company website") window.pressedOffsite = true
+  if (label === "Next" || label === "Review") {
+    for (const el of document.querySelectorAll("dialog input, dialog select")) window.seen[el.id] = el.type === "radio" ? el.checked : el.value
+    setTimeout(() => { at++; draw() }, 150)
+  }
+  if (label === "Submit application") window.submits++
+})
+</script></body></html>`
+
+test("LinkedIn's newer job page: no badge on the job's own chips, and odds apply presses Easy Apply and fills its dialog in, stopping before Submit", async ({ context, fake }) => {
+  await connect(context)
+  await context.route("https://www.linkedin.com/jobs/view/4470000302/**", (route) => route.fulfill({ contentType: "text/html", body: NEW_LINKEDIN("Easy Apply to this job") }))
+  fake.peek = { known: true, id: "pnew", saved: true, chance_pct: 14.1 }
+  fake.kit = { job_id: "pnew", facts: { name: "Kien Phung", email: "kien@example.com", dutch: "basic", answers: { phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true } }
+  const page = await context.newPage()
+  await page.goto("https://www.linkedin.com/jobs/view/4470000302/")
+  // One button, beside Save; none on "On-site" or "Full-time".
+  await expect(page.locator("#odds-add")).toContainText("14.1%")
+  await page.waitForTimeout(800)
+  await expect(page.locator(".odds-job-chance")).toHaveCount(0)
+  await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4470000302")
+  const dialog = page.locator("dialog[data-testid=dialog]")
+  await expect(dialog.locator("h3")).toHaveText("Additional Questions", { timeout: 12000 })
+  expect(await page.evaluate(() => (window as unknown as { seen: Record<string, unknown> }).seen)).toMatchObject({ _r_3: "612345678", _r_5: true, _r_4: false })
+  await expect(dialog.locator("#_r_6")).toHaveValue("Conversational")
+  expect(await dialog.locator("#_r_8").isChecked()).toBe(true)
+  // The question named only on its field is outlined, by its words.
+  await expect(dialog.locator(".odds-apply-bar")).toContainText("Answer the marked question")
+  await expect(dialog.locator(".odds-ask")).toHaveCount(1)
+  await expect(dialog.locator(".odds-ask")).toContainText("SQL")
+  await dialog.locator("#_r_9").fill("3")
+  await dialog.getByRole("button", { name: "Review" }).click()
+  await expect.poll(() => fake.kept).toEqual([{ question: "Hoeveel jaar werk je al met SQL?", answer: "3" }])
+  await expect(dialog.locator(".odds-apply-bar")).toContainText("press Submit yourself", { timeout: 8000 })
+  await page.waitForTimeout(1200)
+  expect(await page.evaluate(() => (window as unknown as { submits: number }).submits)).toBe(0)
+  await shot(page, "ext-easy-apply-new")
+})
+
+test("odds apply on a LinkedIn job applied for on the employer's site: their form opens in the same tab and is filled in there", async ({ context, fake }) => {
+  await connect(context)
+  await context.route("https://www.linkedin.com/jobs/view/4470000302/**", (route) => route.fulfill({ contentType: "text/html", body: NEW_LINKEDIN("Apply on company website") }))
+  await context.route("https://www.linkedin.com/voyager/api/jobs/jobPostings/4470000302", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ applyMethod: { "com.linkedin.voyager.jobs.OffsiteApply": { companyApplyUrl: "https://boards.example-ats.com/acme/jobs/123" } } }) }))
+  await context.route("https://boards.example-ats.com/acme/jobs/123**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  await context.addCookies([{ name: "JSESSIONID", value: '"ajax:123"', domain: ".www.linkedin.com", path: "/" }])
+  fake.peek = { known: true, id: "pnew", saved: true, chance_pct: 14.1 }
+  fake.kit = { job_id: "pnew", facts: { name: "Kien Phung", email: "kien@example.com", answers: { phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: {} }, cv: null }
+  const page = await context.newPage()
+  await page.goto("https://www.linkedin.com/jobs/view/4470000302/")
+  await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4470000302")
+  await expect(page).toHaveURL("https://boards.example-ats.com/acme/jobs/123", { timeout: 12000 })
+  await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 8000 })
+  await expect(page.locator("#auth")).toHaveValue("Yes")
+  expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+})
+
+test("a press before the chance has come back still opens the job (added now), and a saved job pressed opens it again", async ({ context, fake }) => {
+  await connect(context)
+  fake.peekDelay = 6000
+  fake.answer = { status: "exists", saved: true, chance_pct: 14.1, job: { id: "pabc", title: "Finance Intern" } }
+  const page = await context.newPage()
+  await page.goto(JOB)
+  await expect(page.locator("#odds-add")).toHaveAttribute("data-state", "busy")
+  await page.locator("#odds-add").click()
+  await expect(page.locator("#odds-panel-frame")).toHaveAttribute("data-open", "true", { timeout: 4000 })
+  await expect(page.locator("#odds-add")).toContainText("14.1%", { timeout: 4000 })
+  expect(fake.calls).toHaveLength(1)
+  // The late look-up does not undo it.
+  await page.waitForTimeout(6000)
+  await expect(page.locator("#odds-add")).toContainText("14.1%")
+  await expect(page.locator("#odds-add")).toHaveAttribute("data-state", "done")
 })

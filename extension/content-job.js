@@ -35,7 +35,7 @@ const percent = (n) => (typeof n === "number" ? `${n}%` : "—")
 function show() {
   if (!button) return
   const c = current
-  if (c.phase === "peeking") return draw("busy", "…", "Looking up your chance for this job")
+  if (c.phase === "peeking" || c.phase === "adding") return draw("busy", "…", "Looking up your chance for this job")
   if (c.phase === "connect") return draw("problem", "—", "Connect odds to see your interview chance here")
   if (c.phase === "error") return draw("problem", "—", "Try again", c.message || "odds did not answer.")
   if (c.closed) return draw("idle", "—", "This job is closed")
@@ -115,7 +115,8 @@ function peek(job) {
   current = { id: job.id, url: job.url, phase: "peeking", chance: null, saved: false, known: false, closed: false, needsProfile: false }
   show()
   chanceOf(job).then((answer) => {
-    if (current.id !== job.id) return
+    // Pressed while it was being looked up: the press's own answer is the one shown.
+    if (current.id !== job.id || current.phase !== "peeking") return
     if (!answer) current = { ...current, phase: "error" }
     else if (answer.status === "connect") current = { ...current, phase: "connect" }
     else if (answer.status !== "ok") current = { ...current, phase: "error", message: answer.message }
@@ -142,6 +143,7 @@ async function keepJob(job, card, known) {
 function add() {
   const selection = ++panelSelection
   const { id, url } = current
+  current = { ...current, phase: "adding" }
   draw("busy", "…", "Adding this job to odds")
   // The side panel opens first, at once, and the job drops into it when it is added (adding can take a while, the press cannot wait for it).
   showPanel((native) => {
@@ -174,18 +176,17 @@ function add() {
   })
 }
 
+/** A press always opens the job in the panel: saved already, still being looked up, or not answered the first time (then it is added now). */
 function press() {
   const c = current
   if (c.phase === "connect") return chrome.runtime.sendMessage({ type: "open-connect" })
-  if (c.phase === "error") return peek({ id: c.id, url: c.url })
-  if (c.phase !== "ready" || c.closed) return
-  if (c.saved) {
+  if (c.phase === "adding" || (c.phase === "ready" && c.closed)) return
+  if (c.phase === "ready" && c.saved && c.job) {
     const selection = ++panelSelection
     return showPanel((native) => {
       if (selection !== panelSelection) return
-      if (native && c.job) chrome.runtime.sendMessage({ type: "panel-added", job: { ...c.job, chance_pct: c.chance } })
-      else if (c.job) openPanel({ ...c.job, chance_pct: c.chance })
-      else togglePanel()
+      if (native) chrome.runtime.sendMessage({ type: "panel-added", job: { ...c.job, chance_pct: c.chance } })
+      else openPanel({ ...c.job, chance_pct: c.chance })
     })
   }
   add()
@@ -299,7 +300,8 @@ function sync() {
     show()
     window.clearTimeout(waiting)
     waiting = window.setTimeout(() => {
-      if (current.id === job.id) peek(job)
+      // Pressed in the meantime: the press is adding it already.
+      if (current.id === job.id && current.phase === "peeking") peek(job)
     }, 250)
   }
 }
@@ -330,6 +332,8 @@ function renderCard(badge, result) {
   if (badge.dataset.state !== state) badge.dataset.state = state
 }
 function cardResult(id, result) {
+  // A look-up that answers after the job was pressed (and is being added) does not undo the press.
+  if (cardResults.get(id)?.pressed && !result.pressed && !result.saved && result.status === "ok") return
   cardResults.set(id, result)
   for (const badge of document.querySelectorAll(`.odds-job-chance[data-job-id="${CSS.escape(id)}"]`)) renderCard(badge, result)
 }
@@ -381,14 +385,10 @@ function drainReads() {
 function openCard(id) {
   const result = cardResults.get(id)
   const entry = cardJobs.get(id)
-  if (!entry || !result || result.loading || result.closed) return
-  if (result.status === "connect") return chrome.runtime.sendMessage({ type: "open-connect" })
-  if (result.status !== "ok") {
-    cardResults.set(id, { loading: true })
-    cardQueue.push(id)
-    drainCards()
-    return
-  }
+  if (!entry || result?.closed || result?.pressed) return
+  if (result?.status === "connect") return chrome.runtime.sendMessage({ type: "open-connect" })
+  // Still being looked up, or not answered: the press adds it now (and opens it) instead of waiting.
+  const r = result && !result.loading && result.status === "ok" ? result : {}
   const selection = ++panelSelection
   showPanel((native) => {
     if (selection !== panelSelection) return
@@ -402,15 +402,15 @@ function openCard(id) {
       else openPanel(selected)
     }
     // The job was already read: show it immediately while saving runs in the background.
-    if (result.job?.id) deliver(result)
-    if (result.saved) return
-    if (result.known === false) cardResult(id, { loading: true, status: "ok" })
-    keepJob(entry.job, entry.card, result.known !== false).then((answer) => {
+    if (r.job?.id) deliver(r)
+    if (r.saved) return
+    if (r.known !== true) cardResult(id, { loading: true, status: "ok", pressed: true })
+    keepJob(entry.job, entry.card, r.known === true).then((answer) => {
       if (!answer) return cardResult(id, { status: "error", message: "Could not open that job. Try again." })
       if (["added", "exists"].includes(answer.status)) {
         const saved = { ...answer, status: "ok", known: true, saved: true }
         cardResult(id, saved)
-        if (!result.job?.id) deliver(saved)
+        if (!r.job?.id) deliver(saved)
       } else cardResult(id, { ...answer, status: answer.status === "connect" ? "connect" : "error" })
     })
   })

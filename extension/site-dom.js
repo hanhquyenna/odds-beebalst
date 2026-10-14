@@ -155,10 +155,12 @@
       cards() {
         const out = []
         const seen = new Set()
+        // The open job's own page links to itself (its "On-site", "Full-time" chips): that job has its button beside Save, not a badge.
+        const open = SITES.linkedin.open()?.id
         for (const link of document.querySelectorAll('a[href*="/jobs/view/"], a[href*="currentJobId="]')) {
           const id = LINKEDIN_ID.exec(link.getAttribute("href"))?.[1]
           const card = link.closest("[data-job-id], [data-occludable-job-id], .job-card-container, .jobs-search-results__list-item, .scaffold-layout__list-item") || link
-          if (!id || seen.has(id) || (card === link && link.closest("h1, .jobs-search__job-details, .jobs-details__main-content"))) continue
+          if (!id || seen.has(id) || (card === link && (id === open || link.closest("h1, .jobs-search__job-details, .jobs-details__main-content")))) continue
           seen.add(id)
           const save = [...card.querySelectorAll("button")].find((b) => /^(save|saved)\b/i.test((b.getAttribute("aria-label") || b.textContent || "").trim()))
           // Search cards: a row of 32px round buttons at the card's corner (Dismiss ✕); odds is the first of them. Inside the title it would be cut off.

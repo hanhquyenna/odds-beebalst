@@ -37,7 +37,8 @@ LinkedIn says the application was sent, the job is marked applied on your odds t
 `supabase/functions/_shared/apply-form.ts`, built into `job-sites.js` with the job-site rules.
 
 "odds apply" (a button under Apply on a job in the odds panel) opens the job in your tab and starts its application there: on LinkedIn odds presses
-Easy Apply (or the employer's Apply, following it into the tab it opens); anywhere else apply-any.js fills in the employer's form by its labels
+Easy Apply (classic modal or the newer job page's dialog), or opens the employer's own form in the same tab (where LinkedIn says the employer takes
+applications, read from LinkedIn's page data in your session; else their Apply is pressed and followed into the tab it opens); anywhere else apply-any.js fills in the employer's form by its labels
 (name, email, phone, LinkedIn, website, city, your standard and earlier answers) and puts your CV in its CV upload. Only in a tab opened that way,
 for a few minutes; it never sends a form.
 
