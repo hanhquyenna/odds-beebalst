@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import { execFileSync } from "node:child_process"
-import { mkdtempSync, readFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { createHash } from "node:crypto"
+import { readFileSync } from "node:fs"
+import { runInNewContext } from "node:vm"
 import { join } from "node:path"
 import { heldFilter, jobLink, linkedinPublicJob, postingFrom, postingFromLinkedIn, postingSent, postingUsable, siteOfHost, textOf } from "../../supabase/functions/_shared/job-sites"
 
@@ -130,11 +130,21 @@ describe("postingSent: a job a browser hands over is taken only as plain text", 
   })
 })
 
-test("the extension's copy of these rules is built from this file (run scripts/build-extension.sh)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "odds-sites-"))
-  execFileSync("bun", ["build", "scripts/extension-sites.ts", "--format=iife", "--target=browser", "--outfile", join(dir, "job-sites.js")], { cwd: join(import.meta.dirname, "..", ".."), stdio: "ignore" })
-  const built = readFileSync(join(import.meta.dirname, "..", "..", "extension", "job-sites.js"), "utf8")
-  expect(built.slice(built.indexOf("\n") + 1).trim()).toBe(readFileSync(join(dir, "job-sites.js"), "utf8").trim())
+test("the extension's copy of these rules is built from these files (run scripts/build-extension.sh), and answers the same", () => {
+  const root = join(import.meta.dirname, "..", "..")
+  const sources = ["supabase/functions/_shared/job-sites.ts", "supabase/functions/_shared/apply-form.ts", "scripts/extension-sites.ts"].map((f) => readFileSync(join(root, f)))
+  const sum = createHash("sha256").update(Buffer.concat(sources)).digest("hex").slice(0, 16)
+  const built = readFileSync(join(root, "extension", "job-sites.js"), "utf8")
+  expect(built.split("\n")[0]).toContain(`(sources ${sum})`)
+  // Run as the extension runs it: the rules on globalThis.
+  const scope: Record<string, unknown> = { URL }
+  runInNewContext(built, scope)
+  const rules = scope as unknown as { oddsSites: { jobLink(u: string, any?: boolean): unknown }; oddsApply: { answerText(l: string, f: object): unknown } }
+  for (const url of ["https://nl.indeed.com/jobs?q=x&vjk=7407e8c28ca1379a", "https://www.linkedin.com/jobs/view/4466096458/", "https://careers.example.com/jobs/1?utm_source=x"]) {
+    // Through JSON: an object made in the other context is compared by what it holds.
+    expect(JSON.parse(JSON.stringify(rules.oddsSites.jobLink(url, true)))).toEqual(jobLink(url, true))
+  }
+  expect(rules.oddsApply.answerText("Mobile phone number", { answers: { phone: "+31 6 1" } })).toBe("+31 6 1")
 })
 
 test("a LinkedIn job from LinkedIn's public page of it, as scripts/pull-linkedin-public.ts reads it", () => {
