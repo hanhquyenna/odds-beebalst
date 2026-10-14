@@ -63,4 +63,5 @@ export async function saveAnswers(userId: string, values: AnswerValues): Promise
   }
   const { error } = await supabase.from("application_answers").upsert({ user_id: userId, data, updated_at: new Date().toISOString() }, { onConflict: "user_id" })
   if (error) throw new Error("Could not save. Try again.")
+  window.dispatchEvent(new Event("odds:answers-saved"))
 }

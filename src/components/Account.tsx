@@ -36,6 +36,8 @@ import { downloadCsv, toCsv } from "@/lib/export-csv"
 import { appliedDay, overrideOf } from "@/lib/cells"
 import { formatPlace } from "@/lib/format"
 
+const SetupCard = lazy(() => import("@/components/SetupCard").then((m) => ({ default: m.SetupCard })))
+
 // Lazy: the people view is the second tab and carries the outreach tools, so the jobs open without it. Pointing at its tab fetches it.
 const loadPeople = (): Promise<typeof import("@/components/People")> => import("@/components/People")
 const PeopleView = lazy(() => loadPeople().then((module) => ({ default: module.PeopleView })))
@@ -182,6 +184,10 @@ export function Account({ looking, onStartLooking, onStopLooking, onOpenClaude }
         <SearchSummary />
 
         <HeardBack />
+
+        <Suspense fallback={null}>
+          <SetupCard onJobs={onStartLooking} />
+        </Suspense>
 
         {/* Only once there is something for Claude to work on: a saved or applied job. Before that, the first thing to do is to find jobs. */}
         {onOpenClaude && kept.length > 0 ? <ClaudePromo onOpen={onOpenClaude} /> : null}

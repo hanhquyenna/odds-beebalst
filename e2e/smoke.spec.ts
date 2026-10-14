@@ -66,6 +66,20 @@ test("a shared job link opens the job and survives a reload", async ({ page }) =
   await expect(page.getByText("This job is not in the list.")).toBeVisible()
 })
 
+test("a job has an Overview and a Company tab: the posting first, the company and its people on the second", async ({ page }) => {
+  const post = FLOW_POSTINGS[0]
+  await page.goto(`/job/${post.id}`)
+  const overview = page.getByRole("tab", { name: "Overview" })
+  const company = page.getByRole("tab", { name: "Company" })
+  await expect(overview).toHaveAttribute("aria-selected", "true")
+  await expect(page.getByRole("heading", { name: "About the job" })).toBeVisible()
+  await company.click()
+  await expect(company).toHaveAttribute("aria-selected", "true")
+  await expect(page.getByRole("heading", { name: "About the job" })).toHaveCount(0)
+  await overview.click()
+  await expect(page.getByRole("heading", { name: "About the job" })).toBeVisible()
+})
+
 test("first visit: start, skip the profile, see your jobs, answer the questions and keep them", async ({ page }) => {
   await page.goto("/")
   await page.getByRole("button", { name: "Start" }).click()
@@ -95,6 +109,33 @@ test("first visit: start, skip the profile, see your jobs, answer the questions 
 
 test.describe("signed-in account", () => {
   test.use({ signedIn: true })
+
+  test("the Company tab lists the people at the employer by itself, hiring managers first, each with a position", async ({ page }) => {
+    const post = FLOW_POSTINGS[0]
+    await page.route("**/functions/v1/jobs/people", (route) =>
+      route.fulfill({
+        json: {
+          people: [
+            { name: "Dana Analyst", headline: "Financial Analyst", place: "Amsterdam", url: "https://www.linkedin.com/in/dana-analyst", photo: "", about: "", positions: [] },
+            { name: "Sanne de Vries", headline: "Finance Manager", place: "Amsterdam", url: "https://www.linkedin.com/in/sanne-de-vries", photo: "", about: "", positions: [] },
+          ],
+          searched: true,
+          more: false,
+          widened: [],
+        },
+      }),
+    )
+    await page.goto(`/job/${post.id}`)
+    await page.getByRole("tab", { name: "Company" }).click()
+    const people = page.getByRole("heading", { name: "People", exact: true })
+    await expect(people).toBeVisible()
+    const managers = page.getByRole("region", { name: "Hiring managers" })
+    await expect(managers.getByText("Sanne de Vries")).toBeVisible()
+    await expect(managers.getByText("Finance Manager")).toBeVisible()
+    // Hiring managers come before the other groups.
+    const order = await page.locator("section[aria-label='Hiring managers'], section[aria-label='Same team'], section[aria-label='Other']").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")))
+    expect(order[0]).toBe("Hiring managers")
+  })
 
   test("opening manual entry keeps the CSV uploader open", async ({ page }) => {
     await page.goto("/")

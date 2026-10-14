@@ -37,6 +37,41 @@ export function PromoSheet({
   onAction: () => void
   onClose: () => void
 }): React.JSX.Element {
+  return (
+    <SheetFrame titleId={titleId} graphic={graphic} onClose={onClose}>
+      <div className="flex flex-col gap-1.5">
+        <h2 id={titleId} className="font-heading text-2xl leading-tight font-semibold tracking-tight">
+          {title}
+        </h2>
+        <p className="text-muted-foreground">{body}</p>
+      </div>
+
+      <ul className="flex flex-col gap-2">
+        {points.map((p) => (
+          <li key={p} className="flex items-center gap-2.5 text-[0.95rem]">
+            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-good text-good-foreground">
+              <CheckIcon weight="bold" className="size-3" aria-hidden="true" />
+            </span>
+            {p}
+          </li>
+        ))}
+      </ul>
+
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+      <div className="flex flex-col gap-1">
+        <Button type="button" size="lg" disabled={busy} onClick={onAction} className="h-12 w-full cursor-pointer rounded-full text-base">
+          {action}
+        </Button>
+        <button type="button" onClick={onClose} className="cursor-pointer py-2.5 text-sm text-muted-foreground">
+          {later}
+        </button>
+      </div>
+    </SheetFrame>
+  )
+}
+
+/** The sheet itself: dimmed page, a picture on the brand colour, and room under it for whatever the panel says. */
+export function SheetFrame({ titleId, graphic, onClose, children }: { titleId: string; graphic: React.ReactNode; onClose: () => void; children: React.ReactNode }): React.JSX.Element {
   useEffect(() => {
     const key = (e: KeyboardEvent): void => {
       if (e.key === "Escape") onClose()
@@ -47,43 +82,15 @@ export function PromoSheet({
   }, [onClose])
 
   return (
-    <div role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()} className="phone-prompt-fade fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-[2px]">
-      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="phone-prompt-sheet relative w-full max-w-md overflow-hidden rounded-t-3xl bg-card shadow-2xl">
+    <div role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()} className="phone-prompt-fade fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-[2px] sm:items-center">
+      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="phone-prompt-sheet relative w-full max-w-md overflow-hidden rounded-t-3xl bg-card shadow-2xl sm:rounded-3xl">
         <button type="button" aria-label="Close" onClick={onClose} className="absolute top-3 right-3 z-10 flex size-10 cursor-pointer items-center justify-center rounded-full bg-black/25 text-white hover:bg-black/40">
           <XIcon className="size-5" aria-hidden="true" />
         </button>
 
         <div className={`relative h-[15.5rem] overflow-hidden ${BRAND_BACKDROP}`}>{graphic}</div>
 
-        <div className="flex flex-col gap-4 px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-          <div className="flex flex-col gap-1.5">
-            <h2 id={titleId} className="font-heading text-2xl leading-tight font-semibold tracking-tight">
-              {title}
-            </h2>
-            <p className="text-muted-foreground">{body}</p>
-          </div>
-
-          <ul className="flex flex-col gap-2">
-            {points.map((p) => (
-              <li key={p} className="flex items-center gap-2.5 text-[0.95rem]">
-                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-good text-good-foreground">
-                  <CheckIcon weight="bold" className="size-3" aria-hidden="true" />
-                </span>
-                {p}
-              </li>
-            ))}
-          </ul>
-
-          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-          <div className="flex flex-col gap-1">
-            <Button type="button" size="lg" disabled={busy} onClick={onAction} className="h-12 w-full cursor-pointer rounded-full text-base">
-              {action}
-            </Button>
-            <button type="button" onClick={onClose} className="cursor-pointer py-2.5 text-sm text-muted-foreground">
-              {later}
-            </button>
-          </div>
-        </div>
+        <div className="flex flex-col gap-4 px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">{children}</div>
       </div>
     </div>
   )

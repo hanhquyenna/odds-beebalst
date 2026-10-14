@@ -242,7 +242,7 @@ test("on a LinkedIn job the button is there; on a page that is not a job it is n
   await expect(view.locator("#odds-add")).toHaveCount(0)
 })
 
-test("next to LinkedIn's Save button when the page has one, at the edge when it has not; in odds orange with the odds lettering", async ({ context }) => {
+test("next to LinkedIn's Save button when the page has one, at the edge when it has not; drawn like odds' own chips, in the odds lettering", async ({ context }) => {
   await connect(context)
   // The structure of the job page as LinkedIn serves it (October 2026, copied from a real one, names and texts removed): each button in a wrapper of its own, the wrappers in one row.
   await context.route("https://www.linkedin.com/jobs/view/**", (route) =>
@@ -259,14 +259,16 @@ test("next to LinkedIn's Save button when the page has one, at the edge when it 
   expect(await pill.evaluate((el) => el.parentElement?.id)).toBe("row")
   // After the Save wrapper, in the same row, not inside it.
   expect(await pill.evaluate((el) => el.previousElementSibling?.querySelector("button")?.getAttribute("aria-label"))).toBe("Save the job")
-  // The size of LinkedIn's buttons beside it (a 32px pill), and quiet: an outline, no fill. The row's own gap spaces it.
+  // The size of LinkedIn's buttons beside it (a 32px pill), and drawn like the app's chips: white, a 1.5px line, ink lettering. The row's own gap spaces it.
   expect(await pill.evaluate((el) => getComputedStyle(el).height)).toBe("32px")
   expect(await pill.evaluate((el) => getComputedStyle(el).borderTopLeftRadius)).toBe("999px")
   expect(await pill.evaluate((el) => getComputedStyle(el).marginLeft)).toBe("0px")
-  expect(await pill.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgba(0, 0, 0, 0)")
-  expect(await pill.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe("rgb(229, 226, 221)")
+  expect(await pill.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(255, 255, 255)")
+  expect(await pill.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe("rgb(163, 157, 149)")
+  expect(await pill.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(22, 21, 19)")
   expect(await pill.evaluate((el) => getComputedStyle(el).position)).not.toBe("fixed")
   // The odds lettering is loaded from the extension.
+  await page.evaluate(() => document.fonts.load('700 15px "odds Inter Tight"'))
   expect(await page.evaluate(() => document.fonts.check('700 15px "odds Inter Tight"'))).toBe(true)
   await page.goto("https://www.linkedin.com/jobs/search/?currentJobId=4470863235")
   await expect(page.locator("#odds-add")).toHaveAttribute("data-where", "float")
@@ -364,7 +366,7 @@ test("a failed read is explained in the panel without saving; a missing CV is ex
   fake.peek = { known: true, id: "pabc", saved: false, chance_pct: null, needs_profile: true }
   await page.goto("https://www.linkedin.com/jobs/view/4470000222/")
   await expect(page.locator("#odds-add")).toHaveAttribute("title", /Import your LinkedIn profile or add a CV/)
-  await expect(page.locator("#odds-add")).toHaveText("Import LinkedIn")
+  await expect(page.locator("#odds-add")).toHaveText("Add CV")
   const opened = context.waitForEvent("page")
   await page.locator("#odds-add").click()
   await expect(await opened).toHaveURL("https://odds.beeblast.co/profile")
@@ -576,7 +578,7 @@ test("missing profiles and read limits display explanations instead of made-up p
   fake.peek = { known: false }
   fake.analyzeAnswer = { status: "limit", message: "Up to 30 new jobs a day." }
   await page.reload()
-  await expect(page.locator(".odds-job-chance").first()).toHaveText("—")
+  await expect(page.locator(".odds-job-chance").first()).toHaveText("Retry")
   await expect(page.locator(".odds-job-chance").first()).toHaveAttribute("title", "Up to 30 new jobs a day.")
   expect(fake.calls).toHaveLength(0)
 })
@@ -784,7 +786,7 @@ test("Indeed: a job odds does not hold is read from its own Indeed page and kept
   expect(fake.calls).toHaveLength(0)
 })
 
-test("Indeed: pressing the button keeps the job, sending it as its page shows it; a job that cannot be read first shows ?% and a click retries reading without saving", async ({ context, fake }) => {
+test("Indeed: pressing the button keeps the job, sending it as its page shows it; a job that cannot be read first says Check and a click retries reading without saving", async ({ context, fake }) => {
   await connect(context)
   await indeed(context)
   fake.peek = { known: false }
@@ -792,7 +794,7 @@ test("Indeed: pressing the button keeps the job, sending it as its page shows it
   fake.answer = { status: "added", saved: true, chance_pct: 6.2, job: { id: "pind1", title: "Data Intern" } }
   const page = await context.newPage()
   await page.goto("https://nl.indeed.com/jobs?q=internship&vjk=aaaaaaaaaaaaaaa1")
-  await expect(page.locator("#odds-add")).toHaveText("?%")
+  await expect(page.locator("#odds-add")).toHaveText("Check")
   await expect(page.locator("#odds-add")).toHaveAttribute("title", /does not have this job yet/)
   fake.analyzeAnswer = { status: "added", saved: false, chance_pct: 6.2, job: { id: "pind1", title: "Data Intern" } }
   await page.locator("#odds-add").click()
@@ -1690,8 +1692,8 @@ test("one-click learning loop: phone answers an employer question, desktop advan
   expect(await desktop.evaluate("window.sent")).toBe(false)
   await expect.poll(() => fake.reports.at(-1)?.status).toBe("ready")
   await phone.goto("http://localhost:4319/")
-  await phone.getByRole("button", { name: /Profile/ }).last().click()
-  await expect(phone.getByRole("heading", { name: "Application answers", exact: true })).toBeVisible()
+  await phone.getByRole("button", { name: /Autofill/ }).last().click()
+  await expect(phone.getByRole("heading", { name: "Learned from forms", exact: true })).toBeVisible()
   await expect(phone.getByLabel("Will you remain enrolled throughout this internship?")).toHaveValue("Yes")
   expect(saved[0].question_key).toContain(` job ${post.id}`)
 })
@@ -1928,4 +1930,55 @@ test("an application sent on an employer's site marks the job applied in odds, f
   await page.getByRole("button", { name: "Submit application" }).click()
   await expect.poll(() => fake.applied, { timeout: 8000 }).toEqual(["https://boards.example-ats.com/acme/jobs/77"])
   await expect(page.locator(".odds-apply-bar")).toContainText("marked this job as applied")
+})
+
+const BANNERS: ReadonlyArray<[string, string, string]> = [
+  ["OneTrust", `<div id="onetrust-banner-sdk" style="position:fixed;bottom:0;left:0;right:0;background:#fff;padding:12px"><p>We use cookies to improve your experience.</p><button id="onetrust-pc-btn-handler">Cookie Settings</button><button id="onetrust-reject-all-handler" onclick="window.rejected=true;document.getElementById('onetrust-banner-sdk').remove()">Reject All</button><button id="onetrust-accept-btn-handler" onclick="window.accepted=true">Accept All Cookies</button></div>`, "rejected"],
+  ["Cookiebot", `<div id="CybotCookiebotDialog" style="position:fixed;inset:20% 20%;background:#fff;padding:16px"><p>This website uses cookies.</p><button>Customize</button><button onclick="window.rejected=true;this.parentElement.remove()">Use necessary cookies only</button><button onclick="window.accepted=true">Allow all</button></div>`, "rejected"],
+  ["a Dutch banner", `<div class="cookie-melding" style="position:fixed;bottom:0;left:0;right:0;background:#fff"><p>Wij gebruiken cookies voor een betere website.</p><button onclick="window.accepted=true">Accepteren</button><button onclick="window.rejected=true;this.parentElement.remove()">Alleen noodzakelijke cookies</button></div>`, "rejected"],
+  ["a banner drawn in a shadow root", `<div id="usercentrics-root"></div><script>const r=document.getElementById("usercentrics-root").attachShadow({mode:"open"});r.innerHTML='<div style="position:fixed;bottom:0;background:#fff"><p>We use cookies</p><button id="d">Deny</button><button id="a">Accept All</button></div>';r.getElementById("d").onclick=()=>{window.rejected=true;r.innerHTML=""};r.getElementById("a").onclick=()=>{window.accepted=true}</script>`, "rejected"],
+  ["a banner that only offers Accept and a close button", `<div role="dialog" style="position:fixed;bottom:0;background:#fff"><p>Cookies make this site work.</p><button onclick="window.accepted=true">Accept</button><button aria-label="Close" onclick="window.rejected=true;this.parentElement.remove()">×</button></div>`, "rejected"],
+]
+
+for (const [name, banner, flag] of BANNERS) {
+  test(`odds apply gets past ${name}: it never accepts, the banner goes, and the form is filled in`, async ({ context, fake }) => {
+    await connect(context)
+    await context.route("https://careers.example-ats.com/acme/jobs/31**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM.replace("<main>", `${banner}<main>`) }))
+    fake.kit = PORTAL_KIT
+    const page = await context.newPage()
+    await page.goto("https://careers.example-ats.com/acme/jobs/31")
+    await applyFrom(context, page, "https://careers.example-ats.com/acme/jobs/31")
+    await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 10000 })
+    await expect.poll(() => page.evaluate((f) => Boolean((window as unknown as Record<string, boolean>)[f]), flag), { timeout: 8000 }).toBe(true)
+    expect(await page.evaluate(() => Boolean((window as unknown as { accepted?: boolean }).accepted))).toBe(false)
+  })
+}
+
+test("a consent box inside the application form is not a cookie banner: odds leaves its buttons alone", async ({ context, fake }) => {
+  await connect(context)
+  const form = EMPLOYER_FORM.replace("<button type=\"submit\">", `<div class="consent-box"><p>I consent to the processing of my privacy data.</p><button type="button" onclick="window.declined=true">Decline</button></div><button type="submit">`)
+  await context.route("https://careers.example-ats.com/acme/jobs/32**", (route) => route.fulfill({ contentType: "text/html", body: form }))
+  fake.kit = PORTAL_KIT
+  const page = await context.newPage()
+  await page.goto("https://careers.example-ats.com/acme/jobs/32")
+  await applyFrom(context, page, "https://careers.example-ats.com/acme/jobs/32")
+  await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 10000 })
+  await page.waitForTimeout(2500)
+  expect(await page.evaluate(() => Boolean((window as unknown as { declined?: boolean }).declined))).toBe(false)
+})
+
+test("one click on an employer's listing: the cookie banner is declined, Apply now is pressed, and the next page's form is filled in, never sent", async ({ context, fake }) => {
+  await connect(context)
+  const listing = `<!doctype html><div id="onetrust-banner-sdk" style="position:fixed;bottom:0;left:0;right:0;background:#fff;padding:12px"><p>We use cookies.</p><button onclick="window.accepted=true">Accept All</button><button onclick="window.rejected=true;document.getElementById('onetrust-banner-sdk').remove()">Reject All</button></div><main><h1>Junior Data Analyst</h1><p>Amsterdam. Join our data team.</p><a class="btn" href="/acme/jobs/41/apply">Apply now</a></main>`
+  await context.route("https://careers.example-ats.com/acme/jobs/41", (route) => route.fulfill({ contentType: "text/html", body: listing }))
+  await context.route("https://careers.example-ats.com/acme/jobs/41/apply", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  fake.kit = PORTAL_KIT
+  const page = await context.newPage()
+  await page.goto("https://careers.example-ats.com/acme/jobs/41")
+  await applyFrom(context, page, "https://careers.example-ats.com/acme/jobs/41")
+  await expect(page).toHaveURL(/\/apply$/, { timeout: 15000 })
+  await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 10000 })
+  await expect.poll(() => page.locator("#resume").evaluate((el: HTMLInputElement) => el.files?.[0]?.name ?? "")).toBe("Kien_Data_CV.pdf")
+  await page.waitForTimeout(1500)
+  expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
 })

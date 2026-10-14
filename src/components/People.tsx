@@ -1,6 +1,6 @@
 import { usePhone } from "@/lib/use-phone"
 import { PersonAvatar } from "@/components/PersonAvatar"
-import { Suspense, lazy, useEffect, useMemo, useState } from "react"
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
 import { CheckIcon, ChevronDownIcon, ExternalLinkIcon, InfoIcon, MessageIcon, PlusIcon, TrashIcon, XIcon } from "@/components/icons"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,7 @@ import { suggestReferrals } from "@/lib/linkedin"
 import { useRemembered } from "@/lib/remembered"
 import { OutreachDrafts } from "@/components/OutreachDrafts"
 import { PersonPanel } from "@/components/PersonPanel"
+import { Section } from "@/components/Section"
 import { departmentOf } from "@/lib/field"
 import { GROUP_POOL, PEOPLE_GROUPS, dropPerson, isUrl, linkedinHref, linkedinSearches, moreIn, openIn, rankForJob, readPast, revealIn, startGroups, whyThisPerson, type PeopleGroup, type Suggestion } from "@/lib/suggest"
 import { saved } from "@/lib/saved"
@@ -248,13 +249,13 @@ function MoreOnLinkedIn({ post }: { post: Posting }): React.JSX.Element {
 
 /** The people found for a job in three groups: the same team, hiring managers and other. Each group's + hands out one more of that group;
     when a group has no one left, its LinkedIn mark searches LinkedIn for that kind of person instead. */
-function PeopleGroups({ post, rec, onMore, onDrop }: { post: Posting; rec: PastSearch; onMore: (group: PeopleGroup) => void; onDrop: (url: string) => void }): React.JSX.Element {
+function PeopleGroups({ post, rec, onMore, onDrop, managersFirst = false }: { post: Posting; rec: PastSearch; onMore: (group: PeopleGroup) => void; onDrop: (url: string) => void; managersFirst?: boolean }): React.JSX.Element {
   const family = post.family ?? null
   const searches = linkedinSearches(post.employer_display, family)
 
   return (
     <div className="flex flex-col gap-4">
-      {PEOPLE_GROUPS.map((g) => {
+      {[...PEOPLE_GROUPS].sort((a, b) => (managersFirst ? Number(b.key === "manager") - Number(a.key === "manager") : 0)).map((g) => {
         const shown = openIn(rec, g.key, family)
         const search = searches.find((s) => s.label === g.search) ?? searches[0]
 
@@ -767,5 +768,41 @@ function PeopleBoard({ people: shown, onOpen, sortKey, dir, show }: { people: Re
         )
       })}
     </div>
+  )
+}
+
+/**
+ * The people at a job's company, on the job's own page: found by itself the first time (it only reads the people already stored for that
+ * employer), hiring managers first, then the same team, then anyone else. Each group's + hands out one more of that group.
+ */
+export function JobPeople({ post }: { post: Posting }): React.JSX.Element | null {
+  const data = useData()
+  const { state, problem, find, more, drop, rec, notLookedUp, guest } = useFindPeople(post)
+  const signedIn = Boolean(data.session)
+  const started = useRef<boolean>(false)
+  useEffect(() => {
+    if (signedIn && !guest && !rec && !started.current) {
+      started.current = true
+      find()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedIn, guest, rec])
+  if (!signedIn || post.local) return null
+
+  return (
+    <Section title="People">
+      {guest ? (
+        <p className="text-sm text-muted-foreground">{GUEST_PEOPLE}</p>
+      ) : rec ? (
+        <PeopleGroups post={post} rec={rec} onMore={more} onDrop={drop} managersFirst />
+      ) : state === "busy" ? (
+        <p aria-busy="true" className="text-sm text-muted-foreground">Looking…</p>
+      ) : notLookedUp ? (
+        <MoreOnLinkedIn post={post} />
+      ) : problem ? (
+        <p className="text-sm text-muted-foreground">{problem}</p>
+      ) : null}
+      {rec && problem ? <p className="mt-3 text-sm text-muted-foreground">{problem}</p> : null}
+    </Section>
   )
 }

@@ -40,6 +40,7 @@ const SignIn = lazy(() => import("@/components/SignIn").then((module) => ({ defa
 // Lazy because they open after the first paint: a job opens from a list, and
 // settings open from the menu. Landing and the account never wait on them.
 const JobDetail = lazy(() => import("@/components/JobDetail").then((module) => ({ default: module.JobDetail })))
+const Autofill = lazy(() => import("@/components/Autofill").then((module) => ({ default: module.Autofill })))
 const Documents = lazy(() => import("@/components/Documents").then((module) => ({ default: module.Documents })))
 const ProfilePage = lazy(() => import("@/components/ProfilePage").then((module) => ({ default: module.ProfilePage })))
 const BetaInvitePrompt = lazy(() => import("@/components/BetaInvitePrompt").then((module) => ({ default: module.BetaInvitePrompt })))
@@ -66,8 +67,8 @@ const OfferGate = lazy(() => import("@/components/OfferGate").then((module) => (
 const StatusColorsDialog = lazy(() => import("@/components/StatusColorsDialog").then((module) => ({ default: module.StatusColorsDialog })))
 const InstallGuide = lazy(() => import("@/components/InstallGuide").then((module) => ({ default: module.InstallGuide })))
 
-type View = "account" | "answers" | "claude" | "documents" | "journey" | "jobs" | "signin"
-const VIEWS: readonly View[] = ["account", "answers", "claude", "documents", "journey", "jobs", "signin"]
+type View = "account" | "answers" | "autofill" | "claude" | "documents" | "journey" | "jobs" | "signin"
+const VIEWS: readonly View[] = ["account", "answers", "autofill", "claude", "documents", "journey", "jobs", "signin"]
 
 /** The view the current history entry was left on (after a reload), when it is one of ours. */
 function viewFromHistory(): View | null {
@@ -178,7 +179,7 @@ export default function App(): React.JSX.Element {
   // with them so the wordmark stays over the content.
   // The front page is a web page, not a form, so it gets the widest column.
   const [landing, setLanding] = useState<boolean>(false)
-  const wide = view === "account" || view === "jobs" || view === "claude" || view === "documents" || (view === "answers" && onboarded)
+  const wide = view === "account" || view === "jobs" || view === "autofill" || view === "claude" || view === "documents" || (view === "answers" && onboarded)
   const column = page
   ? "max-w-sm sm:max-w-2xl lg:max-w-5xl"
   : sharedJobId
@@ -368,7 +369,7 @@ export default function App(): React.JSX.Element {
 
   // Someone with an account gets the app: a side menu on a laptop or iPad, a tab bar on a phone, no website header.
   const shell = onboarded && !shooReturn && view !== "signin"
-  const activeTab: ShellTab | null = page || sharedJobId ? null : view === "account" || view === "jobs" || view === "documents" || view === "claude" || view === "answers" ? view : null
+  const activeTab: ShellTab | null = page || sharedJobId ? null : view === "account" || view === "jobs" || view === "autofill" || view === "documents" || view === "claude" || view === "answers" ? view : null
 
   function goTab(tab: ShellTab): void {
     if (page || sharedJobId) {
@@ -492,6 +493,12 @@ export default function App(): React.JSX.Element {
                 <ProfilePage onBack={() => back("account")} onOpenDocuments={() => setView("documents")} onOpenClaude={() => goTab("claude")} />
                 <PhoneMore session={data.session} onOpenPage={openPage} signedIn={Boolean(data.session?.user.email) && !isGuestEmail(data.session?.user.email)} onSignIn={data.session?.user.email && !isGuestEmail(data.session.user.email) ? undefined : () => setView("signin")} onSignOut={handleSignOut} />
               </>
+            ) : null}
+
+            {view === "autofill" && onboarded ? (
+              <Suspense fallback={null}>
+                <Autofill onDocuments={() => setView("documents")} onJobs={showJobs} />
+              </Suspense>
             ) : null}
 
             {view === "claude" && onboarded ? <ClaudePage onBack={() => back("account")} onSignIn={() => setView("signin")} onDocuments={() => setView("documents")} onJobs={showJobs} /> : null}

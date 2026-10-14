@@ -1,11 +1,34 @@
 // Private form questions travel through Odds; only explicit answers come back. No submit action exists here.
 ;(() => {
   const cookieAttempts = new WeakSet()
+  // The least a banner needs: never "accept", never "settings". Reject wordings in the languages of the sites odds meets, then a close button.
+  const REJECT = /^(reject( all| optional| non[- ]?essential| everything| additional)?( cookies)?|decline( all| optional| non[- ]?essential)?( cookies)?|deny( all)?( cookies)?|refuse( all)?( cookies)?|disagree|no,? thanks|no thank you|necessary( cookies)? only|only (necessary|essential|required|functional|strictly necessary)( cookies)?|(accept|allow|use|continue with) (only )?(necessary|essential|required)( cookies)?( only)?|continue without (accepting|agreeing|consent)|essential( cookies)? only|(alles|alle( cookies)?|optionele( cookies)?) (afwijzen|weigeren)|weiger(en)?( alles| alle cookies| optionele cookies)?|afwijzen|niet akkoord|alleen (noodzakelijke|essenti[eë]le|functionele|vereiste)( cookies)?|nur (notwendige|erforderliche|essenzielle)( cookies)?|alle ablehnen|ablehnen|tout refuser|refuser|continuer sans accepter|rechazar( todo| todas)?|solo (necesarias|esenciales))$/i
+  const CLOSE = /^(close|dismiss|sluiten|sluit|schlie(ß|ss)en|fermer|cerrar|×|x|✕)$/i
+  const BANNER = '[role="dialog"], [role="alertdialog"], [aria-modal="true"], [id*="cookie" i], [class*="cookie" i], [id*="consent" i], [class*="consent" i], [id*="gdpr" i], [class*="gdpr" i], [class*="privacy-banner" i], #onetrust-banner-sdk, #CybotCookiebotDialog, #usercentrics-root, #cmpwrapper, #truste-consent-track'
+  const WORDS = /cookie|consent|gdpr|privacy|toestemming|datenschutz|confidentialit|privacidad/i
+  const shown = e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== "hidden"
+  const labelOf = b => (b.getAttribute("aria-label") || b.innerText || b.textContent || b.value || "").replace(/\s+/g, " ").replace(/[.!…]+$/, "").trim()
+  /** Every element matching in the page and inside open shadow roots (some consent tools draw their banner there). */
+  function deep(selector, root = document, out = []) {
+    for (const e of root.querySelectorAll(selector)) out.push(e)
+    for (const host of root.querySelectorAll("*")) if (host.shadowRoot) deep(selector, host.shadowRoot, out)
+    return out
+  }
+  /** A banner is a dialog, something fixed over the page, or named for cookies, and it asks nothing in a field: a consent box inside an application form is not one. */
+  function bannerLike(box) {
+    if (box.querySelector('input:not([type="button"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea, select')) return false
+    if (box.matches('[role="dialog"], [role="alertdialog"], [aria-modal="true"], #onetrust-banner-sdk, #CybotCookiebotDialog, #usercentrics-root, #cmpwrapper, #truste-consent-track') || /cookie/i.test(`${box.id} ${box.className}`)) return true
+    for (let e = box, depth = 0; e && depth < 4; e = e.parentElement, depth++) if (/^(fixed|sticky)$/.test(getComputedStyle(e).position)) return true
+    return false
+  }
   globalThis.oddsDismissCookies = () => {
-    const shown = e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== "hidden"
-    for (const box of document.querySelectorAll('[role="dialog"], [id*="cookie" i], [class*="cookie-banner" i], #onetrust-banner-sdk, #CybotCookiebotDialog')) {
-      if (!shown(box) || !/cookie/i.test(box.textContent)) continue
-      const button = [...box.querySelectorAll("button, a[role='button']")].find(b => shown(b) && !b.disabled && !cookieAttempts.has(b) && /^(reject all|reject optional cookies|reject optional|only necessary|necessary only|use necessary cookies only|deny all|alles afwijzen|alleen noodzakelijke cookies|alleen noodzakelijk)$/i.test((b.textContent || b.getAttribute("aria-label") || "").trim()))
+    for (const box of deep(BANNER)) {
+      const root = box.shadowRoot || box
+      if (!shown(box) && !box.shadowRoot) continue
+      if (!WORDS.test(box.textContent || root.textContent || "")) continue
+      if (!box.shadowRoot && !bannerLike(box)) continue
+      const buttons = deep("button, a[role='button'], [role='button'], input[type='button'], input[type='submit']", root).filter(b => shown(b) && !b.disabled && b.getAttribute("aria-disabled") !== "true" && !cookieAttempts.has(b))
+      const button = buttons.find(b => REJECT.test(labelOf(b))) || buttons.find(b => CLOSE.test(labelOf(b)))
       if (button) { cookieAttempts.add(button); button.click(); return true }
     }
     return false

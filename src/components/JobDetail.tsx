@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { Suspense, lazy, useEffect, useMemo, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
 import { BookmarkIcon } from "@/components/icons"
 import { KeyFacts } from "@/components/Tag"
@@ -7,6 +7,8 @@ import { CompanySection, PastHires, ReviewsSection } from "@/components/JobCompa
 import { CompanyResearch } from "@/components/CompanyResearch"
 import { PostingText } from "@/components/PostingText"
 import { OddsApply } from "@/components/OddsApply"
+import { JobFacts } from "@/components/JobFacts"
+import { ResumeMatch } from "@/components/ResumeMatch"
 import { SourceLinks } from "@/components/SourceChips"
 import { StatusPicker } from "@/components/StatusPicker"
 import { JobProperties } from "@/components/JobProperties"
@@ -26,6 +28,9 @@ import { extractRequirements, fromJev, namedSkills, relaxedGates, tiersOf } from
 import { allowanceNote, payOf, TRAINEE_NOTE, type AllowanceSource } from "@/lib/spec"
 import { fetchBody, fetchJevRequirements } from "@/lib/jobs"
 import type { Posting } from "@/lib/types"
+
+// Lazy: the people list lives with the People view, which the job page should not wait on.
+const JobPeople = lazy(() => import("@/components/People").then((m) => ({ default: m.JobPeople })))
 
 interface JobDetailProps {
   onBack: () => void
@@ -114,6 +119,10 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
   const pay = payOf(post, data.reference)
   const saved = data.saved.has(post.id)
   const [asking, setAsking] = useState<boolean>(false)
+  // Overview is the job; Company is who you would join. The tab starts over on each job.
+  const [tabAt, setTabAt] = useState<{ id: string; tab: "overview" | "company" }>({ id: post.id, tab: "overview" })
+  const tab = tabAt.id === post.id ? tabAt.tab : "overview"
+  const setTab = (next: "overview" | "company"): void => setTabAt({ id: post.id, tab: next })
   const fit = base ? (base.failing === 0 ? "met every requirement" : base.failing === 1 ? "missing one requirement" : "missing several requirements") : ""
 
   return (
@@ -153,6 +162,7 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
             <Hint label="About this pay">{pay.basis === "Stated" ? "Stated by the employer, before tax." : pay.basis === "Allowance" && pay.source ? allowanceNote(pay.source as AllowanceSource) : pay.source === "Typical traineeship pay" ? TRAINEE_NOTE : "Typical for this kind of job across employers, before tax (CBS 2024). The employer does not state pay for this one."}</Hint>
           </p>
         ) : null}
+        <JobFacts post={post} />
         {/* Status at the left, the way into the posting at the right, on one line. */}
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
           <StatusPicker post={post} fit={fit} onLocked={locked?.onUnlock} />
@@ -162,36 +172,62 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
         {locked ? <KeyFacts post={post} onPick={onPick} /> : null}
       </header>
 
-      {locked || !st || !base ? (
-        <LockedPersonal onUnlock={locked?.onUnlock ?? onBack} />
+      <div role="tablist" aria-label="Job" className="-mb-4 flex gap-1 border-b-[1.5px]">
+        {(["overview", "company"] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={tab === value}
+            onClick={() => setTab(value)}
+            className={`-mb-[1.5px] cursor-pointer border-b-[2.5px] px-4 py-2.5 text-sm font-medium transition-colors duration-150 ${tab === value ? "border-foreground font-semibold text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          >
+            {value === "overview" ? "Overview" : "Company"}
+          </button>
+        ))}
+      </div>
+
+      {tab === "overview" ? (
+        <>
+          {locked || !st || !base ? (
+            <LockedPersonal onUnlock={locked?.onUnlock ?? onBack} />
+          ) : (
+            <>
+              <ResumeMatch post={job} st={base} />
+              <JobProperties post={job} st={st} />
+              <UspStrip post={job} st={st} />
+              <Recommendations post={job} base={base} whatIf={whatIf} setWhatIf={setWhatIf} />
+              <FitCard post={job} st={st} requirements={requirements} />
+            </>
+          )}
+
+          {!locked ? <JobDocuments post={post} /> : null}
+
+          {body !== "" ? (
+            <Section title="About the job">{body ? <PostingText body={body} /> : <p className="text-sm text-muted-foreground">Loading the posting…</p>}</Section>
+          ) : null}
+
+          {st ? <PayCard post={post} st={st} /> : null}
+        </>
       ) : (
         <>
-          <JobProperties post={job} st={st} />
-          <UspStrip post={job} st={st} />
-          <Recommendations post={job} base={base} whatIf={whatIf} setWhatIf={setWhatIf} />
-          <FitCard post={job} st={st} requirements={requirements} />
+          <Suspense fallback={null}>
+            <JobPeople post={post} />
+          </Suspense>
+
+          <PastHires post={post} />
+
+          <CompanySection post={post} />
+
+          <CompanyResearch post={post} />
+
+          <ReviewsSection post={post} />
+
+          {st ? <CareerLadder post={post} st={st} onPick={onPick} /> : null}
+
+          <MoreAtEmployer post={post} onOpenJob={onOpenJob} />
         </>
       )}
-
-      {!locked ? <JobDocuments post={post} /> : null}
-
-      <PastHires post={post} />
-
-      {body !== "" ? (
-        <Section title="About the job">{body ? <PostingText body={body} /> : <p className="text-sm text-muted-foreground">Loading the posting…</p>}</Section>
-      ) : null}
-
-      <CompanySection post={post} />
-
-      <CompanyResearch post={post} />
-
-      <ReviewsSection post={post} />
-
-      {st ? <PayCard post={post} st={st} /> : null}
-
-      {st ? <CareerLadder post={post} st={st} onPick={onPick} /> : null}
-
-      <MoreAtEmployer post={post} onOpenJob={onOpenJob} />
     </div>
   )
 }

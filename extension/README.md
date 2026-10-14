@@ -46,6 +46,10 @@ stops at a question it cannot answer (outlined, and offered in the odds panel to
 verification (named, in the tab), and at the end, where Submit is yours. Dropdowns (including searchable ones), radio groups, Yes/No buttons and
 file uploads are supported. The panel's button shows where the tab is (Filling, Continue application, Complete step in browser, Review
 application, Try again), and the state survives reloading the extension (not restarting the browser).
+Cookie banners on the employer's site are declined for you (a "reject" or "necessary only" button in English, Dutch, German, French or Spanish, inside
+shadow roots too; else the banner's close button), never accepted; a consent box inside the application form is left alone. The badges and the button beside
+Save are drawn like odds' own chips (white, a line, ink lettering, a vermilion dot before the chance) and say Connect, Retry, Add CV, Check or Closed
+where there is no number.
 
 Try it now (Chrome): `chrome://extensions` → Developer mode → Load unpacked → pick this folder. Click the odds icon → Connect odds.
 After an update, press the reload arrow on the extension's card there, then reload the job sites' tabs.

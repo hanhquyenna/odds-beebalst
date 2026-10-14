@@ -10,8 +10,8 @@ test.describe("signed in: answers for application forms and Claude's message dra
       return route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
     })
     await page.goto("/")
-    await page.getByRole("button", { name: /Profile/ }).last().click()
-    await expect(page.getByRole("heading", { name: "Personal information" })).toBeVisible()
+    await page.getByRole("button", { name: /Autofill/ }).last().click()
+    await expect(page.getByRole("heading", { name: "Answers", exact: true })).toBeVisible()
     await expect(page.getByLabel("Phone number")).toHaveValue("+31 6 11111111")
     const saving = page.waitForRequest((r) => r.url().includes("/rest/v1/application_answers") && r.method() === "POST")
     await page.getByLabel("Pay you expect").fill("EUR 600 a month")
@@ -22,6 +22,47 @@ test.describe("signed in: answers for application forms and Claude's message dra
     await shot(page, "profile-answers")
   })
 
+  test("Home asks what is left before applying, and the setup panel takes the answers one at a time and keeps them", async ({ page }) => {
+    let data: Record<string, string> = {}
+    await page.route("**/rest/v1/application_answers*", (route) => {
+      if (route.request().method() === "POST") data = route.request().postDataJSON().data
+      return route.fulfill({ json: route.request().method() === "GET" ? { data } : [] })
+    })
+    await page.goto("/")
+    await expect(page.getByRole("region", { name: "Ready to apply" })).toBeVisible()
+    await page.getByRole("button", { name: "Finish setup" }).click()
+    const dialog = page.getByRole("dialog")
+    // The first question is the permit; tapping a choice keeps the words forms read.
+    await expect(dialog.getByRole("heading", { name: "Do you need a visa or permit to work in the Netherlands?" })).toBeVisible()
+    await dialog.getByRole("radio", { name: "Yes, the employer sponsors it" }).click()
+    await dialog.getByRole("button", { name: "Save and next" }).click()
+    await expect.poll(() => data.work_authorization).toBe("I need a work permit; the employer sponsors it")
+    // A typed question: Enter keeps it too.
+    await expect(dialog.getByRole("heading", { name: "When can you start?" })).toBeVisible()
+    await dialog.getByRole("textbox").fill("1 February 2027")
+    await dialog.getByRole("textbox").press("Enter")
+    await expect.poll(() => data.start_date).toBe("1 February 2027")
+    await expect(dialog.getByRole("heading", { name: "How many hours a week?" })).toBeVisible()
+    // Skip leaves a question for later without keeping anything.
+    await dialog.getByRole("button", { name: "Skip" }).click()
+    await expect(dialog.getByRole("heading", { name: "Which university or school?" })).toBeVisible()
+    expect(data.hours_per_week).toBeUndefined()
+    await page.keyboard.press("Escape")
+    await expect(dialog).toHaveCount(0)
+  })
+
+  test("the Autofill tab holds the CV, the answers and what odds learned, and Profile no longer does", async ({ page }) => {
+    await page.route("**/rest/v1/application_answers*", (route) => route.fulfill({ json: route.request().method() === "GET" ? { data: { phone: "+31 6 11111111" } } : [] }))
+    await page.goto("/")
+    await page.getByRole("button", { name: /Autofill/ }).last().click()
+    await expect(page.getByRole("heading", { level: 1, name: "Autofill" })).toBeVisible()
+    for (const name of ["CV", "Answers", "Learned from forms", "Chrome"]) await expect(page.getByRole("heading", { name, exact: true })).toBeVisible()
+    await expect(page.getByLabel("Phone number")).toHaveValue("+31 6 11111111")
+    await page.getByRole("button", { name: /Profile/ }).last().click()
+    await expect(page.getByRole("heading", { name: "Answers", exact: true })).toHaveCount(0)
+    await expect(page.getByLabel("Phone number")).toHaveCount(0)
+  })
+
   test("application contact details save independently of the display name and reload on another visit", async ({ page }) => {
     let data: Record<string, string> = {}
     await page.route("**/rest/v1/application_answers*", route => {
@@ -29,7 +70,7 @@ test.describe("signed in: answers for application forms and Claude's message dra
       return route.fulfill({ json: route.request().method() === "GET" ? { data } : [] })
     })
     await page.goto("/")
-    await page.getByRole("button", { name: /Profile/ }).last().click()
+    await page.getByRole("button", { name: /Autofill/ }).last().click()
     await page.getByLabel("First name (given names)", { exact: true }).fill("Chi Kien")
     await page.getByLabel("First name (given names)", { exact: true }).blur()
     await expect.poll(() => data.first_name).toBe("Chi Kien")
@@ -52,8 +93,8 @@ test.describe("signed in: answers for application forms and Claude's message dra
       return route.fulfill({ json: route.request().method() === "GET" ? { data } : [] })
     })
     await page.goto("/")
-    await page.getByRole("button", { name: /Profile/ }).last().click()
-    await expect(page.getByRole("heading", { name: "Personal information" })).toBeVisible()
+    await page.getByRole("button", { name: /Autofill/ }).last().click()
+    await expect(page.getByRole("heading", { name: "Answers", exact: true })).toBeVisible()
     await expect(page.getByLabel("First name (given names)", { exact: true })).toHaveValue("Given Names")
     await expect(page.getByLabel("Last name (family name)", { exact: true })).toHaveValue("Family")
     await expect(page.getByLabel("Application email", { exact: true })).toHaveValue("cv@example.com")
