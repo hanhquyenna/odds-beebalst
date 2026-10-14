@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "odds: interview chances beside jobs",
   "short_name": "odds",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "See your interview chance beside jobs on LinkedIn, Indeed, Glassdoor, Magnet.me and employers' own job pages. Click a percentage to keep that job in the Odds side panel.",
   "icons": {
     "16": "icons/icon-16.png",
@@ -34,7 +34,8 @@
         "job-sites.js",
         "site-dom.js",
         "panel.js",
-        "content-job.js"
+        "content-job.js",
+        "apply.js"
       ],
       "css": [
         "content-job.css"

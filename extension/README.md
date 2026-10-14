@@ -29,6 +29,13 @@ On pages that are not jobs nothing is sent. The extension stores its own connect
 Which addresses are jobs is decided by `supabase/functions/_shared/job-sites.ts`, the file the server uses too; `job-sites.js` here is built from it
 by `scripts/build-extension.sh` (a test fails when it is out of date). What each site's pages look like is in `site-dom.js`.
 
+Applying on LinkedIn (apply.js): press LinkedIn's Easy Apply as usual and odds fills the form in from what it knows (your odds profile, the standard
+answers on your odds profile, your own earlier answers to other questions, the CV you put on this job in odds, chosen among LinkedIn's or uploaded),
+goes on through the steps that are complete, and stops at the review: you check it and press Submit yourself. odds never presses Submit. A question
+odds cannot answer is outlined in orange; what you answer is kept (table application_questions) and fills that question in on the next form. When
+LinkedIn says the application was sent, the job is marked applied on your odds tracker. The rules for which answer fits which question are in
+`supabase/functions/_shared/apply-form.ts`, built into `job-sites.js` with the job-site rules.
+
 Try it now (Chrome): `chrome://extensions` → Developer mode → Load unpacked → pick this folder. Click the odds icon → Connect odds.
 After an update, press the reload arrow on the extension's card there, then reload the job sites' tabs.
 

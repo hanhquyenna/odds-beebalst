@@ -1050,6 +1050,20 @@ function extProfile(env: Env, me: Me): Promise<Json> {
   return profile
 }
 
+/** The person's sign-in email (the extension's key does not carry it), kept a minute like the key. */
+const extEmails = new Map<string, { email: Promise<string | null>; at: number }>()
+function emailOf(env: Env, me: Me): Promise<string | null> {
+  const kept = extEmails.get(me.id)
+  if (kept && Date.now() - kept.at < EXT_KEEP_MS) return kept.email
+  const email = fetch(`${env.url}/auth/v1/admin/users/${me.id}`, { headers: { apikey: env.serviceKey!, Authorization: `Bearer ${env.serviceKey}` } })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((u: Json) => (typeof u?.email === "string" ? u.email : null))
+    .catch(() => null)
+  extEmails.set(me.id, { email, at: Date.now() })
+
+  return email
+}
+
 async function extWho(env: Env, key: string): Promise<Me | null> {
   if (!EXT_KEY_RE.test(key) || !env.serviceKey) return null
   const hash = await sha256hex(key)
@@ -1150,6 +1164,105 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     const jobs = all.filter((j) => j.title).slice(0, 40).map((j) => ({ id: j.id, title: j.title, company: j.company ?? null, city: j.city ?? null, status: j.status, chance_pct: j.chance_pct ?? null, still_open: j.still_open !== false, link: `https://odds.beeblast.co/job/${j.id}` }))
 
     return json(200, { jobs, total: all.length })
+  }
+  // ---- Applying from the extension: odds fills the form in, the person checks it and presses Submit, odds marks the job applied. ----
+  const readBody = async (): Promise<Json> => {
+    const raw = await req.text()
+    if (raw.length > 50_000) throw new Error("Too large.")
+    return raw ? JSON.parse(raw) : {}
+  }
+  // Everything a form may ask that odds knows: name, email, phone, place, the standard answers, the person's earlier answers to other
+  // questions, and the CV that goes with this job (the one they put on it, else their main CV).
+  if (route === "apply-kit" && req.method === "POST") {
+    let body: Json
+    try {
+      body = await readBody()
+    } catch {
+      return json(400, { error: "Send { url }." })
+    }
+    const link = jobLink(String(body?.url ?? ""), true)
+    const [held, profile, answers, remembered, email, mainCv] = await Promise.all([
+      link ? heldJob(env, link).then((r) => r?.[0] ?? null) : Promise.resolve(null),
+      extProfile(env, me),
+      myAnswers(env, me.id),
+      svc(env, `application_questions?user_id=eq.${me.id}&select=question_key,answer&order=updated_at.desc&limit=500`),
+      emailOf(env, me),
+      svc(env, `documents?user_id=eq.${me.id}&kind=eq.cv&is_main=eq.true&select=id,name,file_name`),
+    ])
+    const attached = held ? (await svc(env, `job_documents?user_id=eq.${me.id}&posting_id=eq.${encodeURIComponent(held.id)}&kind=eq.cv&select=document_id`))?.[0] : null
+    const cvRow = attached ? (await svc(env, `documents?user_id=eq.${me.id}&id=eq.${attached.document_id}&select=id,name,file_name`))?.[0] : null
+    const cv = cvRow ?? mainCv?.[0] ?? null
+
+    return json(200, {
+      job_id: held?.id ?? null,
+      facts: {
+        name: profile.name || null,
+        email,
+        phone: answers.phone ?? null,
+        place: profile.place || null,
+        linkedin: profile.linkedin ?? null,
+        website: answers.website ?? null,
+        dutch: profile.dutch ?? null,
+        answers,
+        remembered: Object.fromEntries((remembered ?? []).map((r: Json) => [r.question_key, r.answer])),
+      },
+      cv: cv ? { id: cv.id, name: cv.name, file_name: cv.file_name, for_this_job: Boolean(cvRow) } : null,
+    })
+  }
+  // What the person answered themselves in a form, kept for the next form that asks the same.
+  if (route === "answers" && req.method === "POST") {
+    let body: Json
+    try {
+      body = await readBody()
+    } catch {
+      return json(400, { error: "Send { questions: [{ question, answer }] }." })
+    }
+    const rows = (Array.isArray(body?.questions) ? body.questions : []).slice(0, 40).map((q: Json) => {
+      const question = typeof q?.question === "string" ? q.question.replace(/\s+/g, " ").trim().slice(0, 500) : ""
+      const answer = typeof q?.answer === "string" ? q.answer.replace(/\s+/g, " ").trim().slice(0, 1000) : ""
+      const key = question.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/\brequired\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim().slice(0, 300)
+      return key.length >= 2 && answer ? { user_id: me.id, question_key: key, question, answer, updated_at: new Date().toISOString() } : null
+    }).filter(Boolean)
+    if (rows.length) await svc(env, "application_questions?on_conflict=user_id,question_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) })
+
+    return json(200, { saved: rows.length })
+  }
+  // The person pressed Submit and LinkedIn said it was sent: the job is applied on their odds tracker (kept for them first if it was not).
+  if (route === "applied" && req.method === "POST") {
+    let body: Json
+    try {
+      body = await readBody()
+    } catch {
+      return json(400, { error: "Send { url }." })
+    }
+    const link = jobLink(String(body?.url ?? ""), true)
+    const held = link ? (await heldJob(env, link))?.[0] : null
+    if (!held) return json(404, { status: "unknown", message: "odds does not hold that job yet." })
+    await svc(env, "saved_jobs", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ user_id: me.id, posting_id: held.id }) })
+    const existing = await svc(env, `applications?user_id=eq.${me.id}&posting_id=eq.${encodeURIComponent(held.id)}&select=id`)
+    if (existing?.[0]) await svc(env, `applications?id=eq.${existing[0].id}&user_id=eq.${me.id}`, { method: "PATCH", body: JSON.stringify({ stage: "applied" }) })
+    else await svc(env, "applications", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ user_id: me.id, posting_id: held.id, fit_tier: "extension", stage: "applied" }) })
+
+    return json(200, { status: "applied", id: held.id })
+  }
+  // The person's own CV file, for the form's upload (their key only, their own documents only).
+  if (route === "file" && req.method === "GET") {
+    const doc = new URL(req.url).searchParams.get("doc") ?? ""
+    if (!/^[0-9a-f-]{36}$/.test(doc)) return json(400, { error: "Which document?" })
+    const row = (await svc(env, `documents?user_id=eq.${me.id}&id=eq.${doc}&select=file_name,mime,path,drive_file_id`))?.[0]
+    if (!row) return json(404, { error: "No such document." })
+    let r: Response
+    if (row.drive_file_id) {
+      const denv = driveEnv()
+      const dlink = denv ? await linkOf(denv, me.id) : null
+      if (!denv || !dlink) return json(502, { error: "The file is in Google Drive, and odds can no longer reach it." })
+      r = await contentOf(await accessFor(denv, dlink), row.drive_file_id)
+    } else {
+      r = await fetch(`${env.url}/storage/v1/object/documents/${String(row.path).split("/").map(encodeURIComponent).join("/")}`, { headers: { apikey: env.serviceKey!, Authorization: `Bearer ${env.serviceKey}` } })
+    }
+    if (!r.ok || !r.body) return json(502, { error: "Could not get that file right now." })
+
+    return new Response(r.body, { status: 200, headers: { ...CORS, "Content-Type": row.mime || "application/octet-stream", "X-File-Name": encodeURIComponent(String(row.file_name)), "Access-Control-Expose-Headers": "X-File-Name", "Cache-Control": "private, no-store" } })
   }
   if (!["add", "analyze"].includes(route) || req.method !== "POST") return json(404, { error: "Not found." })
 

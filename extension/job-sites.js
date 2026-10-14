@@ -1,4 +1,4 @@
-// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts. Do not edit.
+// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts and apply-form.ts. Do not edit.
 (() => {
   var __defProp = Object.defineProperty;
   var __returnValue = (v) => v;
@@ -14,6 +14,132 @@
         set: __exportSetter.bind(all, name)
       });
   };
+
+  // supabase/functions/_shared/apply-form.ts
+  var exports_apply_form = {};
+  __export(exports_apply_form, {
+    answerText: () => answerText,
+    chooseOption: () => chooseOption,
+    nationalNumber: () => nationalNumber,
+    questionKey: () => questionKey,
+    questionText: () => questionText,
+    valueFor: () => valueFor
+  });
+  function questionKey(label) {
+    let t = label.replace(/\s+/g, " ").trim();
+    const half = t.length % 2 === 1 ? (t.length - 1) / 2 : -1;
+    if (half > 0 && t.slice(0, half) === t.slice(half + 1))
+      t = t.slice(0, half);
+    return t.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/\brequired\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim().slice(0, 300);
+  }
+  function questionText(label) {
+    const t = label.replace(/\s+/g, " ").trim();
+    const half = t.length % 2 === 1 ? (t.length - 1) / 2 : -1;
+    return (half > 0 && t.slice(0, half) === t.slice(half + 1) ? t.slice(0, half) : t).slice(0, 500);
+  }
+  var DUTCH_OPTION = { none: /^(none|no|geen)/i, basic: /^(elementary|basic|conversational|beginner|limited)/i, professional: /^(professional|full professional|fluent|good|advanced)/i, native: /^(native|bilingual|moedertaal)/i };
+  var digits = (t) => (/\d[\d.,\s]*/.exec(t)?.[0] ?? "").replace(/[.,\s](?=\d{3}\b)/g, "").replace(/[^\d.]/g, "");
+  function nationalNumber(phone) {
+    const t = phone.replace(/[^\d+]/g, "");
+    return t.startsWith("+") ? t.replace(/^\+(31|32|33|34|39|44|49|1|351|353|36|48|45|46|47|41|43|30|420|421|90|91|84|86|62|60|63|65|66|55|52|27|234|20|7)/, "").replace(/^0/, "") : t.replace(/^0/, "");
+  }
+  function answerText(label, facts) {
+    const key = questionKey(label);
+    const remembered = facts.remembered?.[key];
+    if (remembered)
+      return remembered;
+    const a = facts.answers ?? {};
+    const pick = (v) => v && v.trim() ? v.trim() : null;
+    if (/\b(first name|given name|voornaam)\b/.test(key))
+      return pick(facts.name?.split(/\s+/)[0]);
+    if (/\b(last name|surname|family name|achternaam)\b/.test(key))
+      return pick(facts.name?.split(/\s+/).slice(1).join(" "));
+    if (/^(full )?name$/.test(key))
+      return pick(facts.name);
+    if (/\b(e ?mail\w*)\b/.test(key))
+      return pick(facts.email);
+    if (/\b(mobile|phone|telephone|telefoon\w*|mobiel\w*)\b/.test(key) && !/country|landcode/.test(key))
+      return pick(a.phone);
+    if (/\blinkedin\b/.test(key) && /\b(url|profile|link)\b/.test(key))
+      return pick(facts.linkedin);
+    if (/\b(website|portfolio|github|personal site)\b/.test(key))
+      return pick(a.website);
+    if (/\b(city|location|where do you live|woonplaats)\b/.test(key) && !/relocat/.test(key))
+      return pick(facts.place?.split(",")[0]);
+    if (/\b(relocat\w*)\b/.test(key))
+      return pick(a.relocation);
+    if (/\bnotice period\b|\bopzegtermijn\b/.test(key))
+      return pick(a.notice_period);
+    if (/\b(start date|when can you start|available to start|availability|earliest start|beschikbaar)\b/.test(key))
+      return pick(a.start_date);
+    if (/\bhours\b.*\bweek\b|\bper week\b|\buren\b/.test(key))
+      return pick(a.hours_per_week);
+    if (/\b(salary|compensation|pay|wage|salaris|stipend)\b/.test(key))
+      return pick(a.expected_salary);
+    if (/\b(sponsor\w*|visa)\b/.test(key)) {
+      const w = a.work_authorization ?? "";
+      if (!w)
+        return null;
+      if (/\b(need|require)s?\b.*\b(sponsor|visa|permit)/i.test(w) || /\bno(t)?\b.*\b(allowed|authori[sz]ed|permit)\b/i.test(w))
+        return "Yes";
+      if (/^\s*yes\b|\b(eu|eea) (citizen|national)|\bfree to work|\bno (sponsor|visa)\w* (needed|required)|\ballowed to work|\bauthori[sz]ed\b/i.test(w))
+        return "No";
+      return null;
+    }
+    if (/\b(authori[sz]ed|legally|right to work|eligible to work|work permit|allowed to work|werkvergunning)\b/.test(key)) {
+      const w = a.work_authorization ?? "";
+      if (!w)
+        return null;
+      if (/^\s*no\b|\b(need|require)s?\b.*\b(sponsor|visa|permit)/i.test(w))
+        return "No";
+      return /^\s*yes\b|\b(eu|eea)\b|\ballowed\b|\bauthori[sz]ed\b|\bfree to work\b|\bpermit\b/i.test(w) ? "Yes" : null;
+    }
+    if (/\bdutch\b|\bnederlands\b/.test(key) && /\b(level|proficiency|speak|fluent|niveau)\b/.test(key))
+      return pick(facts.dutch);
+    return null;
+  }
+  var norm = (t) => t.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9+]+/g, " ").trim();
+  function chooseOption(options, answer, label = "") {
+    const want = norm(answer);
+    const opts = options.map(norm);
+    const real = (i) => !/^(select an option|select|selecteer|choose|kies|kiezen)\b/.test(opts[i]) && opts[i] !== "";
+    if (!want)
+      return -1;
+    if (/\b(dutch|nederlands)\b/i.test(label) && DUTCH_OPTION[want]) {
+      const i = options.findIndex((o, n) => real(n) && DUTCH_OPTION[want].test(o.trim()));
+      if (i >= 0)
+        return i;
+    }
+    for (const test of [(o) => o === want, (o) => o.startsWith(want) || want.startsWith(o), (o) => o.includes(want)]) {
+      const i = opts.findIndex((o, n) => real(n) && test(o));
+      if (i >= 0)
+        return i;
+    }
+    const yes = /^(yes|ja|true|y)\b/.test(want);
+    const no = /^(no|nee|false|n)\b/.test(want);
+    if (yes || no)
+      return opts.findIndex((o, n) => real(n) && (yes ? /^(yes|ja)\b/ : /^(no|nee)\b/).test(o));
+    const n = Number(digits(answer));
+    if (answer.trim() && Number.isFinite(n)) {
+      return options.findIndex((o, i) => {
+        if (!real(i))
+          return false;
+        const r = /(\d+)\s*(?:-|–|to|tot)\s*(\d+)/.exec(o);
+        if (r)
+          return n >= Number(r[1]) && n <= Number(r[2]);
+        const plus = /(\d+)\s*\+/.exec(o);
+        return plus ? n >= Number(plus[1]) : false;
+      });
+    }
+    return -1;
+  }
+  function valueFor(kind, label, answer, besideCountry = false) {
+    if (kind === "number")
+      return digits(answer);
+    if (besideCountry && /\b(mobile|phone|telephone|telefoon\w*|mobiel\w*)\b/i.test(label))
+      return nationalNumber(answer);
+    return answer;
+  }
 
   // supabase/functions/_shared/job-sites.ts
   var exports_job_sites = {};
@@ -233,4 +359,5 @@
 
   // scripts/extension-sites.ts
   globalThis.oddsSites = exports_job_sites;
+  globalThis.oddsApply = exports_apply_form;
 })();

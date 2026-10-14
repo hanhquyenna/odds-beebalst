@@ -34,3 +34,11 @@ html[data-odds-panel="open"] #odds-add[data-where="float"] { right: 404px; }
 
 #odds-add .odds-note { display: none; }
 #odds-add:hover .odds-note, #odds-add:focus-visible .odds-note { display: block; }
+
+/* Applying with odds (apply.js): a line at the top of LinkedIn's Easy Apply form saying what odds filled in and what is left, and the questions
+   left for the person outlined in odds orange. */
+.odds-apply-bar { all: initial; display: block; box-sizing: border-box; margin: 0 0 12px; padding: 10px 14px; border-radius: 10px; background: #fff4e8; color: #934500; border: 1px solid #f4cda7; font: 600 14px/1.35 "odds Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif; }
+.odds-apply-bar[data-state="busy"] { opacity: .85; }
+.odds-apply-bar[data-state="done"] { background: #eefaf3; color: #0a7a3d; border-color: #9fd9b8; }
+.odds-apply-bar[data-state="problem"] { background: #f5f5f5; color: #555; border-color: #ddd; }
+.odds-ask { outline: 2px solid #f2802a; outline-offset: 4px; border-radius: 6px; }

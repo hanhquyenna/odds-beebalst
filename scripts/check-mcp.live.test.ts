@@ -479,6 +479,25 @@ run("the connector, as a signed-in person", () => {
       }
     })
 
+    test("applying: the kit for a form, a question the person answered kept for the next form, the job marked applied", async () => {
+      const [held] = (await db("postings?select=id,url&url=like.https://www.linkedin.com/jobs/view/*&closed_at=is.null&limit=1&order=id.asc")) as Array<{ id: string; url: string }>
+      const kit = await call(xkey, "apply-kit", { url: held.url })
+      expect(kit.status).toBe(200)
+      expect(kit.data.job_id).toBe(held.id)
+      expect(kit.data.facts).toHaveProperty("answers")
+      expect(typeof kit.data.facts.email === "string" || kit.data.facts.email === null).toBe(true)
+      const kept = await call(xkey, "answers", { questions: [{ question: "How many years of work experience do you have with SQL? Required", answer: "3" }, { question: "x", answer: "" }] })
+      expect(kept.data.saved).toBe(1)
+      const again = await call(xkey, "apply-kit", { url: held.url })
+      expect(again.data.facts.remembered["how many years of work experience do you have with sql"]).toBe("3")
+      const applied = await call(xkey, "applied", { url: `${held.url}?trk=x` })
+      expect(applied.data).toMatchObject({ status: "applied", id: held.id })
+      expect(((await db(`applications?user_id=eq.${a.id}&posting_id=eq.${held.id}&select=stage`)) as Json[])[0]?.stage).toBe("applied")
+      expect((await call(xkey, "applied", { url: "https://www.linkedin.com/jobs/view/1999999996" })).status).toBe(404)
+      // Another person's key sees none of it.
+      expect((await call(await makeKey(b.id), "apply-kit", { url: held.url })).data.facts.remembered).toEqual({})
+    })
+
     test("a link that is not one job, or no link, is refused before anything is paid", async () => {
       expect((await call(xkey, "add", { url: "https://www.glassdoor.com/job-listing/x-JV_IC1.htm?jl=123" })).status).toBe(422)
       expect((await call(xkey, "add", { url: "https://www.glassdoor.com/Job/amsterdam-jobs-SRCH_IL.0,9.htm" })).status).toBe(422)

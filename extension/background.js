@@ -135,6 +135,42 @@ function peek(url) {
   })
 }
 
+/** A request to one of the extension's own routes on odds with the key; { status: "connect" } without one. */
+async function ext(route, init = {}) {
+  const key = await savedKey()
+  if (!key) return { status: "connect" }
+  let res
+  try {
+    res = await fetch(`${await apiBase()}/ext/${route}`, { ...init, headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(30000) })
+  } catch {
+    return { status: "error", message: "odds did not answer." }
+  }
+  if (res.status === 401) {
+    await chrome.storage.local.remove(KEY)
+    return { status: "connect" }
+  }
+  const body = await res.json().catch(() => ({}))
+  // A route's own status (e.g. "applied") is kept apart from whether it worked.
+  return res.ok ? { ...body, result: body.status, status: "ok" } : { status: "error", ...body }
+}
+
+/** The person's CV file from odds, as base64 so a page can put it in a form's upload. */
+async function cvFile(doc) {
+  const key = await savedKey()
+  if (!key || !/^[0-9a-f-]{36}$/.test(doc)) return { status: "error" }
+  try {
+    const res = await fetch(`${await apiBase()}/ext/file?doc=${doc}`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(30000) })
+    if (!res.ok) return { status: "error" }
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    if (bytes.length > 8_000_000) return { status: "error" }
+    let text = ""
+    for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+    return { status: "ok", name: decodeURIComponent(res.headers.get("x-file-name") || "CV.pdf"), type: res.headers.get("content-type") || "application/pdf", base64: btoa(text) }
+  } catch {
+    return { status: "error" }
+  }
+}
+
 /** A sign-in for the odds app inside the panel, made by odds from the extension's key. */
 async function session() {
   const key = await savedKey()
@@ -251,6 +287,24 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       if (key && ["added", "exists"].includes(answer.status) && typeof answer.chance_pct === "number") remember(`${key}:${message.url}`, { ...answer, status: "ok", known: true })
       reply(answer)
     })
+    return true
+  }
+  // Applying: what the form needs, the person's own answers kept, the job marked applied, their CV for the upload.
+  if (message?.type === "apply-kit" && typeof message.url === "string") {
+    ext("apply-kit", { method: "POST", body: JSON.stringify({ url: message.url }) }).then(reply)
+    return true
+  }
+  if (message?.type === "save-answers" && Array.isArray(message.questions)) {
+    const questions = message.questions.slice(0, 40).filter((q) => typeof q?.question === "string" && typeof q?.answer === "string").map((q) => ({ question: q.question.slice(0, 500), answer: q.answer.slice(0, 1000) }))
+    ext("answers", { method: "POST", body: JSON.stringify({ questions }) }).then(reply)
+    return true
+  }
+  if (message?.type === "applied" && typeof message.url === "string") {
+    ext("applied", { method: "POST", body: JSON.stringify({ url: message.url }) }).then(reply)
+    return true
+  }
+  if (message?.type === "cv-file" && typeof message.doc === "string") {
+    cvFile(message.doc).then(reply)
     return true
   }
   if (message?.type === "lookup" && typeof message.url === "string") {

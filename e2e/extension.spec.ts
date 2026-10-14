@@ -34,6 +34,10 @@ interface Fake {
   peeks: string[]
   /** The size of each look-up of several jobs at once. */
   batches: number[]
+  /** What a form is filled in from (/ext/apply-kit), the answers the person gave that were kept, the jobs marked applied. */
+  kit: Record<string, unknown>
+  kept: Array<{ question: string; answer: string }>
+  applied: string[]
   analyses: string[]
   /** What each analysis was sent: a job page's posting comes with it, a LinkedIn job never. */
   analyzed: Array<{ url?: string; posting?: Record<string, unknown> }>
@@ -52,6 +56,9 @@ async function fakeOdds(): Promise<Fake> {
     calls: [],
     peeks: [],
     batches: [],
+    kit: {},
+    kept: [],
+    applied: [],
     analyses: [],
     analyzed: [],
     answersByUrl: {},
@@ -96,6 +103,14 @@ async function fakeOdds(): Promise<Fake> {
       } else if (path.endsWith("/ext/session")) {
         fake.sessions++
         answer = { access_token: "e2e-token", refresh_token: "e2e-refresh", expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: "00000000-0000-4000-8000-000000000001", email: "test.person@example.com" } }
+      } else if (path.endsWith("/ext/apply-kit")) {
+        answer = { ...fake.kit }
+      } else if (path.endsWith("/ext/answers")) {
+        fake.kept.push(...((body as { questions?: Array<{ question: string; answer: string }> }).questions ?? []))
+        answer = { saved: 1 }
+      } else if (path.endsWith("/ext/applied")) {
+        fake.applied.push(String(body.url))
+        answer = { status: "applied", id: "papplied" }
       } else if (path.endsWith("/ext/pool")) {
         fake.pools++
         answer = fake.pool
@@ -959,4 +974,89 @@ test("LinkedIn: a job odds does not hold is read from LinkedIn's public page of 
   expect(sent?.posting).toMatchObject({ title: "Job 4470000201", company: "Acme", location: "Amsterdam, North Holland, Netherlands", applicants: "Be among the first 25 applicants", seniority: "Internship" })
   expect(fake.analyzed.every((a) => a.posting)).toBe(true)
   expect(fake.calls).toHaveLength(0)
+})
+
+/**
+ * LinkedIn's Easy Apply as it is built in October 2026: a modal (data-test-modal-id="easy-apply-modal") with one step at a time, each question in
+ * a data-test-form-element, "Continue to next step", then "Review your application", then "Submit application" (data-live-test-easy-apply-submit-button),
+ * and "Your application was sent" when it is sent. LinkedIn fills email and the phone's country itself.
+ */
+const EASY_APPLY = `<!doctype html><html><head><meta charset="utf-8"></head><body><main>
+<section class="jobs-search__job-details"><h1><a href="/jobs/view/4470000301/">Data Intern</a></h1><div style="display:flex;gap:8px"><div><button id="jobs-apply-button-id" aria-label="Easy Apply to Data Intern at Acme">Easy Apply</button></div><div><button class="jobs-save-button">Save</button></div></div></section>
+</main><script>
+const steps = [
+  { title: "Contact info", html: \`
+    <div data-test-form-element><label for="email">Email Email</label><select id="email" required><option>Select an option</option><option selected>kien@example.com</option></select></div>
+    <div data-test-form-element><label for="cc">Phone country code Phone country code</label><select id="cc"><option>Select an option</option><option selected>Netherlands (+31)</option></select></div>
+    <div data-test-form-element><label for="phone">Mobile phone number</label><input id="phone" type="text" required></div>\` },
+  { title: "Resume", html: \`
+    <input type="radio" name="cv" id="jobsDocumentCardToggle-1" aria-label="Deselect resume Kien_Old_CV.pdf" checked>
+    <input type="radio" name="cv" id="jobsDocumentCardToggle-2" aria-label="Select resume Kien_Data_CV.pdf">\` },
+  { title: "Additional Questions", html: \`
+    <div data-test-form-element><label for="dutch">What is your level of proficiency in Dutch? What is your level of proficiency in Dutch?</label><select id="dutch"><option>Select an option</option><option>None</option><option>Conversational</option><option>Professional</option><option>Native or bilingual</option></select></div>
+    <div data-test-form-element><fieldset><legend><span data-test-form-builder-radio-button-form-component__title>Will you now or in the future require visa sponsorship?</span></legend><input type="radio" name="sp" id="sp-yes"><label for="sp-yes">Yes</label><input type="radio" name="sp" id="sp-no"><label for="sp-no">No</label></fieldset></div>
+    <div data-test-form-element><label for="sql">How many years of work experience do you have with SQL?</label><input id="sql" type="text" class="numeric"></div>\` },
+  { title: "Review your application", html: "<p>Review</p>" },
+]
+let at = 0
+window.submits = 0
+window.seen = {}
+function draw() {
+  const modal = document.querySelector("[data-test-modal-id=easy-apply-modal]")
+  const last = at === steps.length - 1
+  modal.querySelector(".artdeco-modal__content").innerHTML = "<h3>" + steps[at].title + "</h3>" + steps[at].html
+  modal.querySelector(".buttons").innerHTML = last ? '<button data-live-test-easy-apply-submit-button aria-label="Submit application">Submit application</button>' : '<button data-easy-apply-next-button aria-label="' + (at === steps.length - 2 ? "Review your application" : "Continue to next step") + '">Next</button>'
+}
+document.addEventListener("click", (event) => {
+  const b = event.target.closest("button")
+  if (!b) return
+  if (b.id === "jobs-apply-button-id") {
+    document.body.insertAdjacentHTML("beforeend", '<div data-test-modal-id="easy-apply-modal" role="dialog"><div class="artdeco-modal__content"></div><div class="buttons"></div></div>')
+    draw()
+  }
+  if (b.hasAttribute("data-easy-apply-next-button")) {
+    for (const el of document.querySelectorAll("[data-test-modal-id=easy-apply-modal] input, [data-test-modal-id=easy-apply-modal] select")) window.seen[el.id] = el.type === "radio" ? el.checked : el.value
+    setTimeout(() => { at++; draw() }, 150)
+  }
+  if (b.hasAttribute("data-live-test-easy-apply-submit-button")) {
+    window.submits++
+    document.querySelector("[data-test-modal-id=easy-apply-modal]").remove()
+    document.body.insertAdjacentHTML("beforeend", '<div role="dialog">Your application was sent to Acme!</div>')
+  }
+})
+</script></body></html>`
+
+test("Easy Apply with odds: filled in from odds, the job's own CV chosen, a new question kept once answered, stopped before Submit, marked applied when sent", async ({ context, fake }) => {
+  await connect(context)
+  await context.route("https://www.linkedin.com/jobs/view/4470000301/**", (route) => route.fulfill({ contentType: "text/html", body: EASY_APPLY }))
+  fake.peek = { known: true, id: "papply", saved: true, chance_pct: 8.8 }
+  fake.kit = {
+    job_id: "papply",
+    facts: { name: "Kien Phung", email: "kien@example.com", phone: "+31 6 1234 5678", place: "Amsterdam, Netherlands", dutch: "basic", answers: { phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: {} },
+    cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true },
+  }
+  const page = await context.newPage()
+  await page.goto("https://www.linkedin.com/jobs/view/4470000301/")
+  await page.locator("#jobs-apply-button-id").click()
+  const modal = page.locator("[data-test-modal-id=easy-apply-modal]")
+  // Step 1 and 2 are complete once odds has filled them in: it goes on by itself, to the questions.
+  await expect(modal.locator("h3")).toHaveText("Additional Questions", { timeout: 10000 })
+  expect(await page.evaluate(() => (window as unknown as { seen: Record<string, unknown> }).seen)).toMatchObject({ phone: "612345678", "jobsDocumentCardToggle-2": true, "jobsDocumentCardToggle-1": false })
+  // What odds knows is answered; what it does not is marked and left for the person.
+  await expect(modal.locator("#dutch")).toHaveValue("Conversational")
+  expect(await modal.locator("#sp-no").isChecked()).toBe(true)
+  await expect(modal.locator(".odds-apply-bar")).toContainText("Answer the marked question")
+  await expect(modal.locator("[data-test-form-element].odds-ask")).toHaveCount(1)
+  await expect(modal.locator("[data-test-form-element].odds-ask label")).toContainText("SQL")
+  await modal.locator("#sql").fill("3")
+  await modal.getByRole("button", { name: "Review your application" }).click()
+  // The person's own answer is kept for the next form.
+  await expect.poll(() => fake.kept).toEqual([{ question: "How many years of work experience do you have with SQL?", answer: "3" }])
+  // At the review odds stops: Submit is the person's.
+  await expect(modal.locator(".odds-apply-bar")).toContainText("press Submit yourself", { timeout: 8000 })
+  await page.waitForTimeout(1500)
+  expect(await page.evaluate(() => (window as unknown as { submits: number }).submits)).toBe(0)
+  await shot(page, "ext-easy-apply")
+  await modal.getByRole("button", { name: "Submit application" }).click()
+  await expect.poll(() => fake.applied, { timeout: 8000 }).toEqual(["https://www.linkedin.com/jobs/view/4470000301/"])
 })
