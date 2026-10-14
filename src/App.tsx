@@ -14,6 +14,8 @@ import { toast } from "sonner"
 import { takeDriveReturn } from "@/lib/drive"
 import { onSignInRequest } from "@/lib/sign-in-request"
 import { useData } from "@/lib/data"
+import { fetchKeptPostings } from "@/lib/jobs"
+import type { Posting } from "@/lib/types"
 import { pageFromPath, pathForPage, type StaticPage } from "@/lib/pages"
 import { clearSeenRooms, saveSeenRooms } from "@/lib/seen"
 import { useDocumentsSync } from "@/lib/use-documents"
@@ -99,7 +101,7 @@ export default function App(): React.JSX.Element {
   const phone = usePhone()
   // With answers already given the account is coming, so the welcome screen
   // must not flash first.
-  const [view, setViewNow] = useState<View>(() => viewFromHistory() ?? (onboarded ? "account" : "journey"))
+  const [view, setViewNow] = useState<View>(() => location.pathname === "/profile" ? "answers" : viewFromHistory() ?? (onboarded ? "account" : "journey"))
   // Bumped when the jobs are opened, so the bell recounts against the mark
   // that visit just left.
   const [visits, setVisits] = useState<number>(0)
@@ -206,6 +208,22 @@ export default function App(): React.JSX.Element {
     setPage(null)
     window.scrollTo(0, 0)
   }
+
+  useEffect(() => {
+    if (!embedded) return
+    let disposed = false
+    let unsubscribe: (() => void) | undefined
+    void import("@/lib/embed").then(({ onEmbeddedJob }) => {
+      if (disposed) return
+      unsubscribe = onEmbeddedJob(id => {
+        history.replaceState({}, "", `/job/${id}`)
+        setSharedJobId(id)
+        setPage(null)
+        window.scrollTo(0, 0)
+      })
+    })
+    return () => { disposed = true; unsubscribe?.() }
+  }, [])
 
   function closeSharedJob(): void {
     // In the extension's panel nothing is added to the tab's history (it is shared with the job site beside the panel).
@@ -547,7 +565,16 @@ export default function App(): React.JSX.Element {
 
 function PublicJobRoute({ id, onBack, onUnlock }: { id: string; onBack: () => void; onUnlock: () => void }): React.JSX.Element {
   const data = useData()
-  const post = data.byId.get(id)
+  const [extra, setExtra] = useState<{ id: string; post: Posting | null } | null>(null)
+  const known = data.byId.get(id)
+  useEffect(() => {
+    if (known || data.status !== "ready") return
+    let live = true
+    void fetchKeptPostings([id]).then(rows => { if (live) setExtra({ id, post: rows[0] ?? null }) }).catch(() => { if (live) setExtra({ id, post: null }) })
+    return () => { live = false }
+  }, [id, known, data.status])
+  const post = known || (extra?.id === id ? extra.post : null)
+  if (!post && (data.status === "loading" || extra?.id !== id)) return <p className="py-12 text-center text-muted-foreground" role="status">Loading job details…</p>
 
   if (!post) {
     return (

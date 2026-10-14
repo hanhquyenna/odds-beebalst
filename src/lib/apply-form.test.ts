@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { answerText, chooseOption, nationalNumber, questionKey, questionText, valueFor, type Facts } from "../../supabase/functions/_shared/apply-form"
+import { applicationQuestionKey, answerText, chooseOption, nationalNumber, questionKey, questionText, valueFor, type Facts } from "../../supabase/functions/_shared/apply-form"
 
 const facts: Facts = {
   name: "Phung Chi Kien",
@@ -8,7 +8,7 @@ const facts: Facts = {
   place: "Amsterdam, North Holland, Netherlands",
   linkedin: "https://www.linkedin.com/in/kien",
   dutch: "basic",
-  answers: { phone: "+31 6 1234 5678", work_authorization: "Yes, I have a residence permit that allows me to work", expected_salary: "€ 1.500 a month", start_date: "1 February 2027", hours_per_week: "40", website: "https://kien.dev" },
+  answers: { first_name: "Chi Kien", last_name: "Phung", phone: "+31 6 1234 5678", work_authorization: "Yes, I have a residence permit that allows me to work", expected_salary: "€ 1.500 a month", start_date: "1 February 2027", hours_per_week: "40", website: "https://kien.dev" },
   remembered: { "how many years of work experience do you have with google analytics": "2" },
 }
 
@@ -21,9 +21,17 @@ describe("questionKey", () => {
 })
 
 describe("answerText", () => {
+  test("profile names and phone win over stale remembered contact answers; a full name is never split", () => {
+    expect(answerText("First name", { name: "Phung Chi Kien" })).toBeNull()
+    expect(answerText("Last name", { name: "Phung Chi Kien" })).toBeNull()
+    expect(answerText("First name", { ...facts, remembered: { "first name": "Old" } })).toBe("Chi Kien")
+    expect(answerText("Phone number", { ...facts, remembered: { "phone number": "old" } })).toBe("+31 6 1234 5678")
+    expect(answerText("Phone number", { phone: "+84 123456789" })).toBe("+84 123456789")
+  })
+
   test("the standard questions, from what odds keeps", () => {
-    expect(answerText("First name", facts)).toBe("Phung")
-    expect(answerText("Last name", facts)).toBe("Chi Kien")
+    expect(answerText("First name", facts)).toBe("Chi Kien")
+    expect(answerText("Last name", facts)).toBe("Phung")
     expect(answerText("Email address Email address", facts)).toBe("kien@example.com")
     expect(answerText("Mobile phone number", facts)).toBe("+31 6 1234 5678")
     expect(answerText("Phone country code", facts)).toBeNull()
@@ -74,4 +82,24 @@ test("values for the field: digits for a number, the national number beside a co
   expect(valueFor("text", "Mobile phone number", "+31 6 1234 5678")).toBe("+31 6 1234 5678")
   expect(nationalNumber("06 1234 5678")).toBe("612345678")
   expect(nationalNumber("+44 7700 900123")).toBe("7700900123")
+})
+
+describe("confirmed answer context", () => {
+  test("study and visa answers stay with a vacancy while exact general answers can be reused", () => {
+    const question = "Will you remain enrolled throughout this internship?"
+    const key = applicationQuestionKey(question, "job-a")
+    const remembered = { [key]: "Yes", [questionKey(question)]: "Old global answer" }
+    expect(answerText(question, { job_id: "job-a", remembered })).toBe("Yes")
+    expect(answerText(question, { job_id: "job-b", remembered })).toBeNull()
+    expect(applicationQuestionKey("How many years of Excel experience?", "job-a")).toBe(applicationQuestionKey("How many years of Excel experience?", "job-b"))
+  })
+  test("NL work authorisation does not fill a different or unknown country's visa question", () => {
+    expect(answerText("Do you require sponsorship?", { ...facts, job_id: "abroad", job_country: "US" })).toBeNull()
+    expect(answerText("Are you authorized to work?", { ...facts, job_id: "abroad", job_country: null })).toBeNull()
+    expect(answerText("Do you require sponsorship?", { ...facts, job_id: "nl", job_country: "NL" })).toBe("No")
+  })
+  test("a supplied answer can fill a missing contact field, but saved Profile details still win", () => {
+    expect(answerText("First name", { remembered: { "first name": "Kien" } })).toBe("Kien")
+    expect(answerText("First name", { answers: { first_name: "Chi Kien" }, remembered: { "first name": "Kien" } })).toBe("Chi Kien")
+  })
 })

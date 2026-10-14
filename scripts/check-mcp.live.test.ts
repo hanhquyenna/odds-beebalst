@@ -338,6 +338,46 @@ run("the connector, as a signed-in person", () => {
       return k
     }
 
+    test("remote application queue: owner-only, duplicate-safe, one desktop claim, cancel and expiry", async () => {
+      const key = await makeKey(a.id)
+      const otherKey = await makeKey(b.id)
+      const session = (await call(key, "session", {})).data
+      const otherSession = (await call(otherKey, "session", {})).data
+      const restAs = async (token: string, path: string, body?: Json): Promise<Response> => fetch(`${URL_}/rest/v1/${path}`, {
+        method: body === undefined ? "GET" : "POST", headers: { apikey: anon, Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body),
+      })
+      const request = async (): Promise<Json> => {
+        const response = await restAs(session.access_token, "rpc/request_application", { p_posting_id: jobs[0].id })
+        expect(response.status).toBe(200)
+        return response.json()
+      }
+      const [one, two] = await Promise.all([request(), request()])
+      expect(one.id).toBe(two.id)
+      const hidden = await restAs(otherSession.access_token, `application_runs?id=eq.${one.id}`)
+      expect(await hidden.json()).toEqual([])
+      const denied = await restAs(session.access_token, "rpc/poll_application", { p_user: b.id, p_device: crypto.randomUUID() })
+      expect(denied.ok).toBe(false)
+      const device = crypto.randomUUID(), second = crypto.randomUUID()
+      const claims = await Promise.all([call(key, "application-poll", { device_id: device }), call(key, "application-poll", { device_id: second })])
+      expect(claims.filter(c => c.data.task?.id === one.id)).toHaveLength(1)
+      const owner = claims[0].data.task ? device : second
+      const wrong = owner === device ? second : device
+      await call(key, "application-report", { device_id: wrong, id: one.id, status: "submitted", message: "Wrong desktop" })
+      expect((await db(`application_runs?id=eq.${one.id}&select=status`))[0].status).toBe("filling")
+      await restAs(otherSession.access_token, "rpc/cancel_application", { p_id: one.id })
+      expect((await db(`application_runs?id=eq.${one.id}&select=status`))[0].status).toBe("filling")
+      await call(key, "application-report", { device_id: owner, id: one.id, status: "ready", message: "Review on desktop." })
+      expect((await db(`application_runs?id=eq.${one.id}&select=status`))[0].status).toBe("ready")
+      await restAs(session.access_token, "rpc/cancel_application", { p_id: one.id })
+      const cancelled = await call(key, "application-poll", { device_id: owner, id: one.id })
+      expect(cancelled.data.previous.status).toBe("cancelled")
+      expect(cancelled.data.task).toBeNull()
+      const next = await request()
+      await db(`application_runs?id=eq.${next.id}`, { method: "PATCH", body: { expires_at: new Date(Date.now() - 60000).toISOString() } })
+      expect((await call(key, "application-poll", { device_id: owner })).data.task).toBeNull()
+      expect((await db(`application_runs?id=eq.${next.id}&select=status`))[0].status).toBe("failed")
+    })
+
     test("only its own key opens it: not Claude's key, not none, not a wrong one", async () => {
       xkey = await makeKey(a.id)
       expect((await call(xkey, "me")).status).toBe(200)
@@ -481,10 +521,13 @@ run("the connector, as a signed-in person", () => {
 
     test("applying: the kit for a form, a question the person answered kept for the next form, the job marked applied", async () => {
       const [held] = (await db("postings?select=id,url&url=like.https://www.linkedin.com/jobs/view/*&closed_at=is.null&limit=1&order=id.asc")) as Array<{ id: string; url: string }>
+      await tool(a, "save_application_answers", { answers: { first_name: "Chi Kien", last_name: "Phung", phone: "+31 6 12345678" } })
       const kit = await call(xkey, "apply-kit", { url: held.url })
       expect(kit.status).toBe(200)
       expect(kit.data.job_id).toBe(held.id)
-      expect(kit.data.facts).toHaveProperty("answers")
+      expect(kit.data.facts.answers).toMatchObject({ first_name: "Chi Kien", last_name: "Phung", phone: "+31 6 12345678" })
+      await tool(a, "save_application_answers", { answers: { phone: "+31 6 87654321" } })
+      expect((await call(xkey, "apply-kit", { url: held.url })).data.facts.phone).toBe("+31 6 87654321")
       expect(typeof kit.data.facts.email === "string" || kit.data.facts.email === null).toBe(true)
       const kept = await call(xkey, "answers", { questions: [{ question: "How many years of work experience do you have with SQL? Required", answer: "3" }, { question: "x", answer: "" }] })
       expect(kept.data.saved).toBe(1)

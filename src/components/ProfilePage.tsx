@@ -1,3 +1,5 @@
+import { ApplicationQuestions } from "@/components/ApplicationQuestions"
+import { SavedApplicationQuestions } from "@/components/SavedApplicationQuestions"
 import { ApplicationAnswers } from "@/components/ApplicationAnswers"
 import { ClaudeProfileRow } from "@/components/ClaudeGuide"
 import { ArrowLeftIcon, CameraIcon, PlusIcon, XIcon } from "@/components/icons"
@@ -218,6 +220,14 @@ export function ProfilePage({ onBack, onOpenDocuments, onOpenClaude }: ProfilePa
         </div>
       </section>
 
+      {data.session ? (
+        <Section id="profile-answers" title="Personal information">
+          <ApplicationAnswers />
+        </Section>
+      ) : null}
+
+      {data.session ? <Section id="profile-learned-answers" title="Application answers"><ApplicationQuestions /><SavedApplicationQuestions /></Section> : null}
+
       <Section id="profile-linkedin" title="LinkedIn">
         <form
           className="flex flex-col gap-2 sm:flex-row"
@@ -361,12 +371,6 @@ export function ProfilePage({ onBack, onOpenDocuments, onOpenClaude }: ProfilePa
           </label>
         </div>
       </Section>
-
-      {data.session ? (
-        <Section id="profile-answers" title="Answers for application forms">
-          <ApplicationAnswers />
-        </Section>
-      ) : null}
 
       <Section id="profile-cv" title="Your CV">
         <Button variant="outline" onClick={onOpenDocuments} className="cursor-pointer">

@@ -78,3 +78,23 @@ export async function connectExtension(): Promise<void> {
     window.postMessage({ source: "odds-site", type: "key", key: data }, window.location.origin)
   })
 }
+
+/** Start in this desktop's installed extension, with an acknowledgement rather than a silent queue. */
+export function prepareInExtension(url: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const requestId = crypto.randomUUID()
+    const finish = (error?: string): void => {
+      clearTimeout(timer)
+      window.removeEventListener("message", receive)
+      if (error) reject(new Error(error)); else resolve()
+    }
+    const receive = (event: MessageEvent): void => {
+      const data = event.data as { source?: string; type?: string; requestId?: string; ok?: boolean; message?: string } | null
+      if (event.source !== window || event.origin !== location.origin || data?.source !== "odds-extension" || data.type !== "application-started" || data.requestId !== requestId) return
+      finish(data.ok ? undefined : data.message || "Connect or reload the Odds extension and try again.")
+    }
+    const timer = window.setTimeout(() => finish("The extension did not respond. Reload it in Chrome, then reload this page."), 6000)
+    window.addEventListener("message", receive)
+    window.postMessage({ source: "odds-site", type: "prepare-application", requestId, url }, location.origin)
+  })
+}

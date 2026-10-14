@@ -136,7 +136,11 @@
       watch: 'a[href*="/jobs/view/"], a[href*="currentJobId="], [data-job-id], [data-occludable-job-id]',
       open() {
         // LinkedIn renders classic search inside /preload/. That frame owns its badges.
-        if (document.querySelector('iframe[src*="linkedin.com/preload/"]')) return null
+        const preload = document.querySelector('iframe[src*="linkedin.com/preload/"]')
+        if (preload) {
+          const style = getComputedStyle(preload)
+          if (!preload.hidden && preload.getAttribute("aria-hidden") !== "true" && style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) !== 0) return null
+        }
         const heading = document.querySelector(".jobs-search__job-details h1 a[href*='/jobs/view/'], .jobs-details__main-content h1 a[href*='/jobs/view/'], h1 a[href*='/jobs/view/']")
         const found = LINKEDIN_ID.exec(heading?.getAttribute("href") || location.pathname + location.search)
         return found ? linkedinJob(found[1]) : null

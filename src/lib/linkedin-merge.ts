@@ -3,6 +3,8 @@ import type { Profile, Row } from "@/lib/types"
 /** What the import returns: the profile's own shapes, so it drops straight in. */
 export interface LinkedInProfile {
   name: string
+  firstName?: string
+  lastName?: string
   headline: string
   place: string
   about: string
@@ -24,6 +26,8 @@ export function mergeLinkedIn(profile: Profile, li: LinkedInProfile): Profile {
   return {
     ...profile,
     name: li.name || profile.name,
+    firstName: li.firstName || profile.firstName,
+    lastName: li.lastName || profile.lastName,
     headline: li.headline || profile.headline,
     place: li.place || profile.place,
     about: li.about || profile.about,

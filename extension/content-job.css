@@ -44,3 +44,9 @@ html[data-odds-panel="open"] #odds-add[data-where="float"] { right: 404px; }
 .odds-ask { outline: 2px solid #f2802a; outline-offset: 4px; border-radius: 6px; }
 /* The same line on an employer's own form (apply-any.js), floating at the bottom right of the page. */
 .odds-apply-bar.odds-apply-float { position: fixed; right: 20px; bottom: 20px; z-index: 2147483646; max-width: 340px; margin: 0; box-shadow: 0 6px 24px rgba(0, 0, 0, .16); }
+
+/* A quiet way into the job, not a Save action. Keep the site's hit target and geometry. */
+#odds-add, .odds-job-chance { background: transparent; border-color: #e5e2dd; color: #64605a; font-weight: 550; box-shadow: none; }
+#odds-add[data-state="done"] { color: #64605a; border-color: #e5e2dd; }
+#odds-add:hover, .odds-job-chance:hover, #odds-add[data-state="done"]:hover { color: #934500; background: #fff4e8; border-color: #d9b68c; }
+#odds-add[data-where="float"] { box-shadow: 0 1px 4px #00000012; }

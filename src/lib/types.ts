@@ -243,6 +243,8 @@ export interface Profile {
   occ: string
   /** Who you are, shown on the profile page. None of it is used to rank jobs. */
   name: string
+  firstName?: string
+  lastName?: string
   headline: string
   place: string
   about: string

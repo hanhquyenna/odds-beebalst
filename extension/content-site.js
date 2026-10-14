@@ -11,21 +11,14 @@ window.addEventListener("message", (event) => {
   const data = event.data
   if (!data || data.source !== "odds-site") return
   if (data.type === "ping") announce("present")
+  if (data.type === "prepare-application" && typeof data.url === "string" && /^https:\/\//.test(data.url) && typeof data.requestId === "string") {
+    chrome.runtime.sendMessage({ type: "apply-in-tab", url: data.url, newTab: true }, answer => {
+      const error = chrome.runtime.lastError
+      window.postMessage({ source: "odds-extension", type: "application-started", requestId: data.requestId, ok: !error && answer?.ok === true, message: error ? "Reload the Odds extension and try again." : answer?.message }, location.origin)
+    })
+  }
   if (data.type === "key" && typeof data.key === "string" && KEY_FORMAT.test(data.key)) {
     chrome.runtime.sendMessage({ type: "set-key", key: data.key }, (answer) => announce(answer?.connected ? "connected" : "failed"))
   }
 })
 announce("present")
-
-// Chrome side panels do not reliably traverse an embedded document's history.
-// Give the app's visible Back control an explicit destination in this frame.
-if (window.parent !== window && /^chrome-extension:\/\//.test(document.referrer)) {
-  document.addEventListener("click", (event) => {
-    const back = event.target.closest?.("button")
-    if (!back || !/^[←\s]*Back$/.test(back.textContent.trim()) || !location.pathname.startsWith("/job/")) return
-    event.preventDefault()
-    event.stopImmediatePropagation()
-    window.parent.postMessage({ source: "odds-site", type: "home" }, chrome.runtime.getURL("").replace(/\/$/, ""))
-    location.replace("/?embed=ext")
-  }, true)
-}

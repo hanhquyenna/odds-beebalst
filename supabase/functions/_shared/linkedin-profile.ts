@@ -12,6 +12,8 @@ export type Json = Record<string, unknown>
 
 export interface ImportedProfile {
   name: string
+  firstName?: string
+  lastName?: string
   headline: string
   place: string
   about: string
@@ -133,6 +135,8 @@ export function normaliseProfile(p: Json): ImportedProfile {
   ].filter(Boolean).join("\n")
 
   return {
+    firstName: first(p, "firstName"),
+    lastName: first(p, "lastName"),
     name: [first(p, "firstName"), first(p, "lastName")].filter(Boolean).join(" ") || first(p, "fullName", "name"),
     headline,
     place: place(p),

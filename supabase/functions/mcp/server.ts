@@ -11,6 +11,8 @@
 import * as core from "./core.js"
 import { handleOAuth, unauthorized } from "./oauth.ts"
 import { accessFor, contentOf, driveEnv, linkOf, pushIfConnected } from "../_shared/drive.ts"
+import { applicationQuestionKey } from "../_shared/apply-form.ts"
+import { personalFromProfile } from "../_shared/application-personal.ts"
 import { cleanAnswers, missingAnswers, type Answers } from "../_shared/application-answers.ts"
 import { cleanCv, cvText, renderCvPdf } from "../_shared/cv-template.ts"
 import { heldFilter, jobLink, type JobLink } from "../_shared/job-sites.ts"
@@ -271,6 +273,34 @@ const jobId = { type: "string", description: "The odds id of the job (from my_jo
 /** Only with the person's private link. */
 const ME_TOOLS = [
   {
+    name: "continue_application",
+    title: "Return to an existing desktop application",
+    description: "After the person completes a browser step, asks their connected Chrome to focus and resume the existing application tab. Does not create another application or submit. Use application_status afterwards.",
+    inputSchema: { type: "object", properties: { job_id: jobId }, required: ["job_id"] },
+    write: true,
+  },
+  {
+    name: "answer_application_questions",
+    title: "Answer and continue an application",
+    description: "Save answers the person explicitly supplied to the pending questions from application_status. Use each exact question key. Never guess visa, study or other answers. Their connected desktop automatically fills the answers and continues; it does not submit. Context-specific questions stay with that job.",
+    inputSchema: { type: "object", properties: { job_id: jobId, answers: { type: "object", additionalProperties: { type: "string" } } }, required: ["job_id", "answers"] },
+    write: true,
+  },
+  {
+    name: "prepare_application",
+    title: "Fill an application on my desktop",
+    description: "When the person asks to apply, opens this job in their connected desktop Chrome and fills from their Odds profile and chosen CV. Uses the same queue as Fill on my desktop. Does not submit or mark applied. Repeated calls reuse the active request. Call application_status afterwards to report progress; never say it is filled just because it is queued. If they choose a CV, attach_document first.",
+    inputSchema: { type: "object", properties: { job_id: jobId }, required: ["job_id"] },
+    write: true,
+  },
+  {
+    name: "application_status",
+    title: "Check desktop application progress",
+    description: "Reads this person's latest preparation for one job and whether their Chrome extension is online. queued means waiting, filling means working, needs_input means they must answer in the desktop form, ready means review on desktop. Never interpret these as submitted. Use after prepare_application, or when asked for an update.",
+    inputSchema: { type: "object", properties: { job_id: jobId }, required: ["job_id"] },
+    write: false,
+  },
+  {
     name: "my_profile",
     title: "My profile",
     description: "The person's own odds profile, from their LinkedIn import and CV: name, email, headline, roles, education, skills, languages, Dutch level, permit. Use it instead of asking them, and to fill in applications.",
@@ -329,7 +359,15 @@ const ME_TOOLS = [
         answers: {
           type: "object",
           properties: {
+            first_name: { type: "string", description: "Given names, exactly as the person wants them on applications." },
+            last_name: { type: "string", description: "Family name; never inferred from a full name." },
+            email: { type: "string" },
             phone: { type: "string" },
+            linkedin: { type: "string" },
+            address: { type: "string" },
+            city: { type: "string" },
+            postcode: { type: "string" },
+            country: { type: "string" },
             website: { type: "string", description: "Portfolio, personal site or GitHub." },
             work_authorization: { type: "string", description: "Right to work in the Netherlands, in their words, e.g. 'I need a work permit; the employer sponsors it as a recognised sponsor.'" },
             expected_salary: { type: "string", description: "As a form wants it, e.g. 'EUR 600 a month' or 'negotiable'." },
@@ -696,7 +734,7 @@ async function saveDocument(env: Env, uid: string, d: { kind: "cv" | "cover_lett
   return text({ saved: true, document_id: id, name: d.name, kind: d.label, attached_to: d.jobId ?? null, note: "It is in their odds Documents now." })
 }
 
-const NO_POOL = new Set(["my_profile", "my_documents", "read_document", "my_application_answers", "save_application_answers", "my_people", "save_outreach", "my_outreach", "mark_contacted", "save_cv", "save_cover_letter"])
+const NO_POOL = new Set(["continue_application", "answer_application_questions", "prepare_application", "application_status", "my_profile", "my_documents", "read_document", "my_application_answers", "save_application_answers", "my_people", "save_outreach", "my_outreach", "mark_contacted", "save_cv", "save_cover_letter"])
 
 async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json> {
   if (name === "export_my_odds") {
@@ -709,6 +747,43 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
   const uid = me.id
   // One row read, not the whole pool: the job is open if the app_jobs view has it.
   const knownJob = async (id: string): Promise<boolean> => ((await rest(env, `app_jobs?select=id&id=eq.${encodeURIComponent(id)}`)) ?? []).length > 0
+
+  if (name === "continue_application") {
+    if (!args.job_id) return failed("Choose the job to continue.")
+    try {
+      const run = await svc(env, "rpc/continue_application_for", { method: "POST", body: JSON.stringify({ p_user: uid, p_posting_id: args.job_id }) })
+      return text({ run, submitted: false, next_step: "The connected desktop will return to the existing tab. Check application_status for progress." })
+    } catch { return failed("No active application could be resumed. Check application_status and the desktop connection before starting again.") }
+  }
+
+  if (name === "answer_application_questions") {
+    if (!args.job_id || !args.answers || typeof args.answers !== "object" || Array.isArray(args.answers) || !Object.keys(args.answers).length || Object.keys(args.answers).length > 30 || Object.values(args.answers).some(v => typeof v !== "string" || !v.trim() || v.length > 1000)) return failed("Give the current job and only the answers the person supplied, using the question keys from application_status.")
+    try {
+      await svc(env, "rpc/answer_application_questions_for", { method: "POST", body: JSON.stringify({ p_user: uid, p_posting_id: args.job_id, p_answers: args.answers }) })
+      return text({ saved: true, submitted: false, next_step: "The connected desktop will receive these answers and continue filling. Check application_status for progress." })
+    } catch { return failed("Could not save these answers. Read application_status again: the questions may have changed or expired.") }
+  }
+
+  if (name === "prepare_application" || name === "application_status") {
+    if (!args.job_id) return failed("Choose a job first (job_id from search_jobs or my_jobs).")
+    const cutoff = encodeURIComponent(new Date(Date.now() - 90_000).toISOString())
+    const desktops = await svc(env, `application_desktops?user_id=eq.${uid}&last_seen_at=gt.${cutoff}&select=device_id&limit=1`)
+    const online = Boolean(desktops?.length)
+    if (name === "prepare_application") {
+      if (!online) return text({ started: false, desktop_online: false, next_step: "Open desktop Chrome and the Odds extension, then enable phone control. Ask me to try again once connected.", submitted: false })
+      const job = (await svc(env, `postings?id=eq.${encodeURIComponent(args.job_id)}&select=id,closed_at,url`))?.[0]
+      if (!job || job.closed_at || !String(job.url ?? "").startsWith("https://")) return failed("This job is closed or has no available application page.")
+      const run = await svc(env, "rpc/request_application_for", { method: "POST", body: JSON.stringify({ p_user: uid, p_posting_id: args.job_id }) })
+      return text({ started: true, desktop_online: true, run, submitted: false, next_step: "Chrome checks for requests about every 30 seconds while awake, or immediately when the Odds side panel is open. Check application_status for progress. The person reviews and submits in Chrome." })
+    }
+    const run = (await svc(env, `application_runs?user_id=eq.${uid}&posting_id=eq.${encodeURIComponent(args.job_id)}&select=id,posting_id,status,message,expires_at&order=created_at.desc&limit=1`))?.[0] ?? null
+    if (run && ["queued", "filling", "needs_input", "ready"].includes(run.status) && Date.parse(run.expires_at) < Date.now()) {
+      run.status = "failed"
+      run.message = "Preparation expired. Your open application remains on your desktop. Ask to start again when Chrome is connected."
+    }
+    const prompt = (await svc(env, `application_prompts?user_id=eq.${uid}&posting_id=eq.${encodeURIComponent(args.job_id)}&updated_at=gt.${encodeURIComponent(new Date(Date.now() - 30 * 60_000).toISOString())}&select=questions`))?.[0]
+    return text({ desktop_online: online, run, questions: prompt?.questions ?? [], submitted: run?.status === "submitted", next_step: run?.status === "needs_input" ? "Read the message and answer the marked questions in the desktop application form, or complete its sign-in/CAPTCHA there." : run?.status === "ready" ? "Review the filled application in desktop Chrome and submit there." : !run ? "No preparation has been started for this job." : "Report the actual status and message. Do not claim an application was sent unless its status is submitted." })
+  }
 
   if (name === "my_profile") {
     const p = await myProfile(env, me)
@@ -981,7 +1056,7 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
 // ---- JSON-RPC over HTTP ----
 
 const ME_INSTRUCTIONS =
-  "This is the person's own private link: you can see their profile (my_profile), their CVs and letters (my_documents, read_document), their saved and applied jobs (my_jobs), all of it in one call (export_my_odds), and everything to apply to one (application_kit). Find jobs for them with search_jobs and tailored_jobs, save them (save_job), and put the right CV on each job (attach_document), or make one for the job in odds's one format (save_cv). Use these instead of asking them to paste anything. APPLYING: application_kit gives the form's answers (standard_answers); fill an application only from it, their profile and CV: ask them for anything else, and keep what they tell you with save_application_answers. If the form needs a sign-in or a new account, stop and ask them to do that step in the browser, then continue when they say so: never type their password or solve a CAPTCHA. Never press submit yourself: let them check and send it, then mark_applied. REACHING OUT: my_people lists the people they keep at employers; write short, specific, true messages with save_outreach. A message goes out only after they approve it (approve_outreach, once they have said so in the chat, or the button on odds): then outreach_to_send lists what to send and how many may go today; send exactly those, in their signed-in browser, and mark_contacted each. If they have not approved, they send it themselves. Ask before saving a CV, a letter, answers or a batch of drafts, and before marking anything applied."
+  "This is the person's own private link: you can see their profile (my_profile), their CVs and letters (my_documents, read_document), their saved and applied jobs (my_jobs), all of it in one call (export_my_odds), and everything to apply to one (application_kit). Find jobs for them with search_jobs and tailored_jobs, save them (save_job), and put the right CV on each job (attach_document), or make one for the job in odds's one format (save_cv). Use these instead of asking them to paste anything. APPLYING: When the person asks you to apply, use prepare_application with the job_id to start their connected Chrome extension. If they selected a CV, attach_document first. Then use application_status to check actual progress. If it returns questions, ask the person and save only their explicit answers with answer_application_questions; the extension continues automatically. An offline desktop cannot receive it; explain how to connect instead of claiming success. No separate confirmation is needed to prepare a form when they already asked you to apply. application_kit gives the form's answers (standard_answers); fill an application only from it, their profile and CV: ask them for anything else, and keep what they tell you with save_application_answers. If the form needs a sign-in or a new account, stop and ask them to do that step in the browser, then continue when they say so: never type their password or solve a CAPTCHA. Never press submit yourself: let them check and send it, then mark_applied. REACHING OUT: my_people lists the people they keep at employers; write short, specific, true messages with save_outreach. A message goes out only after they approve it (approve_outreach, once they have said so in the chat, or the button on odds): then outreach_to_send lists what to send and how many may go today; send exactly those, in their signed-in browser, and mark_contacted each. If they have not approved, they send it themselves. Ask before saving a CV, a letter, answers or a batch of drafts, and before marking anything applied."
 
 const INSTRUCTIONS =
   "odds lists open internship, traineeship and entry-level jobs in the Netherlands that do not require Dutch, for international students. Use search_jobs to find jobs, get_job to read one, company_profile for the employer, and interview_chance or tailored_jobs once you know the person's roles, education and skills. Chances are estimates from published hiring studies, not promises: say so. Link to the odds_link of each job you mention."
@@ -998,7 +1073,7 @@ async function answer(env: Env, me: Me | null, keyGiven: boolean, msg: Json): Pr
     case "initialize": {
       const asked = params?.protocolVersion
 
-      return ok({ protocolVersion: PROTOCOLS.includes(asked) ? asked : PROTOCOLS[0], capabilities: { tools: { listChanged: false } }, serverInfo: { name: "odds", title: "odds: jobs for international students in the Netherlands", version: "1.1.0" }, instructions: me ? `${INSTRUCTIONS} ${ME_INSTRUCTIONS}` : keyGiven ? `${INSTRUCTIONS} This private link was turned off: tell the person to make a new one on their odds profile.` : INSTRUCTIONS })
+      return ok({ protocolVersion: PROTOCOLS.includes(asked) ? asked : PROTOCOLS[0], capabilities: { tools: { listChanged: false } }, serverInfo: { name: "odds", title: "odds: jobs for international students in the Netherlands", version: "1.2.0" }, instructions: me ? `${INSTRUCTIONS} ${ME_INSTRUCTIONS}` : keyGiven ? `${INSTRUCTIONS} This private link was turned off: tell the person to make a new one on their odds profile.` : INSTRUCTIONS })
     }
     case "ping":
       return ok({})
@@ -1006,7 +1081,7 @@ async function answer(env: Env, me: Me | null, keyGiven: boolean, msg: Json): Pr
       return ok({
         tools: [
           ...TOOLS.map((t) => ({ ...t, annotations: { readOnlyHint: true, openWorldHint: false } })),
-          ...(me ? ME_TOOLS.map(({ write, ...t }) => ({ ...t, annotations: { readOnlyHint: !write, destructiveHint: false, idempotentHint: !write, openWorldHint: false } })) : []),
+          ...(me ? ME_TOOLS.map(({ write, ...t }) => ({ ...t, annotations: { readOnlyHint: !write, destructiveHint: false, idempotentHint: !write || t.name === "prepare_application", openWorldHint: ["prepare_application", "continue_application"].includes(t.name) } })) : []),
         ],
       })
     case "tools/call":
@@ -1031,7 +1106,7 @@ const EXT_DAILY_READS = 30
 /** Jobs from any other site a person's browser may hand over in a day: free to read, but each one goes into the table everyone sees. */
 const EXT_DAILY_PAGE_READS = 300
 /** A job we hold, found by the address it was stored under (job boards loaded in bulk kept longer ones: heldFilter finds those by the job's id). */
-const heldJob = (env: Env, link: JobLink): Promise<Json[] | null> => rest(env, `postings?select=id,closed_at&${heldFilter(link)}&order=closed_at.desc.nullsfirst&limit=1`).catch(() => [])
+const heldJob = (env: Env, link: JobLink): Promise<Json[] | null> => rest(env, `postings?select=id,closed_at,region&${heldFilter(link)}&order=closed_at.desc.nullsfirst&limit=1`).catch(() => [])
 
 /**
  * Keys and profiles seen in the last minute, kept by this instance: a list of jobs coming into view asks several times a second, and each answer
@@ -1089,6 +1164,46 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
   const me = await extWho(env, keyOf(req)).catch(() => null)
   if (!me) return json(401, { error: "Connect the odds extension again." })
   if (route === "me" && req.method === "GET") return json(200, { ok: true })
+  if (["application-poll", "application-report", "application-resume"].includes(route) && req.method === "POST") {
+    const body = await req.json().catch(() => null)
+    const uuid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+    if (!uuid(body?.device_id)) return json(400, { error: "Invalid desktop." })
+    if (route === "application-resume") {
+      const link = jobLink(String(body?.url || ""), true)
+      const held = link ? (await heldJob(env, link))?.[0] : null
+      if (!held) return json(200, { status: "ok", run: null })
+      const rows = await svc(env, `application_runs?user_id=eq.${me.id}&device_id=eq.${body.device_id}&posting_id=eq.${encodeURIComponent(held.id)}&status=in.(filling,needs_input,ready)&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&select=id&order=created_at.desc&limit=1`)
+      return json(200, { status: "ok", run: rows?.[0] || null })
+    }
+    if (route === "application-report") {
+      if (!uuid(body?.id) || !["filling", "needs_input", "ready", "submitted", "failed"].includes(body?.status) || typeof body?.message !== "string") return json(400, { error: "Invalid progress." })
+      await svc(env, "rpc/report_application", { method: "POST", body: JSON.stringify({ p_user: me.id, p_device: body.device_id, p_id: body.id, p_status: body.status, p_message: body.message.slice(0, 500) }) })
+      return json(200, { status: "ok" })
+    }
+    if (Array.isArray(body?.ids)) {
+      const ids = body.ids.filter(uuid).slice(0, 200)
+      const result = await svc(env, "rpc/poll_applications", { method: "POST", body: JSON.stringify({ p_user: me.id, p_device: body.device_id, p_known: ids }) })
+      return json(200, { status: "ok", ...result })
+    }
+    const previous = uuid(body?.id) ? (await svc(env, `application_runs?id=eq.${body.id}&user_id=eq.${me.id}&device_id=eq.${body.device_id}&select=id,status`))?.[0] ?? null : null
+    const task = await svc(env, "rpc/poll_application", { method: "POST", body: JSON.stringify({ p_user: me.id, p_device: body.device_id }) })
+    return json(200, { status: "ok", task, previous })
+  }
+
+  if (route === "application-questions" && req.method === "POST") {
+    const body = await req.json().catch(() => null)
+    const link = jobLink(String(body?.url || ""), true)
+    const held = link ? (await heldJob(env, link))?.[0] : null
+    if (!held) return json(404, { error: "Job not registered in Odds." })
+    const questions = (Array.isArray(body?.questions) ? body.questions : []).slice(0, 30).filter((q: Json) => ["text", "textarea", "number", "radio", "select"].includes(q?.kind) && typeof q?.label === "string" && typeof q?.key === "string" && q.key.length >= 2 && q.key.length <= 300 && q.label.length >= 2 && q.label.length <= 500 && !/password|captcha|verification code|security code|social security|\bbsn\b|credit card/i.test(q.label)).map((q: Json) => ({ key: applicationQuestionKey(q.label, held.id), label: q.label, kind: q.kind, options: ["radio", "select"].includes(q.kind) ? (Array.isArray(q.options) ? q.options : []).filter((v: unknown) => typeof v === "string").slice(0, 100).map((v: string) => v.slice(0, 200)) : [] }))
+    await svc(env, "application_prompts?on_conflict=user_id,posting_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: me.id, posting_id: held.id, questions, updated_at: new Date().toISOString() }) })
+    return json(200, { status: "ok" })
+  }
+  if (route === "answers" && req.method === "GET") {
+    const rows = await svc(env, `application_questions?user_id=eq.${me.id}&select=question_key,answer&order=updated_at.desc&limit=500`)
+    return json(200, { remembered: Object.fromEntries((rows || []).map((r: Json) => [r.question_key, r.answer])) })
+  }
+
   // A real odds sign-in for the person, so the odds app opened inside the extension's panel is signed in as them. The extension key is as strong
   // as that: it is kept only in the extension, rotates when they connect again, and Disconnect on the odds site cuts it off.
   if (route === "session" && req.method === "POST") {
@@ -1181,14 +1296,15 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
       return json(400, { error: "Send { url }." })
     }
     const link = jobLink(String(body?.url ?? ""), true)
-    const [held, profile, answers, remembered, email, mainCv] = await Promise.all([
+    const [held, profile, savedAnswers, remembered, email, mainCv] = await Promise.all([
       link ? heldJob(env, link).then((r) => r?.[0] ?? null) : Promise.resolve(null),
-      extProfile(env, me),
+      myProfile(env, me),
       myAnswers(env, me.id),
       svc(env, `application_questions?user_id=eq.${me.id}&select=question_key,answer&order=updated_at.desc&limit=500`),
       emailOf(env, me),
       svc(env, `documents?user_id=eq.${me.id}&kind=eq.cv&is_main=eq.true&select=id,name,file_name`),
     ])
+    const answers = { ...personalFromProfile(profile, email), ...savedAnswers }
     const attached = held ? (await svc(env, `job_documents?user_id=eq.${me.id}&posting_id=eq.${encodeURIComponent(held.id)}&kind=eq.cv&select=document_id`))?.[0] : null
     const cvRow = attached ? (await svc(env, `documents?user_id=eq.${me.id}&id=eq.${attached.document_id}&select=id,name,file_name`))?.[0] : null
     const cv = cvRow ?? mainCv?.[0] ?? null
@@ -1196,11 +1312,13 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     return json(200, {
       job_id: held?.id ?? null,
       facts: {
+        job_id: held?.id ?? null,
+        job_country: /(?:netherlands|nederland|\bNL\b)/i.test(held?.region || "") ? "NL" : null,
         name: profile.name || null,
-        email,
+        email: answers.email || email,
         phone: answers.phone ?? null,
-        place: profile.place || null,
-        linkedin: profile.linkedin ?? null,
+        place: answers.city || profile.place || null,
+        linkedin: answers.linkedin || profile.linkedin || null,
         website: answers.website ?? null,
         dutch: profile.dutch ?? null,
         answers,
@@ -1217,10 +1335,12 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     } catch {
       return json(400, { error: "Send { questions: [{ question, answer }] }." })
     }
+    const answerLink = typeof body?.url === "string" ? jobLink(body.url, true) : null
+    const answerJob = answerLink ? (await heldJob(env, answerLink))?.[0] : null
     const rows = (Array.isArray(body?.questions) ? body.questions : []).slice(0, 40).map((q: Json) => {
       const question = typeof q?.question === "string" ? q.question.replace(/\s+/g, " ").trim().slice(0, 500) : ""
       const answer = typeof q?.answer === "string" ? q.answer.replace(/\s+/g, " ").trim().slice(0, 1000) : ""
-      const key = question.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/\brequired\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim().slice(0, 300)
+      const key = applicationQuestionKey(question, answerJob?.id)
       return key.length >= 2 && answer ? { user_id: me.id, question_key: key, question, answer, updated_at: new Date().toISOString() } : null
     }).filter(Boolean)
     if (rows.length) await svc(env, "application_questions?on_conflict=user_id,question_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) })

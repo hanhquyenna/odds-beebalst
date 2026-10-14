@@ -38,7 +38,7 @@ function ensurePanel(then) {
 
 /** Shows the panel. `added` is the job just added ({ id, title, company, city, chance_pct }): it drops in and its page opens in the app. */
 function openPanel(added) {
-  if (added && added.id) panelWaiting = added
+  if (added && (added.id || added.pending)) panelWaiting = added
   ensurePanel(() => {
     // Set on the next frame so the slide in is seen the first time too.
     window.requestAnimationFrame(() => {

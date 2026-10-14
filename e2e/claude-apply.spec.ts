@@ -11,7 +11,7 @@ test.describe("signed in: answers for application forms and Claude's message dra
     })
     await page.goto("/")
     await page.getByRole("button", { name: /Profile/ }).last().click()
-    await expect(page.getByRole("heading", { name: "Answers for application forms" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Personal information" })).toBeVisible()
     await expect(page.getByLabel("Phone number")).toHaveValue("+31 6 11111111")
     const saving = page.waitForRequest((r) => r.url().includes("/rest/v1/application_answers") && r.method() === "POST")
     await page.getByLabel("Pay you expect").fill("EUR 600 a month")
@@ -20,6 +20,48 @@ test.describe("signed in: answers for application forms and Claude's message dra
     expect(body.data).toEqual({ phone: "+31 6 11111111", expected_salary: "EUR 600 a month" })
     await expect(page.getByText("Saved", { exact: true })).toBeVisible()
     await shot(page, "profile-answers")
+  })
+
+  test("application contact details save independently of the display name and reload on another visit", async ({ page }) => {
+    let data: Record<string, string> = {}
+    await page.route("**/rest/v1/application_answers*", route => {
+      if (route.request().method() === "POST") data = route.request().postDataJSON().data
+      return route.fulfill({ json: route.request().method() === "GET" ? { data } : [] })
+    })
+    await page.goto("/")
+    await page.getByRole("button", { name: /Profile/ }).last().click()
+    await page.getByLabel("First name (given names)", { exact: true }).fill("Chi Kien")
+    await page.getByLabel("First name (given names)", { exact: true }).blur()
+    await expect.poll(() => data.first_name).toBe("Chi Kien")
+    await page.getByLabel("Last name (family name)", { exact: true }).fill("Phung")
+    await page.getByLabel("Last name (family name)", { exact: true }).blur()
+    await page.getByLabel("Phone number", { exact: true }).fill("+31 6 12345678")
+    await page.getByLabel("Phone number", { exact: true }).blur()
+    await expect.poll(() => data).toEqual({ first_name: "Chi Kien", last_name: "Phung", phone: "+31 6 12345678" })
+    await page.reload()
+    await expect(page.getByLabel("First name (given names)", { exact: true })).toHaveValue("Chi Kien")
+    await expect(page.getByLabel("Last name (family name)", { exact: true })).toHaveValue("Phung")
+    await expect(page.getByLabel("Phone number", { exact: true })).toHaveValue("+31 6 12345678")
+  })
+
+  test("personal information is extracted from profile and CV and can be overridden", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("careersim.profile", JSON.stringify({ onboarded: true, name: "Family Given", firstName: "Given Names", lastName: "Family", place: "Amsterdam, Netherlands", cv: "Given Names Family\ncv@example.com | +31 6 12345678", origin: "non_eu", dutch: "basic" })))
+    let data: Record<string, string> = {}
+    await page.route("**/rest/v1/application_answers*", route => {
+      if (route.request().method() === "POST") data = route.request().postDataJSON().data
+      return route.fulfill({ json: route.request().method() === "GET" ? { data } : [] })
+    })
+    await page.goto("/")
+    await page.getByRole("button", { name: /Profile/ }).last().click()
+    await expect(page.getByRole("heading", { name: "Personal information" })).toBeVisible()
+    await expect(page.getByLabel("First name (given names)", { exact: true })).toHaveValue("Given Names")
+    await expect(page.getByLabel("Last name (family name)", { exact: true })).toHaveValue("Family")
+    await expect(page.getByLabel("Application email", { exact: true })).toHaveValue("cv@example.com")
+    await expect(page.getByLabel("Phone number", { exact: true })).toHaveValue("+31 6 12345678")
+    await expect(page.getByLabel("City", { exact: true })).toHaveValue("Amsterdam")
+    await page.getByLabel("Phone number", { exact: true }).fill("+44 7123456789")
+    await page.getByLabel("Phone number", { exact: true }).blur()
+    await expect.poll(() => data.phone).toBe("+44 7123456789")
   })
 
   test("a draft Claude wrote for someone on a job can be copied, approved for Claude to send, taken back and marked sent", async ({ page, context }) => {

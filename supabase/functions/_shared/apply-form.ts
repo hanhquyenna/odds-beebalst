@@ -4,6 +4,8 @@
 
 /** What odds knows about the person for a form. Every part may be missing. */
 export interface Facts {
+  job_id?: string | null
+  job_country?: string | null
   name?: string | null
   email?: string | null
   phone?: string | null
@@ -36,6 +38,12 @@ export function questionKey(label: string): string {
     .slice(0, 300)
 }
 
+/** Date, education and legal answers cannot silently cross between vacancies. */
+export function applicationQuestionKey(label: string, jobId?: string | null): string {
+  const key = questionKey(label)
+  return jobId && /\b(visa|sponsor\w*|authori[sz]\w*|permit|citizen\w*|enroll\w*|study\w*|studies|student|internship|graduat\w*|start date|available|availability|relocat\w*)\b/.test(key) ? `${key.slice(0, 240)} job ${jobId.slice(0, 50)}` : key
+}
+
 /** The label as shown, said once (LinkedIn repeats it for screen readers). */
 export function questionText(label: string): string {
   // A form's "required" star is not part of the question.
@@ -59,24 +67,28 @@ export function nationalNumber(phone: string): string {
 /** The person's answer to a question, in their words, or null when odds does not know it. Their own earlier answer comes first. */
 export function answerText(label: string, facts: Facts): string | null {
   const key = questionKey(label)
-  const remembered = facts.remembered?.[key]
-  if (remembered) return remembered
   const a = facts.answers ?? {}
-  const pick = (v: string | null | undefined): string | null => (v && v.trim() ? v.trim() : null)
-  if (/\b(first name|given name|voornaam)\b/.test(key)) return pick(facts.name?.split(/\s+/)[0])
-  if (/\b(last name|surname|family name|achternaam)\b/.test(key)) return pick(facts.name?.split(/\s+/).slice(1).join(" "))
-  if (/^(full )?name$/.test(key)) return pick(facts.name)
-  if (/\b(e ?mail\w*)\b/.test(key)) return pick(facts.email)
-  if (/\b(mobile|phone|telephone|telefoon\w*|mobiel\w*)\b/.test(key) && !/country|landcode/.test(key)) return pick(a.phone)
-  if (/\blinkedin\b/.test(key) && /\b(url|profile|link)\b/.test(key)) return pick(facts.linkedin)
+  const remembered = facts.remembered?.[applicationQuestionKey(label, facts.job_id)]
+  const pick = (v: string | null | undefined): string | null => (v && v.trim() ? v.trim() : remembered || null)
+  if (/\b(first name|given name|voornaam)\b/.test(key)) return pick(a.first_name)
+  if (/\b(last name|surname|family name|achternaam)\b/.test(key)) return pick(a.last_name)
+  if (/^(full )?name$/.test(key)) return (a.first_name && a.last_name ? `${a.first_name} ${a.last_name}` : pick(facts.name))
+  if (/\b(e ?mail\w*)\b/.test(key)) return pick(a.email) ?? pick(facts.email)
+  if (/\b(mobile|phone|telephone|telefoon\w*|mobiel\w*)\b/.test(key) && !/country|landcode/.test(key)) return pick(a.phone) ?? pick(facts.phone)
+  if (/\blinkedin\b/.test(key) && /\b(url|profile|link)\b/.test(key)) return pick(a.linkedin) ?? pick(facts.linkedin)
   if (/\b(website|portfolio|github|personal site)\b/.test(key)) return pick(a.website)
-  if (/\b(city|location|where do you live|woonplaats)\b/.test(key) && !/relocat/.test(key)) return pick(facts.place?.split(",")[0])
+  if (/\b(city|location|where do you live|woonplaats)\b/.test(key) && !/relocat/.test(key)) return pick(a.city) ?? pick(facts.place?.split(",")[0])
+  if (/\b(postal code|postcode|zip code|zip)\b/.test(key)) return pick(a.postcode)
+  if (/^(street address|address|address line 1|adres|straat)/.test(key)) return pick(a.address)
+  if (/^(country|country of residence|land)$/.test(key)) return pick(a.country)
+  if (remembered) return remembered
   if (/\b(relocat\w*)\b/.test(key)) return pick(a.relocation)
   if (/\bnotice period\b|\bopzegtermijn\b/.test(key)) return pick(a.notice_period)
   if (/\b(start date|when can you start|available to start|availability|earliest start|beschikbaar)\b/.test(key)) return pick(a.start_date)
   if (/\bhours\b.*\bweek\b|\bper week\b|\buren\b/.test(key)) return pick(a.hours_per_week)
   if (/\b(salary|compensation|pay|wage|salaris|stipend)\b/.test(key)) return pick(a.expected_salary)
   if (/\b(sponsor\w*|visa)\b/.test(key)) {
+    if (facts.job_id && facts.job_country !== "NL") return null
     const w = a.work_authorization ?? ""
     if (!w) return null
     // "Do you need sponsorship?" is the opposite of "Are you allowed to work?": answered only when the kept answer says which.
@@ -85,6 +97,7 @@ export function answerText(label: string, facts: Facts): string | null {
     return null
   }
   if (/\b(authori[sz]ed|legally|right to work|eligible to work|work permit|allowed to work|werkvergunning)\b/.test(key)) {
+    if (facts.job_id && facts.job_country !== "NL") return null
     const w = a.work_authorization ?? ""
     if (!w) return null
     if (/^\s*no\b|\b(need|require)s?\b.*\b(sponsor|visa|permit)/i.test(w)) return "No"

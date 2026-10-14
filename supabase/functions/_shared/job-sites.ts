@@ -104,9 +104,13 @@ export function jobLink(input: string, anyPage = false): JobLink | null {
   for (const [ats, hostRx, pathRx] of BOARDS) {
     if (hostRx.test(host)) return pathRx.test(job) ? { site: ats, ats, id: job, url: `https://${host}${job}` } : null
   }
-  if (!anyPage || !/\.[a-z]{2,}$/.test(host) || job === "") return null
+  if (!anyPage || !/\.[a-z]{2,}$/.test(host)) return null
   const keep = JOB_QUERY.filter((k) => u.searchParams.get(k)).map((k) => `${k}=${encodeURIComponent(u.searchParams.get(k) ?? "")}`)
-  const where = `${job}${keep.length ? `?${keep.join("&")}` : ""}`
+  // Embedded Greenhouse boards can identify a job entirely by ?gh_jid on the root.
+  // A bare homepage, or one with only tracking parameters, still is not a job.
+  if (job === "" && keep.length === 0) return null
+  const canonicalPath = job === "/job" && u.searchParams.get("gh_jid") ? "/" : job || "/"
+  const where = `${canonicalPath}${keep.length ? `?${keep.join("&")}` : ""}`
 
   return { site: "web", ats: "other", id: where, url: `https://${host}${where}` }
 }

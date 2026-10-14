@@ -160,3 +160,12 @@ test("a LinkedIn job from LinkedIn's public page of it, as scripts/pull-linkedin
   expect(postingFromLinkedIn("<html>sign in</html>")).toBeNull()
   expect(linkedinPublicJob("4477915770")).toBe("https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/4477915770")
 })
+
+
+test("custom career boards retain root-level job identifiers without treating homepages as jobs", () => {
+  expect(jobLink("https://careers.nebius.com/?gh_jid=4976989101&utm_source=LinkedIn", true)).toMatchObject({ site: "web", id: "/?gh_jid=4976989101", url: "https://careers.nebius.com/?gh_jid=4976989101" })
+  expect(jobLink("https://careers.nebius.com/job?gh_jid=4976989101", true)?.url).toBe("https://careers.nebius.com/?gh_jid=4976989101")
+  expect(jobLink("https://careers.nebius.com/", true)).toBeNull()
+  expect(jobLink("https://careers.nebius.com/?utm_source=LinkedIn", true)).toBeNull()
+  expect(jobLink("https://careers.nebius.com/?gh_jid=4976989101")).toBeNull()
+})

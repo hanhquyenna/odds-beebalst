@@ -156,7 +156,7 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
         {/* Status at the left, the way into the posting at the right, on one line. */}
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
           <StatusPicker post={post} fit={fit} onLocked={locked?.onUnlock} />
-          <SourceLinks post={post} />
+          <SourceLinks post={post} secondary={Boolean(data.session && !post.local)} />
         </div>
         <OddsApply post={post} />
         {locked ? <KeyFacts post={post} onPick={onPick} /> : null}
@@ -169,10 +169,11 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
           <JobProperties post={job} st={st} />
           <UspStrip post={job} st={st} />
           <Recommendations post={job} base={base} whatIf={whatIf} setWhatIf={setWhatIf} />
-          <JobDocuments post={post} />
           <FitCard post={job} st={st} requirements={requirements} />
         </>
       )}
+
+      {!locked ? <JobDocuments post={post} /> : null}
 
       <PastHires post={post} />
 

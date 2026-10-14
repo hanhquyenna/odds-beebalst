@@ -11,10 +11,20 @@ export interface AnswerField {
   placeholder: string
   /** A longer box. */
   long?: boolean
+  type?: "text" | "tel" | "email" | "url"
+  autoComplete?: string
 }
 
 export const ANSWER_FIELDS: ReadonlyArray<AnswerField> = [
-  { key: "phone", label: "Phone number", placeholder: "+31 6 12345678" },
+  { key: "first_name", label: "First name (given names)", placeholder: "As it should appear on applications", autoComplete: "given-name" },
+  { key: "last_name", label: "Last name (family name)", placeholder: "As it should appear on applications", autoComplete: "family-name" },
+  { key: "email", label: "Application email", placeholder: "you@example.com", type: "email", autoComplete: "email" },
+  { key: "phone", label: "Phone number", placeholder: "+31 6 12345678", type: "tel", autoComplete: "tel" },
+  { key: "linkedin", label: "LinkedIn profile", placeholder: "https://www.linkedin.com/in/", type: "url", autoComplete: "url" },
+  { key: "address", label: "Street address", placeholder: "Street and house number", autoComplete: "street-address" },
+  { key: "city", label: "City", placeholder: "Amsterdam", autoComplete: "address-level2" },
+  { key: "postcode", label: "Postcode", placeholder: "", autoComplete: "postal-code" },
+  { key: "country", label: "Country of residence", placeholder: "Netherlands", autoComplete: "country-name" },
   { key: "website", label: "Website or portfolio", placeholder: "https://" },
   { key: "work_authorization", label: "Right to work in the Netherlands", placeholder: "I need a work permit; the employer sponsors it" },
   { key: "expected_salary", label: "Pay you expect", placeholder: "EUR 600 a month, or negotiable" },

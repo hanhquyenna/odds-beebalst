@@ -3,8 +3,6 @@
 const ODDS = "https://odds.beeblast.co"
 const app = document.getElementById("app")
 const note = document.getElementById("note")
-const toast = document.getElementById("toast")
-const count = document.getElementById("count")
 
 let appReady = false
 let waiting = null
@@ -31,47 +29,21 @@ function openJob(id, once = false) {
   } else waiting = id
 }
 
-function setCount(total, bump) {
-  if (typeof total !== "number") return
-  count.hidden = false
-  count.textContent = String(total)
-  count.classList.remove("bump")
-  if (bump) {
-    void count.offsetWidth
-    count.classList.add("bump")
+function viewJob(job) {
+  if (job.pending) {
+    waiting = null
+    lastOpened = null
+    app.hidden = true
+    say(`${job.title || "Job details"}${job.company ? " · " + job.company : ""}\n${job.message || "Reading the full job and preparing your details…"}`)
+    return
   }
+  if (!appReady) {
+    app.hidden = true
+    say(`Opening ${job.title || "job details"}…`)
+  } else { app.hidden = false; say("") }
+  openJob(job.id)
 }
 
-function refreshCount(bump) {
-  chrome.runtime.sendMessage({ type: "pool" }, (answer) => {
-    if (!chrome.runtime.lastError && answer && answer.status === "ok") setCount(answer.total ?? answer.jobs.length, bump)
-  })
-}
-
-function dropIn(job) {
-  const card = document.createElement("div")
-  card.className = "card"
-  const title = document.createElement("div")
-  title.className = "t"
-  title.textContent = job.title || "Job saved"
-  const meta = document.createElement("div")
-  meta.className = "m"
-  meta.textContent = [job.company, job.city].filter(Boolean).join(" · ")
-  card.append(title, meta)
-  if (typeof job.chance_pct === "number") {
-    const chip = document.createElement("span")
-    chip.className = "chip"
-    chip.textContent = `${job.chance_pct}% chance`
-    card.append(chip)
-  }
-  toast.replaceChildren(card)
-  toast.hidden = false
-  window.setTimeout(() => card.classList.add("leave"), 2600)
-  window.setTimeout(() => {
-    toast.hidden = true
-    refreshCount(true)
-  }, 3100)
-}
 
 window.addEventListener("message", (event) => {
   // From the odds app in the frame below: it asks for a sign-in when it has none, and says when it is ready.
@@ -94,13 +66,24 @@ window.addEventListener("message", (event) => {
     }
     // "odds apply" on a job in the app: open it in the person's tab and fill its application in there.
     if (event.data.type === "apply" && typeof event.data.url === "string") {
-      chrome.runtime.sendMessage({ type: "apply-in-tab", url: event.data.url }, () => void chrome.runtime.lastError)
-      if (window.parent !== window) window.parent.postMessage({ source: "odds-panel", type: "close" }, "*")
+      chrome.runtime.sendMessage({ type: "apply-in-tab", url: event.data.url }, (answer) => {
+        void chrome.runtime.lastError
+        toApp({ type: "application-started", url: event.data.url, ok: answer?.ok !== false, message: answer?.message || "" })
+      })
+    }
+    // The app asking how a job's application is going.
+    if (event.data.type === "application-status" && typeof event.data.url === "string") {
+      const url = event.data.url
+      chrome.runtime.sendMessage({ type: "application-status", url }, (answer) => {
+        if (!chrome.runtime.lastError) toApp({ type: "application-status", url, state: answer?.state || null })
+      })
     }
     if (event.data.type === "ready") {
       appReady = true
-      say("")
+      if (!app.hidden) say("")
       if (waiting) {
+        app.hidden = false
+        say("")
         openJob(waiting)
         waiting = null
       }
@@ -109,8 +92,7 @@ window.addEventListener("message", (event) => {
   }
   // From the job page's script: a job was added.
   if (event.source === window.parent && event.data && event.data.source === "odds-content" && event.data.type === "added" && event.data.job) {
-    dropIn(event.data.job)
-    openJob(event.data.job.id)
+    viewJob(event.data.job)
   }
 })
 
@@ -118,19 +100,26 @@ window.addEventListener("message", (event) => {
 document.getElementById("close").onclick = () => (window.parent !== window ? window.parent.postMessage({ source: "odds-panel", type: "close" }, "*") : window.close())
 // The app announces ready while its script runs, before iframe load fires.
 // Resetting readiness on load loses that handshake and stalls job selection.
-refreshCount(false)
+// Saved-job counts are refreshed only after an explicit save, not while browsing.
 
 // In the browser's side panel, the page that added a job tells it by way of the background; only the panel of that tab reacts.
 if (window.parent === window) {
   chrome.runtime.sendMessage({ type: "panel-ready" }, (answer) => {
-    if (!chrome.runtime.lastError && answer?.job) openJob(answer.job.id, true)
+    if (!chrome.runtime.lastError && answer?.job) viewJob(answer.job)
   })
   chrome.runtime.onMessage.addListener((message) => {
     if (!message || message.type !== "panel-added" || !message.job) return
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (chrome.runtime.lastError || !tabs[0] || tabs[0].id !== message.tabId) return
-      dropIn(message.job)
-      openJob(message.job.id, true)
+      viewJob(message.job)
     })
   })
 }
+
+const phoneControl = document.getElementById("phone-control")
+chrome.storage.local.get("oddsPhoneControl").then(v => { phoneControl.checked = v.oddsPhoneControl === true })
+phoneControl.addEventListener("change", () => chrome.storage.local.set({ oddsPhoneControl: phoneControl.checked }))
+// Poll immediately on opening and every five seconds while the panel is visible.
+const pollPhone = () => chrome.runtime.sendMessage({ type: "application-poll" }, () => void chrome.runtime.lastError)
+pollPhone()
+setInterval(pollPhone, 5000)

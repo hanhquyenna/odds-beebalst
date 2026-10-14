@@ -20,12 +20,15 @@ const comparisonKey = (value: string | null | undefined): string => (value ?? ""
 
 type GlassdoorPay = { employer: string; position: string; reports: number; pay_min: number | null; pay_max: number | null; unit: string | null; read_on: string }
 
+let glassdoorPayCache: { at: number; rows: GlassdoorPay[] } | null = null
 async function attachGlassdoor(rows: Posting[]): Promise<void> {
-  const { data, error } = await supabase.from("employer_glassdoor_pay").select("employer,position,reports,pay_min,pay_max,unit,read_on")
+  const cached = glassdoorPayCache && Date.now() - glassdoorPayCache.at < 300000 ? glassdoorPayCache.rows : null
+  const { data, error } = cached ? { data: cached, error: null } : await supabase.from("employer_glassdoor_pay").select("employer,position,reports,pay_min,pay_max,unit,read_on")
   if (error) {
     // Glassdoor is a secondary validation source; a missing table or a blocked read must never hide jobs.
     return
   }
+  if (!cached) glassdoorPayCache = { at: Date.now(), rows: data as GlassdoorPay[] }
   const byKey = new Map((data as GlassdoorPay[]).map((g) => [`${comparisonKey(g.employer)}|${comparisonKey(g.position)}`, g]))
   for (const post of rows) {
     const g = byKey.get(`${comparisonKey(post.employer)}|${comparisonKey(post.title)}`)
@@ -340,6 +343,7 @@ export async function fetchKeptPostings(ids: ReadonlyArray<string>): Promise<Pos
     out.push(...((data ?? []) as unknown as Posting[]))
   }
 
+  await attachGlassdoor(out)
   return out.map((p) => withSkillTiers(p))
 }
 

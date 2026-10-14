@@ -7,6 +7,11 @@
   const PAGE = globalThis.oddsPage
   if (!A || !PAGE || !/(^|\.)linkedin\.com$/.test(location.hostname)) return
 
+  // The same scripts run in LinkedIn's warm-up frame. It must never take the
+  // visible page's application intent or fill a stale form behind that page.
+  const frame = window.frameElement
+  if (frame && (frame.hidden || frame.getAttribute("aria-hidden") === "true" || getComputedStyle(frame).display === "none" || getComputedStyle(frame).visibility === "hidden" || Number(getComputedStyle(frame).opacity) === 0)) return
+
   // The Easy Apply form: LinkedIn's classic modal, or the <dialog> of its newer job pages ("Apply to <company>").
   const MODAL = '[data-test-modal-id="easy-apply-modal"], dialog[data-testid="dialog"]'
   const modalOnPage = () => [...document.querySelectorAll(MODAL)].find((m) => m.matches("[data-test-modal-id]") || (m.open && /^apply to\b/i.test(m.querySelector("h2, h1")?.innerText.trim() || ""))) || null
@@ -26,9 +31,9 @@
   /** One question of the step: its words, how it is asked, and the element(s) to answer it with. */
   function questionOf(group) {
     // The classic form labels a question; the newer one often names it only on the field (aria-label) or the radio choices, and writes it in a <p>.
-    const labelEl = [...group.querySelectorAll("legend, label, [data-test-form-builder-radio-button-form-component__title]")].find((l) => l.innerText.trim())
+    const labelEl = group.querySelector("legend, [data-test-form-builder-radio-button-form-component__title]") || [...group.querySelectorAll("label")].find(l => !l.querySelector('input[type="radio"]') && !group.querySelector(`input[type="radio"][id="${CSS.escape(l.htmlFor || "__none__")}"]`) && l.innerText.trim())
     const field = group.querySelector("input, select, textarea")
-    const label = A.questionText(labelEl?.innerText || group.getAttribute("aria-label") || field?.getAttribute("aria-label") || group.querySelector('[role="radio"]')?.getAttribute("aria-label") || group.querySelector("p")?.innerText || "")
+    const label = A.questionText(labelEl?.innerText || group.getAttribute("aria-label") || field?.getAttribute("aria-label") || group.querySelector(":scope > p")?.innerText || group.querySelector('[role="radio"]')?.getAttribute("aria-label") || group.querySelector("p")?.innerText || "")
     if (!label) return null
     const select = group.querySelector("select")
     if (select) return { group, label, kind: "select", el: select, options: [...select.options].map((o) => o.text.trim()) }
@@ -69,6 +74,18 @@
 
   /** Answers one question from what odds knows; false when it does not know or none of the options fits. */
   async function fill(q, facts, besideCountry) {
+    if (q.kind === "select" && /country code|landcode/i.test(q.label)) {
+      const phone = facts.answers?.phone || facts.phone || ""
+      const digits = phone.replace(/[^0-9]/g, "")
+      const option = phone.startsWith("+") ? q.options.findIndex(o => {
+        const prefix = /\+(\d{1,3})/.exec(o)?.[1]
+        return prefix && digits.startsWith(prefix)
+      }) : -1
+      if (option < 0) return false
+      q.el.selectedIndex = option
+      for (const name of ["input", "change"]) q.el.dispatchEvent(new Event(name, { bubbles: true }))
+      return true
+    }
     const answer = A.answerText(q.label, facts)
     if (answer === null) return false
     if (q.kind === "select") {
@@ -105,27 +122,46 @@
 
   /** The CV that goes with this job, chosen among the ones LinkedIn keeps, or uploaded from odds when LinkedIn does not have it. */
   async function chooseCv(modal, kit) {
-    if (!kit.cv?.for_this_job) return
+    if (!kit.cv) return true
     const want = [kit.cv.file_name, kit.cv.name].filter(Boolean).map((n) => n.toLowerCase().replace(/\.[a-z]+$/, ""))
     const cards = documentRadios(modal)
-    if (!cards.length && !modal.querySelector('input[type="file"]')) return
+    if (!cards.length && !modal.querySelector('input[type="file"]') && ![...modal.querySelectorAll("button")].some(b => /^upload (resume|cv)$/i.test(labelOfButton(b)))) return true
     const nameOf = (r) => (r.getAttribute("aria-label") || r.closest('[role="radio"]')?.getAttribute("aria-label") || "").toLowerCase()
     const mine = cards.find((r) => want.some((w) => nameOf(r).includes(w)))
     if (mine) {
       if (!mine.checked) mine.click()
       if (!mine.checked) mine.closest('[role="radio"]')?.click()
-      return
+      await sleep(50)
+      return mine.checked
     }
-    const upload = modal.querySelector('input[type="file"][id*="upload-resume"], input[type="file"][name="file"]') || [...modal.querySelectorAll('input[type="file"]')].find((f) => /resume|cv|pdf/i.test(`${f.accept} ${f.id} ${f.name} ${f.getAttribute("aria-label") || ""}`))
-    if (!upload || session.uploaded) return
+    let upload = modal.querySelector('input[type="file"][id*="upload-resume"], input[type="file"][name="file"]') || [...modal.querySelectorAll('input[type="file"]')].find((f) => /resume|cv|pdf/i.test(`${f.accept} ${f.id} ${f.name} ${f.getAttribute("aria-label") || ""}`))
+    if (!upload) {
+      const trigger = [...modal.querySelectorAll("button")].find(b => /^upload (resume|cv)$/i.test(labelOfButton(b)))
+      if (trigger) {
+        // LinkedIn creates its input only on demand, outside the dialog. Capture
+        // that exact input and suppress the native picker: the CV comes from Odds.
+        const intercept = event => {
+          if (event.target instanceof HTMLInputElement && event.target.type === "file") {
+            event.preventDefault()
+            upload = event.target
+          }
+        }
+        document.addEventListener("click", intercept, true)
+        try { trigger.click(); await sleep(50) } finally { document.removeEventListener("click", intercept, true) }
+      }
+    }
+    if (!upload) return false
+    if (session.uploaded) return Boolean(upload.files?.length) && upload.getAttribute("aria-invalid") !== "true"
     const file = await ask({ type: "cv-file", doc: kit.cv.id })
-    if (file?.status !== "ok") return
+    if (file?.status !== "ok") return false
     const bytes = Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))
     const transfer = new DataTransfer()
     transfer.items.add(new File([bytes], file.name, { type: file.type }))
     upload.files = transfer.files
     upload.dispatchEvent(new Event("change", { bubbles: true }))
-    session.uploaded = true
+    await sleep(50)
+    session.uploaded = Boolean(upload.files?.length) && upload.getAttribute("aria-invalid") !== "true"
+    return session.uploaded
   }
 
   /** The bar at the top of the form that says what odds did and what is left for the person. */
@@ -138,6 +174,8 @@
       if (header) header.after(bar)
       else (modal.querySelector(".artdeco-modal__content, [data-test-modal] .jobs-easy-apply-content") || modal.querySelector('[role="dialog"]') || modal).prepend(bar)
     }
+    const status = state === "done" ? "ready" : state === "ask" ? "needs_input" : state === "problem" ? "failed" : "filling"
+    if (bar.textContent !== text || bar.dataset.state !== state) ask({ type: "application-progress", status, message: text })
     bar.dataset.state = state
     bar.textContent = text
   }
@@ -189,27 +227,34 @@
     let left = 0
     for (const q of qs) {
       q.group.classList.remove("odds-ask")
-      if (answered(q)) continue
+      const valid = () => (Array.isArray(q.el) ? q.el : [q.el]).every(e => e.getAttribute("aria-invalid") !== "true" && (!e.willValidate || e.validity.valid))
+      if (answered(q) && valid()) continue
       if (await fill(q, session.kit.facts, besideCountry)) {
-        q.group.dataset.odds = "filled"
-        continue
+        await sleep(50)
+        if (answered(q) && valid()) {
+          q.group.dataset.odds = "filled"
+          continue
+        }
       }
       if (q.kind === "checkbox") continue
       q.group.classList.add("odds-ask")
       left++
     }
-    await chooseCv(modal, session.kit)
+    await session.handoff?.publish(qs.filter(q => q.group.classList.contains("odds-ask")))
+    if (await chooseCv(modal, session.kit) === false) left++
     return left
   }
 
   async function run(modal) {
     const job = PAGE.site.open?.()
-    session = { modal, job, kit: null, uploaded: false, submitted: false }
+    session = { modal, job, kit: null, uploaded: false, submitted: false, handoff: globalThis.oddsApplicationHandoff?.(job?.url || location.href, ask) }
     say(modal, "odds is filling this in…")
     const kit = await ask({ type: "apply-kit", url: job?.url || location.href })
     if (!kit || kit.status === "connect") return say(modal, "Connect odds (its icon in the toolbar) to have this filled in.", "problem")
     if (kit.status !== "ok") return say(modal, "odds could not fill this in right now. Fill it in as usual.", "problem")
     session.kit = kit
+    session.handoff = globalThis.oddsApplicationHandoff?.(job?.url || location.href, ask, kit.job_id)
+    globalThis.oddsDismissCookies?.()
     for (let step = 0; step < 15 && modal.isConnected && session?.modal === modal; step++) {
       await sleep(250)
       const left = await fillStep(modal)
@@ -217,8 +262,14 @@
       const before = signature(modal)
       if (left > 0) {
         say(modal, `odds filled in what it knows. Answer the ${left === 1 ? "marked question" : `${left} marked questions`}, then press ${next ? "Next" : "Review"}: odds keeps your answers for the next form.`, "ask")
-        // The person answers and goes on; their answers are kept when they do (see keep()).
-        while (modal.isConnected && signature(modal) === before) await sleep(300)
+        // Answers from the side panel or Claude arrive without taking over the browser.
+        while (modal.isConnected && session?.modal === modal && signature(modal) === before) {
+          await sleep(300)
+          if (await session.handoff?.refresh(session.kit.facts)) {
+            if (await fillStep(modal) === 0) break
+          }
+        }
+        step--
         continue
       }
       if (next) {
@@ -244,9 +295,9 @@
       .map((q) => ({ question: q.label, answer: answerGiven(q) }))
       .filter((q) => q.answer)
     if (questions.length) {
-      ask({ type: "save-answers", questions })
+      ask({ type: "save-answers", questions, url: session.job?.url || location.href })
       // Used at once if the same question comes again on a later step.
-      for (const q of questions) session.kit.facts.remembered = { ...(session.kit.facts.remembered || {}), [A.questionKey(q.question)]: q.answer }
+      for (const q of questions) session.kit.facts.remembered = { ...(session.kit.facts.remembered || {}), [A.applicationQuestionKey(q.question, session.kit.job_id)]: q.answer }
     }
   }
 
@@ -256,6 +307,7 @@
       await sleep(500)
       const said = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], .artdeco-modal, dialog[open]')].some((d) => /application (was )?sent|your application was sent|sent your application|application submitted/i.test(d.innerText || ""))
       if (!said) continue
+      await ask({ type: "application-progress", status: "submitted", message: "LinkedIn confirmed your application was sent." })
       let done = await ask({ type: "applied", url: job.url })
       if (done?.status !== "ok") {
         const added = await ask({ type: "add", url: job.url })
@@ -312,6 +364,13 @@
     for (let waited = 0; waited < 15000; waited += 300) {
       await sleep(300)
       if (PAGE.site.open?.()?.id !== wanted) continue
+      const details = document.querySelector(".jobs-search__job-details, .jobs-details__main-content, main") || document.body
+      if ([...details.querySelectorAll("span, p, div")].some(el => shown(el) && el.children.length === 0 && /^(no longer accepting applications|this job is no longer available|applications are closed|vacature gesloten)$/i.test(el.textContent.trim()))) {
+        say(document.body, "This job is no longer accepting applications on LinkedIn. No application was submitted.", "problem")
+        document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")
+        await ask({ type: "apply-started" })
+        return
+      }
       const button = applyButton()
       if (!button) continue
       await ask({ type: "apply-started" })
@@ -324,18 +383,24 @@
       button.click()
       return
     }
+    say(document.body, "Could not open an application here. Check whether this job is closed, or complete login/verification in Chrome.", "ask")
+    document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")
   })()
 
   // LinkedIn changes its page all the time: looked at once a frame at most.
+  function scanModal() {
+    const modal = modalOnPage()
+    if (modal && (!session || session.modal !== modal)) run(modal)
+    if (!modal && session && !session.submitted) session = null
+  }
+  scanModal()
   let looking = false
   new MutationObserver(() => {
     if (looking) return
     looking = true
     requestAnimationFrame(() => {
       looking = false
-      const modal = modalOnPage()
-      if (modal && (!session || session.modal !== modal)) run(modal)
-      if (!modal && session && !session.submitted) session = null
+      scanModal()
     })
   }).observe(document.body, { childList: true, subtree: true })
 })()

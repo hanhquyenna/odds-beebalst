@@ -69,7 +69,7 @@ export function SourceCorner({ post }: { post: Posting }): React.JSX.Element | n
  * with the logo of the place it leads to beside it. One logo only: a job found in several places is still one job. The logo carries the name (hover, and for screen
  * readers), so the line stays short and sits at the corner of the header, level with the status.
  */
-export function SourceLinks({ post }: { post: Posting }): React.JSX.Element | null {
+export function SourceLinks({ post, secondary = false }: { post: Posting; secondary?: boolean }): React.JSX.Element | null {
   // One entry per platform: two postings of the same job on LinkedIn show as one LinkedIn link.
   const sources = sourcesOf(post).filter((s, i, all) => all.findIndex((x) => x.name === s.name) === i)
   if (sources.length === 0) {
@@ -85,11 +85,11 @@ export function SourceLinks({ post }: { post: Posting }): React.JSX.Element | nu
             href={main.url as string}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label={`Apply on ${main.name} (opens in a new tab)`}
-            title={`Apply on ${main.name}`}
-            className="inline-flex h-8 items-center rounded-lg bg-blue-600 px-5 text-sm font-semibold text-white transition-colors duration-150 outline-none hover:bg-blue-700 focus-visible:ring-3 focus-visible:ring-blue-600/40 active:translate-y-px"
+            aria-label={`${secondary ? "Open original" : "Apply"} on ${main.name} (opens in a new tab)`}
+            title={`${secondary ? "Open original" : "Apply"} on ${main.name}`}
+            className={secondary ? "inline-flex h-8 items-center text-xs font-medium text-muted-foreground underline underline-offset-3" : "inline-flex h-8 items-center rounded-lg bg-blue-600 px-5 text-sm font-semibold text-white transition-colors duration-150 outline-none hover:bg-blue-700 focus-visible:ring-3 focus-visible:ring-blue-600/40 active:translate-y-px"}
           >
-            Apply
+            {secondary ? "Open original" : "Apply"}
           </a>
           <span title={main.name} className="flex" role="img" aria-label={`on ${main.name}`}>
             <SourceLogo name={main.name} size={22} />

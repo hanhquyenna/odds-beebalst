@@ -1,6 +1,6 @@
 // Runs on job pages: LinkedIn, Indeed, Glassdoor, Magnet.me, AcademicTransfer, employers' own job boards, and any page that says it is a job.
 // One quiet button beside the open job's Save shows the person's interview chance for it, and a badge beside each job in a list does the same.
-// Pressing either keeps the job in odds and slides the odds panel in (panel.js). A job odds does not hold yet is read first: a LinkedIn job by odds
+// Pressing either views the job without saving it and slides the odds panel in (panel.js). A job odds does not hold yet is read first: a LinkedIn job by odds
 // itself (only its address is sent), a job anywhere else from its own page as the person's browser shows it, so odds holds it for everyone.
 // What each site's pages look like is in site-dom.js; which addresses are jobs, in job-sites.js.
 const PAGE = globalThis.oddsPage
@@ -39,9 +39,10 @@ function show() {
   if (c.phase === "connect") return draw("problem", "—", "Connect odds to see your interview chance here")
   if (c.phase === "error") return draw("problem", "—", "Try again", c.message || "odds did not answer.")
   if (c.closed) return draw("idle", "—", "This job is closed")
+  if (c.needsProfile) return draw("idle", "Import LinkedIn", "Import your LinkedIn profile or add a CV in Odds to calculate your interview chance")
   if (c.saved) return draw("done", percent(c.chance), "Estimated interview chance. Open this job in the side panel", c.needsProfile ? "Add your CV on odds to see your chance." : null)
-  if (!c.known) return draw("idle", "?%", "odds does not have this job yet. Press to add it and see your chance")
-  draw("idle", percent(c.chance), `Your interview chance for this job is ${percent(c.chance)}. Press to save it in odds`, c.needsProfile ? "Add your CV on odds to see your chance." : null)
+  if (!c.known) return draw("idle", "?%", "odds does not have this job yet. Open the job details while Odds reads this job")
+  draw("idle", percent(c.chance), `Your interview chance for this job is ${percent(c.chance)}. Open this job in the side panel`, c.needsProfile ? "Add your CV on odds to see your chance." : null)
 }
 
 const ask = (message) => new Promise((resolve) => chrome.runtime.sendMessage(message, (answer) => resolve(chrome.runtime.lastError ? null : answer)))
@@ -92,14 +93,24 @@ async function readJob(job, card) {
 }
 
 /** The person's chance for a job: free when odds holds it; else, where the page can be read, read now so odds holds it for everyone (not saved for them). */
-async function chanceOf(job, card) {
+const inspecting = new Map()
+function chanceOf(job, card) {
+  if (!inspecting.has(job.url)) inspecting.set(job.url, readChanceOf(job, card).finally(() => inspecting.delete(job.url)))
+  return inspecting.get(job.url)
+}
+async function readChanceOf(job, card) {
   const answer = await ask({ type: "lookup", url: job.url })
   if (!answer || answer.status !== "ok" || answer.known !== false || !SITE.readable) return answer
   return readAndKeep(job, card, answer)
 }
 
 /** A job odds does not hold, read now so odds holds it for everyone (not saved for the person); `answer` is what to show when it cannot be read. */
-async function readAndKeep(job, card, answer) {
+const reading = new Map()
+function readAndKeep(job, card, answer) {
+  if (!reading.has(job.url)) reading.set(job.url, enrichJob(job, card, answer).finally(() => reading.delete(job.url)))
+  return reading.get(job.url)
+}
+async function enrichJob(job, card, answer) {
   const posting = await readJob(job, card)
   // Not readable here: a LinkedIn job is still read by odds itself; elsewhere it waits for a press.
   if (!posting && !SITE.remote) return answer
@@ -114,15 +125,17 @@ async function readAndKeep(job, card, answer) {
 function peek(job) {
   current = { id: job.id, url: job.url, phase: "peeking", chance: null, saved: false, known: false, closed: false, needsProfile: false }
   show()
-  chanceOf(job).then((answer) => {
+  chanceOf(job).then(answer => receiveChance(job, answer))
+}
+
+function receiveChance(job, answer) {
     // Pressed while it was being looked up: the press's own answer is the one shown.
-    if (current.id !== job.id || current.phase !== "peeking") return
+    if (current.id !== job.id || current.url !== job.url || current.phase !== "peeking") return
     if (!answer) current = { ...current, phase: "error" }
     else if (answer.status === "connect") current = { ...current, phase: "connect" }
     else if (answer.status !== "ok") current = { ...current, phase: "error", message: answer.message }
     else current = { ...current, phase: "ready", known: Boolean(answer.known), closed: Boolean(answer.closed), saved: Boolean(answer.saved), chance: typeof answer.chance_pct === "number" ? answer.chance_pct : null, needsProfile: Boolean(answer.needs_profile), job: answer.job || (answer.id ? { id: answer.id } : null) }
     show()
-  })
 }
 
 /** Opens the browser's side panel on this tab (inside the press, which is what Chrome requires); where it cannot, the panel is drawn in the page. */
@@ -134,62 +147,40 @@ function showPanel(then) {
   })
 }
 
-/** Keeps a job for the person: read first when odds does not hold it and its page can be read here. Answers what odds said. */
-async function keepJob(job, card, known) {
-  const posting = known || !SITE.readable ? null : await readJob(job, card)
-  return ask(posting ? { type: "add", url: job.url, posting } : { type: "add", url: job.url })
-}
-
-function add() {
+/** Viewing is separate from saving. A known job is delivered before any network work. */
+function inspectJob(job, card, result, update) {
   const selection = ++panelSelection
-  const { id, url } = current
-  current = { ...current, phase: "adding" }
-  draw("busy", "…", "Adding this job to odds")
-  // The side panel opens first, at once, and the job drops into it when it is added (adding can take a while, the press cannot wait for it).
+  const deliver = (native, selected) => {
+    if (selection !== panelSelection) return
+    if (native) chrome.runtime.sendMessage({ type: "panel-added", job: selected })
+    else openPanel(selected)
+  }
   showPanel((native) => {
-    if (!native) openPanel()
-    keepJob({ id, url }, null, current.known).then((answer) => {
+    if (selection !== panelSelection) return
+    const held = result?.job || (result?.id ? { id: result.id } : null)
+    if (held?.id) return deliver(native, { ...held, chance_pct: result.chance_pct })
+    const here = SITE.open()?.id === job.id ? PAGE.pagePosting() || SITE.read?.() : null
+    deliver(native, { pending: true, url: job.url, title: here?.title || card?.querySelector("a")?.textContent?.trim() || "Job details", company: here?.company || "" })
+    // Join the read already running for the badge; never call the save endpoint.
+    chanceOf(job, card).then(answer => {
       if (selection !== panelSelection) return
-      if (current.id !== id) {
-        // Navigation changed the page, but the panel still belongs to the job that was clicked.
-        if (answer?.job && ["added", "exists"].includes(answer.status)) {
-          const job = { ...answer.job, chance_pct: answer.chance_pct }
-          if (native) chrome.runtime.sendMessage({ type: "panel-added", job })
-          else openPanel(job)
-        }
-        return
-      }
-      if (!answer) current = { ...current, phase: "error", message: "odds did not answer." }
-      else if (answer.status === "connect") current = { ...current, phase: "connect" }
-      else if (answer.status === "added" || answer.status === "exists") {
-        current = { ...current, phase: "ready", known: true, saved: true, chance: typeof answer.chance_pct === "number" ? answer.chance_pct : null, needsProfile: Boolean(answer.needs_profile), job: answer.job || (answer.id ? { id: answer.id } : null) }
-        show()
-        const job = answer.job && answer.job.id ? { ...answer.job, chance_pct: current.chance } : null
-        if (job) {
-          if (native) chrome.runtime.sendMessage({ type: "panel-added", job })
-          else openPanel(job)
-        }
-        return
-      } else current = { ...current, phase: "error", message: answer.message || "That job could not be added." }
-      show()
+      update(answer || { status: "error" })
+      const resolved = answer?.job || (answer?.id ? { id: answer.id } : null)
+      if (resolved?.id) deliver(native, { ...resolved, chance_pct: answer.chance_pct })
+      else deliver(native, { pending: true, url: job.url, title: here?.title || "Job details", message: answer?.message || (answer?.closed ? "This job is closed." : "Could not read the full job yet. Try opening its job page and clicking again."), error: true })
     })
   })
 }
 
-/** A press always opens the job in the panel: saved already, still being looked up, or not answered the first time (then it is added now). */
 function press() {
   const c = current
   if (c.phase === "connect") return chrome.runtime.sendMessage({ type: "open-connect" })
-  if (c.phase === "adding" || (c.phase === "ready" && c.closed)) return
-  if (c.phase === "ready" && c.saved && c.job) {
-    const selection = ++panelSelection
-    return showPanel((native) => {
-      if (selection !== panelSelection) return
-      if (native) chrome.runtime.sendMessage({ type: "panel-added", job: { ...c.job, chance_pct: c.chance } })
-      else openPanel({ ...c.job, chance_pct: c.chance })
-    })
-  }
-  add()
+  if (c.needsProfile) return chrome.runtime.sendMessage({ type: "open-profile" })
+  inspectJob({ id: c.id, url: c.url }, null, { job: c.job, chance_pct: c.chance }, answer => {
+    if (current.id !== c.id) return
+    current = { ...current, phase: answer.status === "ok" ? "ready" : "error", known: Boolean(answer.known), saved: Boolean(answer.saved), closed: Boolean(answer.closed), chance: answer.chance_pct ?? null, job: answer.job || (answer.id ? { id: answer.id } : null), message: answer.message }
+    show()
+  })
 }
 
 /**
@@ -296,13 +287,16 @@ function sync() {
   place()
   // Another job opened in the same page (job sites do not reload): look it up, after a short pause so flicking through a list asks once.
   if (current.id !== job.id) {
+    const firstJob = !current.id
     current = { id: job.id, url: job.url, phase: "peeking", chance: null, saved: false, known: false, closed: false, needsProfile: false }
     show()
     window.clearTimeout(waiting)
     waiting = window.setTimeout(() => {
       // Pressed in the meantime: the press is adding it already.
       if (current.id === job.id && current.phase === "peeking") peek(job)
-    }, 250)
+    }, firstJob ? 0 : 120)
+    // Cached scores need no navigation debounce and never cause an API request.
+    ask({ type: "lookup-cached", url: job.url }).then(answer => { if (answer) receiveChance(job, answer) })
   }
 }
 
@@ -322,8 +316,8 @@ function renderCard(badge, result) {
     return
   }
   const unknown = result.status === "ok" && result.known === false
-  const label = typeof result.chance_pct === "number" ? `${result.chance_pct}%` : unknown ? "?%" : "—"
-  const title = typeof result.chance_pct === "number" ? `Your interview chance: ${result.chance_pct}%. Open this job in Odds.` : result.status === "connect" ? "Connect Odds to see your interview chance" : result.needs_profile ? "Add your CV in Odds to calculate your chance" : result.closed ? "This job is closed" : unknown ? "Odds does not have this job yet. Press to add it and see your chance." : result.message || "Open this job in Odds"
+  const label = result.needs_profile ? "Import LinkedIn" : typeof result.chance_pct === "number" ? `${result.chance_pct}%` : unknown ? "?%" : "—"
+  const title = result.needs_profile ? "Import your LinkedIn profile or add a CV in Odds to calculate your interview chance" : typeof result.chance_pct === "number" ? `Your interview chance: ${result.chance_pct}%. Open this job in Odds.` : result.status === "connect" ? "Connect Odds to see your interview chance" : result.closed ? "This job is closed" : unknown ? "Odds does not have this job yet. Open the job details while Odds reads this job." : result.message || "Open this job in Odds"
   const aria = `${label}. ${result.job?.title || "Open this job in Odds"}`
   const state = result.status === "ok" ? "ready" : "problem"
   if (badge.textContent !== label) badge.textContent = label
@@ -385,35 +379,10 @@ function drainReads() {
 function openCard(id) {
   const result = cardResults.get(id)
   const entry = cardJobs.get(id)
-  if (!entry || result?.closed || result?.pressed) return
+  if (!entry) return
   if (result?.status === "connect") return chrome.runtime.sendMessage({ type: "open-connect" })
-  // Still being looked up, or not answered: the press adds it now (and opens it) instead of waiting.
-  const r = result && !result.loading && result.status === "ok" ? result : {}
-  const selection = ++panelSelection
-  showPanel((native) => {
-    if (selection !== panelSelection) return
-    if (!native) openPanel()
-    const deliver = (answer) => {
-      if (selection !== panelSelection) return
-      const job = answer.job || (answer.id ? { id: answer.id } : null)
-      if (!job) return
-      const selected = { ...job, chance_pct: answer.chance_pct }
-      if (native) chrome.runtime.sendMessage({ type: "panel-added", job: selected })
-      else openPanel(selected)
-    }
-    // The job was already read: show it immediately while saving runs in the background.
-    if (r.job?.id) deliver(r)
-    if (r.saved) return
-    if (r.known !== true) cardResult(id, { loading: true, status: "ok", pressed: true })
-    keepJob(entry.job, entry.card, r.known === true).then((answer) => {
-      if (!answer) return cardResult(id, { status: "error", message: "Could not open that job. Try again." })
-      if (["added", "exists"].includes(answer.status)) {
-        const saved = { ...answer, status: "ok", known: true, saved: true }
-        cardResult(id, saved)
-        if (!r.job?.id) deliver(saved)
-      } else cardResult(id, { ...answer, status: answer.status === "connect" ? "connect" : "error" })
-    })
-  })
+  if (result?.needs_profile) return chrome.runtime.sendMessage({ type: "open-profile" })
+  inspectJob(entry.job, entry.card, result, answer => cardResult(id, answer))
 }
 
 function syncCards() {

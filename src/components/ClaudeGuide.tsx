@@ -358,7 +358,7 @@ function Tasks({ onDocuments, onJobs }: { onDocuments?: () => void; onJobs?: () 
   const jobName = job ? `${job.title} at ${job.employer_display}` : "this job"
   const message =
     task === "apply"
-      ? `Apply for ${jobName} using ${cvName}. Fill in the form. If it needs me to sign in or make an account, stop and tell me, and carry on when I say so. Stop before sending so I can check it.`
+      ? `Prepare the application for ${jobName}${job ? ` (job_id: ${job.id})` : ""} using ${cvName}${cv ? ` (document_id: ${cv.id})` : ""}. Attach that CV to the job, then use prepare_application to fill it in my connected desktop Chrome. Use application_status to check the actual progress and tell me if my desktop is offline. If it needs me to sign in or make an account, stop and tell me, and carry on when I say so. Stop before sending so I can check it.`
       : task === "cv"
         ? `Make a CV for ${jobName} from ${cvName}. Keep everything true, choose and reword what fits the job, save it to my Documents and put it on that job.`
         : task === "letter"

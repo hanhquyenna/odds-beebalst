@@ -1,4 +1,4 @@
-// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts and apply-form.ts (sources c07268fda1f45edd). Do not edit.
+// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts and apply-form.ts (sources a77c8382c2a93371). Do not edit.
 (() => {
   var __defProp = Object.defineProperty;
   var __returnValue = (v) => v;
@@ -19,6 +19,7 @@
   var exports_apply_form = {};
   __export(exports_apply_form, {
     answerText: () => answerText,
+    applicationQuestionKey: () => applicationQuestionKey,
     chooseOption: () => chooseOption,
     nationalNumber: () => nationalNumber,
     questionKey: () => questionKey,
@@ -31,6 +32,10 @@
     if (half > 0 && t.slice(0, half) === t.slice(half + 1))
       t = t.slice(0, half);
     return t.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/\brequired\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim().slice(0, 300);
+  }
+  function applicationQuestionKey(label, jobId) {
+    const key = questionKey(label);
+    return jobId && /\b(visa|sponsor\w*|authori[sz]\w*|permit|citizen\w*|enroll\w*|study\w*|studies|student|internship|graduat\w*|start date|available|availability|relocat\w*)\b/.test(key) ? `${key.slice(0, 240)} job ${jobId.slice(0, 50)}` : key;
   }
   function questionText(label) {
     const t = label.replace(/\s+/g, " ").replace(/\s*\*+\s*$/, "").trim();
@@ -45,27 +50,33 @@
   }
   function answerText(label, facts) {
     const key = questionKey(label);
-    const remembered = facts.remembered?.[key];
-    if (remembered)
-      return remembered;
     const a = facts.answers ?? {};
-    const pick = (v) => v && v.trim() ? v.trim() : null;
+    const remembered = facts.remembered?.[applicationQuestionKey(label, facts.job_id)];
+    const pick = (v) => v && v.trim() ? v.trim() : remembered || null;
     if (/\b(first name|given name|voornaam)\b/.test(key))
-      return pick(facts.name?.split(/\s+/)[0]);
+      return pick(a.first_name);
     if (/\b(last name|surname|family name|achternaam)\b/.test(key))
-      return pick(facts.name?.split(/\s+/).slice(1).join(" "));
+      return pick(a.last_name);
     if (/^(full )?name$/.test(key))
-      return pick(facts.name);
+      return a.first_name && a.last_name ? `${a.first_name} ${a.last_name}` : pick(facts.name);
     if (/\b(e ?mail\w*)\b/.test(key))
-      return pick(facts.email);
+      return pick(a.email) ?? pick(facts.email);
     if (/\b(mobile|phone|telephone|telefoon\w*|mobiel\w*)\b/.test(key) && !/country|landcode/.test(key))
-      return pick(a.phone);
+      return pick(a.phone) ?? pick(facts.phone);
     if (/\blinkedin\b/.test(key) && /\b(url|profile|link)\b/.test(key))
-      return pick(facts.linkedin);
+      return pick(a.linkedin) ?? pick(facts.linkedin);
     if (/\b(website|portfolio|github|personal site)\b/.test(key))
       return pick(a.website);
     if (/\b(city|location|where do you live|woonplaats)\b/.test(key) && !/relocat/.test(key))
-      return pick(facts.place?.split(",")[0]);
+      return pick(a.city) ?? pick(facts.place?.split(",")[0]);
+    if (/\b(postal code|postcode|zip code|zip)\b/.test(key))
+      return pick(a.postcode);
+    if (/^(street address|address|address line 1|adres|straat)/.test(key))
+      return pick(a.address);
+    if (/^(country|country of residence|land)$/.test(key))
+      return pick(a.country);
+    if (remembered)
+      return remembered;
     if (/\b(relocat\w*)\b/.test(key))
       return pick(a.relocation);
     if (/\bnotice period\b|\bopzegtermijn\b/.test(key))
@@ -77,6 +88,8 @@
     if (/\b(salary|compensation|pay|wage|salaris|stipend)\b/.test(key))
       return pick(a.expected_salary);
     if (/\b(sponsor\w*|visa)\b/.test(key)) {
+      if (facts.job_id && facts.job_country !== "NL")
+        return null;
       const w = a.work_authorization ?? "";
       if (!w)
         return null;
@@ -87,6 +100,8 @@
       return null;
     }
     if (/\b(authori[sz]ed|legally|right to work|eligible to work|work permit|allowed to work|werkvergunning)\b/.test(key)) {
+      if (facts.job_id && facts.job_country !== "NL")
+        return null;
       const w = a.work_authorization ?? "";
       if (!w)
         return null;
@@ -216,10 +231,13 @@
       if (hostRx.test(host))
         return pathRx.test(job) ? { site: ats, ats, id: job, url: `https://${host}${job}` } : null;
     }
-    if (!anyPage || !/\.[a-z]{2,}$/.test(host) || job === "")
+    if (!anyPage || !/\.[a-z]{2,}$/.test(host))
       return null;
     const keep = JOB_QUERY.filter((k) => u.searchParams.get(k)).map((k) => `${k}=${encodeURIComponent(u.searchParams.get(k) ?? "")}`);
-    const where = `${job}${keep.length ? `?${keep.join("&")}` : ""}`;
+    if (job === "" && keep.length === 0)
+      return null;
+    const canonicalPath = job === "/job" && u.searchParams.get("gh_jid") ? "/" : job || "/";
+    const where = `${canonicalPath}${keep.length ? `?${keep.join("&")}` : ""}`;
     return { site: "web", ats: "other", id: where, url: `https://${host}${where}` };
   }
   function heldFilter(link) {

@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "odds: interview chances beside jobs",
   "short_name": "odds",
-  "version": "0.6.1",
-  "description": "See your interview chance beside jobs on LinkedIn, Indeed, Glassdoor, Magnet.me and employers' own job pages. Click a percentage to keep that job in the Odds side panel.",
+  "version": "0.10.0",
+  "description": "See your interview chance beside jobs on LinkedIn, Indeed, Glassdoor, Magnet.me and employers' own job pages. Click a percentage to view that job in the Odds side panel.",
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
@@ -19,7 +19,8 @@
   "permissions": [
     "storage",
     "declarativeNetRequest",
-    "sidePanel"
+    "sidePanel",
+    "alarms"
   ],
   "host_permissions": [
     "https://ukpmpyfcnbhngkgbnkxi.supabase.co/*",
@@ -35,6 +36,7 @@
         "site-dom.js",
         "panel.js",
         "content-job.js",
+        "application-handoff.js",
         "apply.js"
       ],
       "css": [
@@ -56,6 +58,7 @@
         "site-dom.js",
         "panel.js",
         "content-job.js",
+        "application-handoff.js",
         "apply-any.js"
       ],
       "css": [
@@ -71,6 +74,28 @@
         "content-site.js"
       ],
       "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://*.greenhouse.io/*",
+        "https://*.lever.co/*",
+        "https://*.ashbyhq.com/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.smartrecruiters.com/*",
+        "https://*.successfactors.eu/*",
+        "https://*.successfactors.com/*",
+        "https://*.icims.com/*"
+      ],
+      "js": [
+        "job-sites.js",
+        "application-handoff.js",
+        "apply-any.js"
+      ],
+      "css": [
+        "content-job.css"
+      ],
+      "run_at": "document_idle",
       "all_frames": true
     }
   ],
@@ -90,5 +115,5 @@
   "side_panel": {
     "default_path": "panel.html"
   },
-  "minimum_chrome_version": "116"
+  "minimum_chrome_version": "120"
 }
