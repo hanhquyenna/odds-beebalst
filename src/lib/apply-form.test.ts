@@ -103,3 +103,28 @@ describe("confirmed answer context", () => {
     expect(answerText("First name", { answers: { first_name: "Chi Kien" }, remembered: { "first name": "Kien" } })).toBe("Chi Kien")
   })
 })
+
+describe("what an international student is asked", () => {
+  const student: Facts = { answers: { university: "University of Amsterdam", degree: "Master's degree (MSc)", field_of_study: "Data science", graduation_date: "July 2027", study_status: "Yes, enrolled full time", internship_agreement: "Yes, my university signs one", nationality: "Vietnamese" } }
+  test("school, degree, field, graduation and nationality come from the kept answers", () => {
+    expect(answerText("University *", student)).toBe("University of Amsterdam")
+    expect(answerText("School name", student)).toBe("University of Amsterdam")
+    expect(answerText("Degree", student)).toBe("Master's degree (MSc)")
+    expect(answerText("Field of study", student)).toBe("Data science")
+    expect(answerText("Expected graduation date", student)).toBe("July 2027")
+    expect(answerText("Nationality", student)).toBe("Vietnamese")
+  })
+  test("are you a student, and the university's internship agreement, are yes/no questions answered in the person's words", () => {
+    expect(answerText("Are you currently enrolled at a university?", student)).toBe("Yes, enrolled full time")
+    expect(chooseOption(["Yes", "No"], "Yes, enrolled full time", "Are you currently enrolled?")).toBe(0)
+    expect(answerText("Do you have an internship agreement (stageovereenkomst) from your university?", student)).toBe("Yes, my university signs one")
+    expect(answerText("Will your school provide an internship agreement?", student)).toBe("Yes, my university signs one")
+  })
+  test("nothing is guessed when the person has not said", () => {
+    for (const q of ["University", "Degree", "Field of study", "Graduation year", "Are you currently a student?", "Nationality"]) expect(answerText(q, { answers: {} })).toBeNull()
+  })
+  test("a question that only mentions a school is not the university", () => {
+    expect(answerText("What high school did you attend?", student)).toBeNull()
+    expect(answerText("How did you hear about us? (university career fair)", student)).toBeNull()
+  })
+})

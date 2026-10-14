@@ -260,6 +260,21 @@
 
   /** The form's own way to the next step (never Submit). */
   const nextButton = () => [...document.querySelectorAll("form button, form input[type=button], button[data-automation-id='pageFooterNextButton']")].find(b => shown(b) && !b.disabled && /^(next|continue|review|save and continue|volgende|verder|weiter|suivant)$/i.test((b.getAttribute("aria-label") || textOf(b) || b.value || "").trim()))
+  /** The employer's own words saying the application went through (a thank-you page or message, with no form left). */
+  const SENT = /thank you for (applying|your (application|interest in))|your application (has been|was|is) (successfully )?(submitted|received|sent)|(we have|we've) received your application|application (submitted|received|complete)|bedankt voor je sollicitatie|je sollicitatie is (verzonden|ontvangen)|vielen dank für ihre bewerbung/i
+  let reported = false
+  function confirmed() {
+    if (reported || !applicationJob) return false
+    const text = textOf(document.querySelector("main, [role=main]") || document.body).slice(0, 3000)
+    if (!SENT.test(text) || fields().some((f) => f.kind !== "file" && !answered(f))) return false
+    reported = true
+    keep()
+    ask({ type: "applied", url: applicationJob })
+    say("Sent. odds marked this job as applied.", "done")
+    ask({ type: "application-progress", status: "submitted", message: "Sent. odds marked this job as applied." })
+    return true
+  }
+
   let listening = false
   async function start() {
     const { intent } = (await ask({ type: "apply-intent" })) || {}
@@ -286,6 +301,7 @@
     // Pages that draw their form late, or one step at a time (Workday): filled in again as fields come.
     for (let round = 0; round < 120; round++) {
       globalThis.oddsDismissCookies?.()
+      if (confirmed()) return
       const heading = document.title + " " + textOf(document.querySelector("h1, h2"))
       const challenge = [...document.querySelectorAll('iframe[title*="challenge"], iframe[src*="hcaptcha"], #captcha-internal')].some(shown)
       const login = /sign in|log in|create account|inloggen|account aanmaken|security verification|verify you are human/i.test(heading)

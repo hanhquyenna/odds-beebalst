@@ -1,4 +1,4 @@
-// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts and apply-form.ts (sources a77c8382c2a93371). Do not edit.
+// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts and apply-form.ts (sources 3b17128cf3fa51a4). Do not edit.
 (() => {
   var __defProp = Object.defineProperty;
   var __returnValue = (v) => v;
@@ -77,6 +77,20 @@
       return pick(a.country);
     if (remembered)
       return remembered;
+    if (/\b(internship|stage|placement|work placement)\b.*\b(agreement|contract|overeenkomst)\b|\bstage ?overeenkomst|\b(agreement|overeenkomst)\b.*\b(university|school|college)\b/.test(key))
+      return pick(a.internship_agreement);
+    if (/\b(graduat\w*|afstudeer\w*)\b/.test(key))
+      return pick(a.graduation_date);
+    if (/\b(are you|currently|presently)\b.*\b(student|enrolled|studying)\b|\b(enrolled|enrolment|enrollment|ingeschreven)\b/.test(key))
+      return pick(a.study_status);
+    if (/\b(field of study|major|study programme|study program|discipline|area of study|opleiding|studierichting)\b/.test(key))
+      return pick(a.field_of_study);
+    if (/\b(degree|diploma|level of education|education level|highest level|opleidingsniveau)\b/.test(key))
+      return pick(a.degree);
+    if (/\b(university|universiteit|school|college|institution|hogeschool|school name)\b/.test(key) && key.split(" ").length <= 6 && !/\b(high school|year|date|reference|referral|hear|find|about|why)\b/.test(key))
+      return pick(a.university);
+    if (/\b(nationality|nationaliteit|citizenship)\b/.test(key))
+      return pick(a.nationality);
     if (/\b(relocat\w*)\b/.test(key))
       return pick(a.relocation);
     if (/\bnotice period\b|\bopzegtermijn\b/.test(key))

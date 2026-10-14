@@ -2,7 +2,7 @@
 // each time and never makes one up. The app's Profile page edits the same fields (src/lib/application-answers.ts lists them again for
 // the screen; src/lib/application-answers.test.ts fails when the two lists differ).
 
-export const ANSWER_KEYS = ["first_name", "last_name", "email", "phone", "linkedin", "address", "city", "postcode", "country", "website", "work_authorization", "expected_salary", "start_date", "hours_per_week", "notice_period", "relocation", "notes"] as const
+export const ANSWER_KEYS = ["first_name", "last_name", "email", "phone", "linkedin", "address", "city", "postcode", "country", "website", "work_authorization", "expected_salary", "start_date", "hours_per_week", "notice_period", "relocation", "university", "degree", "field_of_study", "graduation_date", "study_status", "internship_agreement", "nationality", "notes"] as const
 export type AnswerKey = (typeof ANSWER_KEYS)[number]
 export type Answers = Partial<Record<AnswerKey, string>>
 

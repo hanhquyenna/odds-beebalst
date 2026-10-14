@@ -82,6 +82,14 @@ export function answerText(label: string, facts: Facts): string | null {
   if (/^(street address|address|address line 1|adres|straat)/.test(key)) return pick(a.address)
   if (/^(country|country of residence|land)$/.test(key)) return pick(a.country)
   if (remembered) return remembered
+  // What an international student is asked: school, degree, graduation, whether they are a student, the university's internship agreement.
+  if (/\b(internship|stage|placement|work placement)\b.*\b(agreement|contract|overeenkomst)\b|\bstage ?overeenkomst|\b(agreement|overeenkomst)\b.*\b(university|school|college)\b/.test(key)) return pick(a.internship_agreement)
+  if (/\b(graduat\w*|afstudeer\w*)\b/.test(key)) return pick(a.graduation_date)
+  if (/\b(are you|currently|presently)\b.*\b(student|enrolled|studying)\b|\b(enrolled|enrolment|enrollment|ingeschreven)\b/.test(key)) return pick(a.study_status)
+  if (/\b(field of study|major|study programme|study program|discipline|area of study|opleiding|studierichting)\b/.test(key)) return pick(a.field_of_study)
+  if (/\b(degree|diploma|level of education|education level|highest level|opleidingsniveau)\b/.test(key)) return pick(a.degree)
+  if (/\b(university|universiteit|school|college|institution|hogeschool|school name)\b/.test(key) && key.split(" ").length <= 6 && !/\b(high school|year|date|reference|referral|hear|find|about|why)\b/.test(key)) return pick(a.university)
+  if (/\b(nationality|nationaliteit|citizenship)\b/.test(key)) return pick(a.nationality)
   if (/\b(relocat\w*)\b/.test(key)) return pick(a.relocation)
   if (/\bnotice period\b|\bopzegtermijn\b/.test(key)) return pick(a.notice_period)
   if (/\b(start date|when can you start|available to start|availability|earliest start|beschikbaar)\b/.test(key)) return pick(a.start_date)

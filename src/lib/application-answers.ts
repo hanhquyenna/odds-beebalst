@@ -32,6 +32,13 @@ export const ANSWER_FIELDS: ReadonlyArray<AnswerField> = [
   { key: "hours_per_week", label: "Hours a week", placeholder: "40" },
   { key: "notice_period", label: "Notice period", placeholder: "None" },
   { key: "relocation", label: "Willing to move", placeholder: "Yes, anywhere in the Netherlands" },
+  { key: "university", label: "University or school", placeholder: "University of Amsterdam" },
+  { key: "degree", label: "Degree you are doing", placeholder: "Master's degree (MSc)" },
+  { key: "field_of_study", label: "Field of study", placeholder: "Data science" },
+  { key: "graduation_date", label: "Graduation date", placeholder: "July 2027" },
+  { key: "study_status", label: "Are you a student now", placeholder: "Yes, enrolled full time" },
+  { key: "internship_agreement", label: "Internship agreement from your university", placeholder: "Yes, my university signs one" },
+  { key: "nationality", label: "Nationality", placeholder: "Vietnamese" },
   { key: "notes", label: "Anything else forms ask", placeholder: "", long: true },
 ]
 

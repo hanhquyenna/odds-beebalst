@@ -1911,3 +1911,21 @@ test("odds apply goes through the complete steps by itself, stops at a question 
   expect(await page.evaluate(() => (window as unknown as { advanced: number }).advanced)).toBe(2)
   await shot(page, "ext-steps")
 })
+
+test("an application sent on an employer's site marks the job applied in odds, from the site's own thank-you, and only then", async ({ context, fake }) => {
+  await connect(context)
+  const form = EMPLOYER_FORM.replace('window.sent = (window.sent || 0) + 1', `window.sent = (window.sent || 0) + 1; document.querySelector('main').innerHTML = '<h1>Thank you for applying!</h1><p>Your application has been submitted.</p>'`)
+  await context.route("https://boards.example-ats.com/acme/jobs/77**", (route) => route.fulfill({ contentType: "text/html", body: form }))
+  fake.kit = PORTAL_KIT
+  const page = await context.newPage()
+  await page.goto("https://boards.example-ats.com/acme/jobs/77")
+  await applyFrom(context, page, "https://boards.example-ats.com/acme/jobs/77")
+  await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 8000 })
+  await page.locator("#sql").fill("3")
+  await page.waitForTimeout(1500)
+  // Filled in, not sent: nothing is marked.
+  expect(fake.applied).toEqual([])
+  await page.getByRole("button", { name: "Submit application" }).click()
+  await expect.poll(() => fake.applied, { timeout: 8000 }).toEqual(["https://boards.example-ats.com/acme/jobs/77"])
+  await expect(page.locator(".odds-apply-bar")).toContainText("marked this job as applied")
+})
