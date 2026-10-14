@@ -289,6 +289,39 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     })
     return true
   }
+  // "odds apply" in the panel: the job is opened in the person's tab and its form filled in there (apply.js on LinkedIn, apply-any.js elsewhere).
+  if (message?.type === "apply-in-tab" && typeof message.url === "string" && /^https:\/\//.test(message.url)) {
+    const go = async () => {
+      const tabId = sender.tab?.id ?? (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id
+      if (typeof tabId !== "number") return reply({ ok: false })
+      await setIntent(tabId, { job: message.url, at: Date.now() })
+      await chrome.tabs.update(tabId, { url: message.url, active: true })
+      reply({ ok: true })
+    }
+    go()
+    return true
+  }
+  // A page asking whether it was opened to apply: the job it is for, while that is fresh (the tab's own, or the one that opened it).
+  if (message?.type === "apply-intent" && sender.tab && typeof sender.tab.id === "number") {
+    intentOf(sender.tab.id).then((intent) => reply({ intent }))
+    return true
+  }
+  // The application was started: the tab no longer opens it by itself (going back to the job does not start it again).
+  if (message?.type === "apply-started" && sender.tab && typeof sender.tab.id === "number") {
+    chrome.storage.session.get("oddsApplyIntents").then(({ oddsApplyIntents = {} }) => {
+      if (oddsApplyIntents[sender.tab.id]) oddsApplyIntents[sender.tab.id].started = true
+      return chrome.storage.session.set({ oddsApplyIntents })
+    }).then(() => reply({ ok: true }))
+    return true
+  }
+  // A page about to open the employer's own application (a new tab or this one): the intent goes along.
+  if (message?.type === "apply-follow" && sender.tab && typeof sender.tab.id === "number") {
+    intentOf(sender.tab.id).then(async (intent) => {
+      if (intent) followFrom.set(sender.tab.id, { ...intent, at: Date.now() })
+      reply({ ok: Boolean(intent) })
+    })
+    return true
+  }
   // Applying: what the form needs, the person's own answers kept, the job marked applied, their CV for the upload.
   if (message?.type === "apply-kit" && typeof message.url === "string") {
     ext("apply-kit", { method: "POST", body: JSON.stringify({ url: message.url }) }).then(reply)
@@ -382,6 +415,35 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     reply({ ok: true })
   }
   return false
+})
+
+// Applying from the panel: which tabs were opened to apply, for which job. Kept a few minutes (a sign-in or a slow page may come between),
+// in session storage so a sleeping background worker does not forget it.
+const INTENT_MS = 5 * 60_000
+const followFrom = new Map()
+async function setIntent(tabId, intent) {
+  const { oddsApplyIntents = {} } = await chrome.storage.session.get("oddsApplyIntents")
+  for (const [id, it] of Object.entries(oddsApplyIntents)) if (Date.now() - it.at > INTENT_MS) delete oddsApplyIntents[id]
+  oddsApplyIntents[tabId] = intent
+  await chrome.storage.session.set({ oddsApplyIntents })
+}
+async function intentOf(tabId) {
+  const { oddsApplyIntents = {} } = await chrome.storage.session.get("oddsApplyIntents")
+  const intent = oddsApplyIntents[tabId]
+  return intent && Date.now() - intent.at < INTENT_MS ? intent : null
+}
+// A tab opened by a tab that was applying (the employer's application in a new tab) is applying too.
+chrome.tabs.onCreated.addListener((tab) => {
+  const from = typeof tab.openerTabId === "number" ? followFrom.get(tab.openerTabId) : null
+  if (from && Date.now() - from.at < 30_000 && typeof tab.id === "number") setIntent(tab.id, { job: from.job, at: Date.now(), followed: true })
+})
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  followFrom.delete(tabId)
+  const { oddsApplyIntents = {} } = await chrome.storage.session.get("oddsApplyIntents")
+  if (oddsApplyIntents[tabId]) {
+    delete oddsApplyIntents[tabId]
+    await chrome.storage.session.set({ oddsApplyIntents })
+  }
 })
 
 // A connected toolbar icon is an action, not a second menu. Opening is the

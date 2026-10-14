@@ -118,6 +118,12 @@ async function fakeOdds(): Promise<Fake> {
         fake.calls.push({ auth, body })
         answer = fake.answersByUrl[`add ${String(body.url)}`] ?? fake.answer
       }
+      // The person's CV file, as the real route sends it.
+      if (path.endsWith("/ext/file")) {
+        res.writeHead(200, { ...cors, "Content-Type": "application/pdf", "X-File-Name": "Kien_Data_CV.pdf", "Access-Control-Expose-Headers": "X-File-Name" }).end("%PDF-1.4 odds test CV")
+
+        return
+      }
       const delay = path.endsWith("/ext/add") ? fake.addDelays[String(body.url)] ?? 0 : 0
       setTimeout(() => res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify(answer)), delay)
     })
@@ -372,6 +378,10 @@ test("the odds app opens in the panel as production serves it (refusing frames),
   await expect(app.getByRole("heading", { name: "Junior Financial Analyst" }).first()).toBeVisible({ timeout: 25000 })
   expect(fake.sessions).toBeGreaterThanOrEqual(1)
   await shot(page, "ext-panel-app")
+  // "odds apply" under Apply: the job's application opens in this tab, to be filled in there.
+  await context.route("https://jobs.example.com/**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><h1>Apply</h1>" }))
+  await app.getByRole("button", { name: /odds apply/ }).click()
+  await page.waitForURL("https://jobs.example.com/e2e-adyen-fin-analyst", { timeout: 10000 })
 })
 
 test("odds still refuses to be framed anywhere the panel was not opened: another tab, another page", async ({ context }) => {
@@ -1059,4 +1069,78 @@ test("Easy Apply with odds: filled in from odds, the job's own CV chosen, a new 
   await shot(page, "ext-easy-apply")
   await modal.getByRole("button", { name: "Submit application" }).click()
   await expect.poll(() => fake.applied, { timeout: 8000 }).toEqual(["https://www.linkedin.com/jobs/view/4470000301/"])
+})
+
+/** Opens a page as "odds apply" in the panel would: the background is told this tab applies to `job`, and the page is loaded again. */
+async function applyFrom(context: BrowserContext, page: import("@playwright/test").Page, job: string): Promise<void> {
+  const worker = context.serviceWorkers()[0]
+  await worker.evaluate(async ([url, job]) => {
+    const api = (globalThis as unknown as { chrome: { tabs: { query(q: object): Promise<Array<{ id: number; url?: string }>> } } }).chrome
+    const tabs = await api.tabs.query({})
+    const tab = tabs.find((t) => t.url === url) ?? tabs[tabs.length - 1]
+    await (globalThis as unknown as { setIntent(id: number, it: object): Promise<void> }).setIntent(tab.id, { job, at: Date.now() })
+  }, [page.url(), job])
+  await page.reload()
+}
+
+/** An employer's application form as Greenhouse and Lever draw it: labelled fields, a CV upload, a select, a free-text question, Submit. */
+const EMPLOYER_FORM = `<!doctype html><html><head><meta charset="utf-8"></head><body><main><h1>Data Intern</h1>
+<form id="application" onsubmit="event.preventDefault(); window.sent = (window.sent || 0) + 1">
+  <label for="first_name">First Name *</label><input id="first_name" name="first_name" required>
+  <label for="last_name">Last Name *</label><input id="last_name" name="last_name" required>
+  <label for="email">Email *</label><input id="email" type="email" required>
+  <label for="phone">Phone</label><input id="phone" type="tel">
+  <label for="resume">Resume/CV *</label><input id="resume" type="file" required>
+  <label for="li">LinkedIn Profile</label><input id="li" name="urls[LinkedIn]">
+  <label for="auth">Are you legally authorized to work in the Netherlands? *</label><select id="auth" required><option>Please select</option><option>Yes</option><option>No</option></select>
+  <label for="sql">How many years of experience do you have with SQL? *</label><input id="sql" required>
+  <label for="why">Why do you want to work at Acme?</label><textarea id="why"></textarea>
+  <button type="submit">Submit application</button>
+</form></main></body></html>`
+
+test("odds apply on an employer's own form: filled in from odds, the CV uploaded, the unknown question outlined and kept once answered, never sent by odds", async ({ context, fake }) => {
+  await connect(context)
+  await context.route("https://boards.example-ats.com/acme/jobs/123**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  fake.kit = { job_id: "pemp", facts: { name: "Kien Phung", email: "kien@example.com", linkedin: "https://www.linkedin.com/in/kien", answers: { phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true } }
+  const page = await context.newPage()
+  await page.goto("https://boards.example-ats.com/acme/jobs/123")
+  // Not opened to apply: odds does nothing to a form.
+  await page.waitForTimeout(1500)
+  await expect(page.locator("#first_name")).toHaveValue("")
+  await applyFrom(context, page, "https://boards.example-ats.com/acme/jobs/123")
+  await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 8000 })
+  await expect(page.locator("#last_name")).toHaveValue("Phung")
+  await expect(page.locator("#email")).toHaveValue("kien@example.com")
+  await expect(page.locator("#phone")).toHaveValue("+31 6 1234 5678")
+  await expect(page.locator("#li")).toHaveValue("https://www.linkedin.com/in/kien")
+  await expect(page.locator("#auth")).toHaveValue("Yes")
+  await expect.poll(() => page.locator("#resume").evaluate((el: HTMLInputElement) => el.files?.[0]?.name ?? "")).toBe("Kien_Data_CV.pdf")
+  // Odds does not answer what it does not know, nor write the person's motivation.
+  await expect(page.locator("#why")).toHaveValue("")
+  await expect(page.locator(".odds-ask")).toHaveCount(1)
+  await expect(page.locator(".odds-apply-bar")).toContainText("outlined question")
+  await page.waitForTimeout(1500)
+  expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+  await page.locator("#sql").fill("3")
+  await page.getByRole("button", { name: "Submit application" }).click()
+  await expect.poll(() => fake.kept).toEqual([{ question: "How many years of experience do you have with SQL?", answer: "3" }])
+  await shot(page, "ext-employer-form")
+})
+
+test("odds apply on a LinkedIn job: Easy Apply is pressed by odds and filled in, the rest as when the person presses it", async ({ context, fake }) => {
+  await connect(context)
+  await context.route("https://www.linkedin.com/jobs/view/4470000301/**", (route) => route.fulfill({ contentType: "text/html", body: EASY_APPLY }))
+  fake.peek = { known: true, id: "papply", saved: true, chance_pct: 8.8 }
+  fake.kit = { job_id: "papply", facts: { name: "Kien Phung", email: "kien@example.com", dutch: "basic", answers: { phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: { "how many years of work experience do you have with sql": "3" } }, cv: null }
+  const page = await context.newPage()
+  await page.goto("https://www.linkedin.com/jobs/view/4470000301/")
+  await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4470000301")
+  const modal = page.locator("[data-test-modal-id=easy-apply-modal]")
+  // Everything known (the SQL years remembered from an earlier form): odds goes all the way to the review, and stops there.
+  await expect(modal.locator(".odds-apply-bar")).toContainText("press Submit yourself", { timeout: 12000 })
+  expect(await page.evaluate(() => (window as unknown as { submits: number }).submits)).toBe(0)
+  // Back on the job later, it is not started again.
+  await page.reload()
+  await page.waitForTimeout(2500)
+  await expect(modal).toHaveCount(0)
 })

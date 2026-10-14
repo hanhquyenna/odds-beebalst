@@ -30,3 +30,4 @@ export const embedded: boolean = (() => {
     return false
   }
 })()
+

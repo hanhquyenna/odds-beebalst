@@ -92,6 +92,11 @@ window.addEventListener("message", (event) => {
       lastOpened = null
       appReady = false
     }
+    // "odds apply" on a job in the app: open it in the person's tab and fill its application in there.
+    if (event.data.type === "apply" && typeof event.data.url === "string") {
+      chrome.runtime.sendMessage({ type: "apply-in-tab", url: event.data.url }, () => void chrome.runtime.lastError)
+      if (window.parent !== window) window.parent.postMessage({ source: "odds-panel", type: "close" }, "*")
+    }
     if (event.data.type === "ready") {
       appReady = true
       say("")

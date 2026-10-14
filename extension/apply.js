@@ -246,6 +246,24 @@
   )
 
   // The form opens in a modal LinkedIn adds to the page when Easy Apply is pressed.
+  // Opened from "odds apply" in the panel: the application is started here, Easy Apply pressed (and filled in above), or the employer's own
+  // Apply pressed, which opens their form (filled in by apply-any.js, the intent going along to that tab).
+  ;(async () => {
+    const { intent } = (await ask({ type: "apply-intent" })) || {}
+    if (!intent || intent.started) return
+    const wanted = globalThis.oddsSites.jobLink(intent.job)?.id
+    for (let waited = 0; waited < 15000; waited += 300) {
+      await sleep(300)
+      if (PAGE.site.open?.()?.id !== wanted) continue
+      const button = [...document.querySelectorAll("#jobs-apply-button-id, .jobs-apply-button")].find(shown)
+      if (!button) continue
+      await ask({ type: "apply-started" })
+      if (!/easy apply/i.test(labelOfButton(button))) await ask({ type: "apply-follow" })
+      button.click()
+      return
+    }
+  })()
+
   // LinkedIn changes its page all the time: looked at once a frame at most.
   let looking = false
   new MutationObserver(() => {

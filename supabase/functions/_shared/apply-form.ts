@@ -38,7 +38,8 @@ export function questionKey(label: string): string {
 
 /** The label as shown, said once (LinkedIn repeats it for screen readers). */
 export function questionText(label: string): string {
-  const t = label.replace(/\s+/g, " ").trim()
+  // A form's "required" star is not part of the question.
+  const t = label.replace(/\s+/g, " ").replace(/\s*\*+\s*$/, "").trim()
   const half = t.length % 2 === 1 ? (t.length - 1) / 2 : -1
 
   return (half > 0 && t.slice(0, half) === t.slice(half + 1) ? t.slice(0, half) : t).slice(0, 500)

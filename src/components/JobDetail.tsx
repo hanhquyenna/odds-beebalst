@@ -6,6 +6,7 @@ import { MoreAtEmployer } from "@/components/CompanyInsights"
 import { CompanySection, PastHires, ReviewsSection } from "@/components/JobCompany"
 import { CompanyResearch } from "@/components/CompanyResearch"
 import { PostingText } from "@/components/PostingText"
+import { OddsApply } from "@/components/OddsApply"
 import { SourceLinks } from "@/components/SourceChips"
 import { StatusPicker } from "@/components/StatusPicker"
 import { JobProperties } from "@/components/JobProperties"
@@ -157,6 +158,7 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
           <StatusPicker post={post} fit={fit} onLocked={locked?.onUnlock} />
           <SourceLinks post={post} />
         </div>
+        <OddsApply post={post} />
         {locked ? <KeyFacts post={post} onPick={onPick} /> : null}
       </header>
 

@@ -33,7 +33,7 @@
     return t.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/\brequired\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim().slice(0, 300);
   }
   function questionText(label) {
-    const t = label.replace(/\s+/g, " ").trim();
+    const t = label.replace(/\s+/g, " ").replace(/\s*\*+\s*$/, "").trim();
     const half = t.length % 2 === 1 ? (t.length - 1) / 2 : -1;
     return (half > 0 && t.slice(0, half) === t.slice(half + 1) ? t.slice(0, half) : t).slice(0, 500);
   }

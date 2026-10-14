@@ -3,7 +3,7 @@ import { sourceOf, type JobSource } from "@/lib/sources"
 import type { Posting } from "@/lib/types"
 
 /** Where this job was found. A job found in several places lists every one. */
-function sourcesOf(post: Posting): JobSource[] {
+export function sourcesOf(post: Posting): JobSource[] {
   if (post.local) {
     return []
   }
@@ -99,3 +99,4 @@ export function SourceLinks({ post }: { post: Posting }): React.JSX.Element | nu
     </span>
   )
 }
+

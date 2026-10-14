@@ -36,6 +36,11 @@ odds cannot answer is outlined in orange; what you answer is kept (table applica
 LinkedIn says the application was sent, the job is marked applied on your odds tracker. The rules for which answer fits which question are in
 `supabase/functions/_shared/apply-form.ts`, built into `job-sites.js` with the job-site rules.
 
+"odds apply" (a button under Apply on a job in the odds panel) opens the job in your tab and starts its application there: on LinkedIn odds presses
+Easy Apply (or the employer's Apply, following it into the tab it opens); anywhere else apply-any.js fills in the employer's form by its labels
+(name, email, phone, LinkedIn, website, city, your standard and earlier answers) and puts your CV in its CV upload. Only in a tab opened that way,
+for a few minutes; it never sends a form.
+
 Try it now (Chrome): `chrome://extensions` → Developer mode → Load unpacked → pick this folder. Click the odds icon → Connect odds.
 After an update, press the reload arrow on the extension's card there, then reload the job sites' tabs.
 

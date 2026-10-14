@@ -42,3 +42,5 @@ html[data-odds-panel="open"] #odds-add[data-where="float"] { right: 404px; }
 .odds-apply-bar[data-state="done"] { background: #eefaf3; color: #0a7a3d; border-color: #9fd9b8; }
 .odds-apply-bar[data-state="problem"] { background: #f5f5f5; color: #555; border-color: #ddd; }
 .odds-ask { outline: 2px solid #f2802a; outline-offset: 4px; border-radius: 6px; }
+/* The same line on an employer's own form (apply-any.js), floating at the bottom right of the page. */
+.odds-apply-bar.odds-apply-float { position: fixed; right: 20px; bottom: 20px; z-index: 2147483646; max-width: 340px; margin: 0; box-shadow: 0 6px 24px rgba(0, 0, 0, .16); }
