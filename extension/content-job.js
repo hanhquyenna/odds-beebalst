@@ -300,7 +300,7 @@ function sync() {
     window.clearTimeout(waiting)
     waiting = window.setTimeout(() => {
       if (current.id === job.id) peek(job)
-    }, 150)
+    }, 250)
   }
 }
 
