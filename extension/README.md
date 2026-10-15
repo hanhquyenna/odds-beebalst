@@ -57,8 +57,19 @@ After an update, press the reload arrow on the extension's card there, then relo
 Tests: `bun run e2e` (e2e/extension.spec.ts loads it into Chromium, with pages built like each site's) and, against the real backend with a throwaway account,
 `LIVE_MCP=1 bun test scripts/check-mcp.live.test.ts`. Indeed and Glassdoor turn automated browsers away, so their real pages are checked by hand in Chrome.
 
-Chrome Web Store: zip this folder's contents (not the folder), upload at https://chrome.google.com/webstore/devconsole (a 5 USD developer account of
-the owner is needed). The store asks for a privacy policy: it must describe automatic lookup of visible job URLs, reading a job's details from the page
+Install from the app: Connect → **Download for Chrome** serves `public/odds-for-chrome.zip` (refresh with `bun run extension:zip`).
+Unzip → `chrome://extensions` → Developer mode → Load unpacked → pick the unzipped folder → reload the odds tab → **Connect**.
+
+## First-time path (Connect → Apply → board login)
+
+1. Open Odds → Connect (or press **Connect Odds in Chrome** on a job). A short tour shows install steps and an optional video (`VITE_EXTENSION_ONBOARD_VIDEO_URL`; empty = poster + steps only).
+2. Download / Add to Chrome → Load unpacked (or store install) → reload Odds → **Connect**. Apply stays gated until the extension has a key in this browser.
+3. **Apply with Odds** opens the listing in a Chrome tab. If LinkedIn / Indeed / Glassdoor ask you to sign in, the Odds chip shows **Account** and the bar says to sign in on that tab. Sign in yourself — Odds never types passwords and never stores board passwords.
+4. When the login wall clears, Odds says “Signed in — continuing…” and fills the form. You do not need to press Open tab for that continue.
+5. **Next Apply on the same board** in this Chrome profile skips Account when the session cookie is still valid (“remember” = Chrome’s cookies for this profile, not an Odds password store). Connect may show a light “Signed in this Chrome: LinkedIn · …” chip from a non-secret local flag after a successful continue.
+
+Chrome Web Store (public "Add to Chrome"): zip this folder's contents (not the folder), upload at https://chrome.google.com/webstore/devconsole (a 5 USD developer account of
+the owner is needed). Put the listing URL in `VITE_CHROME_EXTENSION_URL` so Connect shows **Add to Chrome**. The store asks for a privacy policy: it must describe automatic lookup of visible job URLs, reading a job's details from the page
 when odds does not hold it, storing shared job details without saving to a personal tracker, and storing a connection key. The extension runs on all https pages (to find job
 pages anywhere), which the store reviews more closely.
 
@@ -66,7 +77,7 @@ pages anywhere), which the store reviews more closely.
 ## Prepare from your phone (0.7.0)
 
 Connect the extension to the same Odds account used on your phone. In the desktop panel enable **Allow this desktop to fill applications from my phone**.
-On a job in the Odds web app, press **Fill on my desktop**. One dedicated, visible desktop tab opens and fills the application. The phone shows progress and questions needing attention; cancel closes that preparation tab at the next desktop check. Existing browser tabs are preserved.
+On a job in the Odds web app, press **Fill on my desktop**. A dedicated desktop tab opens in the background and fills the application without stealing Chrome focus; the tab comes forward when you must answer or review. The phone shows progress and questions needing attention; cancel closes that preparation tab at the next desktop check. Existing browser tabs are preserved.
 
 The computer must be awake with Chrome running. With the panel open it checks immediately and every five seconds; otherwise it checks approximately every 30 seconds (browser scheduling may delay this). Requests expire after fifteen minutes. Different jobs can be prepared at the same time, each in its own tab; double taps on the same job reuse its request. Only one desktop claims each request. Turning phone control off stops preparation tracking and preserves filled tabs. No application field values or CV files are stored in this queue.
 
@@ -88,11 +99,17 @@ The browser suite covers native field markup representative of Greenhouse, Lever
 
 Apply with Odds always opens a new tab. Existing applications remain open, including when starting another job. Phone requests are tracked per request and per tab; cancelling one does not affect the others. Profile → Personal information shows contact details extracted from the saved profile/CV and accepts overrides for given/family names, email, phone, LinkedIn, address, city, postcode and country. Structured LinkedIn names are preserved; display-name order is never guessed.
 
-0.9.1 preserves the delivery alarm across worker wakes, checks immediately on wake/panel opening, activates application tabs, and reports closed LinkedIn jobs as failed with the reason. Codex’s embedded browser does not load Chrome extensions; it uses the remote queue, and the application opens in desktop Chrome.
+0.9.1 preserves the delivery alarm across worker wakes, checks immediately on wake/panel opening, and reports closed LinkedIn jobs as failed with the reason. Codex’s embedded browser does not load Chrome extensions; it uses the remote queue, and the application opens in desktop Chrome.
+
+## Silent apply (0.15.0)
+
+Apply with Odds opens the application tab immediately (coworking): you watch while Odds fills. Captcha, account/password, and Submit stay yours. Reloading the extension does not yank unrelated tabs forward.
+
+A fill **watchdog** watches for no progress: it retries reaching the employer form once, then reports **Stuck** in the Odds card so you (or an agent watching status) can unblock captcha/login or try another job. One Odds posting maps to one apply tab; Glassdoor/Indeed are last for Apply so middleman listings are avoided.
 
 ### Application continuation (0.9.3)
 
-Apply with Odds opens one application tab per job. Clicking it again focuses that tab. Completed employer form steps advance through Next/Continue/Review; Submit is never pressed. Trusted embedded ATS forms (including Greenhouse) run inside their own frame.
+Apply with Odds focuses the job tab as soon as you press it, then fills there (coworking). Completed employer form steps advance through Next/Continue/Review; Submit is never pressed. Trusted embedded ATS forms (including Greenhouse) run inside their own frame.
 
 Unanswered fields appear in the job panel and Profile → Application answers. Save and continue writes only the signed-in applicant’s answers; the extension checks for them while waiting, fills them, verifies them, and resumes. Visa, study, enrolment, relocation and availability answers are scoped to the vacancy; a different job asks again. General exact questions can reuse confirmed answers. Profile lets the applicant edit or forget remembered answers.
 

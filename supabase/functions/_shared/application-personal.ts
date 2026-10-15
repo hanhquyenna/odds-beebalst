@@ -67,6 +67,8 @@ export function educationFromProfile(profile: { education?: ReadonlyArray<Record
   if (field) out.field_of_study = field
   const end = monthYear(latest["End Date"])
   if (end) out.graduation_date = end.m === null ? String(end.y) : `${MONTH_NAMES[end.m]} ${end.y}`
+  const began = monthYear(latest["Start Date"])
+  if (began) out.study_start = began.m === null ? String(began.y) : `${MONTH_NAMES[began.m]} ${began.y}`
   if (current) {
     out.study_status = "Yes, enrolled"
     const start = startOf(current)
@@ -77,4 +79,26 @@ export function educationFromProfile(profile: { education?: ReadonlyArray<Record
   } else if (end) out.study_status = "No"
 
   return out
+}
+
+/** The most recent job on the profile (what a form calls "current or most recent job"): its title and company. Nothing when the profile holds no job. */
+export function workFromProfile(profile: { positions?: ReadonlyArray<Record<string, string | undefined>> }, now: Date = new Date()): Record<string, string> {
+  const rows = (profile.positions ?? []).filter((p) => (p.Title ?? "").trim() && ((p["Company Name"] ?? p.Company ?? "").trim()))
+  if (rows.length === 0) return {}
+  const when = now.getFullYear() * 12 + now.getMonth()
+  // A profile writes a job's dates as "Started On" and "Finished On" (an export may say Start Date and End Date).
+  const startOf = (p: Record<string, string | undefined>): number => {
+    const d = monthYear(p["Started On"] ?? p["Start Date"])
+
+    return d ? d.y * 12 + (d.m ?? 0) : 0
+  }
+  const open = (p: Record<string, string | undefined>): boolean => {
+    const end = (p["Finished On"] ?? p["End Date"] ?? "").trim()
+    const d = monthYear(end)
+
+    return !end || /present|current|now/i.test(end) || (d ? d.y * 12 + (d.m ?? 11) >= when : false)
+  }
+  const latest = [...rows].sort((a, b) => Number(open(b)) - Number(open(a)) || startOf(b) - startOf(a))[0]
+
+  return { current_job_title: (latest.Title ?? "").trim(), current_company: (latest["Company Name"] ?? latest.Company ?? "").trim() }
 }

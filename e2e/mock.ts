@@ -75,6 +75,21 @@ export async function mockBackend(context: BrowserContext, postings: Posting[], 
 
       return
     }
+    // Apply / extension e2e: job boards and ATS fixtures are fulfilled by later routes (or the extension fixture).
+    // Aborting them yields chrome-error:// and silently breaks Apply-from-Odds paths.
+    if (
+      /(^|\.)linkedin\.com$/i.test(url.hostname)
+      || /(^|\.)indeed\.com$/i.test(url.hostname)
+      || /(^|\.)example-ats\.com$/i.test(url.hostname)
+      || /(^|\.)jobs\.example\.com$/i.test(url.hostname)
+      || /(^|\.)careers\.example\.org$/i.test(url.hostname)
+      || /(^|\.)careers\.example-ats\.com$/i.test(url.hostname)
+      || /(^|\.)boards\.example-ats\.com$/i.test(url.hostname)
+    ) {
+      await route.fallback()
+
+      return
+    }
     if (route.request().resourceType() === "image") {
       await route.fulfill({ status: 200, contentType: "image/png", body: PIXEL })
 

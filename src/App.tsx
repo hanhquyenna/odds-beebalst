@@ -6,7 +6,7 @@ import { usePhone } from "@/lib/use-phone"
 import { NotifyPrompt } from "@/components/NotifyPrompt"
 import { connectWaiting } from "@/lib/connect-request"
 import { embedded } from "@/lib/embedded"
-import { extensionWaiting } from "@/lib/extension-connect"
+import { dropExtensionRequest, extensionWaiting } from "@/lib/extension-connect"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Toaster } from "@/components/ui/sonner"
@@ -25,6 +25,9 @@ import { isInstalled, openInstallGuide, platformOf, useInstallGuide } from "@/li
 import { clearDraft } from "@/lib/session"
 import { clearShooNext, forgetShooIdentity, isShooCallback } from "@/lib/shoo"
 import { prefetchOn } from "@/lib/prefetch"
+import { syncApplyActivities } from "@/lib/apply-activity"
+import { liveApplicationRuns } from "@/lib/application-runs"
+import { LIVE_APPLY_EVENT } from "@/lib/apply-nav"
 
 // Lazy because they carry the form schema. Someone coming back to their
 // account needs neither.
@@ -99,7 +102,8 @@ export default function App(): React.JSX.Element {
   const installGuide = useInstallGuide()
   // Claude sent someone here to connect: the card that asks them is loaded only then.
   const [connectRequest] = useState<boolean>(connectWaiting)
-  const [extensionRequest] = useState<boolean>(extensionWaiting)
+  // Must be clearable — OK after Connect used to call dropExtensionRequest but this stayed true, so the dialog never closed.
+  const [extensionRequest, setExtensionRequest] = useState<boolean>(extensionWaiting)
   const phone = usePhone()
   // With answers already given the account is coming, so the welcome screen
   // must not flash first.
@@ -156,16 +160,64 @@ export default function App(): React.JSX.Element {
     return () => window.removeEventListener("popstate", onPop)
   }, [])
 
-  // Back from Google's Drive consent screen (/?drive=...): straight to Documents, saying how it went.
+  // Back from Google's Drive consent screen (/?drive=...): straight to Connect, saying how it went.
   useEffect(() => {
     if (!onboarded || !data.session) return
     const outcome = takeDriveReturn()
     if (!outcome) return
-    setView("documents", "replace")
-    if (outcome === "connected") toast.success("Google Drive is connected. Your files are in the odds folder there.")
-    else if (outcome === "failed") toast.error("Google Drive did not connect. Try again.")
+    setView("connections", "replace")
+    if (outcome === "connected") toast.success("Google Drive and Gmail are connected. Your files are in the odds folder there.")
+    else if (outcome === "failed") toast.error("Google did not connect. Try again.")
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onboarded, data.session])
+
+  // Extension broadcasts every live Apply so tracker chips stay in sync with detail closed.
+  // Also poll server runs — chips must show Applying… even when job detail is closed or the apply tab is backgrounded.
+  useEffect(() => {
+    if (!data.session) return
+    const onMsg = (event: MessageEvent): void => {
+      const d = event.data as { source?: string; type?: string; runs?: unknown } | null
+      if (!d || d.type !== "apply-activity-sync" || !Array.isArray(d.runs)) return
+      if (d.source !== "odds-extension" && d.source !== "odds-panel") return
+      syncApplyActivities(d.runs as Array<{ postingId?: string; status?: string; message?: string; url?: string }>)
+    }
+    window.addEventListener("message", onMsg)
+    const pullServer = (): void => {
+      void liveApplicationRuns().then((runs) => {
+        syncApplyActivities(runs.map((r) => ({
+          postingId: r.posting_id,
+          status: r.status === "queued" ? "filling" : r.status,
+          message: r.message,
+        })))
+      }).catch(() => undefined)
+    }
+    pullServer()
+    const serverTimer = window.setInterval(pullServer, 4000)
+    // Site tab: ask content-site; panel: panel-frame already polls.
+    if (!embedded) {
+      const tick = (): void => window.postMessage({ source: "odds-site", type: "application-statuses" }, location.origin)
+      tick()
+      const timer = window.setInterval(tick, 2000)
+      return () => { window.removeEventListener("message", onMsg); window.clearInterval(timer); window.clearInterval(serverTimer) }
+    }
+    return () => { window.removeEventListener("message", onMsg); window.clearInterval(serverTimer) }
+  }, [data.session])
+
+  // Apply with Odds from Jobs: switch to Tracker (saved list) so live Applying… chips are in view.
+  useEffect(() => {
+    const on = (): void => {
+      // Leave /job/<id> URL — otherwise sharedJobId can stick or popstate reopens the job page.
+      if (jobIdFromPath(location.pathname) || sharedJobId) {
+        history.replaceState({ ...(typeof history.state === "object" && history.state ? history.state : {}), view: "tracker" }, "", "/")
+      }
+      setSharedJobId(null)
+      setPage(null)
+      setView("tracker", "replace")
+      window.scrollTo(0, 0)
+    }
+    window.addEventListener(LIVE_APPLY_EVENT, on)
+    return () => window.removeEventListener(LIVE_APPLY_EVENT, on)
+  }, [sharedJobId])
 
   // Signing in brings a saved profile down with it: from then on this is someone's account.
   useEffect(() => {
@@ -512,7 +564,7 @@ export default function App(): React.JSX.Element {
 
             {view === "documents" && onboarded ? (
               <Suspense fallback={null}>
-                <Documents onBack={() => back("account")} onSignIn={() => setView("signin")} />
+                <Documents onBack={() => back("account")} onSignIn={() => setView("signin")} onConnect={() => setView("connections")} />
               </Suspense>
             ) : null}
 
@@ -570,7 +622,12 @@ export default function App(): React.JSX.Element {
       ) : null}
       {extensionRequest ? (
         <Suspense fallback={null}>
-          <ExtensionConnect />
+          <ExtensionConnect
+            onDismiss={() => {
+              dropExtensionRequest()
+              setExtensionRequest(false)
+            }}
+          />
         </Suspense>
       ) : null}
     </div>

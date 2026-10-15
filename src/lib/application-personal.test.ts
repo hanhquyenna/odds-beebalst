@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { educationFromProfile, personalFromProfile } from "../../supabase/functions/_shared/application-personal"
+import { educationFromProfile, personalFromProfile, workFromProfile } from "../../supabase/functions/_shared/application-personal"
 import { answerText } from "../../supabase/functions/_shared/apply-form"
 test("contact details come from structured profile and CV, preserving name order", () => {
   const answers = personalFromProfile({ name: "Family Given" , firstName: "Given Names", lastName: "Family", place: "Amsterdam, Netherlands", cv: "Candidate\nme@example.com | +31 6 12345678\n2024 - 2026\n" } as Parameters<typeof personalFromProfile>[0], "account@example.com")
@@ -21,7 +21,7 @@ describe("educationFromProfile", () => {
   const now = new Date("2026-10-15T10:00:00Z")
   test("the study someone is in now gives the school, degree, field, graduation, year of study and status", () => {
     const e = educationFromProfile({ education: [{ "School Name": "Erasmus University", "Degree Name": "BSc Economics", "Start Date": "Sep 2019", "End Date": "Jun 2022" }, { "School Name": "University of Amsterdam", "Degree Name": "MSc Finance", "Field Of Study": "Finance", "Start Date": "Sep 2025", "End Date": "Jun 2027" }] }, now)
-    expect(e).toEqual({ university: "University of Amsterdam", degree: "MSc Finance", field_of_study: "Finance", graduation_date: "June 2027", study_status: "Yes, enrolled", study_year: "2nd year" })
+    expect(e).toEqual({ university: "University of Amsterdam", degree: "MSc Finance", field_of_study: "Finance", graduation_date: "June 2027", study_start: "September 2025", study_status: "Yes, enrolled", study_year: "2nd year" })
   })
   test("a first-year student with the dates as numbers", () => {
     const e = educationFromProfile({ education: [{ "School Name": "TU Delft", "Degree Name": "MSc", "Start Date": "09/2026", "End Date": "2028" }] }, now)
@@ -37,5 +37,17 @@ describe("educationFromProfile", () => {
   test("no education, nothing", () => {
     expect(educationFromProfile({ education: [] }, now)).toEqual({})
     expect(educationFromProfile({}, now)).toEqual({})
+  })
+})
+
+describe("workFromProfile and the study's start", () => {
+  const now = new Date("2026-10-15T10:00:00Z")
+  test("the open job is the current one; else the latest", () => {
+    expect(workFromProfile({ positions: [{ Title: "Intern", "Company Name": "Bol", "Started On": "Jun 2025", "Finished On": "Aug 2025" }, { Title: "Data Analyst Intern", "Company Name": "Philips", "Started On": "Jun 2026", "Finished On": "" }] }, now)).toEqual({ current_job_title: "Data Analyst Intern", current_company: "Philips" })
+    expect(workFromProfile({ positions: [{ Title: "Intern", "Company Name": "Bol", "Start Date": "Jun 2024", "End Date": "Aug 2024" }, { Title: "Assistant", "Company Name": "Mollie", "Start Date": "Jun 2025", "End Date": "Aug 2025" }] }, now)).toEqual({ current_job_title: "Assistant", current_company: "Mollie" })
+    expect(workFromProfile({ positions: [] }, now)).toEqual({})
+  })
+  test("the study start is kept as a month and year", () => {
+    expect(educationFromProfile({ education: [{ "School Name": "UvA", "Degree Name": "MSc", "Start Date": "Sep 2025", "End Date": "Jun 2027" }] }, now).study_start).toBe("September 2025")
   })
 })

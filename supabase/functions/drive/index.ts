@@ -159,7 +159,7 @@ async function callback(req: Request): Promise<Response> {
     step = "no-refresh-token"
     if (!t.refresh_token) throw new Error("Google gave no refresh token")
     step = "scope"
-    if (!(t.access_token && (await grantedDriveFile(t.access_token)))) return back(state.r, "cancelled")
+    if (!(t.access_token && (await grantedGoogle(t.access_token)))) return back(state.r, "cancelled")
     step = "folders"
     const old = await linkOf(env, state.u)
     const folders = await ensureFolders(t.access_token, old ?? undefined)
@@ -178,12 +178,13 @@ async function callback(req: Request): Promise<Response> {
   }
 }
 
-/** Google lets a person untick the Drive box on the consent screen: then there is nothing to keep files in. */
-async function grantedDriveFile(token: string): Promise<boolean> {
+/** Google lets a person untick Drive or Gmail on the consent screen: both are required for one-click applying. */
+async function grantedGoogle(token: string): Promise<boolean> {
   const r = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`)
   if (!r.ok) return false
+  const scope = String(((await r.json()) as { scope?: string }).scope ?? "")
 
-  return String(((await r.json()) as { scope?: string }).scope ?? "").includes("auth/drive.file")
+  return scope.includes("auth/drive.file") && scope.includes("auth/gmail.send")
 }
 
 /** The Google account's address, from the id token Google handed over directly (no need to check its signature here). */

@@ -23,7 +23,7 @@ export function Autofill({ onDocuments, onJobs }: { onDocuments: () => void; onJ
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
       <h1 className="font-heading text-3xl font-semibold tracking-tight">Autofill</h1>
 
-      <SetupCard onJobs={onJobs} />
+      <SetupCard onJobs={onJobs} onOpenTab={(tab) => { if (tab === "documents") onDocuments(); else document.getElementById("autofill-chrome")?.scrollIntoView({ behavior: "smooth", block: "start" }) }} />
 
       <Section title="CV">
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-[1.5px] bg-card p-4">
@@ -52,7 +52,7 @@ export function Autofill({ onDocuments, onJobs }: { onDocuments: () => void; onJ
         </Section>
       ) : null}
 
-      <Section title="Chrome">
+      <Section id="autofill-chrome" title="Chrome">
         <div className="flex items-center justify-between gap-3 rounded-xl border-[1.5px] bg-card p-4">
           <p className="font-medium">Extension</p>
           <span className={`rounded-md px-2.5 py-1 text-sm font-medium ${extension === "yes" ? "bg-good text-good-foreground" : "border-[1.5px] border-dashed text-muted-foreground"}`}>{extension === "yes" ? "Connected" : extension === "looking" ? "Checking" : "Not connected"}</span>

@@ -29,6 +29,21 @@ export function toggleSave(data: Saver, post: Posting): void {
   })
 }
 
+/** Apply with Odds: always keep the job on the tracker (never toggle off). */
+export function ensureSaved(data: Saver, post: Posting): void {
+  if (data.saved.has(post.id)) return
+  data.setSaved(post.id, true)
+  data.setPassed(post.id, false)
+  toast(`Saved ${post.title} to your tracker`, {
+    id: UNDO_TOAST,
+    duration: 4000,
+    action: {
+      label: "Undo",
+      onClick: () => data.setSaved(post.id, false),
+    },
+  })
+}
+
 interface Remover extends Saver {
   applications: ReadonlyArray<{ id: string | number; posting_id: string }>
   removeApplication: (id: never) => Promise<void>

@@ -127,3 +127,6 @@ export const SETUP_QUESTIONS: ReadonlyArray<SetupQuestion> = [
     ],
   },
 ]
+
+/** Only a short review and the few details that cannot be read from LinkedIn. */
+export const QUICK_SETUP_KEYS = new Set(["first_name", "last_name", "email", "phone", "work_authorization", "start_date", "hours_per_week", "internship_agreement"])

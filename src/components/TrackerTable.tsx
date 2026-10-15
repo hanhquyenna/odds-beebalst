@@ -16,6 +16,7 @@ import { daysOr } from "@/lib/follow-days"
 import { LEVELS, levelOf } from "@/lib/engine"
 import { placeOf } from "@/lib/format"
 import { INDUSTRIES, industryOf } from "@/lib/industries"
+import { pinLiveApplies, useApplyActivityTick } from "@/lib/apply-activity"
 import { sortJobs } from "@/lib/sort"
 import { FOLLOW_UP_DAYS, appliedOn } from "@/lib/tracker"
 import { payOf } from "@/lib/spec"
@@ -127,34 +128,38 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, lead }: { posts
   const companyOf = (post: Posting): string => overrideOf(profile.notes, post.id, "company") || post.employer_display
   const saveCell = (post: Posting, key: string, value: string): void => setNote(post, cellKey(key), value === baseOf(post, key) ? "" : value)
 
+  const applyTick = useApplyActivityTick()
   const sorted = useMemo(() => {
+    let ordered: Posting[]
     if (!sortKey) {
-      return [...posts]
-    }
-    const extra = (post: Posting): string | number | null => trackerSortValue(data, sortKey, post)
-    // A property you have typed over is sorted by what is shown; empty values go last either way.
-    if (EDITABLE[sortKey] && posts.some((p) => overrideOf(profile.notes, p.id, sortKey) !== "")) {
-      const rank = (post: Posting): string | number | null => {
-        const v = sortKey === "followup" ? (followUpFor(applicationOf(data, post), overrideOf(profile.notes, post.id, "followup"), appliedDay(applicationOf(data, post), overrideOf(profile.notes, post.id, "applied")), new Date(), followDays)?.on ?? "") : sortKey === "applied" ? (appliedDay(applicationOf(data, post), overrideOf(profile.notes, post.id, "applied")) ?? "") : valueOf(post, sortKey)
+      ordered = [...posts]
+    } else {
+      const extra = (post: Posting): string | number | null => trackerSortValue(data, sortKey, post)
+      // A property you have typed over is sorted by what is shown; empty values go last either way.
+      if (EDITABLE[sortKey] && posts.some((p) => overrideOf(profile.notes, p.id, sortKey) !== "")) {
+        const rank = (post: Posting): string | number | null => {
+          const v = sortKey === "followup" ? (followUpFor(applicationOf(data, post), overrideOf(profile.notes, post.id, "followup"), appliedDay(applicationOf(data, post), overrideOf(profile.notes, post.id, "applied")), new Date(), followDays)?.on ?? "") : sortKey === "applied" ? (appliedDay(applicationOf(data, post), overrideOf(profile.notes, post.id, "applied")) ?? "") : valueOf(post, sortKey)
 
-        return v === "" ? null : sortKey === "level" ? LEVELS.length - LEVELS.indexOf(v as (typeof LEVELS)[number]) : v
+          return v === "" ? null : sortKey === "level" ? LEVELS.length - LEVELS.indexOf(v as (typeof LEVELS)[number]) : v
+        }
+        const sign = sortDir === "asc" ? 1 : -1
+
+        ordered = [...posts].sort((a, b) => {
+          const x = rank(a)
+          const y = rank(b)
+          if (x === null && y === null) return 0
+          if (x === null) return 1
+          if (y === null) return -1
+
+          return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true })) * sign
+        })
+      } else {
+        ordered = sortJobs(posts, sortKey, sortDir, { reference: data.reference, shares: data.shares, profile, referrals: data.referrals }, extra)
       }
-      const sign = sortDir === "asc" ? 1 : -1
-
-      return [...posts].sort((a, b) => {
-        const x = rank(a)
-        const y = rank(b)
-        if (x === null && y === null) return 0
-        if (x === null) return 1
-        if (y === null) return -1
-
-        return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true })) * sign
-      })
     }
-
-    return sortJobs(posts, sortKey, sortDir, { reference: data.reference, shares: data.shares, profile, referrals: data.referrals }, extra)
+    return pinLiveApplies(ordered)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [posts, sortKey, sortDir, profile, data.applications, data.reference, data.shares, data.referrals])
+  }, [posts, sortKey, sortDir, profile, data.applications, data.reference, data.shares, data.referrals, applyTick])
 
   const groups = useMemo(() => {
     if (!groupBy) {

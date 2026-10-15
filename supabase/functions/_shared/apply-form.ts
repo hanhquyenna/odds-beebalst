@@ -157,8 +157,69 @@ function salaryFor(raw: string | undefined, key: string): string | null {
   return text
 }
 
-const DECLINE = /^(decline|prefer not|i (do not|don'?t) wish|i'?d rather not|rather not|choose not|not (to )?(say|disclose|answer)|no answer)|\bdecline to (self[- ]identify|answer|state)\b|\bprefer not to (say|answer|disclose)\b/i
-const DEMOGRAPHIC = /\b(gender|genre|geslacht|geschlecht|race|ethnic\w*|veteran|pronouns?|how old are you|age (group|range|bracket)|lgbt\w*|sexual orientation|transgender|disabilit\w*|health condition|neurodiver\w*|under[- ]represented|caregiving|religio\w*)\b/i
+const DECLINE = /^(decline|prefer not|i (do not|don'?t) wish|i'?d rather not|rather not|choose not|not (to )?(say|disclose|answer)|no answer|pr[eé]f[eè]re(r)? ne pas|je (pr[eé]f[eè]re|ne (souhaite|veux) pas))|\bdecline to (self[- ]identify|answer|state)\b|\bprefer not to (say|answer|disclose)\b|\bne (souhaite|veux) pas (r[eé]pondre|dire|divulguer)\b/i
+const DEMOGRAPHIC = /\b(gender|genre|geslacht|geschlecht|race|ethnic\w*|veteran|pronouns?|how old are you|age (group|range|bracket)|lgbt\w*|sexual orientation|transgender|disabilit\w*|health condition|neurodiver\w*|under[- ]represented|caregiving|religio\w*|divulgation volontaire|identit\w* de genre|voluntary (self[- ]?identif|disclosure))\b/i
+
+/** Bot traps ("Leave this field empty if you're human") — never ask the person, always leave empty. */
+const TRAP_QUESTION = /leave (this|the|it)\b[^.?]{0,24}\b(empty|blank)|if you.?re (a )?human|(do not|don.?t) (fill|complete|enter)\b[^.?]{0,20}\b(this|here)|honey ?pot|bot ?trap|ignore this (field|input)|for (spam|bots) (only|detection)|(^|[\s_-])(hp|gotcha)([\s_-]|$)/i
+
+export function isTrapQuestion(label: string): boolean {
+  return TRAP_QUESTION.test((label || "").replace(/\s+/g, " ").trim())
+}
+
+/**
+ * Application consent / terms checkboxes Odds always ticks so Next is not blocked
+ * (privacy notice, agree to terms, talent community, WhatsApp for applications, certify accuracy).
+ * Never demographic or medical self-ID boxes.
+ */
+export function isConsentCheckbox(label: string): boolean {
+  const t = (label || "").replace(/\s+/g, " ").trim()
+  if (!t) return false
+  if (DEMOGRAPHIC.test(t)) return false
+  // LinkedIn Easy Apply: option text is often just "I consent" while the privacy notice sits in a sibling <p>.
+  if (/^i (consent|agree)(\.|!)?$/i.test(t) || /^(akkoord|j'accepte|ich stimme zu|acepto)\.?$/i.test(t)) return true
+  if (t.length < 8) return false
+  // Medical / criminal self-ID stays with the person; workplace drug-free *policy* consents are ticked (not a drug test).
+  if (/\b(disabilit\w*|medical|health condition|criminal|conviction|background check)\b/i.test(t) && !/\bprivacy notice\b/i.test(t)) return false
+  if (/\b(privacy notice|privacy policy|privacy statement|confidentialit\w*|avis de confidentialit|privacyverklaring|terms (and|&|of)|termes et conditions|voorwaarden|read and agree|agree to|j'?ai lu|you declare|i declare|i (have )?read|acknowledg|talent (pool|community)|future (career )?opportunities|whats?\s*app|keep me (informed|updated)|receive .{0,60}(messages|notifications|updates|communications)|certify that|information .{0,40}(true|accurate|correct)|informations? (sont )?(compl[eè]tes|exactes)|by submitting|processing my data|traitement de (mes|vos) donn|drug[- ]free|sans drogues|zonder drugs)\b/i.test(t)) return true
+  return /\b(consent|toestemming|akkoord)\b/i.test(t) && /\b(job application|applications?|recruit|hiring|career|opportunit|privacy|terms|données|gegevens)\b/i.test(t)
+}
+
+/** Whether Odds already knows this answer (or the safe default for demographics) — never hand it back to the person. */
+export function agentCanAnswer(label: string, facts: Facts, options?: ReadonlyArray<string>): boolean {
+  if (isTrapQuestion(label)) return true
+  return resolveAgentAnswer(label, facts, options) !== null
+}
+/** The string Odds would fill for a bounced question, or null when the person must answer. */
+export function resolveAgentAnswer(label: string, facts: Facts, options?: ReadonlyArray<string>): string | null {
+  // Honeypots: "answered" as empty so they never bounce to the person.
+  if (isTrapQuestion(label)) return ""
+  const opts = options ?? []
+  const text = answerText(label, facts)
+  if (text !== null) {
+    if (opts.length) {
+      let i = chooseOption([...opts], text, label)
+      if (i < 0 && isHearQuestion(label)) i = heardChoice(opts, text)
+      if (i >= 0) return opts[i] ?? null
+    }
+    return text
+  }
+  if (opts.length) {
+    const decline = demographicChoice(label, opts, facts)
+    if (decline >= 0) return opts[decline] ?? null
+    const only = privacyChoice(opts)
+    if (only >= 0) return opts[only] ?? null
+    const pick = preferenceChoice(label, opts)
+    if (pick >= 0) return opts[pick] ?? null
+  }
+  // Voluntary disclosure / gender handed back as plain text (no options): Prefer not to answer.
+  if (DEMOGRAPHIC.test(label) && !/^i answer/i.test((facts.answers?.demographics ?? "").trim())) {
+    if (!opts.length) return "Prefer not to answer"
+    const decline = opts.findIndex((o) => DECLINE.test(o.trim()))
+    if (decline >= 0) return opts[decline] ?? null
+  }
+  return null
+}
 
 /**
  * "If you had to choose, which would you prefer?": a choice between options that does not change a chance (a programming language, an office, a cohort).
@@ -193,7 +254,7 @@ export function dialCodeOf(phone: string | null | undefined): string | null {
 
 /** Whether a question is "how did you hear about us?" in any of its wordings. */
 export function isHearQuestion(label: string): boolean {
-  return /\b(how did you (hear|find|learn)|where did you (hear|find|see)|how you (heard|found)|source of (your )?application|from where did you hear)\b/.test(questionKey(label))
+  return /\b(how did you (hear|find|learn)|where did you (hear|find|see|learn)|how you (heard|found)|where (did|do) you find this (job|role|vacancy|opening|position)|source of (your )?application|from where did you hear|ou avez vous (trouve|entendu|appris)|comment avez vous (trouve|connu|entendu))\b/.test(questionKey(label))
 }
 
 /** Where the person found the job, as one of a list's options; when the list has no such option, the closest honest ones (a job board, the internet, other). -1 when none. */
@@ -229,8 +290,10 @@ export function answerText(label: string, facts: Facts): string | null {
 
     return pick(code ?? (country && NL_NAME.test(country) ? "+31" : null))
   }
+  // The country code beside a phone number ("Code du pays", "Country code"): from the number, or +31 for someone in the Netherlands.
   if (/\b(mobile|phone|telephone|telefon\w*|telefoon\w*|mobiel\w*|portable)\b/.test(key) && !/country|landcode|pays/.test(key)) return pick(a.phone) ?? pick(facts.phone)
-  if (/\blinkedin\b/.test(key) && /\b(url|profile|link)\b/.test(key)) return pick(a.linkedin) ?? pick(facts.linkedin)
+  // Bosch / Phenom etc. label the field just "LinkedIn" (no "URL"/"profile"). Skip yes/no and "how did you hear".
+  if (/\blinkedin\b/.test(key) && !asks && !isHearQuestion(label)) return pick(a.linkedin) ?? pick(facts.linkedin)
   // "Are you currently based in the Netherlands?": yes or no from where the person lives, when the question names a Dutch place.
   if (asks && /\b(based|living|located|residing|reside|live|resident)\b/.test(key) && /\b(netherlands|nederland|holland|amsterdam|rotterdam|utrecht|the hague|den haag|eindhoven|delft|leiden|groningen|breda|tilburg|nijmegen|maastricht|haarlem|almere)\b/.test(key) && !/relocat|willing|open to|office|days?\b|able|travel/.test(key)) {
     const country = residenceCountry(facts)
@@ -248,6 +311,17 @@ export function answerText(label: string, facts: Facts): string | null {
   if (remembered) return remembered
   // What an international student is asked: school, degree, graduation, whether they are a student, the university's internship agreement.
   if (/\b(internship|stage|placement|work placement)\b.*\b(agreement|contract|overeenkomst)\b|\bstage ?overeenkomst|\b(agreement|overeenkomst)\b.*\b(university|school|college)\b/.test(key)) return pick(a.internship_agreement)
+  // The dates of the study (a form's Education block asks start and end month and year): "Study start date month" is how the extension names them.
+  if (/^study (start|end) date( month| year)?$/.test(key)) {
+    const part = graduationParts(/^study start/.test(key) ? a.study_start ?? "" : a.graduation_date ?? "")
+    if (/month$/.test(key)) return pick(part.month)
+    if (/year$/.test(key)) return pick(part.year)
+
+    return pick(/^study start/.test(key) ? a.study_start : a.graduation_date)
+  }
+  // "Current or most recent job title / company", from the latest job on the profile.
+  if (/\b(current|most recent|latest|last)\b.*\b(job title|position title|role title|title|position|role)\b/.test(key) && !asks) return pick(a.current_job_title)
+  if (/\b(current|most recent|latest|last)\b.*\b(company|employer|organi[sz]ation)\b/.test(key) && !asks) return pick(a.current_company)
   if (/\b(graduat\w*|afstudeer\w*)\b/.test(key)) {
     // "When did you graduate?" is about a degree already finished, not the one still ahead.
     if (/\b(did you graduate|have you graduated|you graduated|graduated from)\b/.test(key)) return null
@@ -259,48 +333,79 @@ export function answerText(label: string, facts: Facts): string | null {
     return pick(date)
   }
   if (/\b(current|which|what)\b.*\byear\b.*\b(studies|study|degree|programme|program|education)\b|\byear of (your )?(studies|study|degree|programme|program)\b|\b(jaar van je studie|studiejaar)\b/.test(key)) return pick(a.study_year)
-  if (/\b(how did you (hear|find|learn)|where did you (hear|find|see)|source of (your )?application)\b/.test(key)) return pick(facts.job_source)
+  if (isHearQuestion(label)) return pick(facts.job_source)
   if (/\b(previously|before|already|earlier)\b.*\bappl(ied|y|ication)\b|\bappl(ied|ication)\b.*\b(before|previously|this season|earlier)\b/.test(key)) return facts.applied_before === true ? "Yes" : facts.applied_before === false ? remembered || "No" : remembered || null
-  if (/\b(degree|diploma|level of education|education level|highest level|opleidingsniveau)\b/.test(key)) return pick(a.degree)
+  // Student / enrolled / compulsory internship BEFORE "degree" — else "Bachelor's or Master's degree program for the internship" stole the degree field and returned null.
+  if (/\b(are you|currently|presently)\b.*\b(student|enrolled|studying)\b|\b(enrolled|enrolment|enrollment|ingeschreven)\b/.test(key)) return pick(a.study_status)
+  if (/\b(compulsor\w*|mandatory|required)\b.*\b(internship|stage|placement|part of (your )?(studies|program|programme|academic))\b|\b(internship|stage|placement)\b.*\b(compulsor\w*|mandatory|required part|part of (your )?(studies|program|programme|academic))\b/.test(key)) return pick(a.internship_agreement)
+  if (/\b(degree|diploma|level of education|education level|highest level|opleidingsniveau)\b/.test(key) && !/\b(enrolled|enrolment|enrollment|internship|duration|compulsory|mandatory)\b/.test(key)) return pick(a.degree)
   // Basic facts that hold for nearly everyone and never change a chance, answered from what the profile shows or a choice made once in Autofill.
   if (/\b(18|eighteen)\b.*\b(ans|years|jaar|older|plus|ouder|alt)\b|\b(at least|over|above)\b.*\b18\b/.test(key)) return facts.adult ? "Yes" : remembered || null
-  if (/\b(current|currently)\b.*\b(employee|employe\w*|employed)\b/.test(key) && !/\b(family|spouse|parent|sibling|relative|famille)\b/.test(key)) return facts.never_worked_here ? "No" : remembered || null
+  if (/\b(current|currently|actuellement|momenteel|derzeit)\b.*\b(employee|employe\w*|employed|in dienst|beschaftigt)\b/.test(key) && !/\b(family|spouse|parent|sibling|relative|famille|membre|familie)\b/.test(key)) return facts.never_worked_here ? "No" : remembered || null
   if (/\b(family|relative|spouse|parent|sibling|membre de votre famille|famille)\b.*\b(employ\w*|work\w*|travaill\w*)\b/.test(key)) return /^no\b/i.test(a.insider ?? "") ? "No" : remembered || null
   if (/\b(non ?compet\w*|non ?concurrence|noncompete|restrictive covenant)\b|\b(patent|patents|brevets?|confidential\w*|proprietary|exclusive information)\b.*\b(agreement|entente|contract|accord|signed|sign)\b|\b(agreement|entente|signed|sign)\b.*\b(patent|patents|brevets?|confidential\w*|proprietary)\b/.test(key)) return /^no\b/i.test(a.prior_agreements ?? "") ? "No" : remembered || null
-  if (/\b(are you|currently|presently)\b.*\b(student|enrolled|studying)\b|\b(enrolled|enrolment|enrollment|ingeschreven)\b/.test(key)) return pick(a.study_status)
   if (/\b(field of study|major|study programme|study program|discipline|area of study|opleiding|studierichting)\b/.test(key)) return pick(a.field_of_study)
   if (/\b(university|universiteit|school|college|institution|hogeschool|school name)\b/.test(key) && key.split(" ").length <= 6 && !/\b(high school|year|date|reference|referral|hear|find|about|why)\b/.test(key)) return pick(a.university)
   if (/\b(nationality|nationaliteit|citizenship)\b/.test(key) && key.length <= 90) return pick(a.nationality)
+  // Gender from Autofill (the person's own answer, never a guess from a name or photo); empty → the background rule below (Prefer not to say).
+  if (/\b(gender|geslacht|geschlecht|genre|sex)\b/.test(key) && !/\b(identity|transgender|pronouns?|orientation|identit)\b/.test(key) && key.length <= 90 && a.gender?.trim()) return a.gender.trim()
+  // "Do you hold an EU/EEA passport, or a Dutch student residence permit?"
+  if (/\b(eu|eea)\b.*\b(passport|citizen|national|permit)|\b(passport|residence permit|student (visa|permit|residence))\b/.test(key) && !/\b(sponsor|parrainage)\b/.test(key)) {
+    const w = a.work_authorization ?? ""
+    if (!w) return remembered || null
+    if (/^\s*yes\b|\b(eu|eea)\b|\bcitizen\b|\bnational\b|\bpassport\b|\bpermit\b|\bzoekjaar\b|\borientation year\b|\bsearch year\b|\bfree to work\b|\bauthori[sz]ed\b/i.test(w)) return "Yes"
+    if (/^\s*no\b|\b(need|require)s?\b.*\b(sponsor|visa|permit)/i.test(w)) return "No"
+    return pick(w)
+  }
+  // "Where are you based? Are you able to relocate?" — both Autofill answers in one text field.
+  if (/\b(based|where do you live|where are you)\b/.test(key) && /\brelocat/.test(key)) {
+    const place = pick(a.city) ?? pick(facts.place?.split(",")[0]?.trim())
+    const reloc = pick(a.relocation)
+    if (place && reloc) return `${place}. ${reloc}`
+    return place || reloc || remembered || null
+  }
   if (/\b(relocat\w*)\b/.test(key)) return pick(a.relocation)
+  // Combined "When would you start? What is your notice period?" — never return null when only start_date is set
+  // (notice_period-only match used to swallow the field and leave both outlined).
+  if (/\bnotice period\b|\bopzegtermijn\b/.test(key) && /\b(start|available|availability|when (can|would) you|able to start|beschikbaar)\b/.test(key)) {
+    const start = pick(a.start_date)
+    const notice = pick(a.notice_period)
+    if (start && notice) return `${start}. Notice period: ${notice}`
+    return start || notice || remembered || null
+  }
   if (/\bnotice period\b|\bopzegtermijn\b/.test(key)) return pick(a.notice_period)
-  if (/\b(start date|when can you start|available to start|availability|earliest start|beschikbaar)\b/.test(key)) return pick(a.start_date)
+  if (/\b(start date|when can you start|when would you (be able to )?start|available to start|able to start|availability|earliest start|beschikbaar)\b/.test(key)) return pick(a.start_date)
   if (!asks && (/\bhours\b.*\bweek\b|\bper week\b|\buren\b/.test(key))) return pick(a.hours_per_week)
   if (/\b(salary|compensation|pay|wage|salaris|salaire|gehalt|stipend)\b/.test(key)) return pick(salaryFor(a.expected_salary, key))
-  if (/\b(sponsor\w*|visa)\b/.test(key)) {
+  // English "sponsorship" / "visa" and French "parrainage" / "visa d'emploi" (Nécessiterez-vous… un parrainage…).
+  if (/\b(sponsor\w*|visa|parrainage)\b/.test(key)) {
     // "If you do require visa sponsorship, please provide details" is for the person to write.
     if (/\b(details|explain|describe|elaborate|please provide|why)\b/.test(key)) return null
-    if (facts.job_id && facts.job_country !== "NL") return null
+    // Only skip when we know the job is outside the Netherlands; missing country still gets an answer (odds is NL-first).
+    if (facts.job_country && facts.job_country !== "NL") return null
     if (/\b(orientation year|search year|zoekjaar|highly skilled|kennismigrant|blue card)\b/.test(key)) return null
     const w = a.work_authorization ?? ""
     if (!w) return null
     // "Do you have the right to work without sponsorship?" and "Do you have a valid visa?" ask whether the person is cleared: the answer the other way round.
-    if (/\bwithout\b.*\b(sponsor|visa)|\b(no|not)\b.*\b(sponsor|visa)\w*\b.*\b(needed|required)|\b(valid|current|existing)\b.*\b(visa|work permit|permit)\b/.test(key)) {
+    if (/\bwithout\b.*\b(sponsor|visa|parrainage)|\b(no|not)\b.*\b(sponsor|visa|parrainage)\w*\b.*\b(needed|required)|\b(valid|current|existing)\b.*\b(visa|work permit|permit)\b/.test(key)) {
       if (/\b(need|require)s?\b.*\b(sponsor|visa|permit)/i.test(w) || /\bno(t)?\b.*\b(allowed|authori[sz]ed|permit)\b/i.test(w)) return "No"
-      if (/^\s*yes\b|\b(eu|eea) (citizen|national)|\bfree to work|\ballowed to work|\bauthori[sz]ed\b|\bpermit\b/i.test(w)) return "Yes"
+      // Zoekjaar / orientation year: may work in NL without employer sponsorship.
+      if (/^\s*yes\b|\b(eu|eea) (citizen|national)|\bfree to work|\ballowed to work|\bauthori[sz]ed\b|\bpermit\b|\b(zoekjaar|orientation year|search year)\b/i.test(w)) return "Yes"
 
       return null
     }
-    // "Do you need sponsorship?" is the opposite of "Are you allowed to work?": answered only when the kept answer says which.
+    // "Do you need sponsorship?" / French parrainage: Yes when they need a permit, No when they already may work.
     if (/\b(need|require)s?\b.*\b(sponsor|visa|permit)/i.test(w) || /\bno(t)?\b.*\b(allowed|authori[sz]ed|permit)\b/i.test(w)) return "Yes"
-    if (/^\s*yes\b|\b(eu|eea) (citizen|national)|\bfree to work|\bno (sponsor|visa)\w* (needed|required)|\ballowed to work|\bauthori[sz]ed\b/i.test(w)) return "No"
+    if (/^\s*yes\b|\b(eu|eea) (citizen|national)|\bfree to work|\bno (sponsor|visa)\w* (needed|required)|\ballowed to work|\bauthori[sz]ed\b|\bpermit\b|\b(zoekjaar|orientation year|search year)\b/i.test(w)) return "No"
     return null
   }
   if (/\b(authori[sz]ed|legally|right to work|eligible to work|work permit|allowed to work|werkvergunning)\b/.test(key)) {
+    // Right-to-work wording is country-specific: only answer when the job is known to be in the Netherlands.
     if (facts.job_id && facts.job_country !== "NL") return null
     const w = a.work_authorization ?? ""
     if (!w) return null
     if (/^\s*no\b|\b(need|require)s?\b.*\b(sponsor|visa|permit)/i.test(w)) return "No"
-    return /^\s*yes\b|\b(eu|eea)\b|\ballowed\b|\bauthori[sz]ed\b|\bfree to work\b|\bpermit\b/i.test(w) ? "Yes" : null
+    return /^\s*yes\b|\b(eu|eea)\b|\ballowed\b|\bauthori[sz]ed\b|\bfree to work\b|\bpermit\b|\b(zoekjaar|orientation year|search year)\b/i.test(w) ? "Yes" : null
   }
   if (asks && /\bnative\b/.test(key) && /\b(dutch|nederlands)\b/.test(key)) {
     const level = (facts.dutch ?? "").toLowerCase()
@@ -330,6 +435,8 @@ const norm = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[
 export function chooseOption(options: string[], answer: string, label = ""): number {
   // The Dutch names and the English ones are the same place: Noord-Holland is North Holland, Nederland is the Netherlands.
   const canon = (t: string): string => norm(t).replace(/\bnoord\b/g, "north").replace(/\bzuid\b/g, "south").replace(/\bfryslan\b/g, "friesland").replace(/\bnederland\b/g, "netherlands").replace(/^the netherlands$/, "netherlands").replace(/^pays bas$|^niederlande$/, "netherlands").replace(/^hollande septentrionale$|^nordholland$/, "north holland").replace(/^hollande meridionale$|^sudholland$/, "south holland").replace(/^brabant septentrional$|^nordbrabant$/, "north brabant").replace(/^frise$/, "friesland").replace(/^zelande$/, "zeeland").replace(/^geldre$/, "gelderland")
+    // Gender options in any wording: "Man", "Male (he/him)", "Mannelijk" are one choice; "Woman", "Female", "Vrouw" the other.
+    .replace(/^(man|male|mannelijk|homme|mannlich|masculin\w*)\b/, "male").replace(/^(woman|female|vrouw|vrouwelijk|femme|weiblich|feminin\w*)\b/, "female")
   const want = canon(answer)
   const opts = options.map(canon)
   // A degree: "MSc Finance" is the option that says Master, whatever else it says ("Master\'s Degree", "Master of Science (MSc)").

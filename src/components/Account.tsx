@@ -1,4 +1,4 @@
-import { Suspense, lazy, useMemo, useState } from "react"
+import { Suspense, lazy, useEffect, useMemo, useState } from "react"
 import { JobDrawer } from "@/components/JobBoard"
 import { FilterToggle, JobFilters } from "@/components/JobFilters"
 import { JobGallery } from "@/components/JobGallery"
@@ -36,6 +36,8 @@ import type { Posting } from "@/lib/types"
 import { downloadCsv, toCsv } from "@/lib/export-csv"
 import { appliedDay, overrideOf } from "@/lib/cells"
 import { formatPlace } from "@/lib/format"
+import { LIVE_APPLY_EVENT, peekLiveApplyPostingId, takeLiveApplyPostingId } from "@/lib/apply-nav"
+import { applyActivityOf, isLiveApply, useApplyActivityTick } from "@/lib/apply-activity"
 
 const SetupCard = lazy(() => import("@/components/SetupCard").then((m) => ({ default: m.SetupCard })))
 
@@ -69,6 +71,23 @@ export function Account({ page = "home", looking, onStartLooking, onStopLooking,
   const saved = useSavedViews()
   const { active, filters, configName } = saved
   const [revisit, setRevisit] = useState<Posting | null>(null)
+  // Apply with Odds: open this job’s drawer on Tracker so Applying… / Captcha / Account updates are visible.
+  // Keep the pending id until the drawer closes — Strict Mode remount + empty postings would otherwise clear it too early.
+  useEffect(() => {
+    const openLive = (postingId: string | null): void => {
+      if (!postingId) return
+      const post = [...data.postings, ...data.keptExtra].find((p) => p.id === postingId)
+      if (!post) return
+      setRevisit(post)
+    }
+    openLive(peekLiveApplyPostingId())
+    const on = (event: Event): void => {
+      const id = String((event as CustomEvent<{ postingId?: string }>).detail?.postingId ?? "")
+      openLive(id || peekLiveApplyPostingId())
+    }
+    window.addEventListener(LIVE_APPLY_EVENT, on)
+    return () => window.removeEventListener(LIVE_APPLY_EVENT, on)
+  }, [data.postings, data.keptExtra, page, looking])
   // Each page shows one thing: jobs, people, or companies. Home shows none of them, only what is due.
   const subject: Subject = page === "people" ? "people" : page === "companies" ? "companies" : "jobs"
   const pviews = usePeopleViews()
@@ -91,12 +110,15 @@ export function Account({ page = "home", looking, onStartLooking, onStopLooking,
     pviews.setLayout(next)
   }
 
+  const applyTick = useApplyActivityTick()
   const kept = useMemo(() => {
     const applied = new Set(data.applications.map((a) => a.posting_id))
 
     // Jobs you kept that have closed since are still here, marked closed.
-    return [...data.postings, ...data.keptExtra].filter((post) => data.saved.has(post.id) || applied.has(post.id))
-  }, [data.postings, data.keptExtra, data.saved, data.applications])
+    // Live Apply pins also show even if save state races behind the Tracker jump.
+    return [...data.postings, ...data.keptExtra].filter((post) => data.saved.has(post.id) || applied.has(post.id) || isLiveApply(applyActivityOf(post.id)))
+    // applyTick: re-include rows when Apply activity starts/stops
+  }, [data.postings, data.keptExtra, data.saved, data.applications, applyTick])
   // The open view's filters: the usual job filters, then the ones on your own search (status, follow-up due, closed).
   const shown = useMemo(
     () =>
@@ -129,6 +151,17 @@ export function Account({ page = "home", looking, onStartLooking, onStopLooking,
             Back to your list
           </Button>
         </div>
+        {/* Keep drawer state while Apply switches Jobs → Tracker. */}
+        {revisit ? (
+          <JobDrawer
+            post={revisit}
+            onClose={() => {
+              if (peekLiveApplyPostingId() === revisit.id) takeLiveApplyPostingId()
+              setRevisit(null)
+            }}
+            onSwitch={setRevisit}
+          />
+        ) : null}
       </div>
     )
   }
@@ -269,7 +302,14 @@ export function Account({ page = "home", looking, onStartLooking, onStopLooking,
       </div>
 
       {revisit ? (
-        <JobDrawer post={revisit} onClose={() => setRevisit(null)} onSwitch={setRevisit} />
+        <JobDrawer
+          post={revisit}
+          onClose={() => {
+            if (peekLiveApplyPostingId() === revisit.id) takeLiveApplyPostingId()
+            setRevisit(null)
+          }}
+          onSwitch={setRevisit}
+        />
       ) : null}
 
       {page === "home" || page === "tracker" ? (

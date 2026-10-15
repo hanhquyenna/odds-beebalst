@@ -10,6 +10,8 @@ export interface PersonPosition {
 }
 
 export interface Suggestion {
+  /** A stored current position matches the employer; not proof of hiring responsibility. */
+  currentEmployerMatched?: boolean
   name: string
   headline: string
   place: string
@@ -62,8 +64,8 @@ export function linkedinSearches(company: string, family: string | null | undefi
 
   return [
     { label: "Anyone there", url: at(company) },
-    ...(word ? [{ label: "Same team", url: at(`${company} ${word}`) }] : []),
-    { label: "Hiring managers", url: at(`${company} ${word ? `${word} ` : ""}manager`) },
+    ...(word ? [{ label: "Same department", url: at(`${company} ${word}`) }] : []),
+    { label: "Department leads", url: at(`${company} ${word ? `${word} ` : ""}manager`) },
   ]
 }
 
@@ -134,19 +136,20 @@ export const PAST_SEARCHES_KEPT = 25
 /** The groups people for a job are shown in: the job's own team, its managers, and everyone else we could ask. */
 export type PeopleGroup = "team" | "manager" | "other"
 export const PEOPLE_GROUPS: ReadonlyArray<{ key: PeopleGroup; label: string; search: string }> = [
-  { key: "team", label: "Same team", search: "Same team" },
-  { key: "manager", label: "Hiring managers", search: "Hiring managers" },
+  { key: "team", label: "Same department", search: "Same department" },
+  { key: "manager", label: "Department leads", search: "Department leads" },
   { key: "other", label: "Other", search: "Anyone there" },
 ]
 /** How many people a job's search keeps to hand out from, all groups together. */
 export const GROUP_POOL = 60
+export const PEOPLE_DATA_VERSION = 20261015
 
-/** Which group someone falls in for a job: a manager, lead or head is a hiring manager; someone in the job's department is the same team; the rest is other. */
+/** Department contacts only: seniority and title do not establish a hiring relationship. */
 export function groupOf(p: Suggestion, jobFamily: string | null | undefined): PeopleGroup {
-  if (SENIORS.test(p.headline) || LEADERS.test(p.headline)) return "manager"
+  if (p.currentEmployerMatched === false) return "other"
   const d = p.headline.trim() ? departmentOfPosition(p.headline) : null
-
-  return jobFamily && d === jobFamily ? "team" : "other"
+  if (!jobFamily || d !== jobFamily) return "other"
+  return /\b(manager|lead|head|director|vp|vice president|chief)\b/i.test(p.headline) ? "manager" : "team"
 }
 
 /** A new grouped search: the first person of each group handed out. */
@@ -154,7 +157,7 @@ export function startGroups(pool: ReadonlyArray<Suggestion>, jobFamily: string |
   if (pool.length === 0) return null
   const open = PEOPLE_GROUPS.map((g) => pool.find((p) => groupOf(p, jobFamily) === g.key)?.url).filter((u): u is string => Boolean(u))
 
-  return { at: now.toISOString(), pool: [...pool], shown: 0, page: 1, more: false, src: "stored", open }
+  return { at: now.toISOString(), pool: [...pool], shown: 0, page: 1, more: false, src: "stored", open, peopleVersion: PEOPLE_DATA_VERSION }
 }
 
 /** Who is handed out in one group, in the pool's order. */
@@ -182,6 +185,7 @@ export const REVEAL = 1
  * 10 are fetched only when those run out. `shown` is how many of `pool` have been handed out, in order.
  */
 export interface PastSearch {
+  peopleVersion?: number
   at: string
   pool: Suggestion[]
   shown: number
@@ -206,13 +210,13 @@ export function readPast(raw: unknown): PastSearch | null {
   const r = raw as Record<string, unknown>
   if (r.src !== "stored") return null
   const list = Array.isArray(r.pool) ? r.pool : null
-  const pool = (list ?? []).filter(isSuggestion).map((p) => ({ name: p.name, headline: typeof p.headline === "string" ? p.headline : "", place: typeof p.place === "string" ? p.place : "", url: p.url, ...(typeof p.photo === "string" && p.photo ? { photo: p.photo } : {}), ...(typeof p.about === "string" && p.about ? { about: p.about } : {}), ...(Array.isArray(p.positions) && p.positions.length > 0 ? { positions: p.positions.filter((x): x is PersonPosition => !!x && typeof x.title === "string") } : {}) }))
+  const pool = (list ?? []).filter(isSuggestion).map((p) => ({ name: p.name, headline: typeof p.headline === "string" ? p.headline : "", place: typeof p.place === "string" ? p.place : "", url: p.url, ...(typeof p.currentEmployerMatched === "boolean" ? { currentEmployerMatched: p.currentEmployerMatched } : {}), ...(typeof p.photo === "string" && p.photo ? { photo: p.photo } : {}), ...(typeof p.about === "string" && p.about ? { about: p.about } : {}), ...(Array.isArray(p.positions) && p.positions.length > 0 ? { positions: p.positions.filter((x): x is PersonPosition => !!x && typeof x.title === "string") } : {}) }))
   if (pool.length === 0) return null
   const shown = Math.min(pool.length, Math.max(0, Math.floor(Number(r.shown)) || 0))
 
   const open = Array.isArray(r.open) ? r.open.filter((u): u is string => typeof u === "string") : undefined
 
-  return { at: typeof r.at === "string" ? r.at : new Date(0).toISOString(), pool, shown, page: Math.max(1, Math.floor(Number(r.page)) || 1), more: r.more === true, src: "stored", ...(open ? { open } : {}) }
+  return { at: typeof r.at === "string" ? r.at : new Date(0).toISOString(), pool, shown, page: Math.max(1, Math.floor(Number(r.page)) || 1), more: r.more === true, src: "stored", ...(typeof r.peopleVersion === "number" ? { peopleVersion: r.peopleVersion } : {}), ...(open ? { open } : {}) }
 }
 
 /** The first page of a search, with the first few handed out. No one found means nothing to keep. */

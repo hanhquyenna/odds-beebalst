@@ -27,7 +27,7 @@ const URL_ = "https://project.supabase.co"
 const env: DriveEnv = { url: URL_, serviceKey: "service", clientId: "client", clientSecret: "secret" }
 const ME = "11111111-1111-1111-1111-111111111111"
 const OTHER = "22222222-2222-2222-2222-222222222222"
-let grantedScope = "openid https://www.googleapis.com/auth/drive.file email"
+let grantedScope = "openid https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.send email"
 
 interface FakeFile {
   id: string
@@ -215,7 +215,7 @@ beforeEach(() => {
   revoked = []
   grantGone = false
   nextId = 1
-  grantedScope = "openid https://www.googleapis.com/auth/drive.file email"
+  grantedScope = "openid https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.send email"
   globalThis.fetch = fakeFetch as typeof fetch
 })
 
@@ -425,10 +425,10 @@ describe("the drive function, route by route", () => {
     return new URL(((await r.json()) as { url: string }).url)
   }
 
-  test("start: asks Google for drive.file only, offline, for this person, and coming back here", async () => {
+  test("start: asks Google for Drive and Gmail together, offline, for this person, and coming back here", async () => {
     const u = await startUrl()
     expect(u.origin + u.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth")
-    expect(u.searchParams.get("scope")).toBe("https://www.googleapis.com/auth/drive.file openid email")
+    expect(u.searchParams.get("scope")).toBe("https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.send openid email")
     expect(u.searchParams.get("access_type")).toBe("offline")
     expect(u.searchParams.get("redirect_uri")).toBe(`${URL_}/functions/v1/drive/callback`)
     expect(u.searchParams.get("login_hint")).toBe("me@gmail.com")
@@ -464,7 +464,7 @@ describe("the drive function, route by route", () => {
     expect(revoked).toEqual(["refresh"])
   })
 
-  test("callback: a changed or made-up state is refused; 'cancel' on Google and an unticked Drive box go back as cancelled", async () => {
+  test("callback: a changed or made-up state is refused; 'cancel' on Google and an unticked Drive or Gmail box go back as cancelled", async () => {
     const state = (await startUrl()).searchParams.get("state")!
     const [body] = state.split(".")
     const forged = `${btoa(JSON.stringify({ u: OTHER, r: "https://odds.example/", e: Date.now() + 60_000 })).replace(/=+$/, "")}.${state.split(".")[1]}`

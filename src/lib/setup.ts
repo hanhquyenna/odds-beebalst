@@ -59,7 +59,7 @@ export function useSetup(): Setup {
   const inferred = { ...personalFromProfile(data.profile, data.session?.user.email), ...educationFromProfile(data.profile) }
   const has = (key: string): boolean => Boolean((mine[key] ?? inferred[key] ?? "").trim())
   const missing = SETUP_QUESTIONS.filter((q) => QUICK_SETUP_KEYS.has(q.key) && !has(q.key))
-  const required = missing.filter((q) => !q.optional)
+  const required = missing.filter((q) => ["work_authorization", "start_date", "hours_per_week", "internship_agreement"].includes(q.key))
   const steps: SetupStep[] = [
     { key: "cv", title: "CV", done: store.docs.some((d) => d.kind === "cv") || data.profile.cv.trim().length >= 20 },
     { key: "details", title: "Details", done: ["first_name", "last_name", "email", "phone"].every(has) },

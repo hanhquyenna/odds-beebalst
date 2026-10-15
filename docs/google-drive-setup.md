@@ -1,9 +1,10 @@
 # Google Drive for documents: setup
 
-What it does: a person presses **Connect Google Drive** on Documents. odds makes a folder `odds` with `CVs` and
-`Cover letters` in their Drive and moves every file there. New uploads (and letters Claude saves) go there by themselves.
-A file edited in Drive is read again, so the chance follows it. Deleting in odds puts the file in the Drive bin (30 days).
-Disconnecting brings the files back into odds; copies stay in their Drive.
+What it does: a person presses **Connect Google Drive + Gmail** on Connect. One Google consent links both: odds makes a
+folder `odds` with `CVs` and `Cover letters` in their Drive and moves every file there, and Gmail is ready for outreach
+from the same account. New uploads (and letters Claude saves) go there by themselves. A file edited in Drive is read again,
+so the chance follows it. Deleting in odds puts the file in the Drive bin (30 days). Disconnecting brings the files back
+into odds and drops Gmail too; copies stay in their Drive.
 
 The text of each document stays in the database (`documents.body`): the chance and Claude work from it. Only the original
 files move to Drive.
@@ -14,11 +15,12 @@ Code: `supabase/functions/drive/`, `supabase/functions/_shared/drive.ts`, `src/l
 ## 1. Google Cloud (you, once)
 
 1. https://console.cloud.google.com → new project `odds`.
-2. **APIs & Services → Library** → enable **Google Drive API**.
+2. **APIs & Services → Library** → enable **Google Drive API** and **Gmail API**.
 3. **Google Auth Platform → Branding**: app name `odds`, support email, logo, home page, privacy policy and terms URLs.
 4. **Audience**: External. While testing, add your own Google accounts as test users.
-5. **Data access → Add scopes**: `.../auth/drive.file`, `openid`, `email`. Only these. `drive.file` is a non-sensitive
-   scope: Google checks the branding, not a security audit.
+5. **Data access → Add scopes**: `.../auth/drive.file`, `.../auth/gmail.send`, `openid`, `email`. `drive.file` is
+   non-sensitive; `gmail.send` is restricted — Google may ask for a security assessment before anyone outside test users
+   can connect. Until then, keep the app in testing and add each person as a test user.
 6. **Clients → Create client** → Web application.
    - Authorised redirect URI: `https://ukpmpyfcnbhngkgbnkxi.supabase.co/functions/v1/drive/callback`
 7. Copy the client ID and secret.

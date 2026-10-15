@@ -9,6 +9,8 @@
 
   // The same scripts run in LinkedIn's warm-up frame. It must never take the
   // visible page's application intent or fill a stale form behind that page.
+  // Embedded LinkedIn profile widgets are not LinkedIn job applications.
+  if (window.top !== window) return
   const frame = window.frameElement
   if (frame && (frame.hidden || frame.getAttribute("aria-hidden") === "true" || getComputedStyle(frame).display === "none" || getComputedStyle(frame).visibility === "hidden" || Number(getComputedStyle(frame).opacity) === 0)) return
 
@@ -18,7 +20,26 @@
   const NEXT = /continue to next step|review your application|^next$|^review$/i
   const SUBMIT = /submit/i
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
-  const ask = (message) => new Promise((resolve) => chrome.runtime.sendMessage(message, (answer) => resolve(chrome.runtime.lastError ? null : answer)))
+  /** Never hang forever if the service worker never calls back (that froze Easy Apply in silence). */
+  const ask = (message, ms = 20000) => new Promise((resolve) => {
+    let done = false
+    const finish = (v) => { if (done) return; done = true; clearTimeout(timer); resolve(v) }
+    const timer = setTimeout(() => finish(null), ms)
+    try {
+      chrome.runtime.sendMessage(message, (answer) => finish(chrome.runtime.lastError ? null : answer))
+    } catch {
+      finish(null)
+    }
+  })
+  /** The background worker may be waking up and answer nothing the first time: ask again a few times before deciding there is no answer. */
+  const askAgain = async (message) => {
+    for (let i = 0; i < 4; i++) {
+      const answer = await ask(message, 8000)
+      if (answer !== null) return answer
+      await sleep(300)
+    }
+    return null
+  }
   const shown = (el) => el.getClientRects().length > 0
 
   /** The modal's buttons: the one that goes on (never Submit), and Submit itself (only ever watched). */
@@ -39,7 +60,11 @@
     if (select) return { group, label, kind: "select", el: select, options: [...select.options].map((o) => o.text.trim()) }
     const radios = [...group.querySelectorAll('input[type="radio"]')]
     if (radios.length) return { group, label, kind: "radio", el: radios, options: radios.map((r) => (group.querySelector(`label[for="${CSS.escape(r.id)}"]`)?.innerText || r.closest('[role="radio"]')?.innerText || r.value || "").trim()) }
-    if (group.querySelector('input[type="checkbox"]')) return { group, label, kind: "checkbox", el: [...group.querySelectorAll('input[type="checkbox"]')] }
+    if (group.querySelector('input[type="checkbox"]')) {
+      // Redcare-style Easy Apply: short "I consent" on the input; full privacy sentence in a sibling <p>.
+      const context = A.questionText([label, group.querySelector(":scope > p, p")?.innerText, group.innerText].filter(Boolean).join(" ").slice(0, 500))
+      return { group, label: context || label, kind: "checkbox", el: [...group.querySelectorAll('input[type="checkbox"]')] }
+    }
     const area = group.querySelector("textarea")
     if (area) return { group, label, kind: "textarea", el: area }
     const input = group.querySelector('input:not([type="hidden"]):not([type="file"])')
@@ -52,8 +77,22 @@
   function answered(q) {
     if (q.kind === "select") return q.el.selectedIndex > 0 || (q.el.selectedIndex === 0 && !/^(select|selecteer|choose|kies)/i.test(q.options[0] || ""))
     if (q.kind === "radio") return q.el.some((r) => r.checked)
-    if (q.kind === "checkbox") return true
+    // Consent boxes must be ticked or Next stays blocked; other checkboxes are left alone.
+    if (q.kind === "checkbox") return !A.isConsentCheckbox?.(q.label) || q.el.every((c) => c.checked)
     return q.el.value.trim() !== ""
+  }
+
+  /** Censor: Ready only when required + contact fields actually have values in the DOM. */
+  function formActuallyFilled(modal) {
+    const states = questionsOf(modal).map((q) => ({
+      label: q.label,
+      kind: q.kind,
+      required: q.kind !== "checkbox",
+      answered: answered(q),
+      fillFailed: !answered(q) && typeof A.answerText === "function" && Boolean(A.answerText(q.label, session?.kit?.facts || {})),
+    }))
+    if (typeof A.formActuallyFilled === "function") return A.formActuallyFilled(states)
+    return states.every((s) => s.kind === "checkbox" || s.answered || !s.required)
   }
 
   /** The answer the person gave, as words, for keeping. */
@@ -86,7 +125,15 @@
       for (const name of ["input", "change"]) q.el.dispatchEvent(new Event(name, { bubbles: true }))
       return true
     }
-    const answer = A.answerText(q.label, facts)
+    if (q.kind === "checkbox") {
+      // Terms and consent require the person's own choice.
+      return q.el.every((c) => c.checked)
+    }
+    // Rules + Autofill + safe defaults (prefer-not / privacy / preference) — same as apply-any.
+    let answer = A.answerText(q.label, facts)
+    if (answer === null && typeof A.resolveAgentAnswer === "function") {
+      answer = A.resolveAgentAnswer(q.label, facts, q.options || [])
+    }
     if (answer === null) return false
     if (q.kind === "select") {
       const i = A.chooseOption(q.options, answer, q.label)
@@ -103,7 +150,6 @@
       if (!q.el[i].checked) q.el[i].closest('[role="radio"]')?.click()
       return true
     }
-    if (q.kind === "checkbox") return false
     type(q.el, A.valueFor(q.kind, q.label, answer, besideCountry))
     if (q.typeahead) {
       // A place picked from LinkedIn's suggestions: the first one that starts like the answer.
@@ -165,6 +211,7 @@
   }
 
   /** The bar at the top of the form that says what odds did and what is left for the person. */
+  let lastReport = 0
   function say(modal, text, state = "busy") {
     let bar = modal.querySelector(".odds-apply-bar")
     if (!bar) {
@@ -175,7 +222,11 @@
       else (modal.querySelector(".artdeco-modal__content, [data-test-modal] .jobs-easy-apply-content") || modal.querySelector('[role="dialog"]') || modal).prepend(bar)
     }
     const status = state === "done" ? "ready" : state === "ask" ? "needs_input" : state === "problem" ? "failed" : "filling"
-    if (bar.textContent !== text || bar.dataset.state !== state) ask({ type: "application-progress", status, message: text })
+    const changed = bar.textContent !== text || bar.dataset.state !== state
+    if (changed || Date.now() - lastReport > 4000) {
+      lastReport = Date.now()
+      ask({ type: "application-progress", status, message: text })
+    }
     bar.dataset.state = state
     bar.textContent = text
   }
@@ -228,28 +279,154 @@
     for (const q of qs) {
       q.group.classList.remove("odds-ask")
       const valid = () => (Array.isArray(q.el) ? q.el : [q.el]).every(e => e.getAttribute("aria-invalid") !== "true" && (!e.willValidate || e.validity.valid))
-      if (answered(q) && valid()) continue
-      if (await fill(q, session.kit.facts, besideCountry)) {
-        await sleep(50)
-        if (answered(q) && valid()) {
+      // Already answered (incl. Yes selected) — never keep an orange outline; LinkedIn often leaves aria-invalid until Next.
+      if (answered(q)) {
+        if (!valid() && await fill(q, session.kit.facts, besideCountry)) await sleep(50)
+        if (answered(q)) {
           q.group.dataset.odds = "filled"
           continue
         }
       }
-      if (q.kind === "checkbox") continue
+      if (await fill(q, session.kit.facts, besideCountry)) {
+        await sleep(50)
+        if (answered(q)) {
+          q.group.dataset.odds = "filled"
+          continue
+        }
+      }
+      // Non-consent checkboxes are never the person's homework; consent that failed to tick still counts.
+      if (q.kind === "checkbox" && !A.isConsentCheckbox?.(q.label)) continue
+      // Empty and unknown — outline for the person (after Broods gets a turn in run()).
       q.group.classList.add("odds-ask")
       left++
     }
-    await session.handoff?.publish(qs.filter(q => q.group.classList.contains("odds-ask")))
+    await session.handoff?.publish(qs.filter(q => q.group.classList.contains("odds-ask") && !answered(q)), session.kit.facts)
     if (await chooseCv(modal, session.kit) === false) left++
     return left
+  }
+
+  /** Compact Easy Apply snapshot for one stuck scan (no field values / passwords). */
+  function pageSnapshot(modal) {
+    const qs = questionsOf(modal)
+    const errors = [...modal.querySelectorAll("[data-test-form-element], fieldset, [role=alert]")]
+      .map((el) => (el.innerText || "").replace(/\s+/g, " ").trim())
+      .filter((t) => /this field is required|is verplicht|est obligatoire|aria-invalid/i.test(t) || t.length < 80 && /required/i.test(t))
+      .slice(0, 10)
+    const fieldStates = qs.map((q) => ({
+      label: q.label,
+      kind: q.kind,
+      required: q.kind !== "checkbox",
+      answered: answered(q),
+      fillFailed: !answered(q) && typeof A.answerText === "function" && Boolean(A.answerText(q.label, session?.kit?.facts || {})),
+    }))
+    const censor_flags = typeof A.classifyCensorFlags === "function"
+      ? A.classifyCensorFlags({
+        fields: fieldStates,
+        hasForm: qs.length > 0,
+        hasApplyCta: false,
+        hasNext: Boolean(nextButton(modal)),
+        captcha: false,
+        account: Boolean(modal.querySelector('input[type="password"]')),
+        stuckLoop: false,
+        listingGone: false,
+        onReview: Boolean(submitButton(modal)),
+      })
+      : []
+    return {
+      title: (modal.querySelector("h2, h1, h3")?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 120),
+      headings: [...modal.querySelectorAll("h1, h2, h3")].map((h) => (h.innerText || "").replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 5),
+      errors,
+      fields: qs.slice(0, 25).map((q) => ({
+        label: q.label.slice(0, 120),
+        kind: q.kind,
+        required: true,
+        empty: !answered(q),
+        key: A.applicationQuestionKey(q.label, session?.kit?.job_id),
+        // Broods picks an exact option for a dropdown or Yes/No instead of leaving it to the person.
+        ...(q.options ? { options: q.options.slice(0, 20).map((o) => String(o).slice(0, 80)) } : {}),
+      })),
+      buttons: buttonsOf(modal).map(labelOfButton).filter((t) => t.length >= 2 && t.length <= 80).slice(0, 40),
+      censor_flags,
+    }
+  }
+
+  /**
+   * Stuck on Easy Apply: force required consents, one page-scan LLM, then stop if still stuck.
+   * Never loops the LLM.
+   */
+  let scannedSig = ""
+  async function assistStuckStep(modal) {
+    // Required / aria-invalid checkboxes LinkedIn blocked on (Redcare "I consent" etc.).
+    for (const c of modal.querySelectorAll('input[type="checkbox"]')) {
+      if (!shown(c) || c.checked) continue
+      const need = c.required || c.getAttribute("aria-required") === "true" || c.getAttribute("aria-invalid") === "true"
+        || /this field is required|is verplicht|est obligatoire/i.test(c.closest("[data-test-form-element], fieldset, div")?.innerText || "")
+      if (!need) continue
+      const around = (c.closest("[data-test-form-element], fieldset, label")?.innerText || c.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim()
+      if (/\b(gender|race|ethnic|disabilit|veteran|criminal|conviction)\b/i.test(around) && !/\bprivacy notice\b/i.test(around)) continue
+      c.click()
+      if (!c.checked) c.closest("label")?.click()
+      if (!c.checked) {
+        c.checked = true
+        for (const name of ["input", "change", "click"]) c.dispatchEvent(new Event(name, { bubbles: true }))
+      }
+    }
+    const qs = questionsOf(modal)
+    const open = qs.filter((q) => q.kind !== "checkbox" && !answered(q))
+    if (open.length) {
+      // Broods first, from Autofill and the CV: only what it cannot answer goes to the person (a dropdown stays a dropdown).
+      const payload = open.slice(0, 20).map((q) => ({
+        key: A.applicationQuestionKey(q.label, session.kit.job_id),
+        label: A.questionText(q.label),
+        kind: q.kind === "radio" ? "radio" : q.kind === "select" ? "select" : q.kind === "textarea" ? "textarea" : q.kind === "number" ? "number" : "text",
+        ...(q.options ? { options: q.options.slice(0, 80) } : {}),
+      }))
+      say(modal, "Asking Odds for answers from your profile…", "filling")
+      const suggested = await ask({ type: "suggest-answers", url: session.job?.url || location.href, questions: payload }, 15000)
+      if (suggested?.status === "ok" && Array.isArray(suggested.accepted)) {
+        for (const a of suggested.accepted) {
+          if (typeof a?.key !== "string" || typeof a?.answer !== "string" || !a.answer.trim()) continue
+          session.kit.facts.remembered = { ...(session.kit.facts.remembered || {}), [a.key]: a.answer.slice(0, 1000) }
+        }
+        if (suggested.accepted.length) await fillStep(modal)
+      }
+      const still = questionsOf(modal).filter((q) => q.kind !== "checkbox" && !answered(q))
+      if (still.length && session.handoff) await session.handoff.publish(still, session.kit.facts)
+      await session.handoff?.refresh(session.kit.facts)
+    }
+    const sig = signature(modal)
+    if (scannedSig !== sig) {
+      scannedSig = sig
+      say(modal, "No progress — Broods is reading this step…", "filling")
+      const scan = await ask({ type: "suggest-scan", url: session.job?.url || location.href, status: "stuck_easy_apply", snapshot: pageSnapshot(modal) }, 15000)
+      if (scan?.stage === "captcha") {
+        say(modal, "Captcha on the page — open the tab when you can, then Odds continues.", "ask")
+        return "stop"
+      }
+      if (scan?.stage === "account" || (scan?.action === "wait_human" && scan?.stage !== "form" && scan?.stage !== "review")) {
+        say(modal, "Sign in or make the account yourself; odds fills in the form after.", "ask")
+        return "stop"
+      }
+      if (Array.isArray(scan?.answers)) {
+        for (const a of scan.answers) {
+          if (typeof a?.key !== "string" || typeof a?.answer !== "string" || !a.answer.trim()) continue
+          session.kit.facts.remembered = { ...(session.kit.facts.remembered || {}), [a.key]: a.answer.slice(0, 1000) }
+        }
+      }
+      if (scan?.action === "click" && typeof scan.text === "string") {
+        const btn = buttonsOf(modal).find((b) => labelOfButton(b) === scan.text)
+        if (btn && !isSubmit(btn)) btn.click()
+      }
+    }
+    await fillStep(modal)
+    return "retry"
   }
 
   async function run(modal) {
     const job = PAGE.site.open?.()
     session = { modal, job, kit: null, uploaded: false, submitted: false, handoff: globalThis.oddsApplicationHandoff?.(job?.url || location.href, ask) }
     say(modal, "odds is filling this in…")
-    const kit = await ask({ type: "apply-kit", url: job?.url || location.href })
+    const kit = await askAgain({ type: "apply-kit", url: job?.url || location.href })
     if (!kit || kit.status === "connect") return say(modal, "Connect odds (its icon in the toolbar) to have this filled in.", "problem")
     if (kit.status !== "ok") return say(modal, "odds could not fill this in right now. Fill it in as usual.", "problem")
     session.kit = kit
@@ -257,17 +434,29 @@
     globalThis.oddsDismissCookies?.()
     for (let step = 0; step < 15 && modal.isConnected && session?.modal === modal; step++) {
       await sleep(250)
-      const left = await fillStep(modal)
+      let left = await fillStep(modal)
       const next = nextButton(modal)
       const before = signature(modal)
       if (left > 0) {
-        say(modal, `odds filled in what it knows. Answer the ${left === 1 ? "marked question" : `${left} marked questions`}, then press ${next ? "Next" : "Review"}: odds keeps your answers for the next form.`, "ask")
-        // Answers from the side panel or Claude arrive without taking over the browser.
-        while (modal.isConnected && session?.modal === modal && signature(modal) === before) {
-          await sleep(300)
+        // Broods before human — never freeze on “Answer the N marked” without suggest-answers + one scan.
+        say(modal, "Filling what we know — asking Odds for the rest…", "filling")
+        const outcome = await assistStuckStep(modal)
+        if (outcome === "stop") return
+        left = await fillStep(modal)
+        if (left === 0) { step--; continue }
+        const nextAfter = nextButton(modal)
+        say(modal, `odds filled in what it knows. Answer the ${left === 1 ? "marked question" : `${left} marked questions`}, then press ${nextAfter ? "Next" : "Review"}: odds keeps your answers for the next form.`, "ask")
+        // Answers from the side panel arrive without taking over the browser.
+        let waited = 0
+        while (modal.isConnected && session?.modal === modal && signature(modal) === before && waited < 120) {
+          await sleep(500)
+          waited++
           if (await session.handoff?.refresh(session.kit.facts)) {
             if (await fillStep(modal) === 0) break
           }
+          // Re-count outlines so a filled radio doesn’t keep saying “3 marked”.
+          left = questionsOf(modal).filter((q) => q.kind !== "checkbox" && q.group.classList.contains("odds-ask") && !answered(q)).length
+          if (left === 0) break
         }
         step--
         continue
@@ -277,13 +466,37 @@
         await sleep(300)
         next.click()
         if (!(await changed(modal, before, 4000))) {
-          // LinkedIn did not go on: it marks what it wants changed. That is the person's to fix.
-          say(modal, "LinkedIn wants something changed here. Fix it, then press Next.", "ask")
-          while (modal.isConnected && signature(modal) === before) await sleep(300)
+          // Force consents + one page-scan, one Next retry, then stop.
+          say(modal, "No progress — asking Odds to unblock this step…", "busy")
+          const outcome = await assistStuckStep(modal)
+          if (outcome === "stop") return
+          const again = nextButton(modal)
+          if (again) {
+            const sig = signature(modal)
+            again.click()
+            if (await changed(modal, sig, 4000)) continue
+          }
+          say(modal, "Odds assist could not finish this Easy Apply step. Fix what’s marked, then press Next — Odds will continue.", "ask")
+          return
         }
         continue
       }
-      if (submitButton(modal)) say(modal, "Filled in by odds. Check everything, then press Submit yourself.", "done")
+      if (submitButton(modal)) {
+        const empty = questionsOf(modal).filter((q) => q.kind !== "checkbox" && !answered(q))
+        if (empty.length || !formActuallyFilled(modal)) {
+          for (const q of empty.length ? empty : questionsOf(modal).filter((q) => q.kind !== "checkbox" && !answered(q))) q.group.classList.add("odds-ask")
+          say(modal, `odds filled in what it knows. Answer the marked questions, then press Review: odds keeps your answers.`, "ask")
+          await assistStuckStep(modal)
+          return
+        }
+        // Censor law: never Ready while required/contact fields are empty in the DOM.
+        if (!formActuallyFilled(modal)) {
+          say(modal, "odds filled in what it knows. Answer the marked questions, then press Review: odds keeps your answers.", "ask")
+          await assistStuckStep(modal)
+          return
+        }
+        say(modal, "Filled in by odds. Check everything, then press Submit yourself.", "done")
+      }
       return
     }
   }
@@ -334,9 +547,17 @@
 
   /** The open job's Apply (Easy Apply, or Apply on the employer's site), not one in a list of other jobs. */
   function applyButton() {
-    const classic = [...document.querySelectorAll("#jobs-apply-button-id, .jobs-apply-button")].find(shown)
+    // Classic class/id first. Offsite jobs (Hunkemöller etc.) often use aria-label "Apply to <title> at <company>"
+    // with visible text "Apply" — the old /^apply$/ missed that and timed out → false Stuck.
+    const classic = [...document.querySelectorAll("#jobs-apply-button-id, .jobs-apply-button, button.jobs-apply-button--top-card, a.jobs-apply-button")].find(shown)
     if (classic) return classic
-    return [...document.querySelectorAll("main button, main a[role='button'], button")].find((b) => shown(b) && /^(easy apply\b|apply$|apply on\b|apply to this job)/i.test(labelOfButton(b)) && !b.closest("[data-job-id], [data-occludable-job-id], .job-card-container, a[href*='similar-jobs'], dialog")) || null
+    const APPLY_CTA = /^(easy\s+)?apply(\s+to\b|\s+on\b|\s*$)/i
+    return [...document.querySelectorAll("main button, main a[role='button'], main a.artdeco-button, button, a[role='button']")].find((b) => {
+      if (!shown(b) || b.closest("[data-job-id], [data-occludable-job-id], .job-card-container, a[href*='similar-jobs'], dialog, [data-test-modal-id]")) return false
+      const label = labelOfButton(b)
+      if (!APPLY_CTA.test(label) && !APPLY_CTA.test((b.innerText || "").replace(/\s+/g, " ").trim())) return false
+      return !/\b(save|saved|follow|share|message|inmail)\b/i.test(label)
+    }) || null
   }
 
   /** Where the employer takes applications for a LinkedIn job, as LinkedIn's own page knows it (the person's session), or null. */
@@ -354,38 +575,284 @@
     }
   }
 
-  // The form opens in a modal LinkedIn adds to the page when Easy Apply is pressed.
-  // Opened from "odds apply" in the panel: the application is started here, Easy Apply pressed (and filled in above), or the employer's own
-  // Apply pressed, which opens their form (filled in by apply-any.js, the intent going along to that tab).
-  ;(async () => {
-    const { intent } = (await ask({ type: "apply-intent" })) || {}
-    if (!intent || intent.started) return
-    const wanted = globalThis.oddsSites.jobLink(intent.job)?.id
-    for (let waited = 0; waited < 15000; waited += 300) {
-      await sleep(300)
-      if (PAGE.site.open?.()?.id !== wanted) continue
-      const details = document.querySelector(".jobs-search__job-details, .jobs-details__main-content, main") || document.body
-      if ([...details.querySelectorAll("span, p, div")].some(el => shown(el) && el.children.length === 0 && /^(no longer accepting applications|this job is no longer available|applications are closed|vacature gesloten)$/i.test(el.textContent.trim()))) {
-        say(document.body, "This job is no longer accepting applications on LinkedIn. No application was submitted.", "problem")
+  /** This Chrome is signed into LinkedIn (session cookie or Me nav) — guest Apply hangs forever without this. */
+  function linkedInSignedIn() {
+    if (/JSESSIONID=/i.test(document.cookie)) return true
+    return Boolean(document.querySelector(
+      ".global-nav__me, button.global-nav__primary-link-me-menu-trigger, img.global-nav__me-photo, [data-control-name='identity_welcome_message'], .scaffold-layout__content .global-nav__me",
+    ))
+  }
+  function linkedInSignInWall() {
+    // Once this Chrome has a LinkedIn session, leftover guest copy must not keep us on Sign-in.
+    if (linkedInSignedIn()) return false
+    if (/\/authwall|\/uas\/login|\/checkpoint\/|\/signup\//i.test(location.pathname)) return true
+    if (document.querySelector(".authwall-join-form, form.login__form, #username, input#session_key, input[name=session_key]")) return true
+    const snip = ((document.body && (document.body.innerText || document.body.textContent)) || "").replace(/\s+/g, " ").slice(0, 2800)
+    return /\b(sign in to view more|join to apply|sign in to apply|sign in to see (more|who)|join linkedin)\b/i.test(snip)
+  }
+  // Same wording shape as Indeed/Glassdoor in apply-any.js — Account chip + “Open tab: account or login”.
+  const LINKEDIN_SIGNIN_MSG = "Sign in to LinkedIn in this Chrome tab first — then Odds continues. Odds never types your password."
+  /** Non-secret flag for Connect UI only — auth stays in Chrome cookies. */
+  async function noteBoardSession(board) {
+    try {
+      const { oddsBoardSession = {} } = await chrome.storage.local.get("oddsBoardSession")
+      oddsBoardSession[board] = Date.now()
+      await chrome.storage.local.set({ oddsBoardSession })
+    } catch {
+      // storage blocked: session cookies still keep the person signed in
+    }
+  }
+  /** Stop hanging on “Looking for Apply…” when the person is logged out; wait until they sign in, then resume. */
+  async function ensureLinkedInSignedIn(intent) {
+    for (let i = 0; i < 8 && !linkedInSignedIn() && !linkedInSignInWall() && !applyButton() && !modalOnPage(); i++) await sleep(200)
+    if (linkedInSignedIn() || applyButton() || modalOnPage()) {
+      if (linkedInSignedIn()) void noteBoardSession("linkedin")
+      return true
+    }
+    say(document.body, LINKEDIN_SIGNIN_MSG, "ask")
+    document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")
+    for (let i = 0; i < 600; i++) {
+      await sleep(500)
+      if (linkedInClosed()) {
+        await reportLinkedInClosed(intent)
+        return false
+      }
+      if (linkedInSignedIn() || applyButton() || modalOnPage()) {
+        void noteBoardSession("linkedin")
+        say(document.body, "Signed in to LinkedIn — continuing…", "filling")
+        return true
+      }
+      if (i % 20 === 0) say(document.body, LINKEDIN_SIGNIN_MSG, "ask")
+    }
+    say(document.body, "Still not signed in to LinkedIn. Sign in on this tab, then press Open application tab.", "ask")
+    return false
+  }
+
+  /** LinkedIn / Chrome security challenge — Apply cannot move until the person confirms. */
+  function linkedInVerifyWall() {
+    if (/\/checkpoint\//i.test(location.pathname)) return true
+    const t = ((document.body && (document.body.innerText || document.body.textContent)) || "").replace(/\s+/g, " ").slice(0, 3000)
+    return /\bverify it'?s you\b|\bconfirm it'?s you\b|\bsecurity (verification|challenge)\b|\blet'?s do a quick security check\b/i.test(t)
+  }
+
+  // LinkedIn: "Not currently accepting applications" / "No longer…" — report Closed even if SPA paints late or after apply-started.
+  const CLOSED_RX = /not currently accepting applications|no longer accepting applications|this job is no longer available|applications are closed|vacature gesloten|niet meer mogelijk om te solliciteren/i
+  function linkedInClosed() {
+    const roots = [
+      ...document.querySelectorAll(
+        ".jobs-search__job-details, .jobs-details__main-content, .jobs-unified-top-card, .job-view-layout, .artdeco-inline-feedback, [class*='jobs-details-top-card'], main",
+      ),
+      document.body,
+    ]
+    for (const root of roots) {
+      if (!root) continue
+      if (CLOSED_RX.test((root.innerText || root.textContent || "").replace(/\s+/g, " "))) return true
+    }
+    return false
+  }
+  let closedReported = false
+  async function reportLinkedInClosed(intent) {
+    if (closedReported || !intent) return
+    closedReported = true
+    say(document.body, "This job is no longer accepting applications on LinkedIn. No application was submitted.", "problem")
+    document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")
+    await ask({ type: "apply-started" }).catch(() => null)
+    await ask({ type: "job-closed", url: intent.job || location.href }).catch(() => null)
+  }
+
+  /** True once Easy Apply modal is up or we left this LinkedIn job (employer tab/nav). Never treat a dead Apply click as success. */
+  async function waitLeftLinkedInJob(wanted, ms = 10000) {
+    const stillJob = globalThis.oddsSites.jobLink(location.href)?.id
+    const steps = Math.max(1, Math.ceil(ms / 500))
+    for (let t = 0; t < steps; t++) {
+      await sleep(500)
+      if (modalOnPage()) return true
+      const nowId = globalThis.oddsSites.jobLink(location.href)?.id
+      if (!nowId || (wanted && nowId !== wanted)) return true
+      if (stillJob && nowId !== stillJob) return true
+    }
+    return false
+  }
+
+  /**
+   * Broods/Edge: pick Apply when script rules missed the CTA (aria-label "Apply to…", late paint, etc.).
+   * LinkedIn opener used to Stuck after 15s without ever calling the agent — Broods never got a turn.
+   * Offsite: only return true if the click actually left the job (Bouwinvest no-op used to leave Filling forever).
+   */
+  async function assistOpenApply(wanted) {
+    const visible = [...document.querySelectorAll("a, button, a[role='button'], button[role='button']")].filter(shown)
+    const buttons = visible.map((b) => {
+      const text = labelOfButton(b) || (b.innerText || "").replace(/\s+/g, " ").trim()
+      if (text.length < 2 || text.length > 80) return null
+      const a = b.closest("a") || (b.tagName === "A" ? b : null)
+      const href = a && "href" in a ? String(a.href || "") : ""
+      return { text, href: href.slice(0, 200), hint: `${b.id || ""} ${b.className || ""}`.slice(0, 120) }
+    }).filter(Boolean).slice(0, 40)
+    if (!buttons.length) return false
+    say(document.body, "Asking Odds how to open the application…", "filling")
+    const clickWant = async (want) => {
+      if (!want || /\b(submit|password|sign[\s-]?up|register|save|follow|share)\b/i.test(want)) return false
+      const el = visible.find((b) => labelOfButton(b) === want || (b.innerText || "").replace(/\s+/g, " ").trim() === want)
+      if (!el) return false
+      await ask({ type: "apply-started" })
+      if (/easy apply/i.test(want)) { el.click(); return true }
+      const there = await offsiteUrl(wanted)
+      if (there) { await ask({ type: "apply-go", url: there }); return true }
+      await ask({ type: "apply-follow" })
+      // Inactive Apply tabs block window.open — arm briefly so the employer tab can open.
+      const arm = await ask({ type: "apply-arm-offsite" }).catch(() => null)
+      el.click()
+      await ask({ type: "apply-disarm-offsite", wasActive: arm?.wasActive === true }).catch(() => null)
+      // Dead click (popup blocked / Verify wall): stay false so caller surfaces ask — never silent Filling.
+      return await waitLeftLinkedInJob(wanted, 4000)
+    }
+    const action = await ask({
+      type: "suggest-action",
+      url: location.href,
+      buttons,
+      status: "linkedin_open_apply",
+      force_llm: true,
+    }).catch(() => null)
+    if (action?.action === "click" && typeof action.text === "string" && await clickWant(action.text.replace(/\s+/g, " ").trim())) return true
+    say(document.body, "No progress — Broods is reading this page…", "filling")
+    const scan = await ask({
+      type: "suggest-scan",
+      url: location.href,
+      status: "linkedin_open_apply",
+      snapshot: {
+        title: document.title.slice(0, 120),
+        headings: [...document.querySelectorAll("h1, h2")].map((h) => (h.innerText || "").replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 5),
+        errors: [],
+        fields: [],
+        buttons: buttons.map((b) => b.text),
+        facts: {},
+      },
+    }).catch(() => null)
+    if (scan?.action === "click" && typeof scan.text === "string" && await clickWant(scan.text.replace(/\s+/g, " ").trim())) return true
+    return false
+  }
+
+  // Open Easy Apply / offsite Apply. Also re-run on Open tab (application-continue) — started=true used to no-op and leave Filling dead.
+  let openingApply = false
+  let closedWatchOn = false
+  async function openLinkedInApply(opts = {}) {
+    const resume = opts.resume === true
+    if (openingApply) return
+    openingApply = true
+    try {
+      let intent = null
+      if (!resume) say(document.body, "Opening the application…", "filling")
+      if (linkedInSignInWall()) {
+        say(document.body, LINKEDIN_SIGNIN_MSG, "ask")
         document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")
-        await ask({ type: "apply-started" })
+      }
+      for (let i = 0; i < (resume ? 8 : 25) && !intent; i++) {
+        intent = (await askAgain({ type: "apply-intent" }))?.intent || null
+        if (!intent) {
+          if (linkedInSignInWall()) say(document.body, LINKEDIN_SIGNIN_MSG, "ask")
+          else if (!resume && (i === 5 || i === 15)) say(document.body, "Waiting for Odds to start this application…", "filling")
+          await sleep(200)
+        }
+      }
+      if (!intent) {
+        if (linkedInSignInWall() || (!linkedInSignedIn() && !applyButton())) {
+          say(document.body, LINKEDIN_SIGNIN_MSG, "ask")
+        } else if (!resume) {
+          say(document.body, "Odds did not start this tab. Press Apply with Odds again, or Open application tab.", "ask")
+        }
+        document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")
         return
       }
-      const button = applyButton()
-      if (!button) continue
-      await ask({ type: "apply-started" })
-      if (/easy apply/i.test(labelOfButton(button))) return button.click()
-      // Applied for on the employer's site: their form is opened in this tab straight away (a scripted press on LinkedIn's Apply would open a
-      // window Chrome blocks), and filled in there by apply-any.js.
-      const there = await offsiteUrl(wanted)
-      if (there) return ask({ type: "apply-go", url: there })
-      await ask({ type: "apply-follow" })
-      button.click()
-      return
+      // Back on the LinkedIn job after the employer's page (the person pressed Back) or paused earlier: never re-open it by itself.
+      const backHere = performance.getEntriesByType("navigation")[0]?.type === "back_forward"
+      if (!resume && (intent.paused || (intent.started && backHere))) {
+        const paused = "You went back a step, so Odds paused here. Press Next or Apply yourself and Odds carries on, or press Apply with Odds again."
+        say(document.body, paused, "ask")
+        document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")
+        await ask({ type: "apply-pause", message: paused }).catch(() => null)
+        return
+      }
+      if (!closedWatchOn) {
+        closedWatchOn = true
+        const watchClosed = () => { if (linkedInClosed()) void reportLinkedInClosed(intent) }
+        watchClosed()
+        const closedMo = new MutationObserver(() => watchClosed())
+        closedMo.observe(document.body, { childList: true, subtree: true, characterData: true })
+        const closedPoll = window.setInterval(watchClosed, 1000)
+        window.setTimeout(() => { closedMo.disconnect(); window.clearInterval(closedPoll); closedWatchOn = false }, 180_000)
+      }
+      // Easy Apply modal already open: fill loop (scanModal) owns it.
+      if (modalOnPage()) return
+      if (!(await ensureLinkedInSignedIn(intent))) return
+      if (linkedInVerifyWall()) {
+        say(document.body, "LinkedIn needs you to verify this Chrome session first — then Odds continues. Odds never completes security checks.", "ask")
+        document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")
+        return
+      }
+      const wanted = globalThis.oddsSites.jobLink(intent.job)?.id
+      let broodsTried = false
+      if (intent.started || resume) say(document.body, "Still on LinkedIn — opening the employer application…", "filling")
+      for (let waited = 0; waited < 15000; waited += 300) {
+        await sleep(300)
+        if (linkedInClosed()) {
+          await reportLinkedInClosed(intent)
+          return
+        }
+        if (linkedInVerifyWall()) {
+          say(document.body, "LinkedIn needs you to verify this Chrome session first — then Odds continues. Odds never completes security checks.", "ask")
+          document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")
+          return
+        }
+        if (linkedInSignInWall() || (!linkedInSignedIn() && !applyButton() && !modalOnPage())) {
+          if (!(await ensureLinkedInSignedIn(intent))) return
+        }
+        if (waited === 0 || waited % 2400 === 0) say(document.body, "Looking for Apply on this LinkedIn job…", "filling")
+        const openId = PAGE.site.open?.()?.id
+        if (wanted && openId && openId !== wanted) continue
+        const button = applyButton()
+        if (!button) {
+          if (!broodsTried && waited >= 4500) {
+            broodsTried = true
+            if (await assistOpenApply(wanted)) return
+          }
+          continue
+        }
+        await ask({ type: "apply-started" })
+        if (/easy apply/i.test(labelOfButton(button))) return button.click()
+        const there = await offsiteUrl(wanted)
+        if (there) {
+          say(document.body, "Opening the employer’s application…", "filling")
+          return ask({ type: "apply-go", url: there })
+        }
+        say(document.body, "Opening the employer’s application…", "filling")
+        await ask({ type: "apply-follow" })
+        const arm = await ask({ type: "apply-arm-offsite" }).catch(() => null)
+        button.click()
+        await ask({ type: "apply-disarm-offsite", wasActive: arm?.wasActive === true }).catch(() => null)
+        if (await waitLeftLinkedInJob(wanted, 10000)) return
+        if (await assistOpenApply(wanted)) return
+        say(document.body, "Odds could not open the employer form from LinkedIn. Click Apply on this tab yourself; Odds fills it after the form opens.", "ask")
+        document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")
+        return
+      }
+      if (linkedInClosed()) {
+        await reportLinkedInClosed(intent)
+      } else if (linkedInVerifyWall()) {
+        say(document.body, "LinkedIn needs you to verify this Chrome session first — then Odds continues. Odds never completes security checks.", "ask")
+      } else {
+        if (await assistOpenApply(wanted)) return
+        say(
+          document.body,
+          "Odds assist could not open Apply on LinkedIn. Click Apply on this tab yourself; Odds fills the employer form after it opens.",
+          "ask",
+        )
+      }
+      document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")
+    } finally {
+      openingApply = false
     }
-    say(document.body, "Could not open an application here. Check whether this job is closed, or complete login/verification in Chrome.", "ask")
-    document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")
-  })()
+  }
+  void openLinkedInApply()
 
   // LinkedIn changes its page all the time: looked at once a frame at most.
   function scanModal() {
@@ -403,4 +870,25 @@
       scanModal()
     })
   }).observe(document.body, { childList: true, subtree: true })
+  chrome.runtime.onMessage.addListener((message, _sender, reply) => {
+    if (message?.type === "application-ping") { reply({ ok: true }); return }
+    if (message?.type === "application-continue") {
+      // Same Easy Apply modal: refresh answers and keep filling; reopen scan if LinkedIn remounted the dialog.
+      if (linkedInClosed()) {
+        void askAgain({ type: "apply-intent" }).then((r) => reportLinkedInClosed(r?.intent)).catch(() => undefined)
+      }
+      scanModal()
+      // Offsite stuck on the listing: Open tab must retry Apply (not only Easy Apply fill).
+      if (!modalOnPage() && applyButton()) void openLinkedInApply({ resume: true })
+      // Open tab / Continue: re-verify Ready — demote if contact/required fields are empty (no false Review).
+      if (session?.modal && !formActuallyFilled(session.modal)) {
+        const left = questionsOf(session.modal).filter((q) => q.kind !== "checkbox" && !answered(q)).length
+        for (const q of questionsOf(session.modal)) if (q.kind !== "checkbox" && !answered(q)) q.group.classList.add("odds-ask")
+        say(session.modal, left
+          ? `odds filled in what it knows. Answer the ${left === 1 ? "marked question" : `${left} marked questions`}, then press Review: odds keeps your answers.`
+          : "odds filled in what it knows. Answer the marked questions, then press Review: odds keeps your answers.", "ask")
+      }
+      if (session?.handoff) session.handoff.refresh?.(session.kit?.facts).then((changed) => { if (changed && session?.modal) fillStep(session.modal) }).catch(() => undefined)
+    }
+  })
 })()

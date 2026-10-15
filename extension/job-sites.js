@@ -1,4 +1,4 @@
-// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts and apply-form.ts (sources b0387263f8b94eb9). Do not edit.
+// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts, apply-form.ts and apply-censor.ts (sources 64cb8fd3beef7117). Do not edit.
 (() => {
   var __defProp = Object.defineProperty;
   var __returnValue = (v) => v;
@@ -18,6 +18,7 @@
   // supabase/functions/_shared/apply-form.ts
   var exports_apply_form = {};
   __export(exports_apply_form, {
+    agentCanAnswer: () => agentCanAnswer,
     answerText: () => answerText,
     applicationQuestionKey: () => applicationQuestionKey,
     chooseOption: () => chooseOption,
@@ -25,7 +26,9 @@
     dialCodeOf: () => dialCodeOf,
     graduationParts: () => graduationParts,
     heardChoice: () => heardChoice,
+    isConsentCheckbox: () => isConsentCheckbox,
     isHearQuestion: () => isHearQuestion,
+    isTrapQuestion: () => isTrapQuestion,
     nationalNumber: () => nationalNumber,
     nlProvinceOf: () => nlProvinceOf,
     preferenceChoice: () => preferenceChoice,
@@ -33,6 +36,7 @@
     questionKey: () => questionKey,
     questionText: () => questionText,
     residenceCountry: () => residenceCountry,
+    resolveAgentAnswer: () => resolveAgentAnswer,
     valueFor: () => valueFor
   });
   function questionKey(label) {
@@ -124,8 +128,68 @@
       return `${currency} ${Math.round(amount / 12)} a month`;
     return text;
   }
-  var DECLINE = /^(decline|prefer not|i (do not|don'?t) wish|i'?d rather not|rather not|choose not|not (to )?(say|disclose|answer)|no answer)|\bdecline to (self[- ]identify|answer|state)\b|\bprefer not to (say|answer|disclose)\b/i;
-  var DEMOGRAPHIC = /\b(gender|genre|geslacht|geschlecht|race|ethnic\w*|veteran|pronouns?|how old are you|age (group|range|bracket)|lgbt\w*|sexual orientation|transgender|disabilit\w*|health condition|neurodiver\w*|under[- ]represented|caregiving|religio\w*)\b/i;
+  var DECLINE = /^(decline|prefer not|i (do not|don'?t) wish|i'?d rather not|rather not|choose not|not (to )?(say|disclose|answer)|no answer|pr[eé]f[eè]re(r)? ne pas|je (pr[eé]f[eè]re|ne (souhaite|veux) pas))|\bdecline to (self[- ]identify|answer|state)\b|\bprefer not to (say|answer|disclose)\b|\bne (souhaite|veux) pas (r[eé]pondre|dire|divulguer)\b/i;
+  var DEMOGRAPHIC = /\b(gender|genre|geslacht|geschlecht|race|ethnic\w*|veteran|pronouns?|how old are you|age (group|range|bracket)|lgbt\w*|sexual orientation|transgender|disabilit\w*|health condition|neurodiver\w*|under[- ]represented|caregiving|religio\w*|divulgation volontaire|identit\w* de genre|voluntary (self[- ]?identif|disclosure))\b/i;
+  var TRAP_QUESTION = /leave (this|the|it)\b[^.?]{0,24}\b(empty|blank)|if you.?re (a )?human|(do not|don.?t) (fill|complete|enter)\b[^.?]{0,20}\b(this|here)|honey ?pot|bot ?trap|ignore this (field|input)|for (spam|bots) (only|detection)|(^|[\s_-])(hp|gotcha)([\s_-]|$)/i;
+  function isTrapQuestion(label) {
+    return TRAP_QUESTION.test((label || "").replace(/\s+/g, " ").trim());
+  }
+  function isConsentCheckbox(label) {
+    const t = (label || "").replace(/\s+/g, " ").trim();
+    if (!t)
+      return false;
+    if (DEMOGRAPHIC.test(t))
+      return false;
+    if (/^i (consent|agree)(\.|!)?$/i.test(t) || /^(akkoord|j'accepte|ich stimme zu|acepto)\.?$/i.test(t))
+      return true;
+    if (t.length < 8)
+      return false;
+    if (/\b(disabilit\w*|medical|health condition|criminal|conviction|background check)\b/i.test(t) && !/\bprivacy notice\b/i.test(t))
+      return false;
+    if (/\b(privacy notice|privacy policy|privacy statement|confidentialit\w*|avis de confidentialit|privacyverklaring|terms (and|&|of)|termes et conditions|voorwaarden|read and agree|agree to|j'?ai lu|you declare|i declare|i (have )?read|acknowledg|talent (pool|community)|future (career )?opportunities|whats?\s*app|keep me (informed|updated)|receive .{0,60}(messages|notifications|updates|communications)|certify that|information .{0,40}(true|accurate|correct)|informations? (sont )?(compl[eè]tes|exactes)|by submitting|processing my data|traitement de (mes|vos) donn|drug[- ]free|sans drogues|zonder drugs)\b/i.test(t))
+      return true;
+    return /\b(consent|toestemming|akkoord)\b/i.test(t) && /\b(job application|applications?|recruit|hiring|career|opportunit|privacy|terms|données|gegevens)\b/i.test(t);
+  }
+  function agentCanAnswer(label, facts, options) {
+    if (isTrapQuestion(label))
+      return true;
+    return resolveAgentAnswer(label, facts, options) !== null;
+  }
+  function resolveAgentAnswer(label, facts, options) {
+    if (isTrapQuestion(label))
+      return "";
+    const opts = options ?? [];
+    const text = answerText(label, facts);
+    if (text !== null) {
+      if (opts.length) {
+        let i = chooseOption([...opts], text, label);
+        if (i < 0 && isHearQuestion(label))
+          i = heardChoice(opts, text);
+        if (i >= 0)
+          return opts[i] ?? null;
+      }
+      return text;
+    }
+    if (opts.length) {
+      const decline = demographicChoice(label, opts, facts);
+      if (decline >= 0)
+        return opts[decline] ?? null;
+      const only = privacyChoice(opts);
+      if (only >= 0)
+        return opts[only] ?? null;
+      const pick = preferenceChoice(label, opts);
+      if (pick >= 0)
+        return opts[pick] ?? null;
+    }
+    if (DEMOGRAPHIC.test(label) && !/^i answer/i.test((facts.answers?.demographics ?? "").trim())) {
+      if (!opts.length)
+        return "Prefer not to answer";
+      const decline = opts.findIndex((o) => DECLINE.test(o.trim()));
+      if (decline >= 0)
+        return opts[decline] ?? null;
+    }
+    return null;
+  }
   function preferenceChoice(label, options) {
     const key = questionKey(label);
     if (!/\b(prefer|preferred|favou?rite|if you had to choose|which of the following)\b/.test(key))
@@ -145,7 +209,7 @@
     return m ? `+${m[1]}` : null;
   }
   function isHearQuestion(label) {
-    return /\b(how did you (hear|find|learn)|where did you (hear|find|see)|how you (heard|found)|source of (your )?application|from where did you hear)\b/.test(questionKey(label));
+    return /\b(how did you (hear|find|learn)|where did you (hear|find|see|learn)|how you (heard|found)|where (did|do) you find this (job|role|vacancy|opening|position)|source of (your )?application|from where did you hear|ou avez vous (trouve|entendu|appris)|comment avez vous (trouve|connu|entendu))\b/.test(questionKey(label));
   }
   function heardChoice(options, source) {
     for (const want of [source ?? "", "LinkedIn", "Job board", "Online job board", "Job site", "Job portal", "Careers website", "Company website", "Website", "Internet", "Social media", "Other"]) {
@@ -182,7 +246,7 @@
     }
     if (/\b(mobile|phone|telephone|telefon\w*|telefoon\w*|mobiel\w*|portable)\b/.test(key) && !/country|landcode|pays/.test(key))
       return pick(a.phone) ?? pick(facts.phone);
-    if (/\blinkedin\b/.test(key) && /\b(url|profile|link)\b/.test(key))
+    if (/\blinkedin\b/.test(key) && !asks && !isHearQuestion(label))
       return pick(a.linkedin) ?? pick(facts.linkedin);
     if (asks && /\b(based|living|located|residing|reside|live|resident)\b/.test(key) && /\b(netherlands|nederland|holland|amsterdam|rotterdam|utrecht|the hague|den haag|eindhoven|delft|leiden|groningen|breda|tilburg|nijmegen|maastricht|haarlem|almere)\b/.test(key) && !/relocat|willing|open to|office|days?\b|able|travel/.test(key)) {
       const country = residenceCountry(facts);
@@ -206,6 +270,18 @@
       return remembered;
     if (/\b(internship|stage|placement|work placement)\b.*\b(agreement|contract|overeenkomst)\b|\bstage ?overeenkomst|\b(agreement|overeenkomst)\b.*\b(university|school|college)\b/.test(key))
       return pick(a.internship_agreement);
+    if (/^study (start|end) date( month| year)?$/.test(key)) {
+      const part = graduationParts(/^study start/.test(key) ? a.study_start ?? "" : a.graduation_date ?? "");
+      if (/month$/.test(key))
+        return pick(part.month);
+      if (/year$/.test(key))
+        return pick(part.year);
+      return pick(/^study start/.test(key) ? a.study_start : a.graduation_date);
+    }
+    if (/\b(current|most recent|latest|last)\b.*\b(job title|position title|role title|title|position|role)\b/.test(key) && !asks)
+      return pick(a.current_job_title);
+    if (/\b(current|most recent|latest|last)\b.*\b(company|employer|organi[sz]ation)\b/.test(key) && !asks)
+      return pick(a.current_company);
     if (/\b(graduat\w*|afstudeer\w*)\b/.test(key)) {
       if (/\b(did you graduate|have you graduated|you graduated|graduated from)\b/.test(key))
         return null;
@@ -219,58 +295,86 @@
     }
     if (/\b(current|which|what)\b.*\byear\b.*\b(studies|study|degree|programme|program|education)\b|\byear of (your )?(studies|study|degree|programme|program)\b|\b(jaar van je studie|studiejaar)\b/.test(key))
       return pick(a.study_year);
-    if (/\b(how did you (hear|find|learn)|where did you (hear|find|see)|source of (your )?application)\b/.test(key))
+    if (isHearQuestion(label))
       return pick(facts.job_source);
     if (/\b(previously|before|already|earlier)\b.*\bappl(ied|y|ication)\b|\bappl(ied|ication)\b.*\b(before|previously|this season|earlier)\b/.test(key))
       return facts.applied_before === true ? "Yes" : facts.applied_before === false ? remembered || "No" : remembered || null;
-    if (/\b(degree|diploma|level of education|education level|highest level|opleidingsniveau)\b/.test(key))
+    if (/\b(are you|currently|presently)\b.*\b(student|enrolled|studying)\b|\b(enrolled|enrolment|enrollment|ingeschreven)\b/.test(key))
+      return pick(a.study_status);
+    if (/\b(compulsor\w*|mandatory|required)\b.*\b(internship|stage|placement|part of (your )?(studies|program|programme|academic))\b|\b(internship|stage|placement)\b.*\b(compulsor\w*|mandatory|required part|part of (your )?(studies|program|programme|academic))\b/.test(key))
+      return pick(a.internship_agreement);
+    if (/\b(degree|diploma|level of education|education level|highest level|opleidingsniveau)\b/.test(key) && !/\b(enrolled|enrolment|enrollment|internship|duration|compulsory|mandatory)\b/.test(key))
       return pick(a.degree);
     if (/\b(18|eighteen)\b.*\b(ans|years|jaar|older|plus|ouder|alt)\b|\b(at least|over|above)\b.*\b18\b/.test(key))
       return facts.adult ? "Yes" : remembered || null;
-    if (/\b(current|currently)\b.*\b(employee|employe\w*|employed)\b/.test(key) && !/\b(family|spouse|parent|sibling|relative|famille)\b/.test(key))
+    if (/\b(current|currently|actuellement|momenteel|derzeit)\b.*\b(employee|employe\w*|employed|in dienst|beschaftigt)\b/.test(key) && !/\b(family|spouse|parent|sibling|relative|famille|membre|familie)\b/.test(key))
       return facts.never_worked_here ? "No" : remembered || null;
     if (/\b(family|relative|spouse|parent|sibling|membre de votre famille|famille)\b.*\b(employ\w*|work\w*|travaill\w*)\b/.test(key))
       return /^no\b/i.test(a.insider ?? "") ? "No" : remembered || null;
     if (/\b(non ?compet\w*|non ?concurrence|noncompete|restrictive covenant)\b|\b(patent|patents|brevets?|confidential\w*|proprietary|exclusive information)\b.*\b(agreement|entente|contract|accord|signed|sign)\b|\b(agreement|entente|signed|sign)\b.*\b(patent|patents|brevets?|confidential\w*|proprietary)\b/.test(key))
       return /^no\b/i.test(a.prior_agreements ?? "") ? "No" : remembered || null;
-    if (/\b(are you|currently|presently)\b.*\b(student|enrolled|studying)\b|\b(enrolled|enrolment|enrollment|ingeschreven)\b/.test(key))
-      return pick(a.study_status);
     if (/\b(field of study|major|study programme|study program|discipline|area of study|opleiding|studierichting)\b/.test(key))
       return pick(a.field_of_study);
     if (/\b(university|universiteit|school|college|institution|hogeschool|school name)\b/.test(key) && key.split(" ").length <= 6 && !/\b(high school|year|date|reference|referral|hear|find|about|why)\b/.test(key))
       return pick(a.university);
     if (/\b(nationality|nationaliteit|citizenship)\b/.test(key) && key.length <= 90)
       return pick(a.nationality);
+    if (/\b(gender|geslacht|geschlecht|genre|sex)\b/.test(key) && !/\b(identity|transgender|pronouns?|orientation|identit)\b/.test(key) && key.length <= 90 && a.gender?.trim())
+      return a.gender.trim();
+    if (/\b(eu|eea)\b.*\b(passport|citizen|national|permit)|\b(passport|residence permit|student (visa|permit|residence))\b/.test(key) && !/\b(sponsor|parrainage)\b/.test(key)) {
+      const w = a.work_authorization ?? "";
+      if (!w)
+        return remembered || null;
+      if (/^\s*yes\b|\b(eu|eea)\b|\bcitizen\b|\bnational\b|\bpassport\b|\bpermit\b|\bzoekjaar\b|\borientation year\b|\bsearch year\b|\bfree to work\b|\bauthori[sz]ed\b/i.test(w))
+        return "Yes";
+      if (/^\s*no\b|\b(need|require)s?\b.*\b(sponsor|visa|permit)/i.test(w))
+        return "No";
+      return pick(w);
+    }
+    if (/\b(based|where do you live|where are you)\b/.test(key) && /\brelocat/.test(key)) {
+      const place = pick(a.city) ?? pick(facts.place?.split(",")[0]?.trim());
+      const reloc = pick(a.relocation);
+      if (place && reloc)
+        return `${place}. ${reloc}`;
+      return place || reloc || remembered || null;
+    }
     if (/\b(relocat\w*)\b/.test(key))
       return pick(a.relocation);
+    if (/\bnotice period\b|\bopzegtermijn\b/.test(key) && /\b(start|available|availability|when (can|would) you|able to start|beschikbaar)\b/.test(key)) {
+      const start = pick(a.start_date);
+      const notice = pick(a.notice_period);
+      if (start && notice)
+        return `${start}. Notice period: ${notice}`;
+      return start || notice || remembered || null;
+    }
     if (/\bnotice period\b|\bopzegtermijn\b/.test(key))
       return pick(a.notice_period);
-    if (/\b(start date|when can you start|available to start|availability|earliest start|beschikbaar)\b/.test(key))
+    if (/\b(start date|when can you start|when would you (be able to )?start|available to start|able to start|availability|earliest start|beschikbaar)\b/.test(key))
       return pick(a.start_date);
     if (!asks && /\bhours\b.*\bweek\b|\bper week\b|\buren\b/.test(key))
       return pick(a.hours_per_week);
     if (/\b(salary|compensation|pay|wage|salaris|salaire|gehalt|stipend)\b/.test(key))
       return pick(salaryFor(a.expected_salary, key));
-    if (/\b(sponsor\w*|visa)\b/.test(key)) {
+    if (/\b(sponsor\w*|visa|parrainage)\b/.test(key)) {
       if (/\b(details|explain|describe|elaborate|please provide|why)\b/.test(key))
         return null;
-      if (facts.job_id && facts.job_country !== "NL")
+      if (facts.job_country && facts.job_country !== "NL")
         return null;
       if (/\b(orientation year|search year|zoekjaar|highly skilled|kennismigrant|blue card)\b/.test(key))
         return null;
       const w = a.work_authorization ?? "";
       if (!w)
         return null;
-      if (/\bwithout\b.*\b(sponsor|visa)|\b(no|not)\b.*\b(sponsor|visa)\w*\b.*\b(needed|required)|\b(valid|current|existing)\b.*\b(visa|work permit|permit)\b/.test(key)) {
+      if (/\bwithout\b.*\b(sponsor|visa|parrainage)|\b(no|not)\b.*\b(sponsor|visa|parrainage)\w*\b.*\b(needed|required)|\b(valid|current|existing)\b.*\b(visa|work permit|permit)\b/.test(key)) {
         if (/\b(need|require)s?\b.*\b(sponsor|visa|permit)/i.test(w) || /\bno(t)?\b.*\b(allowed|authori[sz]ed|permit)\b/i.test(w))
           return "No";
-        if (/^\s*yes\b|\b(eu|eea) (citizen|national)|\bfree to work|\ballowed to work|\bauthori[sz]ed\b|\bpermit\b/i.test(w))
+        if (/^\s*yes\b|\b(eu|eea) (citizen|national)|\bfree to work|\ballowed to work|\bauthori[sz]ed\b|\bpermit\b|\b(zoekjaar|orientation year|search year)\b/i.test(w))
           return "Yes";
         return null;
       }
       if (/\b(need|require)s?\b.*\b(sponsor|visa|permit)/i.test(w) || /\bno(t)?\b.*\b(allowed|authori[sz]ed|permit)\b/i.test(w))
         return "Yes";
-      if (/^\s*yes\b|\b(eu|eea) (citizen|national)|\bfree to work|\bno (sponsor|visa)\w* (needed|required)|\ballowed to work|\bauthori[sz]ed\b/i.test(w))
+      if (/^\s*yes\b|\b(eu|eea) (citizen|national)|\bfree to work|\bno (sponsor|visa)\w* (needed|required)|\ballowed to work|\bauthori[sz]ed\b|\bpermit\b|\b(zoekjaar|orientation year|search year)\b/i.test(w))
         return "No";
       return null;
     }
@@ -282,7 +386,7 @@
         return null;
       if (/^\s*no\b|\b(need|require)s?\b.*\b(sponsor|visa|permit)/i.test(w))
         return "No";
-      return /^\s*yes\b|\b(eu|eea)\b|\ballowed\b|\bauthori[sz]ed\b|\bfree to work\b|\bpermit\b/i.test(w) ? "Yes" : null;
+      return /^\s*yes\b|\b(eu|eea)\b|\ballowed\b|\bauthori[sz]ed\b|\bfree to work\b|\bpermit\b|\b(zoekjaar|orientation year|search year)\b/i.test(w) ? "Yes" : null;
     }
     if (asks && /\bnative\b/.test(key) && /\b(dutch|nederlands)\b/.test(key)) {
       const level = (facts.dutch ?? "").toLowerCase();
@@ -304,7 +408,7 @@
   }
   var norm = (t) => t.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9+]+/g, " ").trim();
   function chooseOption(options, answer, label = "") {
-    const canon = (t) => norm(t).replace(/\bnoord\b/g, "north").replace(/\bzuid\b/g, "south").replace(/\bfryslan\b/g, "friesland").replace(/\bnederland\b/g, "netherlands").replace(/^the netherlands$/, "netherlands").replace(/^pays bas$|^niederlande$/, "netherlands").replace(/^hollande septentrionale$|^nordholland$/, "north holland").replace(/^hollande meridionale$|^sudholland$/, "south holland").replace(/^brabant septentrional$|^nordbrabant$/, "north brabant").replace(/^frise$/, "friesland").replace(/^zelande$/, "zeeland").replace(/^geldre$/, "gelderland");
+    const canon = (t) => norm(t).replace(/\bnoord\b/g, "north").replace(/\bzuid\b/g, "south").replace(/\bfryslan\b/g, "friesland").replace(/\bnederland\b/g, "netherlands").replace(/^the netherlands$/, "netherlands").replace(/^pays bas$|^niederlande$/, "netherlands").replace(/^hollande septentrionale$|^nordholland$/, "north holland").replace(/^hollande meridionale$|^sudholland$/, "south holland").replace(/^brabant septentrional$|^nordbrabant$/, "north brabant").replace(/^frise$/, "friesland").replace(/^zelande$/, "zeeland").replace(/^geldre$/, "gelderland").replace(/^(man|male|mannelijk|homme|mannlich|masculin\w*)\b/, "male").replace(/^(woman|female|vrouw|vrouwelijk|femme|weiblich|feminin\w*)\b/, "female");
     const want = canon(answer);
     const opts = options.map(canon);
     if (/\bdegree\b|\bdiploma\b|\beducation\b/.test(norm(label))) {
@@ -358,6 +462,108 @@
     if (besideCountry && /\b(mobile|phone|telephone|telefoon\w*|mobiel\w*)\b/i.test(label))
       return nationalNumber(answer);
     return answer;
+  }
+
+  // supabase/functions/_shared/apply-censor.ts
+  var exports_apply_censor = {};
+  __export(exports_apply_censor, {
+    chipAllowed: () => chipAllowed,
+    classifyCensorFlags: () => classifyCensorFlags,
+    detectWidgetKind: () => detectWidgetKind,
+    forbiddenGapChip: () => forbiddenGapChip,
+    formActuallyFilled: () => formActuallyFilled,
+    hasFillFailed: () => hasFillFailed,
+    isContactLabel: () => isContactLabel,
+    nextApplyStage: () => nextApplyStage
+  });
+  function detectWidgetKind(el) {
+    if (el.kind === "file")
+      return "file";
+    if (el.kind === "choice")
+      return "choice";
+    if (el.kind === "listbox")
+      return "listbox";
+    if (el.kind === "combobox")
+      return "typeahead";
+    const id = el.id || "";
+    const cls = el.className || "";
+    const role = el.role || "";
+    const auto = el.ariaAutocomplete || "";
+    if (id === "location-input" || /\blocation-input\b/.test(cls) || role === "combobox" || auto === "list")
+      return "typeahead";
+    if (el.inCustomQuestion)
+      return "card";
+    return "plain";
+  }
+  var CONTACT = /\b(first name|given name|voornaam|last name|family name|surname|achternaam|full name|e-?mail|courriel|phone|telephone|telefoon|mobile|mobiel)\b/i;
+  function isContactLabel(label) {
+    return CONTACT.test((label || "").replace(/\s+/g, " ").trim());
+  }
+  function formActuallyFilled(fields) {
+    for (const f of fields) {
+      if (f.kind === "checkbox")
+        continue;
+      if (f.kind === "file") {
+        if (f.required && !f.answered)
+          return false;
+        continue;
+      }
+      if ((f.required || isContactLabel(f.label)) && !f.answered)
+        return false;
+    }
+    return true;
+  }
+  function hasFillFailed(fields) {
+    return fields.some((f) => f.fillFailed && !f.answered);
+  }
+  function classifyCensorFlags(input) {
+    const flags = [];
+    if (input.listingGone)
+      flags.push("listing_gone");
+    if (input.captcha)
+      flags.push("captcha");
+    if (input.account)
+      flags.push("account_gate");
+    if (input.stuckLoop)
+      flags.push("stuck_loop");
+    if (!input.hasForm && !input.hasApplyCta)
+      flags.push("wrong_page", "no_apply_cta");
+    else if (!input.hasForm)
+      flags.push("no_apply_cta");
+    if (input.hasForm && !input.hasNext && !input.onReview)
+      flags.push("no_next");
+    if (input.fields.some((f) => f.kind !== "checkbox" && f.required && !f.answered))
+      flags.push("empty_required");
+    if (hasFillFailed(input.fields))
+      flags.push("fill_failed");
+    return [...new Set(flags)];
+  }
+  function chipAllowed(opts) {
+    if (opts.state === "done" && (!opts.formFilled || opts.stillEmptyGaps))
+      return false;
+    if (/Checking that the website kept/i.test(opts.message) && opts.stillEmptyGaps)
+      return false;
+    if (/Filled in by odds/i.test(opts.message) && (!opts.formFilled || opts.stillEmptyGaps))
+      return false;
+    return true;
+  }
+  function nextApplyStage(opts) {
+    if (opts.captcha || opts.account)
+      return "human";
+    if (opts.formFilled && !opts.stillEmptyGaps)
+      return "ready";
+    if (!opts.stillEmptyGaps)
+      return "filling";
+    if (!opts.agentAnswersTried)
+      return "agent_answers";
+    if (!opts.agentScanTried)
+      return "agent_scan";
+    return "human";
+  }
+  function forbiddenGapChip(message, stillEmptyGaps) {
+    if (!stillEmptyGaps)
+      return false;
+    return /Checking that the website kept|Filled in by odds/i.test(message);
   }
 
   // supabase/functions/_shared/job-sites.ts
@@ -581,5 +787,5 @@
 
   // scripts/extension-sites.ts
   globalThis.oddsSites = exports_job_sites;
-  globalThis.oddsApply = exports_apply_form;
+  globalThis.oddsApply = { ...exports_apply_form, ...exports_apply_censor };
 })();

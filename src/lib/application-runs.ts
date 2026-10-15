@@ -17,6 +17,27 @@ export async function applicationState(postingId: string): Promise<{ run: Applic
   if (run && activeApplication(run) && run.expires_at && Date.parse(run.expires_at) < Date.now()) run = { ...run, status: "failed", message: "Preparation expired. Start again when your desktop is ready." }
   return { run, online: Boolean(devices.data?.length) }
 }
+
+/** Active server-side Apply runs for tracker chips when the job detail is closed. */
+export async function liveApplicationRuns(): Promise<ApplicationRun[]> {
+  const { data, error } = await supabase
+    .from("application_runs")
+    .select("id,posting_id,status,message,expires_at")
+    .in("status", ["queued", "filling", "needs_input", "ready"])
+    .order("created_at", { ascending: false })
+    .limit(40)
+  if (error) return []
+  const now = Date.now()
+  const seen = new Set<string>()
+  const out: ApplicationRun[] = []
+  for (const row of (data || []) as ApplicationRun[]) {
+    if (!row.posting_id || seen.has(row.posting_id)) continue
+    if (row.expires_at && Date.parse(row.expires_at) < now) continue
+    seen.add(row.posting_id)
+    out.push(row)
+  }
+  return out
+}
 export async function requestApplication(postingId: string): Promise<ApplicationRun> {
   const { data, error } = await supabase.rpc("request_application", { p_posting_id: postingId })
   if (error) throw new Error(error.message)

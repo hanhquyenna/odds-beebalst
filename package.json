@@ -7,6 +7,10 @@
     "dev": "vite",
     "bench": "bun scripts/bench.ts",
     "e2e": "playwright test",
+    "extension:sync": "rsync -a --delete extension/ \"$HOME/Downloads/odds-extension/\"",
+    "e2e:accept": "bun run extension:sync && (lsof -ti :4319 | xargs kill -9 2>/dev/null || true) && CI=1 bunx playwright test --project=desktop --grep @accept",
+    "e2e:stress": "bun run extension:sync && (lsof -ti :4319 | xargs kill -9 2>/dev/null || true) && CI=1 bunx playwright test --project=desktop --grep @stress",
+    "extension:zip": "cd extension && zip -r ../public/odds-for-chrome.zip . -x '*.DS_Store' -x '*~'",
     "build": "tsc -b && vite build",
     "lint": "oxlint src supabase scripts e2e vite.config.ts playwright.config.ts",
     "knip": "knip --no-progress",
@@ -14,7 +18,10 @@
     "audit": "bun audit --ignore=GHSA-vfj7-8cjw-p6xm",
     "perf": "bun scripts/check-bundles.mjs",
     "preview": "vite preview",
-    "test": "bun test src"
+    "test": "bun test src",
+    "broods:dev": "broods dev",
+    "broods:deploy": "broods deploy",
+    "broods:whoami": "broods whoami"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
@@ -41,6 +48,8 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
+    "ai": "^7.0.141",
+    "broods": "^0.50.0",
     "knip": "^6.39.0",
     "oxlint": "^1.81.0",
     "oxlint-tsgolint": "^7.0.2003",

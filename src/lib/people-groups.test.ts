@@ -5,7 +5,7 @@ const p = (name: string, headline: string): Suggestion => ({ name, headline, pla
 const pool = [p("a", "Financial Analyst"), p("b", "Finance Manager"), p("c", "Marketing Specialist"), p("d", "Junior Controller"), p("e", "Head of Finance")]
 
 describe("people groups for a job", () => {
-  it("puts managers and heads under hiring managers, the job's department under same team, the rest under other", () => {
+  it("groups department leads separately without claiming they are hiring managers", () => {
     expect(groupOf(pool[0], "Finance & accounting")).toBe("team")
     expect(groupOf(pool[1], "Finance & accounting")).toBe("manager")
     expect(groupOf(pool[4], "Finance & accounting")).toBe("manager")
@@ -23,4 +23,11 @@ describe("people groups for a job", () => {
     expect(openIn(rec, "manager", "Finance & accounting")).toHaveLength(1)
     expect(moreIn(rec, "team", "Finance & accounting")).toBe(false)
   })
+})
+
+it("does not classify seniority, another department, or missing affiliation as a hiring relationship", () => {
+  expect(groupOf(p("senior", "Senior Financial Analyst"), "Finance & accounting")).toBe("team")
+  expect(groupOf(p("sales", "Sales Manager"), "Finance & accounting")).toBe("other")
+  expect(groupOf(p("unknown", "Finance Lead"), null)).toBe("other")
+  expect(groupOf({ ...p("unverified", "Finance Lead"), currentEmployerMatched: false }, "Finance & accounting")).toBe("other")
 })

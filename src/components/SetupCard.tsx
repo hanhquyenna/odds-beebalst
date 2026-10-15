@@ -1,10 +1,7 @@
 import { lazy, Suspense, useState } from "react"
 import { CheckIcon, XIcon } from "@/components/icons"
-import { BRAND_BACKDROP } from "@/components/PromoSheet"
-import { SetupGraphic } from "@/components/SetupGraphic"
 import { Button } from "@/components/ui/button"
 import { useSetup } from "@/lib/setup"
-import { SETUP_QUESTIONS } from "@/lib/setup-questions"
 
 const SetupPanel = lazy(() => import("@/components/SetupPanel").then((m) => ({ default: m.SetupPanel })))
 
@@ -17,21 +14,28 @@ const hiddenNow = (): boolean => {
   }
 }
 
+const LABEL: Record<string, string> = {
+  details: "Your details",
+  answers: "Saved answers",
+  extension: "Chrome extension",
+  cv: "Your CV",
+}
+
 /**
- * What is left before applying takes one click, as a notice at the top of Home made like the app's other notices (a picture on the brand colour,
- * a title, the points, one big button): beside the content on a wide screen, above it on a phone. The X hides it for this visit only; it is back
- * the next time until everything is done, and then it never shows.
+ * What is left before applying takes one click. Shown on Home (and Autofill) until complete.
+ * The X hides it for this visit only; it returns next visit until everything is done.
  */
 export function SetupCard({ onJobs, onOpenTab }: { onJobs: () => void; onOpenTab?: (tab: "autofill" | "documents") => void }): React.JSX.Element | null {
   const setup = useSetup()
+  const [initialStep, setInitialStep] = useState(0)
   const [open, setOpen] = useState<boolean>(false)
   const [hidden, setHidden] = useState<boolean>(hiddenNow)
   if (!setup.ready || (setup.complete && !open) || (hidden && !open)) return null
-  const required = SETUP_QUESTIONS.filter((q) => !q.optional)
-  const asked = required.length - setup.missing.filter((q) => !q.optional).length
+
+  const left = setup.steps.filter((s) => !s.done).length
 
   return (
-    <section aria-label="Set up one-click applying" className="phone-prompt-pop relative grid overflow-hidden rounded-2xl border-[1.5px] bg-card shadow-sm md:grid-cols-[17rem_minmax(0,1fr)]">
+    <section aria-label="Set up one-click applying" className="relative border border-foreground/15 bg-card px-5 py-6 sm:px-7 sm:py-7">
       <button
         type="button"
         aria-label="Hide for now"
@@ -43,38 +47,65 @@ export function SetupCard({ onJobs, onOpenTab }: { onJobs: () => void; onOpenTab
           }
           setHidden(true)
         }}
-        className="absolute top-3 right-3 z-10 flex size-9 cursor-pointer items-center justify-center rounded-full max-md:bg-black/25 max-md:text-white max-md:hover:bg-black/40 md:text-muted-foreground md:hover:bg-secondary md:hover:text-foreground"
+        className="absolute top-3 right-3 z-10 flex size-8 cursor-pointer items-center justify-center text-muted-foreground hover:text-foreground"
       >
-        <XIcon className="size-5" aria-hidden="true" />
+        <XIcon className="size-4" aria-hidden="true" />
       </button>
-      <div className={`relative h-44 md:h-auto md:min-h-64 ${BRAND_BACKDROP}`}>
-        <SetupGraphic done={setup.done} total={setup.total} steps={setup.steps} compact />
+
+      <div className="pr-8">
+        <p className="font-heading text-[11px] font-semibold tracking-[0.18em] uppercase text-muted-foreground">Apply with Odds</p>
+        <h2 className="font-heading mt-2 text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Finish setup</h2>
+        <p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
+          {left === 1 ? "One step left before forms fill themselves." : `${left} steps left before forms fill themselves.`}
+        </p>
       </div>
-      <div className="flex flex-col justify-center gap-4 p-5 md:p-7">
-        <h2 className="font-heading text-2xl leading-tight font-semibold tracking-tight">Set up one-click applying</h2>
-        <ul className="grid gap-x-6 gap-y-2.5 sm:grid-cols-2">
-          {setup.steps.map((s) => (
+
+      <ul className="mt-6 divide-y divide-foreground/10 border-y border-foreground/10">
+        {setup.steps.map((s) => {
+          const label = LABEL[s.key] ?? s.key
+          return (
             <li key={s.key}>
               <button
                 type="button"
-                onClick={() => (s.key === "answers" ? setOpen(true) : s.key === "cv" ? onOpenTab?.("documents") : s.key === "first" ? onJobs() : onOpenTab?.("autofill"))}
-                className="flex w-full cursor-pointer items-center gap-2.5 rounded-md py-0.5 text-left text-[0.95rem] hover:underline hover:underline-offset-4"
+                onClick={() => {
+                  if (s.key === "details" || s.key === "answers") {
+                    setInitialStep(s.key === "details" ? 0 : 1)
+                    setOpen(true)
+                  } else onOpenTab?.(s.key === "cv" ? "documents" : "autofill")
+                }}
+                aria-label={`${label}${s.done ? ": complete" : ": not complete"}`}
+                className="flex w-full cursor-pointer items-center gap-3 py-3.5 text-left transition-colors hover:bg-foreground/[0.03]"
               >
-                <span className={`flex size-5 shrink-0 items-center justify-center rounded-full ${s.done ? "bg-good text-good-foreground" : "border-[1.5px] border-dashed"}`}>
-                  {s.done ? <CheckIcon weight="bold" className="size-3" aria-hidden="true" /> : null}
+                <span
+                  className={`flex size-5 shrink-0 items-center justify-center border border-foreground ${s.done ? "bg-foreground text-background" : "bg-transparent"}`}
+                  aria-hidden="true"
+                >
+                  {s.done ? <CheckIcon weight="bold" className="size-3" /> : null}
                 </span>
-                <span className={s.done ? "text-muted-foreground" : "font-medium"}>{s.key === "answers" && !s.done ? `Answers ${asked} of ${required.length}` : s.title}</span>
+                <span className={`text-sm font-semibold tracking-tight ${s.done ? "text-muted-foreground line-through decoration-foreground/30" : "text-foreground"}`}>
+                  {label}
+                </span>
               </button>
             </li>
-          ))}
-        </ul>
-        <Button type="button" size="lg" onClick={() => setOpen(true)} className="h-12 w-full cursor-pointer rounded-full text-base sm:w-fit sm:px-10">
-          Finish setup
-        </Button>
-      </div>
+          )
+        })}
+      </ul>
+
+      <Button
+        type="button"
+        size="lg"
+        onClick={() => {
+          setInitialStep(0)
+          setOpen(true)
+        }}
+        className="mt-6 h-12 w-full cursor-pointer rounded-md bg-foreground text-base font-semibold tracking-tight text-background hover:bg-foreground/90"
+      >
+        Continue setup
+      </Button>
+
       {open ? (
         <Suspense fallback={null}>
-          <SetupPanel setup={setup} onClose={() => setOpen(false)} onJobs={() => { setOpen(false); onJobs() }} />
+          <SetupPanel initialStep={initialStep} setup={setup} onClose={() => setOpen(false)} onJobs={() => { setOpen(false); onJobs() }} />
         </Suspense>
       ) : null}
     </section>

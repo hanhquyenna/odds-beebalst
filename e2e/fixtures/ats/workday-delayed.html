@@ -1,0 +1,41 @@
+<!doctype html><html><head><meta charset="utf-8"></head>
+<body>
+<main>
+  <h1>Operations Intern</h1>
+  <div id="mount"></div>
+</main>
+<script>
+// Workday-style: fields appear after a short delay with data-automation-id.
+setTimeout(() => {
+  document.getElementById("mount").innerHTML = `
+<form onsubmit="event.preventDefault(); window.sent = (window.sent || 0) + 1">
+  <div data-automation-id="formField-legalNameSection">
+    <label id="lbl-first" for="first">First Name</label>
+    <input id="first" data-automation-id="legalNameSection_firstName" aria-labelledby="lbl-first" required>
+  </div>
+  <div>
+    <label id="lbl-email" for="email">Email</label>
+    <input id="email" type="email" data-automation-id="email" aria-labelledby="lbl-email" required>
+  </div>
+  <div>
+    <label id="lbl-country" for="country-btn">Country</label>
+    <button type="button" id="country-btn" data-automation-id="countryDropdown" aria-haspopup="listbox" aria-labelledby="lbl-country">Select One</button>
+    <ul role="listbox" id="country-list" hidden>
+      <li role="option" data-automation-id="promptOption">Netherlands</li>
+      <li role="option" data-automation-id="promptOption">Belgium</li>
+    </ul>
+  </div>
+  <button type="submit" data-automation-id="bottom-submit">Submit</button>
+</form>`
+  const btn = document.getElementById("country-btn")
+  const list = document.getElementById("country-list")
+  btn.addEventListener("click", () => { list.hidden = !list.hidden })
+  for (const opt of list.querySelectorAll("[role=option]")) {
+    opt.addEventListener("click", () => {
+      btn.textContent = opt.textContent
+      list.hidden = true
+    })
+  }
+}, 400)
+</script>
+</body></html>

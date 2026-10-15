@@ -8,9 +8,10 @@ describe("where to apply", () => {
     expect(applySourceOf([s("LinkedIn", "linkedin"), s("Greenhouse", "greenhouse")])?.ats).toBe("greenhouse")
     expect(applySourceOf([s("LinkedIn", "linkedin"), s("Acme careers", "other")])?.ats).toBe("other")
   })
-  test("then the student boards, then Indeed and Glassdoor, then LinkedIn", () => {
+  test("then the student boards, then LinkedIn, and Glassdoor/Indeed last", () => {
     expect(applySourceOf([s("LinkedIn", "linkedin"), s("Indeed", "indeed"), s("Magnet.me", "magnet.me")])?.ats).toBe("magnet.me")
-    expect(applySourceOf([s("LinkedIn", "linkedin"), s("Glassdoor", "glassdoor")])?.ats).toBe("glassdoor")
+    expect(applySourceOf([s("LinkedIn", "linkedin"), s("Glassdoor", "glassdoor")])?.ats).toBe("linkedin")
+    expect(applySourceOf([s("Glassdoor", "glassdoor"), s("Indeed", "indeed")])?.ats).toBe("glassdoor")
   })
   test("LinkedIn when it is the only place, and nothing when no source has an address", () => {
     expect(applySourceOf([s("LinkedIn", "linkedin")])?.ats).toBe("linkedin")
