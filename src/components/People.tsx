@@ -2,7 +2,7 @@ import { usePhone } from "@/lib/use-phone"
 import { PersonAvatar } from "@/components/PersonAvatar"
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
-import { CheckIcon, ChevronDownIcon, ExternalLinkIcon, InfoIcon, MessageIcon, PlusIcon, TrashIcon, XIcon } from "@/components/icons"
+import { CheckIcon, ChevronDownIcon, EnvelopeIcon, ExternalLinkIcon, InfoIcon, MessageIcon, PlusIcon, TrashIcon, XIcon } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import { useData } from "@/lib/data"
 import { suggestReferrals } from "@/lib/linkedin"
@@ -26,6 +26,8 @@ import { formatPlace } from "@/lib/format"
 import { nextStep, stamp } from "@/lib/outreach-stage"
 import { CONTACT_STATUSES, type ContactStatus, type PastSearch, type Person, type Posting } from "@/lib/types"
 import { isGuestEmail } from "@/lib/auth"
+import { emailOf, followUpMailto } from "@/lib/follow-up-mail"
+import { appliedOn } from "@/lib/tracker"
 
 // Lazy: the outreach guides open from a button and carry the slide deck and the playbook's words.
 const WhyOutreach = lazy(() => import("@/components/OutreachGuide").then((module) => ({ default: module.WhyOutreach })))
@@ -787,10 +789,53 @@ export function JobPeople({ post }: { post: Posting }): React.JSX.Element | null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signedIn, guest, rec])
+  const [open, setOpen] = useState<Person | null>(null)
+  const mine = data.people.filter((p) => p.jobId === post.id)
   if (!signedIn || post.local) return null
 
   return (
     <Section title="People">
+      {mine.length > 0 ? (
+        <ul aria-label="Your people on this job" className="-mx-3 mb-5 flex flex-col divide-y-[1.5px]">
+          {mine.map((p) => (
+            <li key={p.id} className="flex items-center gap-2 px-3 py-2.5">
+              <button type="button" onClick={() => setOpen(p)} className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left">
+                <PersonAvatar name={p.name} photo={p.photo} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{p.name}</span>
+                  {p.role ? <span className="block truncate text-sm text-muted-foreground">{p.role}</span> : null}
+                </span>
+              </button>
+              {emailOf(p.contact) ? (
+                <a
+                  href={followUpMailto({ to: emailOf(p.contact) ?? "", name: p.name, job: post.title, company: post.employer_display, appliedOn: appliedOn(data.applications.find((a) => a.posting_id === post.id)), me: data.profile.name })}
+                  aria-label={`Write to ${p.name} in your email`}
+                  className="flex h-9 shrink-0 items-center gap-1.5 rounded-md border-[1.5px] px-3 text-sm font-medium hover:bg-accent"
+                >
+                  <EnvelopeIcon className="size-4" aria-hidden="true" />
+                  Email
+                </a>
+              ) : null}
+              <select
+                aria-label={`Where you are with ${p.name}`}
+                value={p.status}
+                onChange={(e) => {
+                  data.updatePerson(p.id, stamp(e.target.value as ContactStatus))
+                  saved()
+                }}
+                className="h-9 max-w-40 cursor-pointer rounded-md border-[1.5px] bg-background px-2 text-sm font-medium"
+              >
+                {CONTACT_STATUSES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {open ? <PersonDetails person={data.people.find((p) => p.id === open.id) ?? open} onClose={() => setOpen(null)} /> : null}
       {guest ? (
         <p className="text-sm text-muted-foreground">{GUEST_PEOPLE}</p>
       ) : rec ? (

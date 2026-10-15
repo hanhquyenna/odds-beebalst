@@ -1692,7 +1692,9 @@ test("one-click learning loop: phone answers an employer question, desktop advan
   expect(await desktop.evaluate("window.sent")).toBe(false)
   await expect.poll(() => fake.reports.at(-1)?.status).toBe("ready")
   await phone.goto("http://localhost:4319/")
-  await phone.getByRole("button", { name: /Autofill/ }).last().click()
+  // On a phone Autofill is a row on the Profile page, not a tab in the bar.
+  await phone.getByRole("button", { name: /Profile/ }).last().click()
+  await phone.getByRole("button", { name: "Autofill" }).click()
   await expect(phone.getByRole("heading", { name: "Learned from forms", exact: true })).toBeVisible()
   await expect(phone.getByLabel("Will you remain enrolled throughout this internship?")).toHaveValue("Yes")
   expect(saved[0].question_key).toContain(` job ${post.id}`)

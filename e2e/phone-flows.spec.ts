@@ -123,6 +123,8 @@ test.describe("on a phone, signed in", () => {
   test("the Claude page asks to connect, in plain words, and fits the screen", async ({ page }) => {
     await page.goto("/")
     await page.getByRole("dialog", { name: "odds is now an app" }).getByRole("button", { name: "Not now", exact: true }).click({ timeout: 8000 })
+    // On a phone these are rows on the Profile page; the bar keeps the five a thumb reaches most.
+    await page.getByRole("button", { name: "Profile" }).last().click()
     await page.getByRole("button", { name: "Claude" }).last().click()
     await expect(page.getByRole("heading", { level: 1, name: /Claude/ })).toBeVisible()
     await expect(page.getByText("Not connected yet")).toBeVisible()
@@ -141,6 +143,7 @@ test.describe("on a phone, signed in", () => {
   test("Documents offers Google Drive and a CV upload, and fits the screen", async ({ page }) => {
     await page.goto("/")
     await page.getByRole("dialog", { name: "odds is now an app" }).getByRole("button", { name: "Not now", exact: true }).click({ timeout: 8000 })
+    await page.getByRole("button", { name: "Profile" }).last().click()
     await page.getByRole("button", { name: "Documents" }).last().click()
     await expect(page.getByRole("heading", { name: "Documents" })).toBeVisible()
     await expectNoSideScroll(page)

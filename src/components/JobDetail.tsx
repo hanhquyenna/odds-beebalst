@@ -201,6 +201,10 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
             </>
           )}
 
+          <Suspense fallback={null}>
+            <JobPeople post={post} />
+          </Suspense>
+
           {!locked ? <JobDocuments post={post} /> : null}
 
           {body !== "" ? (
@@ -211,10 +215,6 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
         </>
       ) : (
         <>
-          <Suspense fallback={null}>
-            <JobPeople post={post} />
-          </Suspense>
-
           <PastHires post={post} />
 
           <CompanySection post={post} />

@@ -2,7 +2,7 @@ import { Suspense, lazy, useMemo, useState } from "react"
 import { JobDrawer } from "@/components/JobBoard"
 import { FilterToggle, JobFilters } from "@/components/JobFilters"
 import { JobGallery } from "@/components/JobGallery"
-import { BoardIcon, BookmarkIcon, BuildingsIcon, CalendarIcon, DownloadIcon, ImportExportIcon, UploadIcon, ChevronDownIcon, PeopleIcon, PlusIcon, TableIcon } from "@/components/icons"
+import { BoardIcon, BookmarkIcon, CalendarIcon, DownloadIcon, ImportExportIcon, UploadIcon, ChevronDownIcon, PlusIcon, TableIcon } from "@/components/icons"
 import { SearchSummary } from "@/components/InterviewMeter"
 import type { ViewLayout, ViewName } from "@/lib/types"
 import { ViewTabs, LAYOUT_CHOICES } from "@/components/ViewTabs"
@@ -21,6 +21,7 @@ import { AddJobs, panelWith, Tracker, type AddPanel } from "@/components/Tracker
 import { TrackerTable } from "@/components/TrackerTable"
 import { SimilarJobs } from "@/components/SimilarJobs"
 import { ClaudePromo } from "@/components/ClaudeGuide"
+import { DueNow } from "@/components/DueNow"
 import { HeardBack } from "@/components/HeardBack"
 import { Button } from "@/components/ui/button"
 import { JobListSkeleton } from "@/components/Skeleton"
@@ -29,9 +30,7 @@ import { CompaniesView } from "@/components/Companies"
 import { usePhone } from "@/lib/use-phone"
 import { FilterBus } from "@/lib/filter-bus"
 import { activeCount, applyFilters } from "@/lib/filters"
-import { readStored, store } from "@/lib/remembered"
 import type { Posting } from "@/lib/types"
-import { prefetchOn } from "@/lib/prefetch"
 import { downloadCsv, toCsv } from "@/lib/export-csv"
 import { appliedDay, overrideOf } from "@/lib/cells"
 import { formatPlace } from "@/lib/format"
@@ -39,12 +38,13 @@ import { formatPlace } from "@/lib/format"
 const SetupCard = lazy(() => import("@/components/SetupCard").then((m) => ({ default: m.SetupCard })))
 
 // Lazy: the people view is the second tab and carries the outreach tools, so the jobs open without it. Pointing at its tab fetches it.
-const loadPeople = (): Promise<typeof import("@/components/People")> => import("@/components/People")
-const PeopleView = lazy(() => loadPeople().then((module) => ({ default: module.PeopleView })))
+const PeopleView = lazy(() => import("@/components/People").then((module) => ({ default: module.PeopleView })))
 
-const SUBJECT_KEY = "odds:tracker-subject"
+/** Which page of the account this is: Home (the dashboard), or the Tracker, People or Companies page, each its own place in the menu. */
+export type AccountPage = "home" | "tracker" | "people" | "companies"
 
 interface AccountProps {
+  page?: AccountPage
   /** True in the job list, false on the account's own page. */
   looking: boolean
   onEdit: () => void
@@ -52,18 +52,21 @@ interface AccountProps {
   onStopLooking: () => void
   /** Opens the page on using odds inside Claude. */
   onOpenClaude?: () => void
+  /** Goes to another page of the account (the People page, from a nudge that is due). */
+  onOpenPage?: (page: AccountPage) => void
 }
 
 /**
  * The account's own page: the jobs you kept, where you applied, and what we
  * read from you. The big button goes to the jobs that fit.
  */
-export function Account({ looking, onStartLooking, onStopLooking, onOpenClaude }: AccountProps): React.JSX.Element {
+export function Account({ page = "home", looking, onStartLooking, onStopLooking, onOpenClaude, onOpenPage }: AccountProps): React.JSX.Element {
   const data = useData()
   const saved = useSavedViews()
   const { active, filters, configName } = saved
   const [revisit, setRevisit] = useState<Posting | null>(null)
-  const [subject, setSubject] = useState<Subject>(() => (readStored(SUBJECT_KEY) === "people" ? "people" : readStored(SUBJECT_KEY) === "companies" ? "companies" : "jobs"))
+  // Each page shows one thing: the tracker (your jobs), your people, or companies. Home shows none of them, only what is due.
+  const subject: Subject = page === "people" ? "people" : page === "companies" ? "companies" : "jobs"
   const pviews = usePeopleViews()
   // The form to add jobs of your own: opened by the small link under your jobs, or by the upload button beside Sort.
   const [addPanel, setAddPanel] = useState<AddPanel>(null)
@@ -75,10 +78,6 @@ export function Account({ looking, onStartLooking, onStopLooking, onOpenClaude }
   const layout: Layout = phone && subject === "people" && chosen === "table" ? "list" : chosen
   // The view's own settings (sort, grouping, properties) are kept per view.
   const view: ViewName = subject === "jobs" ? configName : pviews.configName
-  const choose = (next: Subject): void => {
-    setSubject(next)
-    store(SUBJECT_KEY, next)
-  }
   const chooseLayout = (next: Layout): void => {
     if (subject === "jobs") {
       saved.setLayout(next)
@@ -175,30 +174,29 @@ export function Account({ looking, onStartLooking, onStopLooking, onOpenClaude }
     <FilterBus value={(patch) => saved.setFilters({ ...filters, ...patch })}>
     <div className="flex w-full flex-1 flex-col gap-6">
       <div className="flex flex-1 flex-col gap-8">
-        {/* A phone has no title here: the switch sits right under the name, like an app's top tabs. */}
-        <div className="md:hidden">
-          <SubjectSwitch subject={subject} onChange={choose} />
-        </div>
-        <h1 className="text-2xl font-semibold tracking-tight max-md:hidden">{data.profile.name.trim() ? `${data.profile.name.trim().split(" ")[0]}'s job search` : "Your job search"}</h1>
+        {page === "home" ? (
+          <>
+            <h1 className="text-2xl font-semibold tracking-tight max-md:hidden">{data.profile.name.trim() ? `${data.profile.name.trim().split(" ")[0]}'s job search` : "Your job search"}</h1>
 
-        <SearchSummary />
+            <SearchSummary />
 
-        <HeardBack />
+            <HeardBack />
 
-        <Suspense fallback={null}>
-          <SetupCard onJobs={onStartLooking} />
-        </Suspense>
+            <Suspense fallback={null}>
+              <SetupCard onJobs={onStartLooking} />
+            </Suspense>
 
-        {/* Only once there is something for Claude to work on: a saved or applied job. Before that, the first thing to do is to find jobs. */}
-        {onOpenClaude && kept.length > 0 ? <ClaudePromo onOpen={onOpenClaude} /> : null}
+            <DueNow onOpenJob={setRevisit} onOpenPeople={() => onOpenPage?.("people")} />
 
-        <section aria-label="Your jobs" className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 max-md:hidden">
-            <div className="flex flex-wrap items-center gap-2">
-              <SubjectSwitch subject={subject} onChange={choose} />
-            </div>
-          </div>
+            {/* Only once there is something for Claude to work on: a saved or applied job. Before that, the first thing to do is to find jobs. */}
+            {onOpenClaude && kept.length > 0 ? <ClaudePromo onOpen={onOpenClaude} /> : null}
+          </>
+        ) : (
+          <h1 className="text-2xl font-semibold tracking-tight">{page === "tracker" ? "Tracker" : page === "people" ? "People" : "Companies"}</h1>
+        )}
 
+        {page !== "home" ? (
+        <section aria-label={page === "tracker" ? "Your jobs" : page === "people" ? "Your people" : "Companies"} className="flex flex-col gap-4">
           {subject === "companies" ? (
             <CompaniesView />
           ) : subject === "people" ? (
@@ -243,6 +241,7 @@ export function Account({ looking, onStartLooking, onStopLooking, onOpenClaude }
             </>
           )}
         </section>
+        ) : null}
 
       </div>
 
@@ -250,6 +249,7 @@ export function Account({ looking, onStartLooking, onStopLooking, onOpenClaude }
         <JobDrawer post={revisit} onClose={() => setRevisit(null)} onSwitch={setRevisit} />
       ) : null}
 
+      {page === "home" || page === "tracker" ? (
       <div className="flex justify-center pb-4 max-md:hidden">
         <Button size="lg" onClick={onStartLooking} title={pool > 0 ? `${pool.toLocaleString()} jobs in the job pool` : undefined} className="flex w-full max-w-sm cursor-pointer">
           All jobs
@@ -257,6 +257,7 @@ export function Account({ looking, onStartLooking, onStopLooking, onOpenClaude }
           {pool > 0 ? <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-xs font-semibold tabular-nums text-foreground">{pool.toLocaleString()}</span> : null}
         </Button>
       </div>
+      ) : null}
     </div>
     </FilterBus>
   )
@@ -264,34 +265,6 @@ export function Account({ looking, onStartLooking, onStopLooking, onOpenClaude }
 
 type Subject = "jobs" | "companies" | "people"
 type Layout = ViewLayout
-
-/** Jobs, Companies or People: three sides of the same search. Companies join the other two: each one's jobs and the people you know there. */
-function SubjectSwitch({ subject, onChange }: { subject: Subject; onChange: (next: Subject) => void }): React.JSX.Element {
-  const items = [
-    { value: "jobs", label: "Jobs", Icon: BookmarkIcon },
-    { value: "companies", label: "Companies", Icon: BuildingsIcon },
-    { value: "people", label: "People", Icon: PeopleIcon },
-  ] as const
-
-  return (
-    <div role="tablist" aria-label="Show" className="flex h-10 items-center rounded-lg border-[1.5px] bg-card p-0.5 max-md:w-full max-md:rounded-xl max-md:border-0 max-md:bg-secondary max-md:p-1">
-      {items.map(({ value, label, Icon }) => (
-        <button
-          key={value}
-          type="button"
-          role="tab"
-          aria-selected={subject === value}
-          onClick={() => onChange(value)}
-          {...(value === "people" ? prefetchOn(loadPeople) : {})}
-          className={`flex h-full cursor-pointer items-center gap-2 rounded-md px-3.5 text-sm font-medium transition-colors duration-150 max-md:flex-1 max-md:justify-center max-md:rounded-lg ${subject === value ? "bg-foreground text-background max-md:bg-card max-md:text-foreground max-md:shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-        >
-          <Icon className="size-4" aria-hidden="true" />
-          {label}
-        </button>
-      ))}
-    </div>
-  )
-}
 
 const LAYOUTS = {
   people: [

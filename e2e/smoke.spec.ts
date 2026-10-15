@@ -110,7 +110,7 @@ test("first visit: start, skip the profile, see your jobs, answer the questions 
 test.describe("signed-in account", () => {
   test.use({ signedIn: true })
 
-  test("the Company tab lists the people at the employer by itself, hiring managers first, each with a position", async ({ page }) => {
+  test("the job page lists the people at the employer by itself, hiring managers first, each with a position, and your own people on it with their stage", async ({ page }) => {
     const post = FLOW_POSTINGS[0]
     await page.route("**/functions/v1/jobs/people", (route) =>
       route.fulfill({
@@ -126,15 +126,22 @@ test.describe("signed-in account", () => {
       }),
     )
     await page.goto(`/job/${post.id}`)
-    await page.getByRole("tab", { name: "Company" }).click()
     const people = page.getByRole("heading", { name: "People", exact: true })
     await expect(people).toBeVisible()
-    const managers = page.getByRole("region", { name: "Hiring managers" })
+    const managers = page.getByRole("region", { name: /Hiring managers|Department leads/ })
     await expect(managers.getByText("Sanne de Vries")).toBeVisible()
     await expect(managers.getByText("Finance Manager")).toBeVisible()
     // Hiring managers come before the other groups.
-    const order = await page.locator("section[aria-label='Hiring managers'], section[aria-label='Same team'], section[aria-label='Other']").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")))
-    expect(order[0]).toBe("Hiring managers")
+    const order = await page.locator("section[aria-label='Hiring managers'], section[aria-label='Department leads'], section[aria-label='Same team'], section[aria-label='Same department'], section[aria-label='Other']").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")))
+    expect(order[0]).toMatch(/Hiring managers|Department leads/)
+    // Adding a hiring manager puts them on this job's list, where their stage is changed in place.
+    await managers.getByRole("button", { name: "Add Sanne de Vries to your People" }).click()
+    const mine = page.getByRole("list", { name: "Your people on this job" })
+    await expect(mine.getByText("Sanne de Vries")).toBeVisible()
+    const stage = mine.getByLabel("Where you are with Sanne de Vries")
+    await expect(stage).toHaveValue("To contact")
+    await stage.selectOption("Contacted")
+    await expect(stage).toHaveValue("Contacted")
   })
 
   test("the top of Home opens to numbers worked out from the applications: no reply, first reply, longest wait, how far they get", async ({ page }) => {
@@ -159,8 +166,28 @@ test.describe("signed-in account", () => {
     await expect(insights.getByText("1 · 25%")).toBeVisible()
   })
 
+  test("Tracker, People and Companies are their own pages in the menu; Home shows what is due and opens the job", async ({ page }) => {
+    const day = (ago: number): string => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10)
+    await page.route("**/rest/v1/applications*", (route) => route.fulfill({ json: route.request().method() === "GET" ? [{ id: 1, posting_id: FLOW_POSTINGS[0].id, fit_tier: "mid", stage: "applied", logged_at: day(12) }] : [] }))
+    await page.goto("/")
+    // Home is the dashboard: no switch between three things, only what is waiting.
+    await expect(page.getByRole("tablist", { name: "Show" })).toHaveCount(0)
+    const due = page.getByRole("region", { name: "Follow up" })
+    await expect(due).toBeVisible()
+    await expect(due.getByText(FLOW_POSTINGS[0].title)).toBeVisible()
+    await expect(due.getByText(/Overdue by 5 days/)).toBeVisible()
+    for (const name of ["Tracker", "People", "Companies"]) {
+      await page.getByRole("navigation", { name: "Your account" }).getByRole("button", { name, exact: true }).first().click()
+      await expect(page.getByRole("heading", { level: 1, name, exact: true })).toBeVisible()
+    }
+    // The tracker holds the jobs you kept.
+    await page.getByRole("navigation", { name: "Your account" }).getByRole("button", { name: "Tracker", exact: true }).first().click()
+    await expect(page.getByText(FLOW_POSTINGS[0].title).first()).toBeVisible()
+  })
+
   test("opening manual entry keeps the CSV uploader open", async ({ page }) => {
     await page.goto("/")
+    await page.getByRole("button", { name: "Tracker" }).last().click()
     await page.getByRole("button", { name: "Upload your own jobs" }).click()
     await expect(page.getByRole("heading", { name: "Upload a list" })).toBeVisible()
 
