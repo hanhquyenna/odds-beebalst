@@ -527,6 +527,8 @@ function openApplication(url, from) {
     if (typeof tab.id !== "number") return { ok: false, message: "Could not open an application tab." }
     await setIntent(tab.id, { job: url, at: Date.now(), status: "filling" })
     await chrome.tabs.update(tab.id, { url, active: true })
+    // Applying keeps the job in the person's tracker, in the same click.
+    addJob(url).catch(() => undefined)
     return { ok: true, resumed: false }
   })().finally(() => applicationStarts.delete(job))
   applicationStarts.set(job, opening)
