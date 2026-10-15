@@ -12,7 +12,7 @@ import * as core from "./core.js"
 import { handleOAuth, unauthorized } from "./oauth.ts"
 import { accessFor, contentOf, driveEnv, linkOf, pushIfConnected } from "../_shared/drive.ts"
 import { applicationQuestionKey } from "../_shared/apply-form.ts"
-import { personalFromProfile } from "../_shared/application-personal.ts"
+import { educationFromProfile, personalFromProfile } from "../_shared/application-personal.ts"
 import { cleanAnswers, missingAnswers, type Answers } from "../_shared/application-answers.ts"
 import { cleanCv, cvText, renderCvPdf } from "../_shared/cv-template.ts"
 import { heldFilter, jobLink, type JobLink } from "../_shared/job-sites.ts"
@@ -1316,7 +1316,7 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
       emailOf(env, me),
       svc(env, `documents?user_id=eq.${me.id}&kind=eq.cv&is_main=eq.true&select=id,name,file_name`),
     ])
-    const answers = { ...personalFromProfile(profile, email), ...savedAnswers }
+    const answers = { ...personalFromProfile(profile, email), ...educationFromProfile(profile), ...savedAnswers }
     // Whether the person already applied to another job at this employer, known from their own applications; never "no" from silence.
     const appliedIds = ((await svc(env, `applications?user_id=eq.${me.id}&select=posting_id`)) ?? []).map((a: Json) => String(a.posting_id)).filter((id: string) => id && id !== held?.id)
     const sameEmployer = held?.employer && appliedIds.length > 0 ? await svc(env, `postings?id=in.(${appliedIds.map((id: string) => encodeURIComponent(id)).join(",")})&employer=eq.${encodeURIComponent(String(held.employer))}&select=id&limit=1`) : []

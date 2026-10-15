@@ -1,4 +1,4 @@
-// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts and apply-form.ts (sources 6d504130585db3ab). Do not edit.
+// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts and apply-form.ts (sources b0387263f8b94eb9). Do not edit.
 (() => {
   var __defProp = Object.defineProperty;
   var __returnValue = (v) => v;
@@ -22,7 +22,10 @@
     applicationQuestionKey: () => applicationQuestionKey,
     chooseOption: () => chooseOption,
     demographicChoice: () => demographicChoice,
+    dialCodeOf: () => dialCodeOf,
     graduationParts: () => graduationParts,
+    heardChoice: () => heardChoice,
+    isHearQuestion: () => isHearQuestion,
     nationalNumber: () => nationalNumber,
     nlProvinceOf: () => nlProvinceOf,
     preferenceChoice: () => preferenceChoice,
@@ -136,6 +139,24 @@
       return -1;
     return options.findIndex((o) => DECLINE.test(o.trim()));
   }
+  var DIAL = /^\+(351|353|420|421|234|31|32|33|34|39|44|49|1|36|48|45|46|47|41|43|30|90|91|84|86|62|60|63|65|66|55|52|27|20|7)/;
+  function dialCodeOf(phone) {
+    const m = DIAL.exec((phone ?? "").replace(/[^\d+]/g, ""));
+    return m ? `+${m[1]}` : null;
+  }
+  function isHearQuestion(label) {
+    return /\b(how did you (hear|find|learn)|where did you (hear|find|see)|how you (heard|found)|source of (your )?application|from where did you hear)\b/.test(questionKey(label));
+  }
+  function heardChoice(options, source) {
+    for (const want of [source ?? "", "LinkedIn", "Job board", "Online job board", "Job site", "Job portal", "Careers website", "Company website", "Website", "Internet", "Social media", "Other"]) {
+      if (!want)
+        continue;
+      const i = chooseOption([...options], want, "How did you hear");
+      if (i >= 0)
+        return i;
+    }
+    return -1;
+  }
   function answerText(label, facts) {
     const key = questionKey(label);
     const a = facts.answers ?? {};
@@ -154,6 +175,11 @@
       return a.first_name && a.last_name ? `${a.first_name} ${a.last_name}` : pick(facts.name);
     if (/\b(e ?mail\w*|courriel)\b/.test(key))
       return pick(a.email) ?? pick(facts.email);
+    if (/\b(country|phone|calling|dial|area)\b.*\bcode\b|\bcode du pays\b|\blandcode\b|\bphone prefix\b|\btelefoonvoorvoegsel\b|\bindicatif\b/.test(key)) {
+      const code = dialCodeOf(a.phone ?? facts.phone);
+      const country = residenceCountry(facts);
+      return pick(code ?? (country && NL_NAME.test(country) ? "+31" : null));
+    }
     if (/\b(mobile|phone|telephone|telefon\w*|telefoon\w*|mobiel\w*|portable)\b/.test(key) && !/country|landcode|pays/.test(key))
       return pick(a.phone) ?? pick(facts.phone);
     if (/\blinkedin\b/.test(key) && /\b(url|profile|link)\b/.test(key))
@@ -196,7 +222,7 @@
     if (/\b(how did you (hear|find|learn)|where did you (hear|find|see)|source of (your )?application)\b/.test(key))
       return pick(facts.job_source);
     if (/\b(previously|before|already|earlier)\b.*\bappl(ied|y|ication)\b|\bappl(ied|ication)\b.*\b(before|previously|this season|earlier)\b/.test(key))
-      return facts.applied_before ? "Yes" : remembered || null;
+      return facts.applied_before === true ? "Yes" : facts.applied_before === false ? remembered || "No" : remembered || null;
     if (/\b(degree|diploma|level of education|education level|highest level|opleidingsniveau)\b/.test(key))
       return pick(a.degree);
     if (/\b(18|eighteen)\b.*\b(ans|years|jaar|older|plus|ouder|alt)\b|\b(at least|over|above)\b.*\b18\b/.test(key))
@@ -258,6 +284,10 @@
         return "No";
       return /^\s*yes\b|\b(eu|eea)\b|\ballowed\b|\bauthori[sz]ed\b|\bfree to work\b|\bpermit\b/i.test(w) ? "Yes" : null;
     }
+    if (asks && /\bnative\b/.test(key) && /\b(dutch|nederlands)\b/.test(key)) {
+      const level = (facts.dutch ?? "").toLowerCase();
+      return level ? level === "native" ? "Yes" : "No" : remembered || null;
+    }
     if (/\bdutch\b|\bnederlands\b/.test(key) && /\b(level|proficiency|speak|fluent|niveau)\b/.test(key)) {
       if (asks) {
         const level = (facts.dutch ?? "").toLowerCase();
@@ -277,6 +307,13 @@
     const canon = (t) => norm(t).replace(/\bnoord\b/g, "north").replace(/\bzuid\b/g, "south").replace(/\bfryslan\b/g, "friesland").replace(/\bnederland\b/g, "netherlands").replace(/^the netherlands$/, "netherlands").replace(/^pays bas$|^niederlande$/, "netherlands").replace(/^hollande septentrionale$|^nordholland$/, "north holland").replace(/^hollande meridionale$|^sudholland$/, "south holland").replace(/^brabant septentrional$|^nordbrabant$/, "north brabant").replace(/^frise$/, "friesland").replace(/^zelande$/, "zeeland").replace(/^geldre$/, "gelderland");
     const want = canon(answer);
     const opts = options.map(canon);
+    if (/\bdegree\b|\bdiploma\b|\beducation\b/.test(norm(label))) {
+      const level = (t) => /\b(phd|doctor\w*)\b/.test(t) ? "phd" : /\b(master\w*|msc|mba|ma|llm)\b/.test(t) ? "master" : /\b(bachelor\w*|bsc|ba|llb)\b/.test(t) ? "bachelor" : /\b(associate|diploma|certificate)\b/.test(t) ? "associate" : null;
+      const wanted = level(want);
+      const i = wanted ? opts.findIndex((o, n) => options[n] !== undefined && level(o) === wanted) : -1;
+      if (i >= 0)
+        return i;
+    }
     const real = (i) => !/^(select an option|select|selecteer|choose|kies|kiezen|make a selection|pick one)\b/.test(opts[i]) && opts[i] !== "";
     if (!want)
       return -1;

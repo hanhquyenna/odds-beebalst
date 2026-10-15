@@ -96,7 +96,7 @@
       else out.push({ kind: t === "number" ? "number" : "text", el, label })
     }
     // Dropdowns drawn as a button that opens a list (Workday): the button shows the choice, the list is made when it opens.
-    for (const b of document.querySelectorAll('button[aria-haspopup="listbox"], [role="combobox"][aria-haspopup="listbox"]:not(input)')) {
+    for (const b of document.querySelectorAll('button[aria-haspopup="listbox"], [role="combobox"]:not(input):not(select), [aria-haspopup="listbox"]:not(input):not(select)')) {
       if (!shown(b) || b.closest("#odds-add, .odds-job-chance, .odds-apply-bar, nav, header, footer, [role='search']")) continue
       const by = (b.getAttribute("aria-labelledby") || "").split(/\s+/).filter((id) => id && id !== b.id).map((id) => textOf(document.getElementById(id))).filter(Boolean).join(" ")
       const label = by || (b.id && textOf(document.querySelector(`label[for="${CSS.escape(b.id)}"]`))) || b.getAttribute("aria-label") || ""
@@ -129,24 +129,64 @@
   /** What a searchable dropdown shows as its choice (react-select and the like), empty while nothing is chosen. */
   const comboValue = (input) => textOf(input.closest("[class*='control'], [class*='container'], [class*='select']")?.querySelector("[class*='single-value'], [class*='SingleValue'], [class*='selected-value']"))
   /** Opens a dropdown and clicks the option that means `answer`; answers whether one was clicked. */
+  /** The options a dropdown shows now: the list that belongs to it, else the visible one on the page. */
+  function listed(input) {
+    const listbox = document.getElementById(input.getAttribute("aria-controls") || "") || [...document.querySelectorAll("[role='listbox']")].filter((l) => shown(l) && l.querySelector("[role='option']")).pop() || input.closest("[class*='container'], div")?.querySelector("[role='listbox']")
+    const options = [...(listbox?.querySelectorAll("[role='option'], [data-automation-id='promptOption']") || [])].filter(shown)
+
+    return { options, texts: options.map(textOf) }
+  }
+  /** Puts text in a search box the way typing does, so a list that is only drawn for typing (react-select, an address search) draws. */
+  function typeInto(input, text) {
+    input.focus()
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+    if (setter) setter.call(input, text)
+    else input.value = text
+    input.dispatchEvent(new InputEvent("input", { bubbles: true, data: text, inputType: "insertText" }))
+  }
   async function pickOption(input, answer, label, fallback) {
     const button = input.tagName === "BUTTON" || input.getAttribute("aria-haspopup") === "listbox"
     if (button) input.click()
     else {
+      // A dropdown opens on a whole press (pointer down, mouse down, up, click) on its control box, as a hand does; the arrow key is the second try.
+      const control = input.closest("[class*='control'], [class*='Control']") ?? input
       input.focus()
-      input.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
-      input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }))
+      for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+        control.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0 }))
+        await sleep(40)
+      }
     }
     await sleep(150)
-    const listbox = document.getElementById(input.getAttribute("aria-controls") || "") || [...document.querySelectorAll("[role='listbox']")].filter(shown).pop() || input.closest("[class*='container'], div")?.querySelector("[role='listbox']")
-    const options = [...(listbox?.querySelectorAll("[role='option']") || [])].filter(shown)
-    const texts = options.map(textOf)
-    const i = answer !== null ? A.chooseOption(texts, answer, label) : fallback ? fallback(texts) : -1
+    let { options, texts } = listed(input)
+    if (!button && texts.length === 0) {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true }))
+      await sleep(250)
+      ;({ options, texts } = listed(input))
+    }
+    const choose = (list) => {
+      if (answer === null) return fallback ? fallback(list) : -1
+      let i = A.chooseOption(list, answer, label)
+      // "How did you hear?" with no LinkedIn in the list: the closest honest option.
+      if (i < 0 && A.isHearQuestion(label)) i = A.heardChoice(list, answer)
+
+      return i
+    }
+    let i = choose(texts)
+    // Some lists open only for typing, or draw their choices from a search: the answer is typed and the match picked.
+    if (i < 0 && !button && answer !== null && input.tagName === "INPUT") {
+      typeInto(input, answer)
+      await sleep(900)
+      ;({ options, texts } = listed(input))
+      i = choose(texts)
+      // A place, a school or a field is searched for: the first suggestion for it is the one.
+      if (i < 0 && texts.length && /\b(location|city|school|university|discipline|field of study|institution)\b/i.test(label)) i = 0
+      if (i < 0) { typeInto(input, ""); input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); input.blur(); return null }
+    }
     if (i < 0) { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); if (!button) input.blur(); return null }
     const text = texts[i]
     options[i].dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
     options[i].click()
-    await sleep(100)
+    await sleep(120)
     return text
   }
 
@@ -228,7 +268,8 @@
           expectedText = await pickOption(f.el, answer, f.label, fallback)
           ok = expectedText !== null
         } else if (f.kind === "select" || f.kind === "radio" || f.kind === "choice") {
-          const i = A.chooseOption(f.options, answer, f.label)
+          let i = A.chooseOption(f.options, answer, f.label)
+          if (i < 0 && A.isHearQuestion(f.label)) i = A.heardChoice(f.options, answer)
           if (i >= 0) {
             expectedOption = i
             if (f.kind === "select") {
@@ -377,11 +418,14 @@
       await handoff?.publish(fields().filter(f => f.kind !== "file" && boxOf(f).classList.contains("odds-ask")))
       const unsupported = [...document.querySelectorAll('[aria-required="true"][role="combobox"], [aria-required="true"][role="checkbox"]')].filter(e => shown(e) && (e.getAttribute("aria-checked") !== "true") && !e.matches("input, select, textarea"))
       const errors = [...document.querySelectorAll('[role="alert"]')].filter(e => shown(e) && /error|invalid|required|failed|too large|not supported/i.test(textOf(e)))
-      const total = document.querySelectorAll(".odds-ask").length + unsupported.length + errors.length
+      // A password to make (an account is needed to apply): never typed by odds, so the application is not finished and is not "ready".
+      const passwords = [...document.querySelectorAll('input[type="password"]')].filter((e) => shown(e) && !e.value)
+      const total = document.querySelectorAll(".odds-ask").length + unsupported.length + errors.length + passwords.length
       if (any) sawForm = true
       verifiedRounds = (any || sawForm) && total === 0 ? verifiedRounds + 1 : 0
       if (any && (done || total || round > 2)) {
         if (/sign in|log in|create account|inloggen|account aanmaken/i.test(document.title + " " + textOf(document.querySelector("h1, h2")))) say("Sign in or make the account yourself; odds fills in the form after.", "ask")
+        else if (passwords.length) say("This site needs an account. Choose your password on the page: odds never types passwords. The rest is filled in.", "ask")
         else if (!total && [...document.querySelectorAll('input[type="checkbox"]')].some((c) => shown(c) && !c.checked && (c.required || c.getAttribute("aria-required") === "true"))) say("Everything is filled in. Tick the terms yourself and send it.", "done")
         else if (total) say(`odds filled in what it knows. Answer the ${total === 1 ? "outlined question" : `${total} outlined questions`}: odds keeps your answers. Then check the form and send it yourself.`, "ask")
         else if ([...document.querySelectorAll('[role="checkbox"][aria-checked="false"]')].some(shown)) say("Odds filled the details it knows. Review the form and confirm the consent yourself before sending.", "ask")
@@ -389,7 +433,7 @@
         else say("Filled in by odds. Check everything, then send it yourself.", "done")
       } else if (!any && sawForm && total === 0) {
         // The steps are through (a review page has no fields): what is left is the person's to check and send.
-        if (!nextButton()) say("Filled in by odds. Check everything, then send it yourself.", "done")
+        if (!nextButton() && !passwords.length) say("Filled in by odds. Check everything, then send it yourself.", "done")
       } else if (!any && round >= 8) {
         say("Odds could not verify an application form here. Open the form or complete this step on your desktop.", "ask")
       } else if (!any && !pressed && round === 4) {

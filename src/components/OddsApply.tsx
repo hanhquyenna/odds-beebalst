@@ -6,8 +6,10 @@ import { prepareInExtension, useExtensionPresent } from "@/lib/extension-connect
 import { onApplicationSignal, type ApplicationState } from "@/lib/embed"
 import { embedded, extensionParent } from "@/lib/embedded"
 import { useData } from "@/lib/data"
+import { toggleSave } from "@/lib/save"
 import { activeApplication, applicationState, cancelApplication, continueApplication, requestApplication, type ApplicationRun } from "@/lib/application-runs"
 import { sourcesOf } from "@/components/SourceChips"
+import { applySourceOf } from "@/lib/apply-source"
 import type { Posting } from "@/lib/types"
 
 /**
@@ -24,7 +26,8 @@ export function OddsApply({ post }: { post: Posting }): React.JSX.Element | null
 function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
   const extensionPresent = useExtensionPresent()
   const [sent, setSent] = useState(false)
-  const userId = useData().session?.user.id
+  const data = useData()
+  const userId = data.session?.user.id
   const [run, setRun] = useState<ApplicationRun | null>(null)
   const [online, setOnline] = useState(false)
   const [error, setError] = useState("")
@@ -50,7 +53,8 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
     const t = window.setTimeout(() => setSent(false), 4000)
     return () => window.clearTimeout(t)
   }, [sent])
-  const main = sourcesOf(post).find((s) => s.url)
+  // The employer's own application first; LinkedIn only when it is the only place the job is.
+  const main = applySourceOf(sourcesOf(post))
   const parent = extensionParent()
   const [state, setState] = useState<ApplicationState | null>(null)
   const [now, setNow] = useState(() => Date.now())
@@ -91,6 +95,7 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
     const unavailable = run?.status === "failed" && /no longer accepting applications|job is closed/i.test(run.message)
     const phase: ApplyPhase | null = run && (active || run.status === "failed") ? (run.status as ApplyPhase) : null
     const press = (): void => {
+      if (!data.saved.has(post.id)) toggleSave(data, post)
       setPending(true); setError("")
       void (active ? continueApplication(post.id) : requestApplication(post.id)).then(setRun).catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not prepare this application.")).finally(() => setPending(false))
     }
@@ -110,7 +115,7 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
     return (
       <div className={`flex w-full flex-col gap-4 transition-shadow duration-300 ${phase ? (phase === "needs_input" ? "rounded-xl border-2 border-brand bg-card p-4 ring-4 ring-brand/30 shadow-lg" : "rounded-xl border-2 border-brand/70 bg-card p-4 ring-4 ring-brand/10 shadow-md") : ""}`}>
         {phase ? <ApplyProgress phase={phase} /> : null}
-        <ApplicationQuestions inline postingId={post.id} aside={primary} empty={<div className="flex flex-col gap-2 sm:flex-row">{primary}{run?.status === "needs_input" ? null : cancel}</div>} />
+        {run?.status === "ready" ? <div className="flex flex-col gap-2 sm:flex-row">{primary}{cancel}</div> : <ApplicationQuestions inline postingId={post.id} aside={primary} empty={<div className="flex flex-col gap-2 sm:flex-row">{primary}{run?.status === "needs_input" ? null : cancel}</div>} />}
         {run?.status === "needs_input" && cancel ? <div className="flex">{cancel}</div> : null}
         {run?.status === "failed" ? <p role="alert" className="text-sm text-destructive">{run.message}</p> : null}
         {!online && !active ? <p className="text-sm text-muted-foreground">Open Chrome on your computer to start.</p> : null}
@@ -133,6 +138,8 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
     : state.status === "failed" ? "Try again"
     : "Application sent"
   const press = (): void => {
+    // Applying keeps the job in the tracker, in the same click.
+    if (!data.saved.has(post.id)) toggleSave(data, post)
     setError("")
     setSent(true)
     if (embedded && parent) window.parent.postMessage({ source: "odds-site", type: "apply", url: main.url }, parent)
@@ -152,7 +159,7 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
   return (
     <div className={`flex w-full flex-col gap-4 transition-shadow duration-300 ${phase ? (phase === "needs_input" ? "rounded-xl border-2 border-brand bg-card p-4 ring-4 ring-brand/30 shadow-lg" : "rounded-xl border-2 border-brand/70 bg-card p-4 ring-4 ring-brand/10 shadow-md") : ""}`}>
       {phase ? <ApplyProgress phase={phase} /> : null}
-      {login ? <div className="flex gap-2">{primary}</div> : <ApplicationQuestions inline postingId={post.id} aside={primary} empty={<div className="flex gap-2">{primary}</div>} />}
+      {login || phase === "ready" ? <div className="flex gap-2">{primary}</div> : <ApplicationQuestions inline postingId={post.id} aside={primary} empty={<div className="flex gap-2">{primary}</div>} />}
       {stalled ? <p className="text-sm text-muted-foreground">Still working. Open the tab to see where it is.</p> : null}
       {state?.status === "failed" && state.message ? <p role="alert" className="text-sm text-destructive">{state.message}</p> : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}

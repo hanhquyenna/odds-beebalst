@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react"
-import { personalFromProfile } from "../../supabase/functions/_shared/application-personal"
+import { educationFromProfile, personalFromProfile } from "../../supabase/functions/_shared/application-personal"
 import { loadAnswers, type AnswerValues } from "@/lib/application-answers"
 import { useData } from "@/lib/data"
 import { useDocumentStore } from "@/lib/documents"
 import { useExtensionPresent } from "@/lib/extension-connect"
-import { SETUP_QUESTIONS, type SetupQuestion } from "@/lib/setup-questions"
+import { QUICK_SETUP_KEYS, SETUP_QUESTIONS, type SetupQuestion } from "@/lib/setup-questions"
 
 /** Fired when answers are saved anywhere, so everything that counts them reads again. */
 export const ANSWERS_SAVED = "odds:answers-saved"
@@ -55,16 +55,16 @@ export function useSetup(): Setup {
   }, [reload])
 
   const mine = answers ?? {}
-  const inferred = personalFromProfile(data.profile, data.session?.user.email)
+  // What the CV already says (school, degree, graduation, year of study) is not asked again.
+  const inferred = { ...personalFromProfile(data.profile, data.session?.user.email), ...educationFromProfile(data.profile) }
   const has = (key: string): boolean => Boolean((mine[key] ?? inferred[key] ?? "").trim())
-  const missing = SETUP_QUESTIONS.filter((q) => !has(q.key))
+  const missing = SETUP_QUESTIONS.filter((q) => QUICK_SETUP_KEYS.has(q.key) && !has(q.key))
   const required = missing.filter((q) => !q.optional)
   const steps: SetupStep[] = [
     { key: "cv", title: "CV", done: store.docs.some((d) => d.kind === "cv") || data.profile.cv.trim().length >= 20 },
     { key: "details", title: "Details", done: ["first_name", "last_name", "email", "phone"].every(has) },
     { key: "answers", title: "Answers", done: answers !== null && required.length === 0 },
     { key: "extension", title: "Chrome", done: extension === "yes" },
-    { key: "first", title: "First application", done: data.applications.length > 0 },
   ]
   const done = steps.filter((s) => s.done).length
 

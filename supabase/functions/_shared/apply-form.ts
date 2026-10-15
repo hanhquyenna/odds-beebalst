@@ -20,7 +20,7 @@ export interface Facts {
   remembered?: Record<string, string>
   /** Where the person found this job (LinkedIn, Indeed, the company's own site...), from the job odds holds. */
   job_source?: string | null
-  /** True when odds knows the person already applied to another job at this employer. Never false from silence: only a known yes. */
+  /** Whether odds's own record shows an application to another job at this employer: true is a known yes, false is "nothing on record" (answered No), absent is unknown. */
   applied_before?: boolean
   /** True when the person has university education on their profile: an adult, for "are you 18 or older". */
   adult?: boolean
@@ -182,6 +182,31 @@ export function demographicChoice(label: string, options: ReadonlyArray<string>,
   return options.findIndex((o) => DECLINE.test(o.trim()))
 }
 
+const DIAL = /^\+(351|353|420|421|234|31|32|33|34|39|44|49|1|36|48|45|46|47|41|43|30|90|91|84|86|62|60|63|65|66|55|52|27|20|7)/
+
+/** The country code of a phone number kept as "+31 6 1234 5678", as "+31". */
+export function dialCodeOf(phone: string | null | undefined): string | null {
+  const m = DIAL.exec((phone ?? "").replace(/[^\d+]/g, ""))
+
+  return m ? `+${m[1]}` : null
+}
+
+/** Whether a question is "how did you hear about us?" in any of its wordings. */
+export function isHearQuestion(label: string): boolean {
+  return /\b(how did you (hear|find|learn)|where did you (hear|find|see)|how you (heard|found)|source of (your )?application|from where did you hear)\b/.test(questionKey(label))
+}
+
+/** Where the person found the job, as one of a list's options; when the list has no such option, the closest honest ones (a job board, the internet, other). -1 when none. */
+export function heardChoice(options: ReadonlyArray<string>, source: string | null | undefined): number {
+  for (const want of [source ?? "", "LinkedIn", "Job board", "Online job board", "Job site", "Job portal", "Careers website", "Company website", "Website", "Internet", "Social media", "Other"]) {
+    if (!want) continue
+    const i = chooseOption([...options], want, "How did you hear")
+    if (i >= 0) return i
+  }
+
+  return -1
+}
+
 /** The person's answer to a question, in their words, or null when odds does not know it. Their own earlier answer comes first. */
 export function answerText(label: string, facts: Facts): string | null {
   const key = questionKey(label)
@@ -197,6 +222,13 @@ export function answerText(label: string, facts: Facts): string | null {
   if (/\b(last name|surname|family name|achternaam|nom de famille|nachname)\b/.test(key)) return pick(a.last_name)
   if (/^(full )?name$/.test(key)) return (a.first_name && a.last_name ? `${a.first_name} ${a.last_name}` : pick(facts.name))
   if (/\b(e ?mail\w*|courriel)\b/.test(key)) return pick(a.email) ?? pick(facts.email)
+  // The country code beside a phone number ("Code du pays", "Country code"): the one on the number, else +31 for someone who lives in the Netherlands.
+  if (/\b(country|phone|calling|dial|area)\b.*\bcode\b|\bcode du pays\b|\blandcode\b|\bphone prefix\b|\btelefoonvoorvoegsel\b|\bindicatif\b/.test(key)) {
+    const code = dialCodeOf(a.phone ?? facts.phone)
+    const country = residenceCountry(facts)
+
+    return pick(code ?? (country && NL_NAME.test(country) ? "+31" : null))
+  }
   if (/\b(mobile|phone|telephone|telefon\w*|telefoon\w*|mobiel\w*|portable)\b/.test(key) && !/country|landcode|pays/.test(key)) return pick(a.phone) ?? pick(facts.phone)
   if (/\blinkedin\b/.test(key) && /\b(url|profile|link)\b/.test(key)) return pick(a.linkedin) ?? pick(facts.linkedin)
   // "Are you currently based in the Netherlands?": yes or no from where the person lives, when the question names a Dutch place.
@@ -228,7 +260,7 @@ export function answerText(label: string, facts: Facts): string | null {
   }
   if (/\b(current|which|what)\b.*\byear\b.*\b(studies|study|degree|programme|program|education)\b|\byear of (your )?(studies|study|degree|programme|program)\b|\b(jaar van je studie|studiejaar)\b/.test(key)) return pick(a.study_year)
   if (/\b(how did you (hear|find|learn)|where did you (hear|find|see)|source of (your )?application)\b/.test(key)) return pick(facts.job_source)
-  if (/\b(previously|before|already|earlier)\b.*\bappl(ied|y|ication)\b|\bappl(ied|ication)\b.*\b(before|previously|this season|earlier)\b/.test(key)) return facts.applied_before ? "Yes" : remembered || null
+  if (/\b(previously|before|already|earlier)\b.*\bappl(ied|y|ication)\b|\bappl(ied|ication)\b.*\b(before|previously|this season|earlier)\b/.test(key)) return facts.applied_before === true ? "Yes" : facts.applied_before === false ? remembered || "No" : remembered || null
   if (/\b(degree|diploma|level of education|education level|highest level|opleidingsniveau)\b/.test(key)) return pick(a.degree)
   // Basic facts that hold for nearly everyone and never change a chance, answered from what the profile shows or a choice made once in Autofill.
   if (/\b(18|eighteen)\b.*\b(ans|years|jaar|older|plus|ouder|alt)\b|\b(at least|over|above)\b.*\b18\b/.test(key)) return facts.adult ? "Yes" : remembered || null
@@ -270,6 +302,11 @@ export function answerText(label: string, facts: Facts): string | null {
     if (/^\s*no\b|\b(need|require)s?\b.*\b(sponsor|visa|permit)/i.test(w)) return "No"
     return /^\s*yes\b|\b(eu|eea)\b|\ballowed\b|\bauthori[sz]ed\b|\bfree to work\b|\bpermit\b/i.test(w) ? "Yes" : null
   }
+  if (asks && /\bnative\b/.test(key) && /\b(dutch|nederlands)\b/.test(key)) {
+    const level = (facts.dutch ?? "").toLowerCase()
+
+    return level ? (level === "native" ? "Yes" : "No") : remembered || null
+  }
   if (/\bdutch\b|\bnederlands\b/.test(key) && /\b(level|proficiency|speak|fluent|niveau)\b/.test(key)) {
     // "Do you have working proficiency in Dutch?" is yes or no, never the level; with English beside it only a "no" is known.
     if (asks) {
@@ -295,6 +332,13 @@ export function chooseOption(options: string[], answer: string, label = ""): num
   const canon = (t: string): string => norm(t).replace(/\bnoord\b/g, "north").replace(/\bzuid\b/g, "south").replace(/\bfryslan\b/g, "friesland").replace(/\bnederland\b/g, "netherlands").replace(/^the netherlands$/, "netherlands").replace(/^pays bas$|^niederlande$/, "netherlands").replace(/^hollande septentrionale$|^nordholland$/, "north holland").replace(/^hollande meridionale$|^sudholland$/, "south holland").replace(/^brabant septentrional$|^nordbrabant$/, "north brabant").replace(/^frise$/, "friesland").replace(/^zelande$/, "zeeland").replace(/^geldre$/, "gelderland")
   const want = canon(answer)
   const opts = options.map(canon)
+  // A degree: "MSc Finance" is the option that says Master, whatever else it says ("Master\'s Degree", "Master of Science (MSc)").
+  if (/\bdegree\b|\bdiploma\b|\beducation\b/.test(norm(label))) {
+    const level = (t: string): string | null => (/\b(phd|doctor\w*)\b/.test(t) ? "phd" : /\b(master\w*|msc|mba|ma|llm)\b/.test(t) ? "master" : /\b(bachelor\w*|bsc|ba|llb)\b/.test(t) ? "bachelor" : /\b(associate|diploma|certificate)\b/.test(t) ? "associate" : null)
+    const wanted = level(want)
+    const i = wanted ? opts.findIndex((o, n) => options[n] !== undefined && level(o) === wanted) : -1
+    if (i >= 0) return i
+  }
   const real = (i: number): boolean => !/^(select an option|select|selecteer|choose|kies|kiezen|make a selection|pick one)\b/.test(opts[i]) && opts[i] !== ""
   if (!want) return -1
   // A Dutch level asked as a list of levels.

@@ -1442,7 +1442,8 @@ test("Apply with Odds in the desktop website starts the installed extension dire
   expect(context.pages()).toHaveLength(pageCount)
   expect(application.isClosed()).toBe(false)
   await expect(application.getByRole("textbox", { name: "Phone" })).toHaveValue("+31 6 12345678")
-  expect(fake.calls).toHaveLength(0)
+  // Applying keeps the job in the tracker, in the same click: odds was asked to keep it, once.
+  await expect.poll(() => fake.calls.length).toBe(1)
 })
 
 for (const [name, form] of [
@@ -2028,7 +2029,8 @@ test("Apply with Odds pressed in the app itself (this build, on the odds address
   expect(application.isClosed()).toBe(false)
   await expect(application.getByRole("textbox", { name: "First name" })).toHaveValue("Given Names")
   expect(await application.evaluate(() => document.querySelectorAll("form").length)).toBe(1)
-  expect(fake.calls).toHaveLength(0)
+  // Applying keeps the job in the tracker, in the same click: odds was asked to keep it, once.
+  await expect.poll(() => fake.calls.length).toBe(1)
 })
 
 /** The shape of Booking.com's application (copied from a real one, October 2026): an unlabelled privacy choice, a residence country, address with a province, a login with a password odds never fills, and a banner with Accept and Reject non-essential. */
@@ -2064,6 +2066,9 @@ test("a Booking.com-style application: the privacy choice is this job only, the 
   await expect(page.locator("#zip")).toHaveValue("1012 LG")
   await expect.poll(() => page.evaluate(() => Boolean((window as unknown as { rejected?: boolean }).rejected))).toBe(true)
   expect(await page.evaluate(() => Boolean((window as unknown as { accepted?: boolean }).accepted))).toBe(false)
+  // An account is needed: odds says so and the application is not "ready", because only the person can choose a password.
+  await expect(page.locator(".odds-apply-bar")).toContainText("needs an account", { timeout: 10000 })
+  await expect(page.locator('.odds-apply-bar[data-state="ask"]')).toBeVisible()
   // Credentials are never touched, and nothing is sent.
   await expect(page.locator("#pw")).toHaveValue("")
   await expect(page.locator("#pw2")).toHaveValue("")
@@ -2149,4 +2154,113 @@ test("a Workday application in French (Kraft Heinz): your data fills every field
   await page.waitForTimeout(1500)
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
   await shot(page, "ext-kraft-heinz")
+})
+
+/** The required fields of a form that are still empty, as a person would see them: what the form asks, and how it asks it. Never presses anything. */
+async function emptyRequired(page: import("@playwright/test").Page): Promise<Array<{ label: string; kind: string }>> {
+  return page.evaluate(() => {
+    const shown = (e: Element): boolean => (e as HTMLElement).getClientRects().length > 0 && getComputedStyle(e).visibility !== "hidden"
+    const text = (e: Element | null | undefined): string => (e?.textContent ?? "").replace(/\s+/g, " ").trim()
+    const out: Array<{ label: string; kind: string }> = []
+    const seen = new Set<string>()
+    for (const el of Array.from(document.querySelectorAll("input, select, textarea"))) {
+      const input = el as HTMLInputElement
+      const type = (input.type || "").toLowerCase()
+      if (!shown(el) && type !== "file") continue
+      if (["hidden", "submit", "button", "image", "reset", "search"].includes(type) || el.closest(".odds-apply-bar")) continue
+      // react-select keeps an invisible "required" input beside every dropdown: it is not a field of its own.
+      if (input.tabIndex === -1 && getComputedStyle(el).opacity === "0") continue
+      const id = input.id
+      const label = (id ? text(document.querySelector(`label[for="${CSS.escape(id)}"]`)) : "") || input.getAttribute("aria-label") || text(el.closest("label")) || text(el.closest(".field, .application-question, [class*='question'], fieldset")?.querySelector("label, legend")) || input.name
+      const asked = /\*\s*$/.test(label) || input.required || input.getAttribute("aria-required") === "true"
+      if (!asked || !label || seen.has(label)) continue
+      let filled = false
+      if (type === "checkbox" || type === "radio") filled = input.checked || Array.from(document.querySelectorAll(`input[name="${CSS.escape(input.name)}"]`)).some((r) => (r as HTMLInputElement).checked)
+      else if (type === "file") filled = (input.files?.length ?? 0) > 0
+      else if (el.tagName === "SELECT") filled = (el as HTMLSelectElement).selectedIndex > 0 && (el as HTMLSelectElement).value !== ""
+      else if (input.getAttribute("role") === "combobox") filled = text(el.closest("[class*='control'], [class*='container']")?.querySelector("[class*='single-value'], [class*='SingleValue']")) !== ""
+      else filled = input.value.trim() !== ""
+      if (!filled) { seen.add(label); out.push({ label: label.replace(/\*+\s*$/, "").trim().slice(0, 110), kind: type === "checkbox" ? "checkbox" : type === "file" ? "file" : el.tagName === "TEXTAREA" ? "textarea" : input.getAttribute("role") === "combobox" || el.tagName === "SELECT" ? "choice" : "text" }) }
+    }
+    return out
+  })
+}
+
+test("live audit of real Greenhouse application forms from the jobs database: filled with test details, never sent", async ({ context, fake }) => {
+  test.skip(!process.env.REAL_FORMS, "Set REAL_FORMS=1 (and the database's public variables) to read real application forms.")
+  test.setTimeout(900_000)
+  await connect(context)
+  const sb = process.env.VITE_SUPABASE_URL ?? "", key = process.env.VITE_SUPABASE_ANON_KEY ?? ""
+  const rows = (await (await fetch(`${sb}/rest/v1/postings?select=url,employer_display&ats=eq.greenhouse&closed_at=is.null&order=id&limit=400`, { headers: { apikey: key, Authorization: `Bearer ${key}` } })).json()) as Array<{ url: string; employer_display: string }>
+  // A spread of employers: up to two jobs each.
+  const per = new Map<string, number>()
+  const only = process.env.REAL_FORMS_URL
+  const many = process.env.REAL_FORMS_URLS?.split(",").filter(Boolean)
+  const picked = many ? many.map((url) => ({ url, employer_display: "listed" })) : only ? [{ url: only, employer_display: "one" }] : rows.filter((r) => { const n = per.get(r.employer_display) ?? 0; per.set(r.employer_display, n + 1); return n < 2 }).slice(0, Number(process.env.REAL_FORMS_N ?? 24))
+  fake.kit = { job_id: "preal", facts: { job_id: "preal", job_country: "NL", name: "Kien Phung", email: "kien@example.com", phone: "+31 6 1234 5678", place: "Amsterdam, Netherlands", linkedin: "https://www.linkedin.com/in/kien", website: "https://kien.example.com", dutch: "basic", job_source: "LinkedIn", adult: true, never_worked_here: true, applied_before: false, answers: { first_name: "Kien", last_name: "Phung", phone: "+31 6 1234 5678", email: "kien@example.com", city: "Amsterdam", address: "Damrak 1", postcode: "1012 LG", website: "https://kien.example.com", linkedin: "https://www.linkedin.com/in/kien", university: "University of Amsterdam", degree: "MSc Finance", field_of_study: "Finance", graduation_date: "June 2027", study_year: "2nd year", study_status: "Yes, enrolled", nationality: "Vietnamese", work_authorization: "I need a work permit; the employer sponsors it", expected_salary: "EUR 600 a month", start_date: "1 February 2027", hours_per_week: "40", notice_period: "None", relocation: "Yes, anywhere in the Netherlands", onsite_ok: "Yes", prior_agreements: "No", insider: "No" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien CV", file_name: "Kien_CV.pdf", for_this_job: true } }
+  const report: Array<{ employer: string; url: string; gaps: Array<{ label: string; kind: string }>; opened: boolean }> = []
+  for (let i = 0; i < picked.length; i += 1) {
+    await Promise.all(picked.slice(i, i + 1).map(async (job) => {
+      const page = await context.newPage()
+      try {
+        await page.goto(job.url, { waitUntil: "domcontentloaded", timeout: 30000 })
+        await applyFrom(context, page, job.url)
+        await page.waitForTimeout(14000)
+        const gaps = await emptyRequired(page)
+        if (process.env.REAL_FORMS_PROBE) {
+          // What a real click does on the same field (trusted events), to compare with the extension's.
+          await page.locator(`#${process.env.REAL_FORMS_PROBE}`).click({ timeout: 5000 }).catch(() => undefined)
+          await page.waitForTimeout(600)
+          console.log("LIVE REAL CLICK", JSON.stringify(await page.evaluate(() => ({ options: document.querySelectorAll("[role=option]").length, visible: Array.from(document.querySelectorAll("[role=option]")).filter((o) => (o as HTMLElement).getClientRects().length > 0).length, focus: document.hasFocus(), active: document.activeElement?.id })))) 
+          await page.keyboard.press("Escape")
+        }
+        if (process.env.REAL_FORMS_PROBE) console.log("LIVE VARIANTS", JSON.stringify(await page.evaluate(async (id) => {
+          const input = document.getElementById(id) as HTMLInputElement
+          const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+          const open = (): number => Array.from(document.querySelectorAll("[role=option]")).filter((o) => (o as HTMLElement).getClientRects().length > 0).length
+          const close = async (): Promise<void> => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); input.blur(); await wait(300) }
+          const out: Record<string, number> = {}
+          input.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 })); await wait(400); out.mousedownOnly = open(); await close()
+          input.focus(); await wait(80); input.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 })); await wait(400); out.focusWaitMousedown = open(); await close()
+          const control = input.closest("[class*='control']") ?? input
+          for (const t of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) { control.dispatchEvent(new MouseEvent(t, { bubbles: true, button: 0, cancelable: true })); await wait(40) }
+          await wait(400); out.fullSequenceOnControl = open(); await close()
+          input.focus(); await wait(80); input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true })); await wait(400); out.focusWaitArrowKeyCode = open(); await close()
+          input.focus(); await wait(80); input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })); await wait(400); out.focusWaitArrow = open(); await close()
+          return out
+        }, process.env.REAL_FORMS_PROBE)))
+        if (process.env.REAL_FORMS_PROBE) console.log("LIVE PROBE", JSON.stringify(await page.evaluate(async (id) => {
+          const input = document.getElementById(id) as HTMLInputElement
+          if (!input) return "no input"
+          const info = (): unknown => ({ listboxes: Array.from(document.querySelectorAll("[role=listbox]")).map((l) => ({ id: l.id, options: l.querySelectorAll("[role=option]").length })), options: document.querySelectorAll("[role=option]").length, first: Array.from(document.querySelectorAll("[role=option]")).slice(0, 4).map((o) => o.textContent), expanded: input.getAttribute("aria-expanded"), controls: input.getAttribute("aria-controls"), cls: input.closest("div")?.className?.slice(0, 60) })
+          const before = info()
+          input.focus()
+          input.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
+          await new Promise((r) => setTimeout(r, 400))
+          const afterMouse = info()
+          input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }))
+          await new Promise((r) => setTimeout(r, 400))
+          const afterKey = info()
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+          setter?.call(input, "Netherlands")
+          input.dispatchEvent(new InputEvent("input", { bubbles: true, data: "Netherlands", inputType: "insertText" }))
+          await new Promise((r) => setTimeout(r, 900))
+          return { before, afterMouse, afterKey, afterTyping: info(), value: input.value, role: input.getAttribute("role"), parent: input.parentElement?.className?.slice(0, 80), menus: Array.from(document.querySelectorAll("[class*=menu]")).map((m) => (m as HTMLElement).className.slice(0, 50)).slice(0, 4) }
+        }, process.env.REAL_FORMS_PROBE)))
+        if (only || many) console.log("LIVE BAR", job.url.slice(-40), await page.locator(".odds-apply-bar").allTextContents(), "inputs:", await page.evaluate(() => Array.from(document.querySelectorAll("input,select,textarea")).slice(0, 14).map((e) => `${e.tagName}#${e.id}[${(e as HTMLInputElement).type}]=${(e as HTMLInputElement).value.slice(0, 12)}`).join(" | ")), "frames:", page.frames().map((f) => f.url().slice(0, 70)))
+        report.push({ employer: job.employer_display, url: job.url, gaps, opened: true })
+      } catch {
+        report.push({ employer: job.employer_display, url: job.url, gaps: [], opened: false })
+      } finally {
+        await page.close().catch(() => undefined)
+      }
+    }))
+  }
+  const counted = report.filter((r) => r.opened)
+  const tally = new Map<string, { n: number; kind: string }>()
+  for (const r of counted) for (const g of r.gaps) { const e = tally.get(g.label) ?? { n: 0, kind: g.kind }; e.n++; tally.set(g.label, e) }
+  for (const r of counted) if (r.gaps.some((g) => /first name/i.test(g.label))) console.log(`LIVE NOTSTARTED ${r.employer} ${r.url}`)
+  console.log(`LIVE AUDIT: ${counted.length} forms read of ${picked.length}; ${counted.filter((r) => r.gaps.every((g) => ["checkbox", "file"].includes(g.kind))).length} have nothing left but checkboxes and files`)
+  for (const [label, e] of [...tally.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 40)) console.log(`LIVE GAP ${String(e.n).padStart(2)} ${e.kind.padEnd(8)} ${label}`)
+  expect(fake.applied).toEqual([])
 })

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { applicationQuestionKey, answerText, chooseOption, nationalNumber, privacyChoice, questionKey, questionText, valueFor, type Facts } from "../../supabase/functions/_shared/apply-form"
+import { applicationQuestionKey, answerText, chooseOption, heardChoice, isHearQuestion, nationalNumber, privacyChoice, questionKey, questionText, valueFor, type Facts } from "../../supabase/functions/_shared/apply-form"
 
 const facts: Facts = {
   name: "Phung Chi Kien",
@@ -34,9 +34,10 @@ describe("answerText", () => {
     expect(answerText("Last name", facts)).toBe("Phung")
     expect(answerText("Email address Email address", facts)).toBe("kien@example.com")
     expect(answerText("Mobile phone number", facts)).toBe("+31 6 1234 5678")
-    expect(answerText("Phone country code", facts)).toBeNull()
+    // The code beside the number is the one on the number.
+    expect(answerText("Phone country code", facts)).toBe("+31")
     expect(answerText("Mobiel telefoonnummer", facts)).toBe("+31 6 1234 5678")
-    expect(answerText("Landcode", facts)).toBeNull()
+    expect(answerText("Landcode", facts)).toBe("+31")
     expect(answerText("E-mailadres E-mailadres", facts)).toBe("kien@example.com")
     expect(answerText("City", facts)).toBe("Amsterdam")
     expect(answerText("LinkedIn Profile URL", facts)).toBe("https://www.linkedin.com/in/kien")
@@ -177,6 +178,8 @@ describe("the questions a traineeship form asks, answered from code", () => {
     expect(chooseOption(["Company website", "LinkedIn", "Friend"], "LinkedIn")).toBe(1)
     const q = "Have you previously applied to this role or a similar role with us this season?"
     expect(answerText(q, { ...f, applied_before: true })).toBe("Yes")
+    // Nothing on record is "No"; not knowing at all is left to the person.
+    expect(answerText(q, { ...f, applied_before: false })).toBe("No")
     expect(answerText(q, f)).toBeNull()
   })
   test("what only the person knows is left to them: gender, grades, a language they prefer, a cohort, the policies", () => {
@@ -187,4 +190,34 @@ describe("the questions a traineeship form asks, answered from code", () => {
  test("saved role values fill an explicit priorities question without guessing", () => {
   expect(answerText("What do you value in a new role?", { answers: { role_values: "Mentorship & skill development; Work-life balance" } })).toBe("Mentorship & skill development; Work-life balance")
   expect(answerText("What do you value in a new role?", { answers: {} })).toBeNull()
+})
+
+describe("what the real forms in the jobs database asked and the first rules missed", () => {
+  const f: Facts = { phone: "+44 7123 456789", place: "London, United Kingdom", dutch: "native", job_source: "Glassdoor", answers: {} }
+  test("the code beside a number, in other words and for a number from another country", () => {
+    expect(answerText("Code du pays", f)).toBe("+44")
+    expect(answerText("Country Phone Code", { place: "Amsterdam, Netherlands", answers: {} })).toBe("+31")
+    expect(chooseOption(["Belgium (+32)", "Netherlands (+31)", "Germany (+49)"], "+31", "Country code")).toBe(1)
+    expect(chooseOption(["Pays-Bas +31", "Belgique +32"], "+31", "Code du pays")).toBe(0)
+  })
+  test("are you a native Dutch speaker, from the level kept", () => {
+    expect(answerText("Are you a native Dutch speaker?", f)).toBe("Yes")
+    expect(answerText("Are you a native Dutch speaker?", { ...f, dutch: "basic" })).toBe("No")
+    expect(answerText("Are you a native Dutch speaker?", { answers: {} })).toBeNull()
+  })
+  test("a degree is the option for its level, whatever else the option says", () => {
+    const options = ["Associate's Degree", "Bachelor's Degree", "Master's Degree", "Doctor of Philosophy (Ph.D.)"]
+    expect(chooseOption(options, "MSc Finance", "Degree")).toBe(2)
+    expect(chooseOption(options, "BSc Economics", "Degree")).toBe(1)
+    expect(chooseOption(["High School", "Master of Science (MSc)"], "Master's degree (MSc)", "Degree")).toBe(1)
+  })
+  test("how did you hear, when the list has no LinkedIn or Glassdoor, is the closest honest option", () => {
+    expect(isHearQuestion("How did you hear about this role?")).toBe(true)
+    expect(isHearQuestion("Where did you find this job?")).toBe(true)
+    expect(isHearQuestion("What is your name?")).toBe(false)
+    expect(heardChoice(["Friend", "Job board", "Other"], "Glassdoor")).toBe(1)
+    expect(heardChoice(["Friend", "Company website", "Other"], "Indeed")).toBe(1)
+    expect(heardChoice(["Friend", "Other (please specify)"], "Indeed")).toBe(1)
+    expect(heardChoice(["Friend", "Colleague"], "Indeed")).toBe(-1)
+  })
 })
