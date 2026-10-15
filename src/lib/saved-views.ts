@@ -3,14 +3,11 @@ import { NO_TRACKER_FILTER, normalizeTrackerFilter } from "@/lib/tracker"
 import type { SavedView, ViewConfig, ViewLayout } from "@/lib/types"
 
 /**
- * The views of the job tracker, as tabs over one list of jobs (the idea of a Notion database). The starting set follows the popular job-tracker templates: everything in
- * a table, a pipeline board by status, a list of follow-ups that are due, the interviews, and a calendar. Nothing is stored until you change something; then your set is
- * kept with the profile and the starting set no longer applies.
+ * The views of the job tracker, as tabs over one list of jobs (the idea of a Notion database). Starts as one table; Pipeline and Calendar are layouts you pick
+ * from the view options, not separate starting tabs. Nothing is stored until you change something; then your set is kept with the profile and the starting set no longer applies.
  */
 export const SEED_VIEWS: ReadonlyArray<SavedView> = [
   { id: "all", name: "All jobs", layout: "table", filters: NO_FILTERS, tracker: NO_TRACKER_FILTER },
-  { id: "pipeline", name: "Pipeline", layout: "board", filters: NO_FILTERS, tracker: NO_TRACKER_FILTER },
-  { id: "calendar", name: "Calendar", layout: "calendar", filters: NO_FILTERS, tracker: NO_TRACKER_FILTER, dateKey: "applied" },
 ]
 
 /** The views of the jobs that fit you start as one table, the same as your own jobs: first jobs, best fit first (a job that needs Dutch ranks lower by itself). */
@@ -20,6 +17,9 @@ export const FIT_SEED_VIEWS: ReadonlyArray<SavedView> = [{ id: "fit", name: "Bes
 export const SEED_CONFIG: Record<string, Partial<ViewConfig>> = {}
 
 const LAYOUTS: ReadonlyArray<ViewLayout> = ["list", "table", "board", "calendar"]
+
+/** Old starting tabs that are now layouts of All jobs (picked from the layout menu). Dropped on read so existing accounts match the new set. */
+const RETIRED_SEED_IDS = new Set(["pipeline", "calendar"])
 
 /** Reads views back from storage: anything malformed is dropped, a view with a bad layout becomes a table, and with none left the starting set is used. */
 export function normalizeViews(raw: unknown, seed: ReadonlyArray<SavedView> = SEED_VIEWS): SavedView[] {
@@ -32,7 +32,7 @@ export function normalizeViews(raw: unknown, seed: ReadonlyArray<SavedView> = SE
     const r = (item && typeof item === "object" ? item : {}) as Record<string, unknown>
     const id = typeof r.id === "string" && r.id.trim() ? r.id : null
     const name = typeof r.name === "string" && r.name.trim() ? r.name.trim().slice(0, 40) : null
-    if (!id || !name || seen.has(id)) {
+    if (!id || !name || seen.has(id) || RETIRED_SEED_IDS.has(id)) {
       continue
     }
     seen.add(id)

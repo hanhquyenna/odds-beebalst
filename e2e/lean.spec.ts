@@ -11,7 +11,8 @@ import { expect, jobRows, test } from "./mock"
 // the job page's own chunk; what the landing gained is the panel keeping out of the tab's history and the shared sources helper, 0.1 kB).
 // Raised to 316 on 15 Oct 2026: the landing was at 315.1 kB with the budget at 315, after the Autofill tab in the sidebar and the job
 // page's Overview and Company tabs (the setup card, its panel and the Autofill page load on demand).
-const MAX_LANDING_GZIP_KB = 316
+// Raised to 318 on 15 Oct 2026: 317.3 kB with Connect under Tracker (lazy) and the Jobs / People / Connect tabs.
+const MAX_LANDING_GZIP_KB = 318
 
 test("landing stays lean: under budget, no function calls, the job drawer waits for a click", async ({ page }) => {
   const assets: string[] = []

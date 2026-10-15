@@ -3,10 +3,10 @@ import type { StaticPage } from "@/lib/pages"
 import { prefetchOn } from "@/lib/prefetch"
 import { NotificationsRow } from "@/components/NotifyPrompt"
 import type { Session } from "@/lib/auth"
-import { BoardIcon, BriefcaseIcon, BuildingsIcon, ChevronRightIcon, FileTextIcon, HomeIcon, PeopleIcon, SignOutIcon, MessageIcon, SparkleIcon, UserCircleIcon } from "@/components/icons"
+import { BoardIcon, BriefcaseIcon, ChevronRightIcon, FileTextIcon, HomeIcon, PlugsIcon, SignOutIcon, MessageIcon, SparkleIcon, UserCircleIcon } from "@/components/icons"
 
-/** The places someone with an account lives. Anything else (a research page, a shared job) leaves none of them lit. */
-export type ShellTab = "account" | "jobs" | "tracker" | "people" | "companies" | "autofill" | "documents" | "claude" | "answers"
+/** The places someone with an account lives. Anything else (a research page, a shared job) leaves none of them lit. Companies lives under Tracker. */
+export type ShellTab = "account" | "jobs" | "tracker" | "connections" | "autofill" | "documents" | "claude" | "answers"
 
 interface ShellNav {
   active: ShellTab | null
@@ -17,8 +17,7 @@ const TABS: ReadonlyArray<{ tab: ShellTab; label: string; icon: typeof HomeIcon 
   { tab: "account", label: "Home", icon: HomeIcon },
   { tab: "jobs", label: "Jobs", icon: BriefcaseIcon },
   { tab: "tracker", label: "Tracker", icon: BoardIcon },
-  { tab: "people", label: "People", icon: PeopleIcon },
-  { tab: "companies", label: "Companies", icon: BuildingsIcon },
+  { tab: "connections", label: "Connect", icon: PlugsIcon },
   { tab: "autofill", label: "Autofill", icon: SparkleIcon },
   { tab: "documents", label: "Documents", icon: FileTextIcon },
   { tab: "claude", label: "Claude", icon: MessageIcon },
@@ -135,8 +134,8 @@ export function PhoneMore({ onNavigate, onOpenPage, onSignIn, onSignOut, signedI
   )
 }
 
-/** The five places a thumb reaches most. The rest (Companies, Autofill, Documents, Claude) are rows at the foot of Profile. */
-const PHONE_TABS: ReadonlyArray<ShellTab> = ["account", "jobs", "tracker", "people", "answers"]
+/** The five places a thumb reaches most. The rest (Autofill, Documents, Claude) are rows at the foot of Profile. Companies is under Tracker. */
+const PHONE_TABS: ReadonlyArray<ShellTab> = ["account", "jobs", "tracker", "connections", "answers"]
 
 /** Phone: the tab bar every app has, pinned to the bottom and clear of the home indicator. */
 export function BottomNav({ active, onNavigate }: ShellNav): React.JSX.Element {

@@ -5,7 +5,7 @@ import { JobGallery } from "@/components/JobGallery"
 import { BoardIcon, BookmarkIcon, CalendarIcon, DownloadIcon, ImportExportIcon, UploadIcon, ChevronDownIcon, PlusIcon, TableIcon } from "@/components/icons"
 import { SearchSummary } from "@/components/InterviewMeter"
 import type { ViewLayout, ViewName } from "@/lib/types"
-import { ViewTabs, LAYOUT_CHOICES } from "@/components/ViewTabs"
+import { ViewTabs, NewViewButton, LAYOUT_CHOICES } from "@/components/ViewTabs"
 import { ToolBar, ToolButton } from "@/components/ToolBar"
 import { TrackerFilters } from "@/components/TrackerFilterBar"
 import { TrackerCalendar } from "@/components/TrackerCalendar"
@@ -39,10 +39,10 @@ import { formatPlace } from "@/lib/format"
 
 const SetupCard = lazy(() => import("@/components/SetupCard").then((m) => ({ default: m.SetupCard })))
 
-// Lazy: the people view is the second tab and carries the outreach tools, so the jobs open without it. Pointing at its tab fetches it.
+// Lazy: People sits next to Jobs under Tracker, so the jobs open without it. Pointing at its tab fetches it.
 const PeopleView = lazy(() => import("@/components/People").then((module) => ({ default: module.PeopleView })))
 
-/** Which page of the account this is: Home (the dashboard), or the Tracker, People or Companies page, each its own place in the menu. */
+/** Which page of the account this is: Home (the dashboard), or Tracker (Jobs / People / Companies). */
 export type AccountPage = "home" | "tracker" | "people" | "companies"
 
 interface AccountProps {
@@ -69,7 +69,7 @@ export function Account({ page = "home", looking, onStartLooking, onStopLooking,
   const saved = useSavedViews()
   const { active, filters, configName } = saved
   const [revisit, setRevisit] = useState<Posting | null>(null)
-  // Each page shows one thing: the tracker (your jobs), your people, or companies. Home shows none of them, only what is due.
+  // Each page shows one thing: jobs, people, or companies. Home shows none of them, only what is due.
   const subject: Subject = page === "people" ? "people" : page === "companies" ? "companies" : "jobs"
   const pviews = usePeopleViews()
   // The form to add jobs of your own: opened by the small link under your jobs, or by the upload button beside Sort.
@@ -159,11 +159,13 @@ export function Account({ page = "home", looking, onStartLooking, onStopLooking,
   }
 
   const filterToggle = <FilterToggle open={filtersOpen} onToggle={() => setFiltersOpen(!filtersOpen)} count={activeCount(filters) + (isTrackerFilterOn(active.tracker) ? 1 : 0)} />
+  const toolsSubject: "jobs" | "people" = subject === "people" ? "people" : "jobs"
+  const viewCount = toolsSubject === "people" ? pviews.views.length : saved.views.length
   const tools = (
     <span className="flex flex-wrap items-center gap-2 max-md:min-w-0 max-md:shrink! max-md:flex-nowrap max-md:gap-1.5 [&>*]:shrink-0">
-      <LayoutMenu subject={subject} layout={layout} onChange={chooseLayout} />
-      {subject === "jobs" && layout === "board" ? <ColumnsBy viewName={view} /> : null}
-      {subject === "people" ? (
+      <LayoutMenu subject={toolsSubject} layout={layout} onChange={chooseLayout} />
+      {toolsSubject === "jobs" && layout === "board" ? <ColumnsBy viewName={view} /> : null}
+      {toolsSubject === "people" ? (
         layout === "calendar" ? null : <ViewControls view={view} {...peopleChoices(data.profile.peopleColumns ?? [])} properties={layout === "table" ? peopleChoices(data.profile.peopleColumns ?? []).properties : []} />
       ) : (
         <>
@@ -171,13 +173,15 @@ export function Account({ page = "home", looking, onStartLooking, onStopLooking,
           <DataMenu count={shown.length} onImport={() => setAddPanel((current) => panelWith(current, "upload"))} onAdd={() => setAddPanel((current) => panelWith(current, "one"))} onExport={() => exportJobs(shown)} />
         </>
       )}
+      {/* When there is only the starting view, All jobs / All people is the Tracker tab — New view sits here instead of a second tab row. */}
+      {viewCount <= 1 ? <NewViewButton activeName={toolsSubject === "people" ? pviews.active.name : active.name} onAdd={toolsSubject === "people" ? pviews.add : saved.add} /> : null}
     </span>
   )
 
   return (
     <FilterBus value={(patch) => saved.setFilters({ ...filters, ...patch })}>
     <div className="flex w-full flex-1 flex-col gap-6">
-      <div className="flex flex-1 flex-col gap-8">
+      <div className={`flex flex-1 flex-col ${page === "home" ? "gap-8" : "gap-4"}`}>
         {page === "home" ? (
           <>
             <h1 className="text-2xl font-semibold tracking-tight max-md:hidden">{data.profile.name.trim() ? `${data.profile.name.trim().split(" ")[0]}'s job search` : "Your job search"}</h1>
@@ -201,7 +205,17 @@ export function Account({ page = "home", looking, onStartLooking, onStopLooking,
             {onOpenClaude && kept.length > 0 ? <ClaudePromo onOpen={onOpenClaude} /> : null}
           </>
         ) : (
-          <h1 className="text-2xl font-semibold tracking-tight">{page === "tracker" ? "Tracker" : page === "people" ? "People" : "Companies"}</h1>
+          <div role="tablist" aria-label="Tracker" className="flex gap-1 border-b-[1.5px]">
+            {([
+              { target: "tracker" as const, label: "All jobs" },
+              { target: "people" as const, label: "All people" },
+              { target: "companies" as const, label: "All companies" },
+            ]).map(({ target, label }) => (
+              <button key={target} type="button" role="tab" aria-selected={page === target} onClick={() => onOpenPage?.(target)} className={`-mb-px cursor-pointer border-b-2 px-3 py-2 text-sm transition-colors duration-150 ${page === target ? "border-foreground font-semibold" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
         )}
 
         {page !== "home" ? (
@@ -279,13 +293,13 @@ const LAYOUTS = {
   people: [
     { value: "table", label: "Table", hint: "Every property as a column. Sort, group, show what you need", Icon: TableIcon },
     { value: "list", label: "List", hint: "Who you know, by company and job", Icon: TableIcon },
-    { value: "board", label: "Board", hint: "People by step, from to contact to met", Icon: BoardIcon },
+    { value: "board", label: "Pipeline", hint: "People by step, from to contact to met", Icon: BoardIcon },
     { value: "calendar", label: "Calendar", hint: "People on a month, by the day a nudge is due or a date of yours", Icon: CalendarIcon },
   ],
 } as const
 
-/** List or board, for whichever of jobs or people is showing. */
-export function LayoutMenu({ subject, layout, onChange }: { subject: Subject; layout: Layout; onChange: (next: Layout) => void }): React.JSX.Element {
+/** List or pipeline, for whichever of jobs or people is showing. */
+export function LayoutMenu({ subject, layout, onChange }: { subject: "jobs" | "people"; layout: Layout; onChange: (next: Layout) => void }): React.JSX.Element {
   const [open, setOpen] = useState<boolean>(false)
   const phone = usePhone()
   // No table on a phone: it is drawn as the list there, so it is not offered.

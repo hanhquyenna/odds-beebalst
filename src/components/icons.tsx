@@ -4,8 +4,10 @@
  */
 export {
   ArrowLeft as ArrowLeftIcon,
+  ArrowCounterClockwise as UndoIcon,
   ArrowRight as ArrowRightIcon,
   Briefcase as BriefcaseIcon,
+  Plugs as PlugsIcon,
   House as HomeIcon,
   UserCircle as UserCircleIcon,
   BellSimple as BellSimpleIcon,

@@ -66,11 +66,9 @@ export function matchesPerson(p: Person, query: string): boolean {
   return words.every((w) => hay.includes(w))
 }
 
-/** The starting views, from the usual outreach trackers: everyone in a table, the pipeline by stage, and a calendar. */
+/** The starting views, from the usual outreach trackers: everyone in a table; Pipeline and Calendar are layouts you pick from the layout menu. */
 export const PEOPLE_SEED_VIEWS: ReadonlyArray<SavedPeopleView> = [
-  { id: "all", name: "Everyone", layout: "table", filter: NO_PEOPLE_FILTER },
-  { id: "pipeline", name: "Pipeline", layout: "board", filter: NO_PEOPLE_FILTER },
-  { id: "calendar", name: "Calendar", layout: "calendar", filter: NO_PEOPLE_FILTER, dateKey: "nudge" },
+  { id: "all", name: "All people", layout: "table", filter: NO_PEOPLE_FILTER },
 ]
 
 export const PEOPLE_SEED_CONFIG: Record<string, Partial<ViewConfig>> = {}
@@ -89,7 +87,9 @@ export function normalizePeopleViews(raw: unknown): SavedPeopleView[] {
     const name = typeof r.name === "string" && r.name.trim() ? r.name.trim().slice(0, 40) : null
     if (!id || !name || seen.has(id)) continue
     seen.add(id)
-    out.push({ id, name, layout: LAYOUTS.includes(r.layout as ViewLayout) ? (r.layout as ViewLayout) : "table", filter: normalizePeopleFilter(r.filter), ...(typeof r.dateKey === "string" ? { dateKey: r.dateKey } : {}) })
+    // The starting tab used to be called Everyone; keep the same id under All people.
+    const label = id === "all" && name === "Everyone" ? "All people" : name
+    out.push({ id, name: label, layout: LAYOUTS.includes(r.layout as ViewLayout) ? (r.layout as ViewLayout) : "table", filter: normalizePeopleFilter(r.filter), ...(typeof r.dateKey === "string" ? { dateKey: r.dateKey } : {}) })
   }
 
   return out.length > 0 ? out : PEOPLE_SEED_VIEWS.map((v) => ({ ...v }))
