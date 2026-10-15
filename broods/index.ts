@@ -101,6 +101,11 @@ keeps failing, a custom widget, an overlay, a page that "looks" different from r
 click_at (x, y in the screenshot's pixels), type_text into the focused field, press_key (Enter/Tab/Escape/arrows), scroll. Then read_page again.
 Use sight before ever finishing stuck. Same rules: never Submit/Send, never passwords.
 
+VERIFY BY SIGHT: after each step's fill + Next/Continue, and ALWAYS before finish, take a screenshot and check it with your own eyes:
+the fields you filled visibly hold the right values, no red error messages, no pop-up left open, and you are on the page you expect.
+If anything looks wrong (an empty field, an error, a selection that did not stick, the wrong page), fix it (fill again, click_at the control,
+pick the option by sight) and screenshot again. Never finish review without a screenshot that shows the form complete with only Submit left.
+
 STOP with finish only when:
 - review — only Submit/Send is left (NEVER press it). message: "Everything is filled in. Check it and press Submit yourself."
 - needs_you — a captcha, a password / account creation, or questions only the person can answer (list them in questions).

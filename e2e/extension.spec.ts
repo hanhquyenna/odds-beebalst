@@ -39,7 +39,7 @@ interface DriveRun { outbox: Array<{ id: number; tool: string; args: Record<stri
 interface Fake {
   drives: Map<string, DriveRun>
   /** REAL_BROODS=1 runs: the real agent on a real run (see driveReal). */
-  realBroods?: { title: string; person: Record<string, string>; runId?: string; log: string[]; end?: { status: string; message: string } }
+  realBroods?: { title: string; person: Record<string, string>; runId?: string; log: string[]; end?: { status: string; message: string }; shot?: (label: string) => Promise<void> }
   /** A test's own Broods moves (instead of the stand-in agent): gets cmd(tool, args) and returns how the run ends. */
   driveScript?: (cmd: (tool: string, args?: Record<string, unknown>) => Promise<Record<string, unknown>>) => Promise<{ status: string; message: string }>
   prompts: Array<{ key: string; label: string; kind: string; options?: string[] }>
@@ -129,7 +129,7 @@ async function driveAgent(fake: Fake, run: DriveRun): Promise<void> {
 // the run in the real database and carries commands between the database and the extension, exactly the path production uses.
 const REAL_USER = "a288b136-2a65-4dc5-9ab2-7ecad9afbb3d"
 const realDb = (sql: string): Array<Record<string, unknown>> => {
-  const out = execFileSync("bunx", ["supabase", "db", "query", "--linked", sql], { cwd: join(import.meta.dirname, ".."), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 60_000 })
+  const out = execFileSync("bunx", ["supabase", "db", "query", "--linked", sql], { cwd: join(import.meta.dirname, ".."), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 150_000 })
   const j = JSON.parse(out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1)) as { rows?: Array<Record<string, unknown>> }
   return j.rows ?? []
 }
@@ -161,6 +161,8 @@ async function driveReal(fake: Fake, path: string, body: Record<string, unknown>
   if (path.endsWith("/drive-result")) {
     realDb(`update public.drive_commands set status='done', result=${sqlText(body.result ?? {})}::jsonb, done_at=now() where id=${Number(body.id)} and run_id='${runId}'`)
     real.log.push(`result ${JSON.stringify(body.result ?? {}).slice(0, 140)}`)
+    // A picture of the real page after every step, to check by eye that each action did what it said.
+    await real.shot?.(String(real.log.length)).catch(() => undefined)
     return { ok: true }
   }
   for (let i = 0; i < 6; i++) {
@@ -4245,25 +4247,50 @@ const REAL_JOBS = [
   { name: "greenhouse-dept", url: "https://job-boards.greenhouse.io/dept/jobs/8105170", title: "Junior Paid Search (SEA) Consultant" },
   { name: "lever-tomtom", url: "https://jobs.eu.lever.co/tomtom/669fa744-174e-4682-81b3-fa85322cafc5", title: "Senior Applied Scientist - Graph Optimization" },
   { name: "ashby-prosus", url: "https://jobs.ashbyhq.com/prosus/eeb0e0d9-9d3f-4321-8acd-11558dde7c7d", title: "ML Engineering Intern - LLM Research & Development" },
-]
+  { name: "workday-signify", url: "https://lighting.wd3.myworkdayjobs.com/jobs-and-careers/job/Eindhoven/CTI-Intern_366438-1", title: "CTI Intern" },
+  { name: "oracle-yamaha", url: "https://eklm.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX/job/35404", title: "Intern Corporate Communications" },
+  { name: "glassdoor-rosewood", url: "https://www.glassdoor.nl/job-listing/talent-and-culture-intern-rosewood-hotel-group-JV_IC3064478_KO0,25_KE26,46.htm?jl=1010295738909", title: "Talent and Culture Intern", board: true },
+  { name: "indeed-fb-intern", url: "https://nl.indeed.com/viewjob?jk=3420fff5df333289", title: "Food & Beverage Management Intern", board: true },
+  { name: "linkedin-marketing", url: "https://www.linkedin.com/jobs/view/4479270692", title: "Marketing & Communications Intern", board: true },
+] as Array<{ name: string; url: string; title: string; board?: boolean }>
 const TEST_PERSON = { first_name: "Test", last_name: "Applicant", email: "test.applicant@example.com", phone: "+31 6 1234 5678", lives_in: "Amsterdam, Netherlands", nationality_group: "Non-EU nationality", work_permit: "Orientation year (zoekjaar) permit: may work in the Netherlands without sponsorship", education: "Master, Business Analytics, Vrije Universiteit Amsterdam, Sep 2025–Aug 2027", experience: "Data Analyst, Shopee, 2022–2024", linkedin: "https://www.linkedin.com/in/test-applicant", start_date: "1 February 2027", hours_per_week: "40", role_values: "learning fast; international teams; measurable impact" }
 for (const job of REAL_JOBS) {
   test(`REAL: Broods drives ${job.name} (real site, real Broods, never submits)`, async ({ context, fake }) => {
     test.skip(process.env.REAL_BROODS !== "1", "real sites + real Broods: set REAL_BROODS=1")
     test.setTimeout(420_000)
     await connect(context)
-    fake.realBroods = { title: job.title, person: TEST_PERSON, log: [] }
-    fake.kit = { job_id: `preal-${job.name}`, broods_drive: true, facts: { name: "Test Applicant", email: TEST_PERSON.email, phone: TEST_PERSON.phone, answers: { first_name: "Test", last_name: "Applicant", email: TEST_PERSON.email, phone: TEST_PERSON.phone }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Test_Applicant_CV", file_name: "Test_Applicant_CV.pdf", for_this_job: true } }
     const page = await context.newPage()
+    fake.realBroods = { title: job.title, person: TEST_PERSON, log: [] }
+    let shots = 0
+    fake.realBroods.shot = async (label) => { await page.screenshot({ path: `test-results/real-${job.name}/${String(++shots).padStart(2, "0")}-step${label}.png` }) }
+    fake.kit = { job_id: `preal-${job.name}`, broods_drive: true, facts: { name: "Test Applicant", email: TEST_PERSON.email, phone: TEST_PERSON.phone, answers: { first_name: "Test", last_name: "Applicant", email: TEST_PERSON.email, phone: TEST_PERSON.phone }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Test_Applicant_CV", file_name: "Test_Applicant_CV.pdf", for_this_job: true } }
     let submits = 0
     page.on("request", (r) => { if (r.method() === "POST" && /\/(applications?|apply|submit|candidates?)\b/i.test(r.url()) && !/supabase|broods|127\.0\.0\.1|localhost/.test(r.url())) submits++ })
     await page.goto(job.url, { waitUntil: "domcontentloaded" })
     await applyFrom(context, page, job.url)
-    await expect.poll(() => fake.realBroods?.end?.status ?? "", { timeout: 400_000, intervals: [3000] }).not.toBe("")
-    await page.screenshot({ path: `test-results/real-${job.name}.png`, fullPage: true })
-    console.log(`REAL ${job.name}: ${fake.realBroods?.end?.status} — ${fake.realBroods?.end?.message}`)
-    console.log(`REAL ${job.name} steps:\n  ${fake.realBroods?.log.join("\n  ")}`)
-    expect(["review", "needs_you"]).toContain(fake.realBroods?.end?.status)
+    // Ends when Broods finishes — or, on a job board this test browser is not signed in to, when Odds stops at the sign-in wall and says so.
+    const bar = async (): Promise<string> => (await Promise.all(context.pages().map((p) => p.locator(".odds-apply-bar").first().textContent({ timeout: 500 }).catch(() => "")))).join(" ")
+    await expect.poll(async () => (fake.realBroods?.end?.status ?? "") || (job.board && /sign in|log in|inloggen|account/i.test(await bar()) ? "signin" : ""), { timeout: 400_000, intervals: [3000] }).not.toBe("")
+    const last = context.pages().at(-1) ?? page
+    await last.screenshot({ path: `test-results/real-${job.name}/zz-final.png` }).catch(() => undefined)
+    const outcome = fake.realBroods?.end?.status ?? "signin"
+    console.log(`REAL ${job.name}: ${outcome} — ${fake.realBroods?.end?.message ?? (await bar()).slice(0, 200)}`)
+    console.log(`REAL ${job.name} steps: ${fake.realBroods?.log.length ?? 0}`)
+    expect(["review", "needs_you", ...(job.board ? ["signin"] : [])]).toContain(outcome)
     expect(submits).toBe(0)
   })
 }
+
+test("a page Odds is not applying in shows nothing: no bar on an ordinary site or a LinkedIn job the person only browses", async ({ context }) => {
+  await connect(context)
+  await context.route("https://dashboard.example-tool.com/**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><html><body><h1>Some dashboard</h1><button>Refresh</button></body></html>" }))
+  await context.route("https://www.linkedin.com/jobs/view/4470009999/**", (route) => route.fulfill({ contentType: "text/html", body: EASY_APPLY }))
+  const page = await context.newPage()
+  await page.goto("https://dashboard.example-tool.com/runs")
+  await page.waitForTimeout(8000)
+  await expect(page.locator(".odds-apply-bar")).toHaveCount(0)
+  const li = await context.newPage()
+  await li.goto("https://www.linkedin.com/jobs/view/4470009999/")
+  await li.waitForTimeout(8000)
+  await expect(li.locator(".odds-apply-bar")).toHaveCount(0)
+})

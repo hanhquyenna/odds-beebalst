@@ -1111,12 +1111,12 @@
 
   let listening = false
   /** LinkedIn offsite often opens a NEW tab; intent is written a tick later — never silent-quit. */
-  async function waitIntent() {
+  async function waitIntent(quiet = false) {
     for (let i = 0; i < 40; i++) {
       const { intent } = (await ask({ type: "apply-intent" })) || {}
       if (intent) return intent
-      // Heartbeat so Odds never looks idle while the handoff catches up.
-      if (i === 0 || i % 8 === 0) say("Waiting for Odds to attach this application…", "filling")
+      // Heartbeat so Odds never looks idle while the handoff catches up — only in a tab Odds was asked to apply in.
+      if (!quiet && (i === 0 || i % 8 === 0)) say("Waiting for Odds to attach this application…", "filling")
       await sleep(150)
     }
     return null
@@ -1192,12 +1192,14 @@
   }
 
   async function start(opts = {}) {
-    say("Filling in the background…", "filling")
-    const intent = await waitIntent()
+    // A page Odds is not applying in (any site the person just browses) shows nothing at all: the bar is only for application tabs.
+    // A tab being handed an application (a site opening the employer form in a new tab) gets a short, silent wait to pick it up.
+    const intent = await waitIntent(!opts.forced)
     if (!intent) {
-      say("Odds did not attach this tab. Press Open application tab or Apply with Odds again.", "ask")
+      if (opts.forced) say("Odds did not attach this tab. Press Open application tab or Apply with Odds again.", "ask")
       return
     }
+    say("Filling in the background…", "filling")
     // Every page this application loads is counted on the run (it survives reloads): the same page again and again, or too many pages, stops for good.
     if (!visitNoted) {
       visitNoted = true

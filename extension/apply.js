@@ -951,27 +951,24 @@
     openingApply = true
     try {
       let intent = null
+      // Only a tab Odds is applying in shows the bar: a LinkedIn page the person just browses stays untouched. A silent wait first,
+      // since the application can be handed to this tab a moment after it loads.
+      for (let i = 0; i < (resume ? 8 : 25) && !intent; i++) {
+        intent = (await askAgain({ type: "apply-intent" }))?.intent || null
+        if (!intent) await sleep(200)
+      }
+      if (!intent) {
+        if (resume) {
+          if (linkedInSignInWall() || (!linkedInSignedIn() && !applyButton())) say(document.body, LINKEDIN_SIGNIN_MSG, "ask")
+          else say(document.body, "Odds did not start this tab. Press Apply with Odds again, or Open application tab.", "ask")
+          document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")
+        }
+        return
+      }
       if (!resume) say(document.body, "Opening the application…", "filling")
       if (linkedInSignInWall()) {
         say(document.body, LINKEDIN_SIGNIN_MSG, "ask")
         document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")
-      }
-      for (let i = 0; i < (resume ? 8 : 25) && !intent; i++) {
-        intent = (await askAgain({ type: "apply-intent" }))?.intent || null
-        if (!intent) {
-          if (linkedInSignInWall()) say(document.body, LINKEDIN_SIGNIN_MSG, "ask")
-          else if (!resume && (i === 5 || i === 15)) say(document.body, "Waiting for Odds to start this application…", "filling")
-          await sleep(200)
-        }
-      }
-      if (!intent) {
-        if (linkedInSignInWall() || (!linkedInSignedIn() && !applyButton())) {
-          say(document.body, LINKEDIN_SIGNIN_MSG, "ask")
-        } else if (!resume) {
-          say(document.body, "Odds did not start this tab. Press Apply with Odds again, or Open application tab.", "ask")
-        }
-        document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")
-        return
       }
       // Back on the LinkedIn job after the employer's page (the person pressed Back) or paused earlier: never re-open it by itself.
       const backHere = performance.getEntriesByType("navigation")[0]?.type === "back_forward"
