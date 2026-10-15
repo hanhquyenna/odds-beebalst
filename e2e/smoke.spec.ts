@@ -137,6 +137,28 @@ test.describe("signed-in account", () => {
     expect(order[0]).toBe("Hiring managers")
   })
 
+  test("the top of Home opens to numbers worked out from the applications: no reply, first reply, longest wait, how far they get", async ({ page }) => {
+    const day = (ago: number): string => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10)
+    const rows = [
+      { id: 1, posting_id: FLOW_POSTINGS[0].id, fit_tier: "mid", stage: "applied", logged_at: day(19) },
+      { id: 2, posting_id: FLOW_POSTINGS[1].id, fit_tier: "mid", stage: "interview", logged_at: day(30) },
+      { id: 3, posting_id: FLOW_POSTINGS[2].id, fit_tier: "mid", stage: "no_reply", logged_at: day(40) },
+      { id: 4, posting_id: FLOW_POSTINGS[3].id, fit_tier: "mid", stage: "rejected", logged_at: day(35) },
+    ]
+    await page.route("**/rest/v1/applications*", (route) => route.fulfill({ json: route.request().method() === "GET" ? rows : [] }))
+    await page.route("**/rest/v1/chance_snapshots*", (route) =>
+      route.fulfill({ json: [{ applied_on: day(30), outcome: "interview", outcome_on: day(24) }, { applied_on: day(35), outcome: "rejected", outcome_on: day(25) }] }),
+    )
+    await page.goto("/")
+    await page.getByRole("button", { name: "Show your chances" }).click()
+    const insights = page.getByRole("region", { name: "How it is going" })
+    await expect(insights.getByText("33%")).toBeVisible()
+    await expect(insights.getByText("no reply", { exact: true })).toBeVisible()
+    await expect(insights.getByText("8 days")).toBeVisible()
+    await expect(insights.getByText("19 days")).toBeVisible()
+    await expect(insights.getByText("1 · 25%")).toBeVisible()
+  })
+
   test("opening manual entry keeps the CSV uploader open", async ({ page }) => {
     await page.goto("/")
     await page.getByRole("button", { name: "Upload your own jobs" }).click()
