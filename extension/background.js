@@ -171,6 +171,30 @@ async function cvFile(doc) {
   }
 }
 
+// What an application needs is asked for as soon as it is started, while the page is still loading: the details and the CV file are ready by the time the form is.
+const PREPARED_MS = 120_000
+const kits = new Map()
+const cvFiles = new Map()
+function kitFor(url, fresh = false) {
+  const hit = kits.get(url)
+  if (!fresh && hit && Date.now() - hit.at < PREPARED_MS) return hit.promise
+  const promise = ext("apply-kit", { method: "POST", body: JSON.stringify({ url }) })
+  kits.set(url, { at: Date.now(), promise })
+  promise.then((kit) => {
+    const doc = kit?.cv?.id
+    if (typeof doc === "string" && !cvFiles.has(doc)) cvFileFor(doc)
+  }).catch(() => kits.delete(url))
+  return promise
+}
+function cvFileFor(doc) {
+  const hit = cvFiles.get(doc)
+  if (hit && Date.now() - hit.at < PREPARED_MS) return hit.promise
+  const promise = cvFile(doc)
+  cvFiles.set(doc, { at: Date.now(), promise })
+  promise.then((file) => { if (file?.status !== "ok") cvFiles.delete(doc) })
+  return promise
+}
+
 /** A sign-in for the odds app inside the panel, made by odds from the extension's key. */
 async function session() {
   const key = await savedKey()
@@ -291,24 +315,37 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   }
   // "odds apply" in the panel: the job is opened in the person's tab and its form filled in there (apply.js on LinkedIn, apply-any.js elsewhere).
   if (message?.type === "apply-in-tab" && typeof message.url === "string" && /^https:\/\//.test(message.url)) {
-    openApplication(message.url).then(reply).catch(() => reply({ ok: false, message: "Could not open the application. Try again." }))
+    const reveal = message.reveal === true
+    const postingId = typeof message.postingId === "string" ? message.postingId : null
+    openApplication(message.url, sender.tab, { reveal, postingId })
+      .then(reply)
+      .catch(() => reply({ ok: false, message: "Could not open the application tab. Try again from Odds." }))
     return true
   }
   // The panel asking how this job's application is going: the state its tab last reported (filling, needs_input, ready, failed), or none.
   if (message?.type === "application-status" && typeof message.url === "string") {
     ;(async () => {
       const job = globalThis.oddsSites.jobLink(message.url)?.url || message.url
+      const postingId = typeof message.postingId === "string" && message.postingId ? message.postingId : null
       const { oddsApplyIntents = {} } = await chrome.storage.local.get("oddsApplyIntents")
       let found = null
       for (const [id, intent] of Object.entries(oddsApplyIntents)) {
-        if (Date.now() - intent.at > INTENT_MS || (globalThis.oddsSites.jobLink(intent.job)?.url || intent.job) !== job) continue
+        if (Date.now() - intent.at > INTENT_MS) continue
+        const byPost = postingId && intent.postingId === postingId
+        const byUrl = (globalThis.oddsSites.jobLink(intent.job)?.url || intent.job) === job
+        if (!byPost && !byUrl) continue
         if (!found || intent.at > found.at) found = { ...intent, tabId: Number(id) }
       }
       if (!found) return reply({ state: null })
       const tab = await chrome.tabs.get(found.tabId).catch(() => null)
-      if (!tab) return reply({ state: null })
-      reply({ state: { status: found.status || "filling", message: found.message || "", at: found.at } })
+      if (!tab && !["submitted", "failed"].includes(found.status)) return reply({ state: null })
+      reply({ state: { status: found.status || "filling", message: found.message || "", at: found.at, postingId: found.postingId || null } })
     })().catch(() => reply({ state: null }))
+    return true
+  }
+  // All live applies (by postingId) so the tracker chips stay in sync with detail closed.
+  if (message?.type === "application-statuses") {
+    liveApplicationStatuses().then((runs) => reply({ runs })).catch(() => reply({ runs: [] }))
     return true
   }
   // A page asking whether it was opened to apply: the job it is for, while that is fresh (the tab's own, or the one that opened it).
@@ -329,24 +366,162 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     })
     return true
   }
+  // Finding the application when the employer's link lands on their list of vacancies: what was tried survives page loads
+  // (tries, dead ends), the job's title is kept for the checks, and the real form's address is learned for next time.
+  if (message?.type === "apply-hunt" && sender.tab && typeof sender.tab.id === "number") {
+    const tabId = sender.tab.id
+    const tabUrl = typeof sender.tab.url === "string" ? sender.tab.url : ""
+    ;(async () => {
+      if (!(await intentOf(tabId))) return reply({ ok: false })
+      let stop = null
+      let learn = null
+      // Every change is made on the newest record inside the queued write: progress updates arriving at the same time never wipe the count.
+      await changeIntents((all) => {
+        const intent = all[tabId]
+        if (!intent) return
+        const hunt = { tries: 0, dead: [], tried: [], ...(intent.hunt || {}) }
+        if (message.op === "title" && typeof message.title === "string") {
+          all[tabId] = { ...intent, title: message.title.slice(0, 200) }
+        } else if (message.op === "note") {
+          if (message.try) hunt.tries += 1
+          if (typeof message.dead === "string" && !hunt.dead.includes(message.dead)) hunt.dead = [...hunt.dead, message.dead.slice(0, 500)].slice(-20)
+          if (typeof message.label === "string" && !hunt.tried.includes(message.label)) hunt.tried = [...hunt.tried, message.label.slice(0, 120)].slice(-20)
+          // Odds' own step back: the page it lands on must not take it for the person going back.
+          if (message.back) hunt.backAt = Date.now()
+          if (message.agent) hunt.agentCalls = (hunt.agentCalls || 0) + 1
+          all[tabId] = { ...intent, hunt }
+        } else if (message.op === "visit" && tabUrl) {
+          // Loop stop across page loads: the same page 3 times, or 15 pages in one application, ends the run with a clear Stuck — never a reload storm.
+          const page = tabUrl.split("#")[0]
+          const visits = { ...(hunt.visits || {}) }
+          visits[page] = (visits[page] || 0) + 1
+          const loads = (hunt.loads || 0) + 1
+          const keep = Object.fromEntries(Object.entries(visits).slice(-30))
+          if (visits[page] >= 3 || loads >= 15) {
+            let where = page
+            try { const u = new URL(page); where = `${u.hostname}${u.pathname}` } catch { /* keep */ }
+            stop = `Odds could not open the application form after assist: it kept landing on ${where.slice(0, 120)} without an application form. Open the job yourself and Odds fills it in.`
+            all[tabId] = { ...intent, hunt: { ...hunt, visits: keep, loads }, status: "needs_input", message: stop, stopped: true, at: Date.now() }
+          } else all[tabId] = { ...intent, hunt: { ...hunt, visits: keep, loads } }
+        } else if (message.op === "form" && /^https:\/\//.test(tabUrl)) {
+          // A real form: the search and the loop count start over (forms that reload the same address on every step are fine).
+          all[tabId] = { ...intent, formSeen: true, stopped: false, hunt: { ...hunt, tries: 0, visits: {}, loads: 0 } }
+          learn = intent.postingId || (intent.job ? `job:${jobKeyOf(intent.job, null)}` : "")
+        }
+      })
+      if (learn) {
+        const { oddsLearnedApply = {} } = await chrome.storage.local.get("oddsLearnedApply")
+        oddsLearnedApply[learn] = { url: tabUrl, at: Date.now() }
+        // Keep the store small: the most recent 300 jobs.
+        const keep = Object.entries(oddsLearnedApply).sort((x, y) => y[1].at - x[1].at).slice(0, 300)
+        await chrome.storage.local.set({ oddsLearnedApply: Object.fromEntries(keep) })
+      }
+      const fresh = await intentOf(tabId)
+      reply({ ok: true, title: fresh?.title || null, hunt: fresh?.hunt || { tries: 0, dead: [], tried: [] }, formSeen: Boolean(fresh?.formSeen), ...(stop ? { stop: true, message: stop } : {}) })
+    })().catch(() => reply({ ok: false }))
+    return true
+  }
+  // The person went back a step (Back, or the form's own Back/Previous): Odds pauses there and the app says so; their own Next/Apply resumes.
+  if (message?.type === "apply-pause" && sender.tab && typeof sender.tab.id === "number") {
+    const tabId = sender.tab.id
+    const paused = message.resume !== true
+    changeIntents((all) => {
+      if (!all[tabId]) return
+      all[tabId] = { ...all[tabId], paused, at: Date.now(), status: paused ? "needs_input" : "filling", message: paused ? String(message.message || PAUSED_MESSAGE).slice(0, 500) : "Continuing where you are…" }
+    }).then(() => reply({ ok: true })).catch(() => reply({ ok: false }))
+    return true
+  }
+  // Keep offsite handoffs inside the application's background tab. A short-lived
+  // MAIN-world window.open wrapper avoids popup blocking without activating it.
+  if (message?.type === "apply-arm-offsite" && sender.tab && typeof sender.tab.id === "number") {
+    const tabId = sender.tab.id
+    ;(async () => {
+      const tab = await chrome.tabs.get(tabId).catch(() => null)
+      await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: () => {
+        const original = window.open
+        const wrapped = function(url, ...args) {
+          try {
+            const next = new URL(String(url || ""), location.href)
+            if (["http:", "https:"].includes(next.protocol) && url) {
+              location.assign(next.href)
+              return window
+            }
+          } catch { /* Let the browser reject unsupported destinations normally. */ }
+          return original.call(window, url, ...args)
+        }
+        window.open = wrapped
+        setTimeout(() => { if (window.open === wrapped) window.open = original }, 5000)
+      } })
+      reply({ ok: true, wasActive: Boolean(tab?.active) })
+    })().catch(() => reply({ ok: false, wasActive: false }))
+    return true
+  }
+  if (message?.type === "apply-disarm-offsite" && sender.tab && typeof sender.tab.id === "number") {
+    reply({ ok: true })
+    return false
+  }
   // A LinkedIn job applied for on the employer's site: their form opens in the same tab, which is still applying for that job.
   if (message?.type === "apply-go" && sender.tab && typeof sender.tab.id === "number" && typeof message.url === "string" && /^https:\/\//.test(message.url)) {
     const tabId = sender.tab.id
     intentOf(tabId).then(async (intent) => {
       if (!intent) return reply({ ok: false })
+      const next = preferEnglishApplyUrl(message.url)
+      const cur = sender.tab.url || ""
+      // Same path already open (e.g. Workday + locale=en_US rewrite): do not reload — that caused Philips "1 Erreur" reopen loops.
+      try {
+        const a = new URL(next)
+        const b = new URL(cur)
+        if (a.origin === b.origin && a.pathname.replace(/\/$/, "") === b.pathname.replace(/\/$/, "")) {
+          await setIntent(tabId, { ...intent, at: Date.now(), followed: true })
+          return reply({ ok: true, skipped: true })
+        }
+      } catch { /* navigate */ }
       await setIntent(tabId, { ...intent, at: Date.now(), followed: true })
-      await chrome.tabs.update(tabId, { url: message.url })
+      await chrome.tabs.update(tabId, { url: next })
       reply({ ok: true })
     })
     return true
   }
   // Applying: what the form needs, the person's own answers kept, the job marked applied, their CV for the upload.
   if (message?.type === "apply-kit" && typeof message.url === "string") {
-    ext("apply-kit", { method: "POST", body: JSON.stringify({ url: message.url }) }).then(reply)
+    kitFor(message.url).then(reply)
     return true
   }
   if (message?.type === "application-questions" && sender.tab && typeof message.url === "string") {
     ext("application-questions", { method: "POST", body: JSON.stringify({ url: message.url, questions: message.questions }) }).then(reply)
+    return true
+  }
+  if (message?.type === "suggest-answers" && sender.tab && typeof message.url === "string") {
+    ext("suggest-answers", { method: "POST", body: JSON.stringify({ url: message.url, questions: Array.isArray(message.questions) ? message.questions : [] }) }).then(reply)
+    return true
+  }
+  if (message?.type === "suggest-action" && sender.tab && typeof message.url === "string") {
+    const buttons = Array.isArray(message.buttons)
+      ? message.buttons.filter((b) => typeof b === "string" || (b && typeof b === "object" && typeof b.text === "string")).slice(0, 40)
+      : []
+    const exclude = Array.isArray(message.exclude) ? message.exclude.filter((t) => typeof t === "string").slice(0, 12) : []
+    ext("suggest-action", {
+      method: "POST",
+      body: JSON.stringify({
+        url: message.url,
+        buttons,
+        status: typeof message.status === "string" ? message.status : null,
+        force_llm: message.force_llm === true,
+        exclude,
+      }),
+    }).then(reply)
+    return true
+  }
+  if (message?.type === "suggest-scan" && sender.tab && typeof message.url === "string") {
+    const snapshot = message.snapshot && typeof message.snapshot === "object" ? message.snapshot : {}
+    ext("suggest-scan", {
+      method: "POST",
+      body: JSON.stringify({
+        url: message.url,
+        status: typeof message.status === "string" ? message.status : null,
+        snapshot,
+      }),
+    }).then(reply)
     return true
   }
   if (message?.type === "application-refresh-answers" && sender.tab) {
@@ -362,8 +537,13 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     ext("applied", { method: "POST", body: JSON.stringify({ url: message.url }) }).then(reply)
     return true
   }
+  // LinkedIn (or employer) says applications closed — set postings.closed_at for everyone.
+  if (message?.type === "job-closed" && typeof message.url === "string" && /^https:\/\//.test(message.url)) {
+    ext("job-closed", { method: "POST", body: JSON.stringify({ url: message.url }) }).then(reply)
+    return true
+  }
   if (message?.type === "cv-file" && typeof message.doc === "string") {
-    cvFile(message.doc).then(reply)
+    cvFileFor(message.doc).then(reply)
     return true
   }
   if (message?.type === "lookup-cached" && typeof message.url === "string") {
@@ -433,7 +613,9 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return true
   }
   if (message?.type === "status") {
-    savedKey().then((key) => reply({ connected: key !== null }))
+    Promise.all([savedKey(), chrome.storage.local.get("oddsBoardSession")]).then(([key, got]) => {
+      reply({ connected: key !== null, boards: got.oddsBoardSession && typeof got.oddsBoardSession === "object" ? got.oddsBoardSession : {} })
+    })
     return true
   }
   if (message?.type === "disconnect") {
@@ -461,7 +643,7 @@ let intentWrites = Promise.resolve()
 function changeIntents(change) {
   const next = intentWrites.catch(() => undefined).then(async () => {
     const { oddsApplyIntents = {} } = await chrome.storage.local.get("oddsApplyIntents")
-    for (const [id, it] of Object.entries(oddsApplyIntents)) if (Date.now() - it.at > INTENT_MS) delete oddsApplyIntents[id]
+    for (const [id, it] of Object.entries(oddsApplyIntents)) if (Date.now() - it.at > 7 * 24 * INTENT_MS) delete oddsApplyIntents[id]
     change(oddsApplyIntents)
     await chrome.storage.local.set({ oddsApplyIntents })
   })
@@ -476,29 +658,252 @@ async function intentOf(tabId) {
   const intent = oddsApplyIntents[tabId]
   return intent && Date.now() - intent.at < INTENT_MS ? intent : null
 }
+/** Live apply rows for the Odds app tracker — one per postingId, newest wins. */
+async function liveApplicationStatuses() {
+  const { oddsApplyIntents = {} } = await chrome.storage.local.get("oddsApplyIntents")
+  const byPost = new Map()
+  for (const [id, intent] of Object.entries(oddsApplyIntents)) {
+    if (!intent || Date.now() - intent.at > INTENT_MS) continue
+    const postingId = typeof intent.postingId === "string" && intent.postingId ? intent.postingId : null
+    if (!postingId) continue
+    const status = intent.status || "filling"
+    if (!["filling", "needs_input", "ready", "submitted", "failed"].includes(status)) continue
+    const tab = await chrome.tabs.get(Number(id)).catch(() => null)
+    if (!tab && !["submitted", "failed"].includes(status)) continue
+    const prev = byPost.get(postingId)
+    if (prev && prev.at >= intent.at) continue
+    byPost.set(postingId, {
+      postingId,
+      status,
+      message: String(intent.message || "").slice(0, 500),
+      at: intent.at,
+      url: typeof intent.job === "string" ? intent.job : null,
+    })
+  }
+  return [...byPost.values()]
+}
 // Serialize double clicks per vacancy, and focus the existing application rather than lose its filled fields.
 const applicationStarts = new Map()
-function openApplication(url) {
-  const job = globalThis.oddsSites.jobLink(url)?.url || url
+/**
+ * Bring the apply tab (+ its window) forward when the person pressed Open tab.
+ * Uses highlight + drawAttention — tabs.update alone often fails when the tab is in another Chrome window.
+ */
+async function revealApplicationTab(tabId, revealFocus) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null)
+  if (!tab || typeof tab.id !== "number") return
+  await chrome.tabs.update(tab.id, { active: true }).catch(() => undefined)
+  if (typeof tab.index === "number" && typeof tab.windowId === "number") {
+    await chrome.tabs.highlight({ windowId: tab.windowId, tabs: [tab.index] }).catch(() => undefined)
+  }
+  if (revealFocus && typeof tab.windowId === "number") {
+    await chrome.windows.update(tab.windowId, { focused: true, drawAttention: true }).catch(() => undefined)
+  }
+}
+/** Content scripts die on extension reload; reinject so Continue can talk to the same tab without wiping the form. */
+async function injectApplyScripts(tabId) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null)
+  if (!tab?.url || !/^https?:/i.test(tab.url)) return false
+  let host = ""
+  try { host = new URL(tab.url).hostname } catch { return false }
+  const linkedin = /(^|\.)linkedin\.com$/i.test(host)
+  const odds = /(^|\.)beeblast\.co$/i.test(host) || /^localhost$/i.test(host)
+  if (odds) {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["content-site.js"] }).catch(() => undefined)
+    return true
+  }
+  const files = linkedin
+    ? ["job-sites.js", "site-dom.js", "panel.js", "content-job.js", "application-handoff.js", "apply.js"]
+    : ["job-sites.js", "site-dom.js", "panel.js", "content-job.js", "application-handoff.js", "apply-any.js"]
+  await chrome.scripting.executeScript({ target: { tabId }, files }).catch(() => undefined)
+  await chrome.scripting.insertCSS({ target: { tabId }, files: ["content-job.css"] }).catch(() => undefined)
+  return true
+}
+/** Ping the apply script; if the extension was reloaded, reinject, then send Continue. */
+async function continueInTab(tabId, { reveal = false } = {}) {
+  if (reveal) await revealApplicationTab(tabId, true)
+  const ping = () => chrome.tabs.sendMessage(tabId, { type: "application-ping" }).then(() => true).catch(() => false)
+  if (!await ping()) {
+    await injectApplyScripts(tabId)
+    // Content script must attach its Continue listener before we ping it (reload / reinject).
+    await new Promise((r) => setTimeout(r, 400))
+  }
+  await chrome.tabs.sendMessage(tabId, { type: "application-continue" }).catch(() => undefined)
+  return true
+}
+/** Find the open apply tab for a phone/desktop run after a reload (session map gone; intents in local still hold). */
+async function tabForApplicationRun(runId, postingId) {
+  const runs = await updateApplicationRuns(() => {})
+  const known = runs[runId]
+  if (known?.tabId) {
+    const tab = await chrome.tabs.get(known.tabId).catch(() => null)
+    if (tab) return tab
+  }
+  const { oddsApplyIntents = {} } = await chrome.storage.local.get("oddsApplyIntents")
+  for (const [id, intent] of Object.entries(oddsApplyIntents)) {
+    if (intent.runId !== runId && !(postingId && intent.postingId === postingId)) continue
+    const tab = await chrome.tabs.get(Number(id)).catch(() => null)
+    if (!tab) continue
+    await updateApplicationRuns((current) => { current[runId] = { id: runId, tabId: tab.id, resumeVersion: current[runId]?.resumeVersion || 0, postingId: postingId || intent.postingId || null } })
+    return tab
+  }
+  return null
+}
+/** Prefer English on multilingual ATS URLs so Apply labels match recipes; users' browser locale otherwise opens FR/VI/DE… */
+function preferEnglishApplyUrl(url) {
+  try {
+    const u = new URL(url)
+    u.pathname = u.pathname
+      .replace(/\/([a-z]{2})-([A-Z]{2})(?=\/|$)/g, (m, lang, region) => (lang.toLowerCase() === "en" ? m : `/en-${region === "GB" ? "GB" : "US"}`))
+      .replace(/\/(fr|nl|de|vi|es|it|pl|pt)(?=\/|$)/i, "/en-US")
+    for (const key of ["locale", "lang", "language", "localeCode"]) {
+      const v = u.searchParams.get(key)
+      if (v && !/^en/i.test(v)) u.searchParams.set(key, /_/.test(v) ? "en_US" : "en-US")
+    }
+    // Workday / SuccessFactors often keep UI language from cookie / Accept-Language unless locale is forced.
+    if (/\.myworkday(jobs|site)\.com$/i.test(u.hostname) || /\.successfactors\.(com|eu)$/i.test(u.hostname)) {
+      const loc = u.searchParams.get("locale") || ""
+      if (!loc || !/^en/i.test(loc)) u.searchParams.set("locale", "en_US")
+    }
+    return u.href
+  } catch {
+    return url
+  }
+}
+/** Whether a page title or heading names this job ("Apply for: B2C Marketing Intern" for "B2C MARKETING INTERN (CONTENT & RETAIL)"): most of its words. */
+function namesJob(jobTitle, text) {
+  const words = (t) => (t || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !/^(the|and|for|with|van|een|der|die|het|m\/v|mvx|fte)$/.test(w))
+  const want = [...new Set(words(jobTitle))]
+  if (want.length < 2) return false
+  const have = new Set(words(text))
+  return want.filter((w) => have.has(w)).length / want.length >= 0.6
+}
+/** Where the person's application for a job really is, once found (the employer's form, not their list of vacancies): the next run opens it directly. */
+async function learnedApplyUrl(postingId, job) {
+  if (!postingId && !job) return null
+  const { oddsLearnedApply = {} } = await chrome.storage.local.get("oddsLearnedApply")
+  const url = (postingId && oddsLearnedApply[postingId]?.url) || (job && oddsLearnedApply[`job:${jobKeyOf(job, null)}`]?.url)
+  return typeof url === "string" && /^https:\/\//.test(url) ? url : null
+}
+const PAUSED_MESSAGE = "You went back a step, so Odds paused here. Press Next or Apply yourself and Odds carries on, or press Apply with Odds again."
+/** Stable key for one vacancy: posting id when Odds sent it, else the canonical job link, else the exact apply URL (never merge unknown boards). */
+function jobKeyOf(url, postingId) {
+  if (postingId) return `post:${postingId}`
+  return globalThis.oddsSites.jobLink(url)?.url || url
+}
+/**
+ * Open or resume an application. By default this is silent: a background window, no tab switch, no OS focus steal.
+ * `reveal: true` when the person pressed Open tab (including mid-fill, Review, captcha, account).
+ * One job → one tab (resume the same tab; never attach another job's tab).
+ */
+function openApplication(url, from, opts = {}) {
+  const reveal = opts.reveal === true
+  const postingId = typeof opts.postingId === "string" && opts.postingId ? opts.postingId : null
+  const applyUrl = preferEnglishApplyUrl(url)
+  const job = jobKeyOf(applyUrl, postingId) || jobKeyOf(url, postingId)
+  kitFor(applyUrl, true).catch(() => undefined)
   if (applicationStarts.has(job)) return applicationStarts.get(job)
   const opening = (async () => {
     if (!await savedKey()) return { ok: false, message: "Connect Odds from the extension icon first." }
     const { oddsApplyIntents = {} } = await chrome.storage.local.get("oddsApplyIntents")
+    let matched = null
     for (const [id, intent] of Object.entries(oddsApplyIntents)) {
-      if (Date.now() - intent.at > INTENT_MS || intent.status === "submitted" || intent.status === "failed") continue
-      if ((globalThis.oddsSites.jobLink(intent.job)?.url || intent.job) !== job) continue
+      if (intent.status === "submitted") continue
+      const intentKey = jobKeyOf(intent.job, intent.postingId)
+      // Same job by posting id, by full key, or by canonical URL alone (so Open application tab
+      // still finds the tab when one side has postingId and the other only has the LinkedIn URL).
+      const sameByPost = Boolean(postingId && intent.postingId && intent.postingId === postingId)
+      const sameByUrl = jobKeyOf(intent.job, null) === jobKeyOf(applyUrl, null) || jobKeyOf(intent.job, null) === jobKeyOf(url, null)
+      const sameJob = sameByPost || sameByUrl || intentKey === job
+      if (!sameJob) continue
       const tab = await chrome.tabs.get(Number(id)).catch(() => null)
-      if (!tab) continue
-      await setIntent(tab.id, { ...intent, at: Date.now() })
-      await chrome.tabs.update(tab.id, { active: true })
-      if (typeof tab.windowId === "number") await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined)
-      await chrome.tabs.sendMessage(tab.id, { type: "application-continue" }).catch(() => undefined)
+      if (!tab) {
+        // Dead tab id — drop so we can reopen; keep looking for another match.
+        await changeIntents((all) => { delete all[id] })
+        continue
+      }
+      matched = { tab, intent }
+      break
+    }
+    // Recover an already-open exact application URL even when an older extension
+    // pruned its intent. Never match only by employer host: vacancies share hosts.
+    if (!matched && reveal) {
+      const sameApplication = value => {
+        try {
+          const wanted = new URL(applyUrl), current = new URL(value)
+          return wanted.origin === current.origin && wanted.pathname === current.pathname
+            && [...wanted.searchParams].every(([key, val]) => /^(utm_|source$)/i.test(key) || current.searchParams.get(key) === val)
+        } catch { return false }
+      }
+      const tabs = await chrome.tabs.query({})
+      const tab = tabs.find(t => t.id && sameApplication(t.url))
+      if (tab) matched = { tab, intent: { job: applyUrl, postingId, at: Date.now(), status: "filling" } }
+    }
+    // The run's tab never reached a form (an employer list of vacancies): a tab that does show this job's application wins —
+    // the learned address, else an open tab titled with the job (opened by the person or an earlier run).
+    if (matched && !matched.intent.formSeen) {
+      const learned = await learnedApplyUrl(matched.intent.postingId || postingId, matched.intent.job || applyUrl)
+      const tabs = await chrome.tabs.query({})
+      const better = tabs.find((t) => t.id !== matched.tab.id && learned && t.url && t.url.split("#")[0] === learned.split("#")[0])
+        || (matched.intent.title ? tabs.find((t) => t.id !== matched.tab.id && /^https:/.test(t.url || "") && !/linkedin\.com|indeed\.|glassdoor\./i.test(t.url || "") && namesJob(matched.intent.title, t.title)) : null)
+      if (better?.id) {
+        await changeIntents((all) => { all[better.id] = { ...matched.intent, at: Date.now(), status: "filling", message: "Filling in the background…", hunt: undefined } })
+        matched = { tab: better, intent: { ...matched.intent, status: "filling" } }
+      }
+    }
+    if (matched) {
+      const { tab, intent } = matched
+      // Older builds could leave duplicate runs for one vacancy. Only this tab
+      // owns progress now; keep the other page open without letting it overwrite status.
+      await changeIntents(all => {
+        for (const [id, other] of Object.entries(all)) {
+          if (Number(id) === tab.id) continue
+          if ((postingId && other.postingId === postingId) || jobKeyOf(other.job, null) === jobKeyOf(intent.job, null)) delete all[id]
+        }
+      })
+      // Never wipe real progress (Account / outlined / Ready) when Apply or Open tab is pressed again.
+      // ...but Review only stays when this tab really showed the application form (never a list of vacancies).
+      const keepStatus = intent.status && !["submitted"].includes(intent.status) && !(intent.status === "ready" && !intent.formSeen) ? intent.status : "filling"
+      await setIntent(tab.id, {
+        ...intent,
+        job: intent.job || applyUrl,
+        postingId: intent.postingId || postingId,
+        at: Date.now(),
+        status: keepStatus,
+        message: intent.message || (reveal ? "Opening the application tab…" : "Filling in the background…"),
+        // Apply with Odds pressed again resumes a run the person paused by going back; Open application tab only shows it.
+        paused: reveal ? intent.paused === true : false,
+        // Apply with Odds pressed again: a fresh budget (tries, page count, asks); Open application tab keeps the run as it is.
+        ...(reveal ? {} : { hunt: undefined, stopped: false }),
+      })
+      // Open tab: focus immediately and ACK — Continue/reinject must not lag the Odds button.
+      if (reveal) {
+        await revealApplicationTab(tab.id, true)
+        if (!intent.paused) void continueInTab(tab.id, { reveal: false })
+        return { ok: true, resumed: true }
+      }
+      await continueInTab(tab.id, { reveal: false })
       return { ok: true, resumed: true }
     }
-    const tab = await chrome.tabs.create({ url: "about:blank", active: true })
-    if (typeof tab.id !== "number") return { ok: false, message: "Could not open an application tab." }
-    await setIntent(tab.id, { job: url, at: Date.now(), status: "filling" })
-    await chrome.tabs.update(tab.id, { url, active: true })
+    // New application: a tab in the same Chrome window as Odds (or the focused window) — not a second window.
+    // Intent MUST be stored before the job URL loads — otherwise apply.js asks apply-intent too early and never watches Closed.
+    let windowId = typeof from?.windowId === "number" ? from.windowId : null
+    if (typeof windowId !== "number") {
+      const focused = await chrome.windows.getLastFocused({ windowTypes: ["normal"] }).catch(() => null)
+      windowId = typeof focused?.id === "number" ? focused.id : null
+    }
+    const tab = typeof windowId === "number"
+      ? await chrome.tabs.create({ windowId, url: "about:blank", active: reveal })
+      : (await chrome.windows.create({ url: "about:blank", focused: reveal, type: "normal" })).tabs?.[0]
+    const tabId = tab?.id
+    if (typeof tabId !== "number") return { ok: false, message: "Could not open an application tab." }
+    await setIntent(tabId, { job: applyUrl, postingId, at: Date.now(), status: "filling", message: "Opening the application…" })
+    // Where this application was found last time (the employer's real form), straight away; the job's own link otherwise.
+    const learned = await learnedApplyUrl(postingId, applyUrl)
+    await chrome.tabs.update(tabId, { url: learned || applyUrl, active: reveal }).catch(() => undefined)
+    // Person asked to look: bring the new tab's window forward too.
+    if (reveal) await revealApplicationTab(tabId, true)
+    // Applying keeps the job in the person's tracker, in the same click.
+    addJob(applyUrl).catch(() => undefined)
     return { ok: true, resumed: false }
   })().finally(() => applicationStarts.delete(job))
   applicationStarts.set(job, opening)
@@ -507,10 +912,23 @@ function openApplication(url) {
 // A tab opened by a tab that was applying (the employer's application in a new tab) is applying too.
 chrome.tabs.onCreated.addListener((tab) => {
   const from = typeof tab.openerTabId === "number" ? followFrom.get(tab.openerTabId) : null
-  if (from && Date.now() - from.at < 30_000 && typeof tab.id === "number") {
-    setIntent(tab.id, { ...from, at: Date.now(), followed: true })
-    if (from.runId) updateApplicationRuns(runs => { runs[from.runId] = { id: from.runId, tabId: tab.id } })
-  }
+  if (!from || Date.now() - from.at >= 30_000 || typeof tab.id !== "number") return
+  const opener = tab.openerTabId
+  const tabId = tab.id
+  // MUST await intent before apply-any asks apply-intent — otherwise fill never starts (silent empty form).
+  void (async () => {
+    await setIntent(tabId, { ...from, at: Date.now(), followed: true, status: "filling", message: "Opening the employer’s application…" })
+    if (from.runId) await updateApplicationRuns((runs) => { runs[from.runId] = { id: from.runId, tabId, resumeVersion: runs[from.runId]?.resumeVersion || 0, postingId: from.postingId || null } })
+    // One job, one tab: drop the LinkedIn listing after the employer tab has the intent.
+    if (typeof opener === "number") {
+      await changeIntents((all) => { delete all[opener] })
+      chrome.tabs.remove(opener).catch(() => undefined)
+    }
+    // Keep fill running in the background (Apply with Odds); do not steal focus.
+    if (tab.active) chrome.tabs.update(tabId, { active: false }).catch(() => undefined)
+    // Wake apply-any if it loaded before intent was written.
+    chrome.tabs.sendMessage(tabId, { type: "application-continue" }).catch(() => undefined)
+  })()
 })
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   followFrom.delete(tabId)
@@ -546,13 +964,25 @@ async function reportApplication(run, status, message) {
   return ext("application-report", { method: "POST", body: JSON.stringify({ device_id: await applicationDevice(), id: run.id, status, message }) })
 }
 let applicationWrites = Promise.resolve()
+/** Run → tab map in local storage so an extension reload still finds the tab Continue should resume. */
 function updateApplicationRuns(change) {
   const next = applicationWrites.catch(() => undefined).then(async () => {
-    const stored = await chrome.storage.session.get(["oddsApplicationRuns", "oddsApplicationRun"])
-    const runs = stored.oddsApplicationRuns || (stored.oddsApplicationRun ? { [stored.oddsApplicationRun.id]: stored.oddsApplicationRun } : {})
+    const local = await chrome.storage.local.get("oddsApplicationRuns")
+    const session = await chrome.storage.session.get(["oddsApplicationRuns", "oddsApplicationRun"]).catch(() => ({}))
+    const runs = { ...(session.oddsApplicationRuns || {}), ...(local.oddsApplicationRuns || {}) }
+    if (session.oddsApplicationRun?.id) runs[session.oddsApplicationRun.id] = session.oddsApplicationRun
+    // Rebuild from apply intents after a reload wiped the map.
+    const { oddsApplyIntents = {} } = await chrome.storage.local.get("oddsApplyIntents")
+    for (const [id, intent] of Object.entries(oddsApplyIntents)) {
+      if (!intent.runId || runs[intent.runId]) continue
+      runs[intent.runId] = { id: intent.runId, tabId: Number(id), resumeVersion: 0, postingId: intent.postingId || null }
+    }
     change(runs)
-    await chrome.storage.session.set({ oddsApplicationRuns: runs })
-    if (stored.oddsApplicationRun) await chrome.storage.session.remove("oddsApplicationRun")
+    await chrome.storage.local.set({ oddsApplicationRuns: runs })
+    if (session.oddsApplicationRuns || session.oddsApplicationRun) {
+      await chrome.storage.session.set({ oddsApplicationRuns: runs }).catch(() => undefined)
+      if (session.oddsApplicationRun) await chrome.storage.session.remove("oddsApplicationRun").catch(() => undefined)
+    }
     return runs
   })
   applicationWrites = next
@@ -571,14 +1001,18 @@ async function pollApplications() {
     // Legacy response support lets an extension update roll out before the server update.
     const states = Array.isArray(answer.runs) ? answer.runs : answer.previous ? [answer.previous] : []
     for (const state of states) {
-      const run = runs[state.id]
+      let run = runs[state.id]
+      if (!run) {
+        // Reloaded extension / empty map: reattach via intent tab for this run or posting.
+        const tab = await tabForApplicationRun(state.id, state.posting_id)
+        if (tab) run = (await updateApplicationRuns(() => {}))[state.id]
+      }
       if (!run) continue
       if (["filling", "needs_input", "ready"].includes(state.status) && (state.resume_version || 0) > (run.resumeVersion || 0)) {
-        const tab = await chrome.tabs.get(run.tabId).catch(() => null)
+        const tab = await chrome.tabs.get(run.tabId).catch(() => null) || await tabForApplicationRun(state.id, state.posting_id)
         if (tab) {
-          await chrome.tabs.update(run.tabId, { active: true })
-          if (typeof tab.windowId === "number") await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined)
-          await chrome.tabs.sendMessage(run.tabId, { type: "application-continue" }).catch(() => undefined)
+          // Person pressed Open application tab / Continue — always bring that tab (+ window) forward.
+          await continueInTab(tab.id, { reveal: true })
           await updateApplicationRuns(current => { if (current[state.id]) current[state.id].resumeVersion = state.resume_version })
         }
       }
@@ -591,13 +1025,13 @@ async function pollApplications() {
     claimed = task
     if (!(await chrome.storage.local.get("oddsPhoneControl")).oddsPhoneControl || !await savedKey()) return
     if (task.status !== "filling" || !/^https:\/\//.test(task.url)) return
-    const tab = await chrome.tabs.create({ url: "about:blank", active: true })
-    const run = { id: task.id, tabId: tab.id }
+    // Phone/desktop queue: fill in the background; surface the tab only at needs_input/ready.
+    const applyUrl = preferEnglishApplyUrl(task.url)
+    const tab = await chrome.tabs.create({ url: "about:blank", active: false })
+    const run = { id: task.id, tabId: tab.id, postingId: task.posting_id || null }
     await updateApplicationRuns(current => { current[run.id] = run })
-    await setIntent(tab.id, { job: task.url, at: Date.now(), runId: task.id })
-    await chrome.tabs.update(tab.id, { url: task.url })
-    // Requests may come from a phone or Codex's browser: make the real form visible.
-    if (typeof tab.windowId === "number") await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined)
+    await setIntent(tab.id, { job: applyUrl, at: Date.now(), runId: task.id, postingId: task.posting_id || null })
+    await chrome.tabs.update(tab.id, { url: applyUrl, active: false })
   } catch {
     if (claimed) await reportApplication(claimed, "failed", "Could not open the application. Please start again on your desktop.").catch(() => undefined)
   } finally { pollingApplications = false }
@@ -622,8 +1056,15 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message?.type === "application-progress" && sender.tab) {
     updateApplicationRuns(() => {}).then(async runs => {
       if (!["filling", "needs_input", "ready", "submitted", "failed"].includes(message.status)) return
-      const intent = await intentOf(sender.tab.id)
-      if (intent) await setIntent(sender.tab.id, { ...intent, at: Date.now(), status: message.status, message: String(message.message || "").slice(0, 500) })
+      // Merged into the newest record: never overwrite what another message just wrote (the loop count, a pause, a stop).
+      await changeIntents((all) => {
+        const intent = all[sender.tab.id]
+        if (!intent) return
+        // A run Odds stopped (loop) or the person paused keeps that message until they act: later "Filling…" chatter cannot hide it.
+        if ((intent.stopped || intent.paused) && message.status === "filling") return
+        all[sender.tab.id] = { ...intent, at: Date.now(), status: message.status, message: String(message.message || "").slice(0, 500) }
+      })
+      // Never auto-focus on progress (login / account creation / ready). The person opens the tab from Odds when ready.
       let run = Object.values(runs).find(run => run.tabId === sender.tab.id)
       // Reloading an extension clears session storage. Reattach only a request
       // owned by this account and desktop for this exact job, verified by the server.

@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "odds: interview chances beside jobs",
   "short_name": "odds",
-  "version": "0.11.0",
-  "description": "See your interview chance beside jobs on LinkedIn, Indeed, Glassdoor, Magnet.me and employers' own job pages. Click a percentage to view that job in the Odds side panel.",
+  "version": "0.15.44",
+  "description": "See your interview chance beside jobs on LinkedIn, Indeed, Glassdoor and employers' sites. Click a % to open it in Odds.",
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
@@ -18,13 +18,16 @@
   },
   "permissions": [
     "storage",
+    "scripting",
     "declarativeNetRequest",
     "sidePanel",
     "alarms"
   ],
   "host_permissions": [
     "https://ukpmpyfcnbhngkgbnkxi.supabase.co/*",
-    "https://odds.beeblast.co/*"
+    "https://odds.beeblast.co/*",
+    "https://*/*",
+    "http://localhost/*"
   ],
   "content_scripts": [
     {
@@ -68,7 +71,8 @@
     },
     {
       "matches": [
-        "https://odds.beeblast.co/*"
+        "https://odds.beeblast.co/*",
+        "http://localhost:5173/*"
       ],
       "js": [
         "content-site.js"

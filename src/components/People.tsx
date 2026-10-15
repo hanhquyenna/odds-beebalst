@@ -1,16 +1,17 @@
 import { usePhone } from "@/lib/use-phone"
 import { PersonAvatar } from "@/components/PersonAvatar"
-import { Suspense, lazy, useEffect, useMemo, useState } from "react"
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
-import { CheckIcon, ChevronDownIcon, ExternalLinkIcon, InfoIcon, MessageIcon, PlusIcon, TrashIcon, XIcon } from "@/components/icons"
+import { UndoIcon, ChevronDownIcon, EnvelopeIcon, ExternalLinkIcon, InfoIcon, MessageIcon, PlusIcon, TrashIcon, XIcon } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import { useData } from "@/lib/data"
 import { suggestReferrals } from "@/lib/linkedin"
 import { useRemembered } from "@/lib/remembered"
 import { OutreachDrafts } from "@/components/OutreachDrafts"
 import { PersonPanel } from "@/components/PersonPanel"
+import { Section } from "@/components/Section"
 import { departmentOf } from "@/lib/field"
-import { GROUP_POOL, PEOPLE_GROUPS, dropPerson, isUrl, linkedinHref, linkedinSearches, moreIn, openIn, rankForJob, readPast, revealIn, startGroups, whyThisPerson, type PeopleGroup, type Suggestion } from "@/lib/suggest"
+import { GROUP_POOL, PEOPLE_GROUPS, PEOPLE_DATA_VERSION, dropPerson, groupOf, isUrl, linkedinHref, linkedinSearches, moreIn, openIn, rankForJob, readPast, revealIn, startGroups, whyThisPerson, type PeopleGroup, type Suggestion } from "@/lib/suggest"
 import { saved } from "@/lib/saved"
 import { useFollowDays } from "@/lib/follow-days"
 import { useViewConfig } from "@/lib/views"
@@ -25,6 +26,8 @@ import { formatPlace } from "@/lib/format"
 import { nextStep, stamp } from "@/lib/outreach-stage"
 import { CONTACT_STATUSES, type ContactStatus, type PastSearch, type Person, type Posting } from "@/lib/types"
 import { isGuestEmail } from "@/lib/auth"
+import { emailOf, followUpMailto } from "@/lib/follow-up-mail"
+import { appliedOn } from "@/lib/tracker"
 
 // Lazy: the outreach guides open from a button and carry the slide deck and the playbook's words.
 const WhyOutreach = lazy(() => import("@/components/OutreachGuide").then((module) => ({ default: module.WhyOutreach })))
@@ -133,7 +136,7 @@ function useFindPeople(post: Posting): { state: "idle" | "busy"; problem: string
   const family = post.family ?? null
   // Only searches kept in groups count; one saved before the groups came in is looked up again on the next press.
   const past = readPast(data.profile.peopleFound?.[post.id])
-  const rec = past?.open ? past : null
+  const rec = past?.open && past.peopleVersion === PEOPLE_DATA_VERSION ? past : null
 
   function find(): void {
     setProblem(null)
@@ -153,7 +156,7 @@ function useFindPeople(post: Posting): { state: "idle" | "busy"; problem: string
   }
 
   // A search from before the groups: looked up again once, by itself (our own stored list, no cost), so it shows in groups.
-  const old = past !== null && !past.open
+  const old = past !== null && (!past.open || past.peopleVersion !== PEOPLE_DATA_VERSION)
   useEffect(() => {
     if (old && !guest) find()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -172,10 +175,9 @@ function useFindPeople(post: Posting): { state: "idle" | "busy"; problem: string
 }
 
 /**
- * People found for one job, one line each: picture, name and position (tap for their profile), then Add (puts them in your list, linked
- * to the job), the LinkedIn mark (opens their page) and an X to drop them from the results for good.
+ * Contact cards with a reversible Add toggle and a link to the public profile.
  */
-function FoundPeople({ post, people, onDrop }: { post: Posting; people: Suggestion[]; onDrop: (url: string) => void }): React.JSX.Element | null {
+function FoundPeople({ post, people }: { post: Posting; people: Suggestion[] }): React.JSX.Element | null {
   const data = useData()
   const [panel, setPanel] = useState<Suggestion | null>(null)
   const add = (s: Suggestion): void => {
@@ -188,30 +190,35 @@ function FoundPeople({ post, people, onDrop }: { post: Posting; people: Suggesti
 
   return (
     <>
-    <ul aria-label={`People you could ask at ${post.employer_display}`} className="-mx-3 flex flex-col divide-y-[1.5px]">
+    <ul aria-label={`People you could ask at ${post.employer_display}`} className="mt-2 flex gap-3 overflow-x-auto pb-1">
       {people.map((s) => {
-        const added = data.people.some((p) => p.contact === s.url)
+        const existing = data.people.find((p) => p.contact === s.url)
+        const added = Boolean(existing)
         const department = s.headline ? departmentOf(s.headline) : null
 
         return (
-          <li key={s.url}>
-          <div className="flex items-center gap-2 px-3 py-2.5">
-            <button type="button" onClick={() => setPanel(s)} className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left">
-              <PersonAvatar name={s.name} photo={s.photo} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">{s.name}</span>
-                {s.headline || department ? <span className="block truncate text-sm text-muted-foreground">{s.headline ?? department}</span> : null}
+          <li key={s.url} className="flex w-36 shrink-0 flex-col rounded-xl border-[1.5px] bg-card">
+          <div className="flex h-full flex-col items-center gap-2 px-3 py-3">
+            <button type="button" onClick={() => setPanel(s)} className="flex w-full min-w-0 flex-1 cursor-pointer flex-col items-center gap-2 text-center">
+              <PersonAvatar name={s.name} photo={s.photo} size="md" />
+              <span className="flex w-full min-w-0 flex-col gap-1">
+                <span className="block text-sm font-semibold">{s.name}</span>
+                {s.headline || department ? <span className="block line-clamp-2 text-xs text-muted-foreground">{s.headline ?? department}</span> : null}
+                {s.currentEmployerMatched === false ? <span className="block line-clamp-2 text-xs text-muted-foreground">Current employer not confirmed</span> : null}
               </span>
             </button>
-            <button type="button" disabled={added} onClick={() => add(s)} aria-label={added ? `${s.name} is in your People` : `Add ${s.name} to your People`} title={added ? "Added" : "Add to your People"} className={`flex size-8 shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors ${added ? "border-transparent text-good-foreground" : "cursor-pointer hover:bg-accent"}`}>
-              {added ? <CheckIcon className="size-4" weight="bold" aria-hidden="true" /> : <PlusIcon className="size-4" aria-hidden="true" />}
+            {added ? <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[0.65rem] font-medium text-brand-ink">Added</span> : null}
+            {existing ? <label className="relative w-full"><span className="sr-only">Where you are with {s.name}</span><select aria-label={`Where you are with ${s.name}`} value={existing.status} onChange={(e) => { data.updatePerson(existing.id, stamp(e.target.value as ContactStatus)); saved() }} className="h-7 w-full cursor-pointer appearance-none rounded-full border-0 bg-secondary py-1 pr-6 pl-2.5 text-xs focus-visible:outline-2 focus-visible:outline-brand">{CONTACT_STATUSES.map((status) => <option key={status}>{status}</option>)}</select><ChevronDownIcon className="pointer-events-none absolute right-2 top-2 size-3 text-muted-foreground" aria-hidden="true" /></label> : null}
+            <div className="flex items-center justify-center gap-2">
+            <button type="button" onClick={() => { if (existing) { data.removePerson(existing.id); saved(() => { data.addPerson(existing) }) } else add(s) }} aria-pressed={added} aria-label={added ? `Remove ${s.name} from your People` : `Add ${s.name} to your People`} title={added ? "Undo add" : "Add to your People"} className={`flex h-8 shrink-0 cursor-pointer items-center justify-center gap-1 rounded-full border-[1.5px] px-2 text-xs transition-colors ${added ? "border-brand/30 bg-brand/10 text-brand-ink hover:bg-brand/20" : "hover:bg-accent"}`}>
+              {added ? <UndoIcon className="size-4" aria-hidden="true" /> : <PlusIcon className="size-3.5" aria-hidden="true" />}
+              {added ? null : "Add"}
             </button>
             <a href={s.url} target="_blank" rel="noreferrer" aria-label={`Connect with ${s.name} on LinkedIn`} className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md hover:bg-accent">
               <img src="/sources/linkedin.com.svg" alt="" className="size-5 rounded-[3px]" />
             </a>
-            <button type="button" aria-label={`Drop ${s.name} from the results`} onClick={() => onDrop(s.url)} className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-              <XIcon className="size-3.5" aria-hidden="true" />
-            </button>
+
+            </div>
           </div>
           </li>
         )
@@ -222,7 +229,7 @@ function FoundPeople({ post, people, onDrop }: { post: Posting; people: Suggesti
           person={{ name: panel.name, headline: panel.headline, company: post.employer_display, place: panel.place, photo: panel.photo, about: panel.about, positions: panel.positions, url: panel.url, facts: [{ label: "Company", value: post.employer_display }, { label: "Job", value: post.title }, { label: "Why this person", value: whyThisPerson(panel.headline, post.family ?? null) }] }}
           onClose={() => setPanel(null)}
           action={
-            <Button type="button" size="sm" variant="outline" disabled={data.people.some((p) => p.contact === panel.url)} onClick={() => add(panel)} className="cursor-pointer">
+            <Button type="button" size="sm" variant="outline" aria-pressed={data.people.some((p) => p.contact === panel.url)} onClick={() => { const existing = data.people.find((p) => p.contact === panel.url); if (existing) { data.removePerson(existing.id); saved(() => { data.addPerson(existing) }) } else add(panel) }} className="cursor-pointer">
               {data.people.some((p) => p.contact === panel.url) ? "Added" : "Add"}
             </Button>
           }
@@ -248,14 +255,17 @@ function MoreOnLinkedIn({ post }: { post: Posting }): React.JSX.Element {
 
 /** The people found for a job in three groups: the same team, hiring managers and other. Each group's + hands out one more of that group;
     when a group has no one left, its LinkedIn mark searches LinkedIn for that kind of person instead. */
-function PeopleGroups({ post, rec, onMore, onDrop }: { post: Posting; rec: PastSearch; onMore: (group: PeopleGroup) => void; onDrop: (url: string) => void }): React.JSX.Element {
+function PeopleGroups({ post, rec, onMore, managersFirst = false }: { post: Posting; rec: PastSearch; onMore: (group: PeopleGroup) => void; managersFirst?: boolean }): React.JSX.Element {
+  const data = useData()
   const family = post.family ?? null
   const searches = linkedinSearches(post.employer_display, family)
 
   return (
     <div className="flex flex-col gap-4">
-      {PEOPLE_GROUPS.map((g) => {
-        const shown = openIn(rec, g.key, family)
+      <p className="text-xs text-muted-foreground">Suggested department contacts. Hiring responsibility for this vacancy has not been confirmed.</p>
+      {[...PEOPLE_GROUPS].sort((a, b) => (managersFirst ? Number(b.key === "manager") - Number(a.key === "manager") : 0)).map((g) => {
+        const visible = openIn(rec, g.key, family)
+        const shown = [...visible, ...rec.pool.filter((p) => groupOf(p, family) === g.key && data.people.some((mine) => mine.contact === p.url) && !visible.some((v) => v.url === p.url))]
         const search = searches.find((s) => s.label === g.search) ?? searches[0]
 
         return (
@@ -275,7 +285,7 @@ function PeopleGroups({ post, rec, onMore, onDrop }: { post: Posting; rec: PastS
                 </a>
               )}
             </div>
-            <FoundPeople post={post} people={shown} onDrop={onDrop} />
+            <FoundPeople post={post} people={shown} />
           </section>
         )
       })}
@@ -285,7 +295,7 @@ function PeopleGroups({ post, rec, onMore, onDrop }: { post: Posting; rec: PastS
 
 /** Looks for people at the job's company who do something like it, and lets you add one. Sits inside the add-someone form. */
 function FindPeople({ post }: { post: Posting }): React.JSX.Element {
-  const { state, problem, find, more, drop, rec, notLookedUp, guest } = useFindPeople(post)
+  const { state, problem, find, more, rec, notLookedUp, guest } = useFindPeople(post)
   if (guest) {
     return (
       <div className="flex flex-col gap-2 border-t-[1.5px] pt-3 sm:col-span-2">
@@ -297,7 +307,7 @@ function FindPeople({ post }: { post: Posting }): React.JSX.Element {
   return (
     <div className="flex flex-col gap-3 border-t-[1.5px] pt-3 sm:col-span-2">
       {rec ? (
-        <PeopleGroups post={post} rec={rec} onMore={more} onDrop={drop} />
+        <PeopleGroups post={post} rec={rec} onMore={more} />
       ) : (
         <div>
           <button type="button" onClick={find} disabled={state === "busy"} className="cursor-pointer text-sm font-medium text-primary underline underline-offset-4 disabled:opacity-60">
@@ -344,7 +354,7 @@ function OutreachFromJobs({ onClose }: { onClose: () => void }): React.JSX.Eleme
 }
 
 function OutreachRow({ post }: { post: Posting }): React.JSX.Element {
-  const { state, problem, find, more, drop, rec, notLookedUp, guest } = useFindPeople(post)
+  const { state, problem, find, more, rec, notLookedUp, guest } = useFindPeople(post)
 
   return (
     <li className="flex flex-col gap-3 p-3">
@@ -367,7 +377,7 @@ function OutreachRow({ post }: { post: Posting }): React.JSX.Element {
       {guest ? <p className="text-sm text-muted-foreground">{GUEST_PEOPLE}</p> : null}
       {problem ? <p role="status" className="text-sm text-muted-foreground">{problem}</p> : null}
       {!guest && !rec && (notLookedUp || problem) ? <MoreOnLinkedIn post={post} /> : null}
-      {!guest && rec ? <PeopleGroups post={post} rec={rec} onMore={more} onDrop={drop} /> : null}
+      {!guest && rec ? <PeopleGroups post={post} rec={rec} onMore={more} /> : null}
     </li>
   )
 }
@@ -767,5 +777,86 @@ function PeopleBoard({ people: shown, onOpen, sortKey, dir, show }: { people: Re
         )
       })}
     </div>
+  )
+}
+
+/**
+ * The people at a job's company, on the job's own page: found by itself the first time (it only reads the people already stored for that
+ * employer), hiring managers first, then the same team, then anyone else. Each group's + hands out one more of that group.
+ */
+export function JobPeople({ post }: { post: Posting }): React.JSX.Element | null {
+  const data = useData()
+  const { state, problem, find, more, rec, notLookedUp, guest } = useFindPeople(post)
+  const signedIn = Boolean(data.session)
+  const started = useRef<boolean>(false)
+  useEffect(() => {
+    if (signedIn && !guest && !rec && !started.current) {
+      started.current = true
+      find()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedIn, guest, rec])
+  const [open, setOpen] = useState<Person | null>(null)
+  const mine = data.people.filter((p) => p.jobId === post.id && !rec?.pool.some((s) => s.url === p.contact))
+  if (!signedIn || post.local) return null
+
+  return (
+    <Section title="People">
+      {mine.length > 0 ? (
+        <ul aria-label="Your people on this job" className="mb-5 flex gap-3 overflow-x-auto pb-1">
+          {mine.map((p) => (
+            <li key={p.id} className="flex w-40 shrink-0 flex-col items-center gap-3 rounded-xl border-[1.5px] bg-card px-3 py-4">
+              <button type="button" onClick={() => setOpen(p)} className="flex w-full min-w-0 flex-1 cursor-pointer flex-col items-center gap-2 text-center">
+                <PersonAvatar name={p.name} photo={p.photo} size="lg" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold">{p.name}</span>
+                  {p.role ? <span className="block text-xs text-muted-foreground">{p.role}</span> : null}
+                </span>
+              </button>
+              {linkedinHref(p) ? <a href={linkedinHref(p)} target="_blank" rel="noreferrer" aria-label={`Connect with ${p.name} on LinkedIn`} className="flex size-8 items-center justify-center rounded-md hover:bg-accent"><img src="/sources/linkedin.com.svg" alt="" className="size-5" /></a> : null}
+              {emailOf(p.contact) ? (
+                <a
+                  href={followUpMailto({ to: emailOf(p.contact) ?? "", name: p.name, job: post.title, company: post.employer_display, appliedOn: appliedOn(data.applications.find((a) => a.posting_id === post.id)), me: data.profile.name })}
+                  aria-label={`Write to ${p.name} in your email`}
+                  className="flex h-9 shrink-0 items-center gap-1.5 rounded-md border-[1.5px] px-3 text-sm font-medium hover:bg-accent"
+                >
+                  <EnvelopeIcon className="size-4" aria-hidden="true" />
+                  Email
+                </a>
+              ) : null}
+              <button type="button" aria-label={`Remove ${p.name} from your People`} onClick={() => { data.removePerson(p.id); saved(() => { data.addPerson(p) }) }} className="flex h-8 cursor-pointer items-center gap-1 rounded-full border-[1.5px] border-brand/30 bg-brand/10 px-2 text-xs text-brand-ink hover:bg-brand/20"><UndoIcon className="size-4" aria-hidden="true" /></button>
+              <select
+                aria-label={`Where you are with ${p.name}`}
+                value={p.status}
+                onChange={(e) => {
+                  data.updatePerson(p.id, stamp(e.target.value as ContactStatus))
+                  saved()
+                }}
+                className="h-9 w-full min-w-0 cursor-pointer rounded-md border-[1.5px] bg-background px-2 text-sm font-medium"
+              >
+                {CONTACT_STATUSES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {open ? <PersonDetails person={data.people.find((p) => p.id === open.id) ?? open} onClose={() => setOpen(null)} /> : null}
+      {guest ? (
+        <p className="text-sm text-muted-foreground">{GUEST_PEOPLE}</p>
+      ) : rec ? (
+        <PeopleGroups post={post} rec={rec} onMore={more} managersFirst />
+      ) : state === "busy" ? (
+        <p aria-busy="true" className="text-sm text-muted-foreground">Looking…</p>
+      ) : notLookedUp ? (
+        <MoreOnLinkedIn post={post} />
+      ) : problem ? (
+        <p className="text-sm text-muted-foreground">{problem}</p>
+      ) : null}
+      {rec && problem ? <p className="mt-3 text-sm text-muted-foreground">{problem}</p> : null}
+    </Section>
   )
 }

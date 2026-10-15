@@ -28,3 +28,7 @@ verify_jwt = false
 # every other route itself.
 [functions.drive]
 verify_jwt = false
+
+# Sync apply-agent webhook Odds calls for suggest-answers (+ lifecycle pings). Auth is Bearer APPLY_AGENT_WEBHOOK_SECRET.
+[functions.apply-agent]
+verify_jwt = false

@@ -1,18 +1,12 @@
 @font-face { font-family: "odds Inter Tight"; src: url("chrome-extension://__MSG_@@extension_id__/fonts/inter-tight.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 /* The size and shape of the site's own Save button beside it (content-job.js fit() sets --odds-h, --odds-r, --odds-fs from it): beside LinkedIn's
    32px pill a 32px pill, beside Indeed's 44px rounded square a 44px rounded square. Without one, LinkedIn's size. Quiet: odds orange, no strong fill. */
-#odds-add { all: initial; position: relative; box-sizing: border-box; display: inline-flex; flex: none; align-self: center; align-items: center; justify-content: center; min-width: max(54px, var(--odds-h, 32px)); height: var(--odds-h, 32px); padding: 0 max(12px, calc(var(--odds-h, 32px) * .34)); border-radius: var(--odds-r, 999px); background: #fff4e8; color: #934500; border: 1px solid #f4cda7; font: 650 var(--odds-fs, 14px)/1 "odds Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; vertical-align: middle; }
+#odds-add { all: initial; position: relative; box-sizing: border-box; display: inline-flex; flex: none; align-self: center; align-items: center; justify-content: center; min-width: max(54px, var(--odds-h, 32px)); height: var(--odds-h, 32px); padding: 0 max(12px, calc(var(--odds-h, 32px) * .34)); border-radius: var(--odds-r, 8px); background: #fff; color: #161513; border: 1.5px solid #a39d95; font: 600 var(--odds-fs, 14px)/1 "odds Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif; gap: 7px; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; vertical-align: middle; }
 #odds-add[data-where="inline"] { margin-left: var(--odds-gap, 8px); }
 /* Beside buttons stacked as full-width rows: one more row, as wide as they are. */
 #odds-add[data-where="stack"] { display: flex; width: var(--odds-w, auto); margin-top: var(--odds-mt, 12px); }
 /* No place found next to LinkedIn's own buttons: it floats at the right edge, above LinkedIn's messaging bar. */
 #odds-add[data-where="float"] { position: fixed; right: 24px; bottom: 96px; z-index: 2147483645; background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, .15); }
-#odds-add:hover { background: rgba(242, 128, 42, .1); }
-#odds-add[data-where="float"]:hover { background: #fff4ec; }
-#odds-add[data-state="busy"] { cursor: progress; opacity: .7; }
-#odds-add[data-state="done"] { color: #0a7a3d; border-color: #6cc596; }
-#odds-add[data-state="done"]:hover { background: rgba(10, 122, 61, .08); }
-#odds-add[data-state="problem"] { color: #9c3a0e; border-color: #d99a78; }
 #odds-add .odds-mark { font-weight: 800; letter-spacing: -.045em; }
 #odds-add .odds-text { font-weight: 600; }
 /* A longer message sits under the button, so the button itself keeps its size. */
@@ -26,11 +20,7 @@
 html[data-odds-panel="open"] #odds-add[data-where="float"] { right: 404px; }
 
 /* A badge beside a job in a list: as tall as the site's own button or chip beside it (24 to 32px), its corners, compact lettering. */
-.odds-job-chance { all: initial; box-sizing: border-box; position: relative; display: inline-flex; flex: none; align-self: center; align-items: center; justify-content: center; min-width: 50px; height: var(--odds-h, 28px); margin: var(--odds-m, 4px 8px 4px 0); padding: 0 10px; border: 1px solid #f4cda7; border-radius: var(--odds-r, 999px); background: #fff4e8; color: #934500; font: 650 var(--odds-fs, 13px)/1 "odds Inter Tight", system-ui, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; vertical-align: middle; z-index: 2; transition: background .15s, border-color .15s; }
-.odds-job-chance[data-state="busy"] { cursor: progress; opacity: .7; }
-.odds-job-chance:hover, #odds-add:hover { background: #ffe8ce; border-color: #d78b3f; }
-.odds-job-chance:focus-visible, #odds-add:focus-visible { outline: 2px solid #934500; outline-offset: 3px; }
-.odds-job-chance[data-state="problem"] { color: #666; background: #f5f5f5; border-color: #ddd; }
+.odds-job-chance { all: initial; box-sizing: border-box; position: relative; display: inline-flex; flex: none; align-self: center; align-items: center; justify-content: center; min-width: 50px; height: var(--odds-h, 28px); margin: var(--odds-m, 4px 8px 4px 0); padding: 0 10px; border: 1.5px solid #a39d95; border-radius: var(--odds-r, 8px); background: #fff; color: #161513; font: 600 var(--odds-fs, 13px)/1 "odds Inter Tight", system-ui, sans-serif; gap: 6px; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; vertical-align: middle; z-index: 2; transition: background .15s, border-color .15s; }
 
 #odds-add .odds-note { display: none; }
 #odds-add:hover .odds-note, #odds-add:focus-visible .odds-note { display: block; }
@@ -46,7 +36,15 @@ html[data-odds-panel="open"] #odds-add[data-where="float"] { right: 404px; }
 .odds-apply-bar.odds-apply-float { position: fixed; right: 20px; bottom: 20px; z-index: 2147483646; max-width: 340px; margin: 0; box-shadow: 0 6px 24px rgba(0, 0, 0, .16); }
 
 /* A quiet way into the job, not a Save action. Keep the site's hit target and geometry. */
-#odds-add, .odds-job-chance { background: transparent; border-color: #e5e2dd; color: #64605a; font-weight: 550; box-shadow: none; }
-#odds-add[data-state="done"] { color: #64605a; border-color: #e5e2dd; }
-#odds-add:hover, .odds-job-chance:hover, #odds-add[data-state="done"]:hover { color: #934500; background: #fff4e8; border-color: #d9b68c; }
-#odds-add[data-where="float"] { box-shadow: 0 1px 4px #00000012; }
+
+/* One look for the button and the badges, the same as odds' own chips: white, a 1.5px line, ink lettering, a vermilion dot marking the number,
+   the soft orange of a saved job when it is kept. The site's own height and corners (fit() in content-job.js) still apply. */
+#odds-add .odds-text, .odds-job-chance { letter-spacing: -.01em; }
+#odds-add[data-kind="chance"]::before, .odds-job-chance[data-kind="chance"]::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #f37a12; flex: none; }
+#odds-add:hover, .odds-job-chance:hover { background: #f6f2ec; border-color: #161513; }
+#odds-add[data-state="done"] { background: #fbe5d1; }
+#odds-add[data-state="done"]:hover { background: #f7d9bd; }
+#odds-add[data-state="busy"], .odds-job-chance[data-state="busy"] { cursor: progress; color: #6b665f; border-color: #cfc9c1; }
+#odds-add[data-state="problem"], .odds-job-chance[data-state="problem"] { color: #6b665f; border-style: dashed; border-color: #a39d95; background: #fff; }
+.odds-job-chance:focus-visible, #odds-add:focus-visible { outline: 2px solid #f37a12; outline-offset: 2px; }
+#odds-add[data-where="float"] { background: #fff; box-shadow: 0 2px 10px rgba(22, 21, 19, .14); }

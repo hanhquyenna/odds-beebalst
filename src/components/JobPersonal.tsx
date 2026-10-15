@@ -8,8 +8,7 @@ import { Pill } from "@/components/bits"
 import { Hint } from "@/components/Hint"
 import { Caret, ChancePanel } from "@/components/OddsExplain"
 import { Section } from "@/components/Section"
-import { TIERS, TIER_LABEL, type Requirement, type Tier } from "@/lib/requirements"
-import { standardNames, standardTiers } from "@/lib/standard"
+import { TIERS } from "@/lib/requirements"
 import { useData } from "@/lib/data"
 import { useJobProfile, useJobStrength } from "@/lib/use-documents"
 import { ladderStats, poolOf, rungOf } from "@/lib/ladder"
@@ -99,95 +98,6 @@ export function UspStrip({ post, st }: { post: Posting; st: Standing }): React.J
         </div>
       ) : null}
     </div>
-  )
-}
-
-// ---------------------------------------------------------------- what to put on your CV
-
-interface FitProps {
-  post: Posting
-  st: Standing
-  /** The lines of the posting that say what it asks for, each with how much it insists. Empty when the posting has no such part. */
-  requirements: Requirement[]
-}
-
-/** What each tier means, in the posting's own terms. */
-/** The more a posting insists, the more orange: a rail on the card, a tint on the chips. */
-const TIER_CHIP: Record<Tier, string> = {
-  must: "border-[1.5px] border-brand/60 bg-brand/15 text-foreground",
-  strong: "border-[1.5px] border-brand/35 bg-brand/[0.07] text-foreground",
-  optional: "border-[1.5px] border-transparent bg-secondary text-foreground",
-  nice: "border-[1.5px] border-dashed bg-transparent text-muted-foreground",
-}
-const TIER_RAIL: Record<Tier, string> = { must: "border-l-brand", strong: "border-l-brand/50", optional: "border-l-muted-foreground/30", nice: "border-l-border" }
-
-const TIER_NOTE: Record<Tier, string> = {
-  must: "they ask for these",
-  strong: "these help a lot",
-  optional: "these help a little",
-  nice: "these barely matter",
-}
-
-type Kind = "skills" | "experience" | "education" | "language" | "qualities" | "conditions"
-const KIND_LABEL: Record<Kind, string> = { skills: "Skills and tools", experience: "Experience", education: "Education", language: "Language", qualities: "Qualities", conditions: "Conditions" }
-const KINDS: Kind[] = ["skills", "experience", "education", "language", "qualities", "conditions"]
-
-/**
- * What to put on your CV for this job. Not a score, and nothing judged from your profile: only what the posting
- * asks for, sorted by how much it insists (Jev's reading of the posting) and shown the same way on every job, in a
- * fixed vocabulary (see standard.ts). If you have a thing, say so on your CV in these words.
- */
-export function FitCard({ post, requirements }: FitProps): React.JSX.Element | null {
-  const tiers = standardTiers(requirements, TIERS).map(({ tier, std }) => ({ tier, std, rows: KINDS.filter((k) => std[k].length > 0) }))
-  // A posting with no requirements part still names things: those are listed without a tier.
-  const mentioned = requirements.length === 0 ? standardNames(post.skills ?? []) : []
-  if (tiers.length === 0 && mentioned.length === 0) return null
-
-  return (
-    <Section title="What to put on your CV">
-      <div className="flex flex-col gap-7">
-
-        {tiers.map(({ tier, std, rows }) => (
-          <div key={tier} className={`rounded-xl border-[1.5px] border-l-4 bg-card p-4 ${TIER_RAIL[tier]}`}>
-            <p className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-              <span className="text-base font-semibold">{TIER_LABEL[tier]}</span>
-              <span className="text-xs text-muted-foreground">{TIER_NOTE[tier]}</span>
-            </p>
-            <dl className="flex flex-col gap-3">
-              {rows.map((kind) => (
-                <div key={kind} className="grid gap-1.5 sm:grid-cols-[7.5rem_1fr] sm:gap-4">
-                  <dt className="pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{KIND_LABEL[kind]}</dt>
-                  <dd>
-                    <ul className="flex flex-wrap gap-1.5">
-                      {std[kind].map((t) => (
-                        <li key={t} className={`rounded-md px-3 py-1 text-sm ${TIER_CHIP[tier]}`}>
-                          {t}
-                        </li>
-                      ))}
-                    </ul>
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        ))}
-
-        
-        {mentioned.length > 0 ? (
-          <div className="flex flex-col">
-            <p className="mb-2 text-sm font-medium">What it mentions</p>
-            <ul className="flex flex-wrap gap-2 border-y-[1.5px] py-3">
-              {mentioned.map((t) => (
-                <li key={t} className="rounded-md bg-secondary px-2.5 py-1 text-sm font-medium">
-                  {t}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
-      </div>
-    </Section>
   )
 }
 

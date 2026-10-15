@@ -1,8 +1,9 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { ChevronDownIcon } from "@/components/icons"
 import { STEPS, moveJob, stepOf, type Step } from "@/components/job-steps"
 import { useFit } from "@/components/FitCells"
+import { applyActivityLabel, applyActivityOf, clearApplyActivity, isLiveApply, useApplyActivityTick } from "@/lib/apply-activity"
 import { useData } from "@/lib/data"
 import { removeFromList } from "@/lib/save"
 import { lookOf, statusColors } from "@/lib/status-colors"
@@ -13,11 +14,23 @@ import type { Posting } from "@/lib/types"
  * saved, applied, interview, offer or closed. Marking it Applied is what counts
  * it in your odds; there is no separate button for that.
  */
-export function StatusPicker({ post, fit, onLocked }: { post: Posting; fit: string; onLocked?: () => void }): React.JSX.Element {
+export function StatusPicker({ post, fit, onLocked }: { post: Posting; fit: string; onLocked?: () => void }): React.JSX.Element | null {
+  useApplyActivityTick()
   const data = useData()
   const app = data.applications.find((a) => a.posting_id === post.id)
   const tracked = data.saved.has(post.id) || Boolean(app)
   const value: Step | "none" = tracked ? stepOf(data, post) : "none"
+  // Same live chip as the Tracker row — drawer must not show plain Saved while the row says Applying….
+  useEffect(() => {
+    if (post.closed_at && applyActivityOf(post.id)) clearApplyActivity(post.id)
+  }, [post.closed_at, post.id])
+  const live = applyActivityOf(post.id)
+  const liveApply = Boolean(!post.closed_at && isLiveApply(live))
+  const label = liveApply && live
+    ? applyActivityLabel(live)
+    : value === "none"
+      ? "Not saved"
+      : (STEPS.find((c) => c.step === value)?.title ?? "Saved")
   const look = useStatusLook(value)
   const [asking, setAsking] = useState<boolean>(false)
 
@@ -42,48 +55,60 @@ export function StatusPicker({ post, fit, onLocked }: { post: Posting; fit: stri
     moveJob(data, post, next, fit).catch(() => undefined)
   }
 
+  // The full application panel already explains the live step on the job page.
+  if (liveApply) return null
+
+  // Same pattern as RowStatus: visible label + invisible select on top (no Saved text bleeding through).
   return (
-    // The button is as wide as its name, with the arrow right after it, like the other buttons on the page (List, Sort).
-    <label className="relative inline-flex items-center">
+    <span
+      style={liveApply ? undefined : look.style}
+      className={`relative inline-flex h-8 min-w-[7.5rem] items-center gap-2 rounded-lg border-[1.5px] pr-7 pl-3 text-sm font-medium transition-colors duration-150 hover:brightness-95 ${liveApply ? "border-brand bg-brand/10 text-brand" : look.style ? "" : "bg-card text-foreground"}`}
+    >
+      {liveApply ? <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-brand motion-safe:animate-pulse" /> : null}
+      <span className="truncate">{label}</span>
+      <ChevronDownIcon className="pointer-events-none absolute right-2.5 size-3.5 opacity-80" style={{ color: liveApply ? "var(--brand)" : look.ink }} aria-hidden="true" />
       <select
         aria-label="Status"
         value={value}
         onChange={(e) => change(e.target.value as Step | "none" | typeof EDIT_COLORS)}
-        style={look.style}
-        className={`h-8 field-sizing-content cursor-pointer appearance-none rounded-lg border-[1.5px] pr-8 pl-3 text-sm font-medium transition-colors duration-150 hover:brightness-95 ${look.style ? "" : "bg-card text-foreground"}`}
+        className="absolute inset-0 size-full cursor-pointer opacity-0"
       >
-        <option value="none" className="bg-card text-foreground">Not saved</option>
+        <option value="none">Not saved</option>
         {STEPS.map((c) => (
-          <option key={c.step} value={c.step} className="bg-card text-foreground">
+          <option key={c.step} value={c.step}>
             {c.title}
           </option>
         ))}
-        <option value={EDIT_COLORS} className="bg-card text-foreground">
-          Edit colors
-        </option>
+        <option value={EDIT_COLORS}>Edit colors</option>
       </select>
-      <ChevronDownIcon className="pointer-events-none absolute right-2.5 size-3.5 opacity-80" style={{ color: look.ink }} aria-hidden="true" />
       {asking ? <ConfirmDialog title="Remove this job from your list?" confirm="Remove" onCancel={() => setAsking(false)} onConfirm={() => { setAsking(false); removeFromList(data, post) }} /> : null}
-    </label>
+    </span>
   )
 }
 
 
 /** The same status, small enough for a row of your list, so you change it without opening the job. A pill showing the step; the real select sits invisibly on top so it stays a native, keyboard-friendly control. */
 export function RowStatus({ post }: { post: Posting }): React.JSX.Element {
+  useApplyActivityTick()
   const st = useFit(post)
   const fit = st ? (st.failing === 0 ? "met every requirement" : st.failing === 1 ? "missing one requirement" : "missing several requirements") : ""
   const data = useData()
   const app = data.applications.find((a) => a.posting_id === post.id)
   const tracked = data.saved.has(post.id) || Boolean(app)
   const value: Step | "none" = tracked ? stepOf(data, post) : "none"
-  const label = value === "none" ? "Not saved" : (STEPS.find((c) => c.step === value)?.title ?? "Saved")
+  // Closed server-wide: drop a stale Captcha/Applying chip so the row stops thrashing.
+  useEffect(() => {
+    if (post.closed_at && applyActivityOf(post.id)) clearApplyActivity(post.id)
+  }, [post.closed_at, post.id])
+  const live = applyActivityOf(post.id)
+  const liveApply = Boolean(!post.closed_at && isLiveApply(live))
+  const label = liveApply && live ? applyActivityLabel(live) : value === "none" ? "Not saved" : (STEPS.find((c) => c.step === value)?.title ?? "Saved")
   const look = useStatusLook(value)
   const [asking, setAsking] = useState<boolean>(false)
 
   return (
-    <span style={look.style} className={`relative z-10 inline-flex h-8 w-32 items-center gap-2 rounded-lg border-[1.5px] pr-7 pl-3 text-sm font-medium transition-colors duration-150 focus-within:ring-3 focus-within:ring-ring/50 hover:brightness-95 ${look.style ? "" : "bg-card text-foreground"}`}>
-      <span aria-hidden="true" style={{ backgroundColor: look.ink ?? "var(--border)" }} className="size-2 shrink-0 rounded-full" />
+    <span style={liveApply ? undefined : look.style} className={`relative z-10 inline-flex h-8 w-32 items-center gap-2 rounded-lg border-[1.5px] pr-7 pl-3 text-sm font-medium transition-colors duration-150 focus-within:ring-3 focus-within:ring-ring/50 hover:brightness-95 ${liveApply ? "border-brand bg-brand/10 text-brand" : look.style ? "" : "bg-card text-foreground"}`}>
+      <span aria-hidden="true" style={{ backgroundColor: liveApply ? "var(--brand)" : (look.ink ?? "var(--border)") }} className={`size-2 shrink-0 rounded-full ${liveApply ? "motion-safe:animate-pulse" : ""}`} />
       <span className="truncate">{label}</span>
       <ChevronDownIcon className="pointer-events-none absolute right-2.5 size-3.5 opacity-80" aria-hidden="true" />
       <select

@@ -14,7 +14,7 @@ interface TabView {
 export const LAYOUT_CHOICES: ReadonlyArray<{ value: ViewLayout; label: string; hint: string; Icon: typeof TableIcon }> = [
   { value: "table", label: "Table", hint: "Every property as a column. Sort, group, show what you need", Icon: TableIcon },
   { value: "list", label: "List", hint: "One line per job, with its status", Icon: TableIcon },
-  { value: "board", label: "Board", hint: "Jobs in columns by status, from saved to offer", Icon: BoardIcon },
+  { value: "board", label: "Pipeline", hint: "Jobs in columns by status, from saved to offer", Icon: BoardIcon },
   { value: "calendar", label: "Calendar", hint: "Jobs on a month, by the day you applied, follow up, or a date of yours", Icon: CalendarIcon },
 ]
 
@@ -33,17 +33,72 @@ interface ViewTabsProps {
   noun?: string
 }
 
-/**
- * The views of your jobs as tabs, the way a Notion database has them: each its own layout, filters and sort over the same jobs. The open tab has a menu to rename, copy or
- * delete it (the last one cannot be deleted), and "New view" at the end makes another, optionally starting from the filters you have now.
- */
-export function ViewTabs({ views, active, onSelect, onAdd, onRename, onDuplicate, onRemove, onReset, noun = "jobs" }: ViewTabsProps): React.JSX.Element {
-  const [menu, setMenu] = useState<boolean>(false)
+/** Makes another saved view, optionally starting from the filters of the open one. Lives in the toolbar so the Tracker subject tabs (All jobs / All people) are not repeated. */
+export function NewViewButton({ activeName, onAdd }: { activeName: string; onAdd: (name: string, layout: ViewLayout, fromCurrent: boolean) => void }): React.JSX.Element {
   const [creating, setCreating] = useState<boolean>(false)
   const [name, setName] = useState<string>("")
   const [layout, setLayout] = useState<ViewLayout>("table")
   const [fromCurrent, setFromCurrent] = useState<boolean>(true)
+
+  return (
+    <Popover open={creating} onOpenChange={setCreating}>
+      <PopoverTrigger aria-label="New view" className="flex h-10 cursor-pointer items-center gap-2 rounded-lg border-[1.5px] bg-card px-3.5 text-sm font-medium transition-colors duration-150 hover:bg-accent max-md:w-10 max-md:justify-center max-md:rounded-full max-md:px-0">
+        <PlusIcon className="size-4" aria-hidden="true" />
+        <span className="max-md:sr-only">New view</span>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 p-3">
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            onAdd(name, layout, fromCurrent)
+            setName("")
+            setCreating(false)
+          }}
+        >
+          <p className="font-semibold">New view</p>
+          <input autoFocus aria-label="Name of the new view" placeholder="Name, e.g. Waiting on a reply" value={name} onChange={(e) => setName(e.target.value)} className="h-9 rounded-md border-[1.5px] bg-background px-2.5 text-sm" />
+          <div role="radiogroup" aria-label="Layout" className="flex flex-col gap-0.5">
+            {LAYOUT_CHOICES.map((c) => (
+              <button
+                key={c.value}
+                type="button"
+                role="radio"
+                aria-checked={layout === c.value}
+                onClick={() => setLayout(c.value)}
+                className={`flex cursor-pointer items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors duration-150 hover:bg-accent ${layout === c.value ? "bg-accent" : ""}`}
+              >
+                <c.Icon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                <span className="flex flex-col">
+                  <span className="text-sm font-medium">{c.label}</span>
+                  <span className="text-[0.8125rem] text-muted-foreground">{c.hint}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <input type="checkbox" checked={fromCurrent} onChange={(e) => setFromCurrent(e.target.checked)} className="size-4 cursor-pointer" />
+            Start from the filters of {activeName}
+          </label>
+          <Button type="submit" className="cursor-pointer">
+            Create view
+          </Button>
+        </form>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+/**
+ * Extra saved views as tabs. The starting All jobs / All people tabs live on the Tracker subject row, so this row only appears once someone has made another view.
+ */
+export function ViewTabs({ views, active, onSelect, onAdd, onRename, onDuplicate, onRemove, onReset, noun = "jobs" }: ViewTabsProps): React.JSX.Element | null {
+  const [menu, setMenu] = useState<boolean>(false)
   const [renaming, setRenaming] = useState<string>("")
+
+  if (views.length <= 1) {
+    return null
+  }
 
   return (
     <div role="tablist" aria-label={`Views of your ${noun}`} className="no-scrollbar -mx-1 flex items-end gap-1 overflow-x-auto border-b-[1.5px] px-1">
@@ -101,51 +156,9 @@ export function ViewTabs({ views, active, onSelect, onAdd, onRename, onDuplicate
         )
       })}
 
-      <Popover open={creating} onOpenChange={setCreating}>
-        <PopoverTrigger aria-label="New view" className="mb-0.5 ml-auto flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground md:ml-0">
-          <PlusIcon className="size-4" aria-hidden="true" />
-          <span className="max-md:hidden">New view</span>
-        </PopoverTrigger>
-        <PopoverContent align="start" className="flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 p-3">
-          <form
-            className="flex flex-col gap-3"
-            onSubmit={(e) => {
-              e.preventDefault()
-              onAdd(name, layout, fromCurrent)
-              setName("")
-              setCreating(false)
-            }}
-          >
-            <p className="font-semibold">New view</p>
-            <input autoFocus aria-label="Name of the new view" placeholder="Name, e.g. Waiting on a reply" value={name} onChange={(e) => setName(e.target.value)} className="h-9 rounded-md border-[1.5px] bg-background px-2.5 text-sm" />
-            <div role="radiogroup" aria-label="Layout" className="flex flex-col gap-0.5">
-              {LAYOUT_CHOICES.map((c) => (
-                <button
-                  key={c.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={layout === c.value}
-                  onClick={() => setLayout(c.value)}
-                  className={`flex cursor-pointer items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors duration-150 hover:bg-accent ${layout === c.value ? "bg-accent" : ""}`}
-                >
-                  <c.Icon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                  <span className="flex flex-col">
-                    <span className="text-sm font-medium">{c.label}</span>
-                    <span className="text-[0.8125rem] text-muted-foreground">{c.hint}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-            <label className="flex cursor-pointer items-center gap-2 text-sm">
-              <input type="checkbox" checked={fromCurrent} onChange={(e) => setFromCurrent(e.target.checked)} className="size-4 cursor-pointer" />
-              Start from the filters of {active.name}
-            </label>
-            <Button type="submit" className="cursor-pointer">
-              Create view
-            </Button>
-          </form>
-        </PopoverContent>
-      </Popover>
+      <div className="mb-0.5 ml-auto md:ml-0">
+        <NewViewButton activeName={active.name} onAdd={onAdd} />
+      </div>
     </div>
   )
 }

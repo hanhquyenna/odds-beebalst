@@ -3,10 +3,10 @@ import type { StaticPage } from "@/lib/pages"
 import { prefetchOn } from "@/lib/prefetch"
 import { NotificationsRow } from "@/components/NotifyPrompt"
 import type { Session } from "@/lib/auth"
-import { BriefcaseIcon, ChevronRightIcon, FileTextIcon, HomeIcon, SignOutIcon, MessageIcon, UserCircleIcon } from "@/components/icons"
+import { BoardIcon, BriefcaseIcon, ChevronRightIcon, FileTextIcon, HomeIcon, PlugsIcon, SignOutIcon, MessageIcon, SparkleIcon, UserCircleIcon } from "@/components/icons"
 
-/** The places someone with an account lives. Anything else (a research page, a shared job) leaves none of them lit. */
-export type ShellTab = "account" | "jobs" | "documents" | "claude" | "answers"
+/** The places someone with an account lives. Anything else (a research page, a shared job) leaves none of them lit. Companies lives under Tracker. */
+export type ShellTab = "account" | "jobs" | "tracker" | "connections" | "autofill" | "documents" | "claude" | "answers"
 
 interface ShellNav {
   active: ShellTab | null
@@ -16,6 +16,9 @@ interface ShellNav {
 const TABS: ReadonlyArray<{ tab: ShellTab; label: string; icon: typeof HomeIcon }> = [
   { tab: "account", label: "Home", icon: HomeIcon },
   { tab: "jobs", label: "Jobs", icon: BriefcaseIcon },
+  { tab: "tracker", label: "Tracker", icon: BoardIcon },
+  { tab: "connections", label: "Connect", icon: PlugsIcon },
+  { tab: "autofill", label: "Autofill", icon: SparkleIcon },
   { tab: "documents", label: "Documents", icon: FileTextIcon },
   { tab: "claude", label: "Claude", icon: MessageIcon },
   { tab: "answers", label: "Profile", icon: UserCircleIcon },
@@ -79,11 +82,24 @@ export function AppTopBar({ onHome, wordmark, bell }: { onHome: () => void; word
 }
 
 /** Phone: what the account menu holds on a wider screen, as a settings list at the foot of the profile. */
-export function PhoneMore({ onOpenPage, onSignIn, onSignOut, signedIn, session }: { onOpenPage: (page: StaticPage) => void; onSignIn?: () => void; onSignOut: () => void; signedIn: boolean; session: Session | null }): React.JSX.Element {
+export function PhoneMore({ onNavigate, onOpenPage, onSignIn, onSignOut, signedIn, session }: { onNavigate: (tab: ShellTab) => void; onOpenPage: (page: StaticPage) => void; onSignIn?: () => void; onSignOut: () => void; signedIn: boolean; session: Session | null }): React.JSX.Element {
   const row = "flex w-full cursor-pointer items-center justify-between px-4 py-3.5 text-left text-[0.95rem] font-medium active:bg-accent"
 
   return (
     <div className="flex flex-col gap-6 md:hidden">
+      <ul aria-label="More of odds" className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card">
+        {TABS.filter(({ tab }) => !PHONE_TABS.includes(tab)).map(({ tab, label, icon: Icon }) => (
+          <li key={tab} className="border-b-[1.5px] border-line last:border-b-0">
+            <button type="button" onClick={() => onNavigate(tab)} className={row}>
+              <span className="flex items-center gap-3">
+                <Icon className="size-5" aria-hidden="true" />
+                {label}
+              </span>
+              <ChevronRightIcon className="size-4 text-muted-foreground" aria-hidden="true" />
+            </button>
+          </li>
+        ))}
+      </ul>
       <NotificationsRow session={session} />
       <section aria-label="About odds" className="flex flex-col gap-2">
         <p className="px-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">About odds</p>
@@ -118,12 +134,15 @@ export function PhoneMore({ onOpenPage, onSignIn, onSignOut, signedIn, session }
   )
 }
 
+/** The five places a thumb reaches most. The rest (Autofill, Documents, Claude) are rows at the foot of Profile. Companies is under Tracker. */
+const PHONE_TABS: ReadonlyArray<ShellTab> = ["account", "jobs", "tracker", "connections", "answers"]
+
 /** Phone: the tab bar every app has, pinned to the bottom and clear of the home indicator. */
 export function BottomNav({ active, onNavigate }: ShellNav): React.JSX.Element {
   return (
     <nav aria-label="Your account" className="fixed inset-x-0 bottom-0 z-30 border-t-[1.5px] border-foreground/15 bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
       <ul className="mx-auto flex max-w-md items-stretch justify-around">
-        {TABS.map(({ tab, label, icon: Icon }) => (
+        {TABS.filter(({ tab }) => PHONE_TABS.includes(tab)).map(({ tab, label, icon: Icon }) => (
           <li key={tab} className="flex-1">
             <button
               type="button"

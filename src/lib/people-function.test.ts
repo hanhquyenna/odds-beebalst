@@ -2,17 +2,19 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 
 let caller: Record<string, unknown> | null
+let contacts: Array<Record<string, unknown>>
 let people: (req: Request) => Promise<Response>
 const realFetch = globalThis.fetch
 
 beforeEach(async () => {
   caller = null
+  contacts = [{ name: "Ann", headline: "Finance Lead", profile_url: "https://www.linkedin.com/in/ann", positions: [{ title: "Finance Lead", company: "Acme" }], jev: { decision_final: "keep" } }]
   ;(globalThis as unknown as { Deno: unknown }).Deno = { env: { get: (k: string) => ({ SUPABASE_URL: "https://x.supabase.co", SUPABASE_ANON_KEY: "anon", SUPABASE_SERVICE_ROLE_KEY: "service" })[k] } }
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
     const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status: status, headers: { "Content-Type": "application/json" } })
     if (url.includes("/auth/v1/user")) return caller ? json(caller) : json({}, 401)
-    if (url.includes("/rest/v1/job_people?")) return json([{ name: "Ann", profile_url: "https://www.linkedin.com/in/ann" }])
+    if (url.includes("/rest/v1/job_people?")) return json(contacts)
     if (url.includes("/rest/v1/job_people_runs?")) return json([{ found: 1 }])
     throw new Error(`unexpected fetch ${url}`)
   }) as typeof fetch
@@ -33,6 +35,16 @@ describe("jobs/people", () => {
     const res = await ask()
     expect(res.status).toBe(200)
     expect(((await res.json()) as { people: unknown[] }).people).toHaveLength(1)
+  })
+  test("rejected and wrong-company contacts never reach the browser; missing positions are labelled uncertain", async () => {
+    caller = { id: "u1", email: "ann@gmail.com" }
+    contacts = [
+      { name: "Rejected", profile_url: "https://www.linkedin.com/in/rejected", jev: { decision_final: "reject" } },
+      { name: "Other employer", profile_url: "https://www.linkedin.com/in/other", positions: [{ title: "Finance Manager", company: "Other" }], jev: { decision_final: "keep" } },
+      { name: "Uncertain", profile_url: "https://www.linkedin.com/in/uncertain", positions: [], jev: { decision_final: "keep" } },
+    ]
+    const result = await (await ask()).json() as { people: Array<{ name: string; currentEmployerMatched: boolean }> }
+    expect(result.people).toEqual([expect.objectContaining({ name: "Uncertain", currentEmployerMatched: false })])
   })
   test("a guest account is refused, by its address or by its flag", async () => {
     caller = { id: "u2", email: "guest-1@guest.odds.invalid" }

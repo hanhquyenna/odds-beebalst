@@ -1,10 +1,12 @@
 import { DownloadIcon, UploadIcon, XIcon } from "@/components/icons"
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { JobRow } from "@/components/JobBoard"
 import { trackerSortValue } from "@/components/tracker-values"
 import { AddFromLinkedIn } from "@/components/AddJob"
 import { Button } from "@/components/ui/button"
 import { useData } from "@/lib/data"
+import { applyActivityOf, isLiveApply, pinLiveApplies, useApplyActivityTick } from "@/lib/apply-activity"
+import { settleClosedJob } from "@/lib/job-closed"
 import { sortJobs } from "@/lib/sort"
 import { useViewConfig } from "@/lib/views"
 import { parseCsv } from "@/lib/csv"
@@ -29,17 +31,26 @@ export function Tracker({ posts, onOpen, viewName, rowLimit, footer, dismissible
   const data = useData()
   const { profile } = data
   const view = useViewConfig(viewName)
+  const applyTick = useApplyActivityTick()
+
+  // Closed while Apply was mid-fill: toast once, clear Filling chip, keep Saved (sorted to bottom).
+  useEffect(() => {
+    for (const p of posts) {
+      if (p.closed_at && isLiveApply(applyActivityOf(p.id))) settleClosedJob(data, p)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [posts, applyTick])
 
   const sorted = useMemo(() => {
-    if (!view.config.sortKey) {
-      return posts
-    }
     const key = view.config.sortKey
     const extra = (post: Posting): string | number | null => trackerSortValue(data, key, post)
-
-    return sortJobs(posts, key, view.config.sortDir, { reference: data.reference, shares: data.shares, profile, referrals: data.referrals }, extra)
+    const ordered = key
+      ? sortJobs(posts, key, view.config.sortDir, { reference: data.reference, shares: data.shares, profile, referrals: data.referrals }, extra)
+      : [...posts]
+    // Jobs you're actively Applying with Odds jump to the top until review/submit/fail ages out.
+    return pinLiveApplies(ordered)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [posts, view.config.sortKey, view.config.sortDir, profile, data.applications, data.reference, data.shares, data.referrals])
+  }, [posts, view.config.sortKey, view.config.sortDir, profile, data.applications, data.reference, data.shares, data.referrals, applyTick])
 
   return (
     <div className="@container overflow-hidden rounded-xl border-[1.5px] border-line bg-card max-md:-mx-5 max-md:rounded-none max-md:border-x-0">

@@ -1,6 +1,3 @@
-import { ApplicationQuestions } from "@/components/ApplicationQuestions"
-import { SavedApplicationQuestions } from "@/components/SavedApplicationQuestions"
-import { ApplicationAnswers } from "@/components/ApplicationAnswers"
 import { ClaudeProfileRow } from "@/components/ClaudeGuide"
 import { ArrowLeftIcon, CameraIcon, PlusIcon, XIcon } from "@/components/icons"
 import { useRef, useState } from "react"
@@ -219,14 +216,6 @@ export function ProfilePage({ onBack, onOpenDocuments, onOpenClaude }: ProfilePa
           </div>
         </div>
       </section>
-
-      {data.session ? (
-        <Section id="profile-answers" title="Personal information">
-          <ApplicationAnswers />
-        </Section>
-      ) : null}
-
-      {data.session ? <Section id="profile-learned-answers" title="Application answers"><ApplicationQuestions /><SavedApplicationQuestions /></Section> : null}
 
       <Section id="profile-linkedin" title="LinkedIn">
         <form

@@ -66,6 +66,20 @@ test("a shared job link opens the job and survives a reload", async ({ page }) =
   await expect(page.getByText("This job is not in the list.")).toBeVisible()
 })
 
+test("a job has an Overview and a Company tab: the posting first, the company and its people on the second", async ({ page }) => {
+  const post = FLOW_POSTINGS[0]
+  await page.goto(`/job/${post.id}`)
+  const overview = page.getByRole("tab", { name: "Overview" })
+  const company = page.getByRole("tab", { name: "Company" })
+  await expect(overview).toHaveAttribute("aria-selected", "true")
+  await expect(page.getByRole("heading", { name: "About the job" })).toBeVisible()
+  await company.click()
+  await expect(company).toHaveAttribute("aria-selected", "true")
+  await expect(page.getByRole("heading", { name: "About the job" })).toHaveCount(0)
+  await overview.click()
+  await expect(page.getByRole("heading", { name: "About the job" })).toBeVisible()
+})
+
 test("first visit: start, skip the profile, see your jobs, answer the questions and keep them", async ({ page }) => {
   await page.goto("/")
   await page.getByRole("button", { name: "Start" }).click()
@@ -96,8 +110,121 @@ test("first visit: start, skip the profile, see your jobs, answer the questions 
 test.describe("signed-in account", () => {
   test.use({ signedIn: true })
 
+  test("the job page labels department contacts accurately and never infers hiring responsibility", async ({ page }) => {
+    const post = FLOW_POSTINGS[0]
+    await page.route("**/functions/v1/jobs/people", (route) =>
+      route.fulfill({
+        json: {
+          people: [
+            { name: "Dana Analyst", headline: "Financial Analyst", place: "Amsterdam", url: "https://www.linkedin.com/in/dana-analyst", photo: "", about: "", positions: [] },
+            { name: "Sanne de Vries", headline: "Finance Manager", place: "Amsterdam", url: "https://www.linkedin.com/in/sanne-de-vries", photo: "", about: "", positions: [] },
+          ],
+          searched: true,
+          more: false,
+          widened: [],
+        },
+      }),
+    )
+    await page.goto(`/job/${post.id}`)
+    await page.getByRole("tab", { name: "People" }).click()
+    const people = page.getByRole("heading", { name: "People", exact: true })
+    await expect(people).toBeVisible()
+    const managers = page.getByRole("region", { name: "Department leads", exact: true })
+    await expect(managers.getByText("Sanne de Vries")).toBeVisible()
+    await expect(managers.getByText("Finance Manager")).toBeVisible()
+    await expect(page.getByRole("region", { name: "Hiring managers", exact: true })).toHaveCount(0)
+    await expect(page.getByText("Suggested department contacts. Hiring responsibility for this vacancy has not been confirmed.")).toBeVisible()
+    // Department leads come before the other groups.
+    const order = await page.locator("section[aria-label='Hiring managers'], section[aria-label='Department leads'], section[aria-label='Same team'], section[aria-label='Same department'], section[aria-label='Other']").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")))
+    expect(order[0]).toBe("Department leads")
+    // Adding a department contact puts them on this job's list, where their stage is changed in place.
+    await managers.getByRole("button", { name: "Add Sanne de Vries to your People" }).click()
+    const mine = page.getByRole("list", { name: "Your people on this job" })
+    await expect(mine.getByText("Sanne de Vries")).toBeVisible()
+    const stage = mine.getByLabel("Where you are with Sanne de Vries")
+    await expect(stage).toHaveValue("To contact")
+    await stage.selectOption("Contacted")
+    await expect(stage).toHaveValue("Contacted")
+  })
+
+  test("the top of Home opens to numbers worked out from the applications: no reply, first reply, longest wait, how far they get", async ({ page }) => {
+    const day = (ago: number): string => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10)
+    const rows = [
+      { id: 1, posting_id: FLOW_POSTINGS[0].id, fit_tier: "mid", stage: "applied", logged_at: day(19) },
+      { id: 2, posting_id: FLOW_POSTINGS[1].id, fit_tier: "mid", stage: "interview", logged_at: day(30) },
+      { id: 3, posting_id: FLOW_POSTINGS[2].id, fit_tier: "mid", stage: "no_reply", logged_at: day(40) },
+      { id: 4, posting_id: FLOW_POSTINGS[3].id, fit_tier: "mid", stage: "rejected", logged_at: day(35) },
+    ]
+    await page.route("**/rest/v1/applications*", (route) => route.fulfill({ json: route.request().method() === "GET" ? rows : [] }))
+    await page.route("**/rest/v1/chance_snapshots*", (route) =>
+      route.fulfill({ json: [{ applied_on: day(30), outcome: "interview", outcome_on: day(24) }, { applied_on: day(35), outcome: "rejected", outcome_on: day(25) }] }),
+    )
+    await page.goto("/")
+    await page.getByRole("button", { name: "Show your chances" }).click()
+    const insights = page.getByRole("region", { name: "How it is going" })
+    await insights.getByRole("combobox", { name: "Insights time frame" }).click()
+    await page.getByRole("option", { name: "Last 8 weeks", exact: true }).click()
+    await expect(insights.getByText("33%")).toBeVisible()
+    await expect(insights.getByText("no reply", { exact: true })).toBeVisible()
+    await expect(insights.getByText("8 days")).toBeVisible()
+    await expect(insights.getByText("19 days")).toBeVisible()
+    await expect(insights.getByRole("img", { name: /Applications sent by day/ })).toBeVisible()
+  })
+
+  test("Insights filters both application totals and the chart by calendar period", async ({ page }) => {
+    const today = new Date()
+    const sunday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7) - 1)
+    const date = (day: Date): string => `${day.getFullYear()}-${String(day.getMonth()+1).padStart(2,"0")}-${String(day.getDate()).padStart(2,"0")}`
+    const old = new Date(today.getFullYear(), today.getMonth(), today.getDate()-20)
+    const rows = [today, sunday, old].map((day, index) => ({ id:index+1, posting_id:FLOW_POSTINGS[index].id, stage:"applied", logged_at:date(day), fit_tier:"mid" }))
+    await page.route("**/rest/v1/applications*", (route) => route.fulfill({ json: rows }))
+    await page.goto("/")
+    await page.getByRole("button", { name: "Show your chances" }).click()
+    const insights = page.getByRole("region", { name: "How it is going" })
+    const total = async (): Promise<number> => ((await insights.getByRole("img", { name: /Applications sent by day/ }).getAttribute("aria-label")) ?? "").split(": ")[1].split(", ").reduce((sum, n) => sum + Number(n), 0)
+    await expect.poll(total).toBe(2)
+    for (const [label, count] of [["This week", "1"], ["Last week", "1"], ["Last 8 weeks", "3"], ["Last 2 weeks", "2"]]) {
+      await insights.getByRole("combobox", { name: "Insights time frame" }).click()
+      await page.getByRole("option", { name: label, exact: true }).click()
+      await expect.poll(total).toBe(Number(count))
+      await expect(insights.getByRole("combobox", { name: "Insights time frame" })).toContainText(label)
+    }
+    await shot(page, "insights-periods")
+  })
+
+  test("Tracker (with Jobs, People and Companies tabs) and Connect are in the menu; Home shows what is due and opens the job", async ({ page }) => {
+    const day = (ago: number): string => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10)
+    await page.route("**/rest/v1/applications*", (route) => route.fulfill({ json: route.request().method() === "GET" ? [{ id: 1, posting_id: FLOW_POSTINGS[0].id, fit_tier: "mid", stage: "applied", logged_at: day(12) }] : [] }))
+    await page.goto("/")
+    // Home is the dashboard: no switch between three things, only what is waiting.
+    await expect(page.getByRole("tablist", { name: "Show" })).toHaveCount(0)
+    const due = page.getByRole("region", { name: "Follow up" })
+    await expect(due).toBeVisible()
+    await expect(due.getByText(FLOW_POSTINGS[0].title)).toBeVisible()
+    await expect(due.getByText(/Overdue by 5 days/)).toBeVisible()
+    await page.getByRole("navigation", { name: "Your account" }).getByRole("button", { name: "Tracker", exact: true }).first().click()
+    await expect(page.getByRole("tablist", { name: "Tracker" })).toBeVisible()
+    await page.getByRole("navigation", { name: "Your account" }).getByRole("button", { name: "Connect", exact: true }).first().click()
+    await expect(page.getByRole("heading", { level: 1, name: "Connect", exact: true })).toBeVisible()
+    await expect(page.getByText("Google Drive")).toBeVisible()
+    await expect(page.getByText("Gmail")).toBeVisible()
+    await expect(page.getByText("Odds for Chrome")).toBeVisible()
+    await expect(page.getByRole("navigation", { name: "Your account" }).getByRole("button", { name: "People", exact: true })).toHaveCount(0)
+    await expect(page.getByRole("navigation", { name: "Your account" }).getByRole("button", { name: "Companies", exact: true })).toHaveCount(0)
+    await page.getByRole("navigation", { name: "Your account" }).getByRole("button", { name: "Tracker", exact: true }).first().click()
+    await page.getByRole("tablist", { name: "Tracker" }).getByRole("tab", { name: "All people" }).click()
+    await expect(page.getByRole("tab", { name: "All people", selected: true })).toBeVisible()
+    await page.getByRole("tablist", { name: "Tracker" }).getByRole("tab", { name: "All companies" }).click()
+    await expect(page.getByRole("tab", { name: "All companies", selected: true })).toBeVisible()
+    await page.getByRole("tablist", { name: "Tracker" }).getByRole("tab", { name: "All jobs" }).click()
+    // The tracker holds the jobs you kept.
+    await page.getByRole("navigation", { name: "Your account" }).getByRole("button", { name: "Tracker", exact: true }).first().click()
+    await expect(page.getByText(FLOW_POSTINGS[0].title).first()).toBeVisible()
+  })
+
   test("opening manual entry keeps the CSV uploader open", async ({ page }) => {
     await page.goto("/")
+    await page.getByRole("button", { name: "Tracker" }).last().click()
     await page.getByRole("button", { name: "Upload your own jobs" }).click()
     await expect(page.getByRole("heading", { name: "Upload a list" })).toBeVisible()
 

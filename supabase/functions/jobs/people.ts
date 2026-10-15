@@ -3,6 +3,7 @@
 // so a click costs nothing and shows only people that were checked. Nothing is scraped here.
 // Signed-in browser sends { employer, company }; the answer is { people, searched } where `searched` says the employer was looked up at all.
 // Scraped people are personal data: Google accounts only. Not signed in is 401, a free guest account is 403.
+import { assessContact, currentContactTitle } from "../_shared/outreach-contact.ts"
 import { isGuest, reply, userFromRequest } from "../_shared/http.ts"
 
 type Json = Record<string, unknown>
@@ -20,14 +21,14 @@ export async function people(req: Request): Promise<Response> {
     const enc = encodeURIComponent(employer)
     const [user, found, run] = await Promise.all([
       userFromRequest(req),
-      fetch(`${url}/rest/v1/job_people?employer=eq.${enc}&select=name,headline,place,photo,about,positions,profile_url&order=fetched_at.desc&limit=60`, { headers: rest }).then((r) => (r.ok ? (r.json() as Promise<Json[]>) : [])),
+      fetch(`${url}/rest/v1/job_people?employer=eq.${enc}&select=name,headline,place,photo,about,positions,profile_url,jev&order=fetched_at.desc&limit=60`, { headers: rest }).then((r) => (r.ok ? (r.json() as Promise<Json[]>) : [])),
       fetch(`${url}/rest/v1/job_people_runs?employer=eq.${enc}&select=searched_at,found,kept`, { headers: rest }).then((r) => (r.ok ? (r.json() as Promise<Json[]>) : [])),
     ])
     if (!user) return reply(401, { error: "Sign in to see people at this company." })
     if (isGuest(user)) return reply(403, { error: "Sign in with Google to see people." })
 
     return reply(200, {
-      people: found.map((p) => ({ name: str(p.name), headline: str(p.headline), place: str(p.place), url: str(p.profile_url), photo: str(p.photo), about: str(p.about), positions: Array.isArray(p.positions) ? p.positions : [] })),
+      people: found.filter(p => assessContact(p, employer).eligible).map((p) => ({ currentEmployerMatched: assessContact(p, employer).currentEmployerMatched, name: str(p.name), headline: currentContactTitle(p, employer) || str(p.headline), place: str(p.place), url: str(p.profile_url), photo: str(p.photo), about: str(p.about), positions: Array.isArray(p.positions) ? p.positions : [] })),
       searched: run.length > 0,
       more: false,
       widened: [],

@@ -1,0 +1,38 @@
+<!doctype html><html><body><main><h1>Intern</h1>
+<form onsubmit="event.preventDefault()">
+  <li class="application-question" data-qa="structured-contact-location-question">
+    <label><div class="application-label">Current location </div>
+    <div class="application-field">
+      <input class="location-input" id="location-input" type="text" maxlength="100" name="location">
+      <input id="selected-location" type="hidden" name="selectedLocation">
+      <div class="dropdown-container"><div class="dropdown-results width-full cursor-pointer"></div></div>
+    </div></label>
+  </li>
+  <label>Email<input type="email" name="email" required></label>
+  <button type="submit">Submit</button>
+</form>
+<script>
+const input = document.getElementById("location-input");
+const results = document.querySelector(".dropdown-results");
+const selected = document.getElementById("selected-location");
+input.addEventListener("keydown", (event) => {
+  if (["ArrowDown", "ArrowUp", "Enter", "Escape"].includes(event.key)) return;
+  results.innerHTML = "";
+  if (!input.value.trim()) return;
+  const query = input.value;
+  setTimeout(() => {
+  if (input.value !== query) return;
+  const opt = document.createElement("div");
+  opt.className = "dropdown-location";
+  opt.id = "location-0";
+  opt.textContent = input.value.includes("Amster") ? "Amsterdam, NLD" : input.value + ", NLD";
+  opt.addEventListener("mousedown", (e) => e.preventDefault());
+  opt.addEventListener("click", () => {
+    input.value = opt.textContent;
+    selected.value = JSON.stringify({ name: opt.textContent, id: "x" });
+    results.innerHTML = "";
+  });
+  results.append(opt);
+  }, 1600);
+});
+</script></main></body></html>

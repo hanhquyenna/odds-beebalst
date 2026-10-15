@@ -56,8 +56,8 @@ describe("search", () => {
 
 describe("the starting views and reading them back", () => {
   test("follow the outreach trackers", () => {
-    expect(PEOPLE_SEED_VIEWS.map((v) => v.name)).toEqual(["Everyone", "Pipeline", "Calendar"])
-    expect(PEOPLE_SEED_VIEWS.map((v) => v.layout)).toEqual(["table", "board", "calendar"])
+    expect(PEOPLE_SEED_VIEWS.map((v) => v.name)).toEqual(["All people"])
+    expect(PEOPLE_SEED_VIEWS.map((v) => v.layout)).toEqual(["table"])
   })
   test("good views kept, bad dropped, layout repaired, empty falls back", () => {
     const v = normalizePeopleViews([{ id: "a", name: "Mine", layout: "kanban", filter: { status: ["Met"] } }, { id: "a", name: "dup" }, "x"])

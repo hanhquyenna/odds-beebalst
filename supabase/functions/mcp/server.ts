@@ -12,7 +12,9 @@ import * as core from "./core.js"
 import { handleOAuth, unauthorized } from "./oauth.ts"
 import { accessFor, contentOf, driveEnv, linkOf, pushIfConnected } from "../_shared/drive.ts"
 import { applicationQuestionKey } from "../_shared/apply-form.ts"
-import { personalFromProfile } from "../_shared/application-personal.ts"
+import { applyAgentEnabled, factsForAgent, hostOf, notifyApplyAgent, requestSuggestAction, requestSuggestScan, suggestAnswers, validateSuggestedAnswers, type ApplyAgentEnv, type ApplyQuestion } from "../_shared/apply-agent.ts"
+import { acceptActionPick, actionButtonsFingerprint, factsFromAgentPayload, pickSuggestAction, suggestFromRules } from "../_shared/apply-agent-suggest.ts"
+import { educationFromProfile, personalFromProfile, workFromProfile } from "../_shared/application-personal.ts"
 import { cleanAnswers, missingAnswers, type Answers } from "../_shared/application-answers.ts"
 import { cleanCv, cvText, renderCvPdf } from "../_shared/cv-template.ts"
 import { heldFilter, jobLink, type JobLink } from "../_shared/job-sites.ts"
@@ -34,11 +36,22 @@ const CORS = {
 // deno-lint-ignore no-explicit-any
 type Json = any
 
-export interface Env {
+export interface Env extends ApplyAgentEnv {
   url: string
   anonKey: string
   /** Only for the private link: finding whose key it is, and reading and writing that one person's own rows. */
   serviceKey?: string
+}
+
+/** Per-user LLM/webhook answer calls per UTC day — keep low; rules + shared patterns cover the rest. */
+const APPLY_AGENT_DAILY_SUGGESTS = 20
+
+async function logApplyAgentEvent(env: Env, userId: string, eventType: string, postingId: string | null, payload: Json): Promise<void> {
+  await svc(env, "apply_agent_events", {
+    method: "POST",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({ user_id: userId, event_type: eventType, posting_id: postingId, payload: payload ?? {} }),
+  }).catch(() => undefined)
 }
 
 /** The person a private link belongs to. */
@@ -377,9 +390,14 @@ const ME_TOOLS = [
             degree: { type: "string" },
             field_of_study: { type: "string" },
             graduation_date: { type: "string" },
+            study_year: { type: "string" },
             study_status: { type: "string" },
             internship_agreement: { type: "string" },
             nationality: { type: "string" },
+            onsite_ok: { type: "string" },
+            prior_agreements: { type: "string", description: "\"No\" or \"Yes\": a non-compete or a patents/confidentiality agreement with a past employer. Forms ask it; odds only answers \"No\"." },
+            insider: { type: "string", description: "\"No\" when neither they nor close family work at the companies they apply to." },
+            demographics: { type: "string", description: "Either \"Prefer not to say\" (odds picks that option on forms' gender, age and background questions) or \"I answer them myself\"." },
             notice_period: { type: "string" },
             relocation: { type: "string" },
             notes: { type: "string", description: "Anything else forms ask that stays the same." },
@@ -686,6 +704,41 @@ async function serveFile(req: Request, env: Env): Promise<Response> {
 }
 
 /** Their standard application answers (table application_answers): the same ones every application form asks. */
+/** What Broods and the answer model may use: Autofill first, then what the CV says (school, degree, graduation, contact) for what Autofill leaves empty. */
+async function agentFacts(env: Env, me: Me): Promise<Record<string, string>> {
+  const [profile, saved, email] = await Promise.all([myProfile(env, me), myAnswers(env, me.id), emailOf(env, me)])
+  return { ...factsForAgent({ ...personalFromProfile(profile, email), ...educationFromProfile(profile), ...workFromProfile(profile), ...saved }), ...profileForAgent(profile) }
+}
+
+const ORIGIN: Record<string, string> = { non_eu: "Non-EU nationality", eu_non_native: "EU nationality (not Dutch)", eu: "EU nationality", nl: "Dutch nationality", native: "Dutch nationality" }
+const PERMIT: Record<string, string> = {
+  eu: "EU citizen: free to work in the Netherlands, no sponsorship needed",
+  orientation_year: "Orientation year (zoekjaar) permit: may work in the Netherlands without sponsorship",
+  hsm: "Highly skilled migrant permit, tied to a sponsoring employer",
+  other_non_eu: "Non-EU: needs a Dutch residence/work permit (an internship needs the school's internship agreement)",
+}
+
+/** The person's profile (their LinkedIn / CV import) in a few short lines, so Broods can reason about questions Autofill has no field for. */
+function profileForAgent(profile: Json): Record<string, string> {
+  const out: Record<string, string> = {}
+  const str = (v: unknown): string => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "")
+  if (ORIGIN[str(profile.origin)]) out.nationality_group = ORIGIN[str(profile.origin)]
+  if (PERMIT[str(profile.permit)]) out.work_permit = PERMIT[str(profile.permit)]
+  if (str(profile.place)) out.lives_in = str(profile.place)
+  if (str(profile.headline)) out.headline = str(profile.headline)
+  const langs = (Array.isArray(profile.languages) ? profile.languages : []).map((l: unknown) => (typeof l === "string" ? l : str((l as Json)?.name) + (str((l as Json)?.level) ? ` (${str((l as Json).level)})` : ""))).filter(Boolean)
+  if (langs.length) out.languages = langs.slice(0, 6).join("; ")
+  const skills = (Array.isArray(profile.skills) ? profile.skills : []).map((x: unknown) => (typeof x === "string" ? x : str((x as Json)?.Name ?? (x as Json)?.name))).filter(Boolean)
+  if (skills.length) out.skills = skills.slice(0, 15).join(", ")
+  const edu = (Array.isArray(profile.education) ? profile.education : []).slice(0, 3).map((e: Json) => [str(e["Degree Name"]), str(e["Field Of Study"]), str(e["School Name"]), [str(e["Start Date"]), str(e["End Date"]) || "now"].filter(Boolean).join("–")].filter(Boolean).join(", ")).filter(Boolean)
+  if (edu.length) out.education = edu.join(" | ")
+  const jobs = (Array.isArray(profile.positions) ? profile.positions : []).slice(0, 5).map((p: Json) => [str(p.Title), str(p["Company Name"]), [str(p["Started On"]), str(p["Finished On"]) || "now"].filter(Boolean).join("–")].filter(Boolean).join(", ")).filter(Boolean)
+  if (jobs.length) out.experience = jobs.join(" | ")
+  // A short start of the CV for open questions (motivation, what you bring): the person's own words, never the whole document.
+  if (str(profile.cv)) out.cv_excerpt = str(profile.cv).slice(0, 1500)
+  return out
+}
+
 async function myAnswers(env: Env, uid: string): Promise<Answers> {
   const rows = await svc(env, `application_answers?user_id=eq.${uid}&select=data`)
 
@@ -1113,7 +1166,7 @@ const EXT_DAILY_READS = 30
 /** Jobs from any other site a person's browser may hand over in a day: free to read, but each one goes into the table everyone sees. */
 const EXT_DAILY_PAGE_READS = 300
 /** A job we hold, found by the address it was stored under (job boards loaded in bulk kept longer ones: heldFilter finds those by the job's id). */
-const heldJob = (env: Env, link: JobLink): Promise<Json[] | null> => rest(env, `postings?select=id,closed_at,region&${heldFilter(link)}&order=closed_at.desc.nullsfirst&limit=1`).catch(() => [])
+const heldJob = (env: Env, link: JobLink): Promise<Json[] | null> => rest(env, `postings?select=id,closed_at,region,employer,employer_display,ats,title,url&${heldFilter(link)}&order=closed_at.desc.nullsfirst&limit=1`).catch(() => [])
 
 /**
  * Keys and profiles seen in the last minute, kept by this instance: a list of jobs coming into view asks several times a second, and each answer
@@ -1185,6 +1238,20 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     if (route === "application-report") {
       if (!uuid(body?.id) || !["filling", "needs_input", "ready", "submitted", "failed"].includes(body?.status) || typeof body?.message !== "string") return json(400, { error: "Invalid progress." })
       await svc(env, "rpc/report_application", { method: "POST", body: JSON.stringify({ p_user: me.id, p_device: body.device_id, p_id: body.id, p_status: body.status, p_message: body.message.slice(0, 500) }) })
+      if (["needs_input", "ready", "failed"].includes(body.status)) {
+        const run = (await svc(env, `application_runs?id=eq.${body.id}&user_id=eq.${me.id}&select=posting_id,url`))?.[0]
+        const postingId = typeof run?.posting_id === "string" ? run.posting_id : null
+        notifyApplyAgent(env, {
+          type: "apply.status",
+          posting_id: postingId,
+          run_id: body.id,
+          status: body.status,
+          message: String(body.message).slice(0, 500),
+          host: hostOf(typeof run?.url === "string" ? run.url : null),
+          ats: null,
+        })
+        void logApplyAgentEvent(env, me.id, "apply.status", postingId, { status: body.status, run_id: body.id, message: String(body.message).slice(0, 200) })
+      }
       return json(200, { status: "ok" })
     }
     if (Array.isArray(body?.ids)) {
@@ -1202,9 +1269,187 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     const link = jobLink(String(body?.url || ""), true)
     const held = link ? (await heldJob(env, link))?.[0] : null
     if (!held) return json(404, { error: "Job not registered in Odds." })
-    const questions = (Array.isArray(body?.questions) ? body.questions : []).slice(0, 30).filter((q: Json) => ["text", "textarea", "number", "radio", "select"].includes(q?.kind) && typeof q?.label === "string" && typeof q?.key === "string" && q.key.length >= 2 && q.key.length <= 300 && q.label.length >= 2 && q.label.length <= 500 && !/password|captcha|verification code|security code|social security|\bbsn\b|credit card/i.test(q.label)).map((q: Json) => ({ key: applicationQuestionKey(q.label, held.id), label: q.label, kind: q.kind, options: ["radio", "select"].includes(q.kind) ? (Array.isArray(q.options) ? q.options : []).filter((v: unknown) => typeof v === "string").slice(0, 100).map((v: string) => v.slice(0, 200)) : [] }))
+    const questions = (Array.isArray(body?.questions) ? body.questions : []).slice(0, 30).filter((q: Json) => ["text", "textarea", "number", "radio", "select"].includes(q?.kind) && typeof q?.label === "string" && typeof q?.key === "string" && q.key.length >= 2 && q.key.length <= 300 && q.label.length >= 2 && q.label.length <= 500 && !/password|captcha|verification code|security code|social security|\bbsn\b|credit card/i.test(q.label)).map((q: Json) => ({ key: applicationQuestionKey(q.label, held.id), label: q.label, kind: q.kind, options: ["radio", "select"].includes(q.kind) ? (Array.isArray(q.options) ? q.options : []).filter((v: unknown) => typeof v === "string").slice(0, 300).map((v: string) => v.slice(0, 200)) : [] }))
     await svc(env, "application_prompts?on_conflict=user_id,posting_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: me.id, posting_id: held.id, questions, updated_at: new Date().toISOString() }) })
+    notifyApplyAgent(env, {
+      type: "apply.questions",
+      posting_id: held.id,
+      host: hostOf(String(body?.url || held.url || "")),
+      ats: typeof held.ats === "string" ? held.ats : null,
+      title: held.title ?? null,
+      employer: held.employer_display ?? held.employer ?? null,
+      questions,
+    })
+    void logApplyAgentEvent(env, me.id, "apply.questions", held.id, { n: questions.length, labels: questions.map((q: ApplyQuestion) => q.label).slice(0, 20) })
     return json(200, { status: "ok" })
+  }
+  // Stuck: rules → shared ATS pattern → LLM (force_llm after a dead click so rules cannot loop the same CTA).
+  if (route === "suggest-action" && req.method === "POST") {
+    const body = await req.json().catch(() => null)
+    const buttons = Array.isArray(body?.buttons)
+      ? body.buttons.filter((b: unknown) => typeof b === "string" || (b && typeof b === "object" && typeof (b as { text?: unknown }).text === "string")).slice(0, 40)
+      : []
+    const host = hostOf(typeof body?.url === "string" ? body.url : null)
+    const forceLlm = body?.force_llm === true
+    const exclude = (Array.isArray(body?.exclude) ? body.exclude : []).filter((t: unknown): t is string => typeof t === "string").map((t: string) => t.replace(/\s+/g, " ").trim()).filter(Boolean)
+    const excludeSet = new Set(exclude.map((t: string) => t.toLowerCase()))
+    const usable = buttons.filter((b: string | { text?: string }) => {
+      const t = (typeof b === "string" ? b : b?.text ?? "").replace(/\s+/g, " ").trim().toLowerCase()
+      return t && !excludeSet.has(t)
+    })
+    let pick = forceLlm ? { action: "none" as const, reason: "force_llm" } : pickSuggestAction(usable.length ? usable : buttons)
+    let source = pick.action === "click" ? "rules" : "none"
+    if (pick.action === "none" && !forceLlm && host) {
+      const fp = await sha256hex(actionButtonsFingerprint(buttons))
+      const cached = await svc(env, `apply_agent_action_patterns?host=eq.${encodeURIComponent(host)}&buttons_fp=eq.${fp}&select=text,hits`).catch(() => null)
+      const cachedText = typeof cached?.[0]?.text === "string" ? cached[0].text : null
+      if (cachedText && !excludeSet.has(cachedText.toLowerCase())) {
+        const fromCache = acceptActionPick(buttons, cachedText, "shared_pattern")
+        if (fromCache.action === "click") {
+          pick = fromCache
+          source = "shared_pattern"
+          void svc(env, `apply_agent_action_patterns?host=eq.${encodeURIComponent(host)}&buttons_fp=eq.${fp}`, {
+            method: "PATCH",
+            headers: { Prefer: "return=minimal" },
+            body: JSON.stringify({ hits: Number(cached[0].hits || 1) + 1, updated_at: new Date().toISOString() }),
+          }).catch(() => undefined)
+        }
+      }
+    }
+    if (pick.action === "none" || forceLlm) {
+      pick = await requestSuggestAction(env, {
+        buttons,
+        url: typeof body?.url === "string" ? body.url : null,
+        status: typeof body?.status === "string" ? body.status : null,
+        host,
+        force_llm: forceLlm || pick.action === "none",
+        exclude,
+      })
+      source = pick.reason?.startsWith("llm") || pick.reason === "llm_hands" ? "llm" : pick.action === "click" ? (forceLlm ? "llm_or_rules" : "webhook") : "none"
+      if (pick.action === "click" && pick.text && host && !forceLlm) {
+        const fp = await sha256hex(actionButtonsFingerprint(buttons))
+        void svc(env, "apply_agent_action_patterns?on_conflict=host,buttons_fp", {
+          method: "POST",
+          headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify({ host, buttons_fp: fp, text: pick.text, hits: 1, updated_at: new Date().toISOString() }),
+        }).catch(() => undefined)
+      }
+    }
+    notifyApplyAgent(env, {
+      type: "apply.status",
+      posting_id: null,
+      run_id: "suggest-action",
+      status: pick.action === "click" ? "filling" : "needs_input",
+      message: `suggest-action:${source}:${pick.reason}:${pick.text ?? ""}`.slice(0, 200),
+      host,
+      ats: null,
+    })
+    void logApplyAgentEvent(env, me.id, "suggest-action", null, { ...pick, n: buttons.length, host, source })
+    return json(200, { status: "ok", ...pick })
+  }
+  // Stuck episode: one page scan (stage + optional click). Caller must not loop.
+  if (route === "suggest-scan" && req.method === "POST") {
+    const body = await req.json().catch(() => null)
+    const snapshot = body?.snapshot && typeof body.snapshot === "object" ? body.snapshot : {}
+    // Broods answers from the person's Autofill, not only the name/email/phone the page snapshot carries.
+    const pageFacts = snapshot.facts && typeof snapshot.facts === "object" ? snapshot.facts : {}
+    snapshot.facts = { ...(await agentFacts(env, me)), ...Object.fromEntries(Object.entries(pageFacts).filter(([, v]) => typeof v === "string" && v.trim())) }
+    const host = hostOf(typeof body?.url === "string" ? body.url : null)
+    let scan = await requestSuggestScan(env, {
+      url: typeof body?.url === "string" ? body.url : null,
+      status: typeof body?.status === "string" ? body.status : null,
+      host,
+      snapshot,
+    })
+    // Re-validate click against snapshot buttons when present.
+    const buttons = Array.isArray(snapshot.buttons) ? snapshot.buttons.filter((b: unknown) => typeof b === "string") : []
+    if (scan.action === "click" && scan.text && buttons.length) {
+      const ok = acceptActionPick(buttons, scan.text, "llm_scan")
+      if (ok.action !== "click") scan = { ...scan, action: "none", text: null, reason: "llm_not_on_page" }
+    }
+    // Answers from a page scan pass the same checks as suggest-answers: a known field, never a legal/personal question, one of its own options.
+    if (Array.isArray(scan.answers) && scan.answers.length) {
+      const fields = (Array.isArray(snapshot.fields) ? snapshot.fields : []).filter((f: Json) => f && typeof f.key === "string" && typeof f.label === "string")
+      const questions = fields.map((f: Json) => {
+        const options = Array.isArray(f.options) ? f.options.filter((o: unknown) => typeof o === "string") : []
+        const kind = options.length && ["radio", "choice"].includes(f.kind) ? "radio" : options.length ? "select" : f.kind === "textarea" ? "textarea" : f.kind === "number" ? "number" : "text"
+        return { key: f.key, label: f.label, kind, ...(options.length ? { options } : {}) }
+      })
+      scan = { ...scan, answers: validateSuggestedAnswers(questions, scan.answers).accepted }
+    }
+    void logApplyAgentEvent(env, me.id, "suggest-scan", null, { stage: scan.stage, action: scan.action, reason: scan.reason, host })
+    return json(200, { status: "ok", ...scan })
+  }
+  // Cloud agent: suggest answers for bounced questions (validated; deny-list; daily cap). Extension refreshes afterwards.
+  // Always apply Autofill rules first — Broods/LLM only for leftover gaps. Never return empty when rules know the answer
+  // (webhook down / agent disabled used to skip rules and dump the person on outlined questions).
+  if (route === "suggest-answers" && req.method === "POST") {
+    const body = await req.json().catch(() => null)
+    const link = jobLink(String(body?.url || ""), true)
+    const held = link ? (await heldJob(env, link))?.[0] : null
+    if (!held) return json(404, { error: "Job not registered in Odds." })
+    let questions: ApplyQuestion[] = Array.isArray(body?.questions)
+      ? body.questions.filter((q: Json) => q && typeof q.key === "string" && typeof q.label === "string").slice(0, 30)
+      : []
+    if (!questions.length) {
+      const prompt = (await svc(env, `application_prompts?user_id=eq.${me.id}&posting_id=eq.${encodeURIComponent(held.id)}&select=questions`))?.[0]
+      questions = Array.isArray(prompt?.questions) ? prompt.questions : []
+    }
+    if (!questions.length) return json(200, { status: "ok", accepted: [], rejected: [] })
+    const factMap = await agentFacts(env, me)
+    const ruleFacts = factsFromAgentPayload(factMap, held.id)
+    const fromRules = suggestFromRules(questions, ruleFacts)
+    const have = new Set(fromRules.map((a) => a.key))
+    let accepted = [...fromRules]
+    let rejected: Array<{ key: string; reason: string }> = []
+    let raw = 0
+    let reason: string | undefined
+    if (!applyAgentEnabled(env)) {
+      reason = "rules_only"
+    } else {
+      const used = await svc(env, `rpc/apply_agent_suggest_count_today`, { method: "POST", body: JSON.stringify({ p_user: me.id }) }).catch(() => null)
+      const count = typeof used === "number" ? used : typeof used?.[0] === "number" ? used[0] : typeof used === "object" && used && "apply_agent_suggest_count_today" in used ? Number((used as Json).apply_agent_suggest_count_today) : Number(used)
+      if (Number.isFinite(count) && count >= APPLY_AGENT_DAILY_SUGGESTS) {
+        reason = "daily_limit"
+      } else {
+        const gaps = questions.filter((q) => !have.has(q.key))
+        if (gaps.length) {
+          const result = await suggestAnswers(env, {
+            type: "suggest-answers",
+            posting_id: held.id,
+            host: hostOf(String(body?.url || held.url || "")),
+            ats: typeof held.ats === "string" ? held.ats : null,
+            title: held.title ?? null,
+            employer: held.employer_display ?? held.employer ?? null,
+            questions: gaps,
+            facts: factMap,
+          })
+          raw = result.raw
+          rejected = result.rejected
+          for (const a of result.accepted) {
+            if (have.has(a.key)) continue
+            have.add(a.key)
+            accepted.push(a)
+          }
+        }
+      }
+    }
+    if (accepted.length) {
+      const rows = accepted.map((a) => {
+        const q = questions.find((x) => x.key === a.key)
+        return { user_id: me.id, question_key: a.key, question: q?.label ?? a.key, answer: a.answer, updated_at: new Date().toISOString() }
+      })
+      await svc(env, "application_questions?on_conflict=user_id,question_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) })
+    }
+    void logApplyAgentEvent(env, me.id, "suggest-answers", held.id, {
+      accepted: accepted.length,
+      rejected: rejected.length,
+      raw,
+      rules: fromRules.length,
+      reason: reason ?? "ok",
+      keys: accepted.map((a) => a.key),
+    })
+    return json(200, { status: "ok", accepted, rejected, ...(reason ? { reason } : {}) })
   }
   if (route === "answers" && req.method === "GET") {
     const rows = await svc(env, `application_questions?user_id=eq.${me.id}&select=question_key,answer&order=updated_at.desc&limit=500`)
@@ -1311,16 +1556,47 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
       emailOf(env, me),
       svc(env, `documents?user_id=eq.${me.id}&kind=eq.cv&is_main=eq.true&select=id,name,file_name`),
     ])
-    const answers = { ...personalFromProfile(profile, email), ...savedAnswers }
+    const answers = { ...personalFromProfile(profile, email), ...educationFromProfile(profile), ...workFromProfile(profile), ...savedAnswers }
+    // Gender answered once on a form (Odds drawer or the page) becomes the Autofill answer, so every later form fills it and Autofill shows it.
+    if (!savedAnswers.gender) {
+      const said = (remembered ?? []).find((r: Json) => /\b(gender|geslacht|geschlecht|genre)\b/.test(String(r.question_key)) && !/\b(identity|transgender|pronoun)/.test(String(r.question_key)) && typeof r.answer === "string" && r.answer.trim() && r.answer.length <= 60)
+      if (said) {
+        answers.gender = String(said.answer).trim()
+        void svc(env, "application_answers?on_conflict=user_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: me.id, data: { ...savedAnswers, gender: answers.gender }, updated_at: new Date().toISOString() }) }).catch(() => undefined)
+      }
+    }
+    // Whether the person already applied to another job at this employer, known from their own applications; never "no" from silence.
+    const appliedIds = ((await svc(env, `applications?user_id=eq.${me.id}&select=posting_id`)) ?? []).map((a: Json) => String(a.posting_id)).filter((id: string) => id && id !== held?.id)
+    const sameEmployer = held?.employer && appliedIds.length > 0 ? await svc(env, `postings?id=in.(${appliedIds.map((id: string) => encodeURIComponent(id)).join(",")})&employer=eq.${encodeURIComponent(String(held.employer))}&select=id&limit=1`) : []
+    // Facts that hold for nearly everyone, taken from the profile: university education means an adult; no job at this employer on the profile (or CV) means not a current employee.
+    const display = String(held?.employer_display ?? "").toLowerCase()
+    const history = `${JSON.stringify(profile.positions ?? [])} ${String(profile.cv ?? "")}`.toLowerCase()
+    const hasHistory = (Array.isArray(profile.positions) && profile.positions.length > 0) || String(profile.cv ?? "").trim().length > 40
+    const sources: Record<string, string> = { linkedin: "LinkedIn", indeed: "Indeed", glassdoor: "Glassdoor", "magnet.me": "Magnet.me", academictransfer: "AcademicTransfer" }
     const attached = held ? (await svc(env, `job_documents?user_id=eq.${me.id}&posting_id=eq.${encodeURIComponent(held.id)}&kind=eq.cv&select=document_id`))?.[0] : null
     const cvRow = attached ? (await svc(env, `documents?user_id=eq.${me.id}&id=eq.${attached.document_id}&select=id,name,file_name`))?.[0] : null
     const cv = cvRow ?? mainCv?.[0] ?? null
+    notifyApplyAgent(env, {
+      type: "apply.started",
+      posting_id: held?.id ?? null,
+      host: hostOf(String(body?.url ?? "")),
+      ats: typeof held?.ats === "string" ? held.ats : link?.site ?? null,
+      title: held?.title ?? null,
+      employer: held?.employer_display ?? held?.employer ?? null,
+    })
+    void logApplyAgentEvent(env, me.id, "apply.started", held?.id ?? null, { host: hostOf(String(body?.url ?? "")) })
 
     return json(200, {
       job_id: held?.id ?? null,
+      // The job's own title: the extension checks the employer's page is this job, not their list of vacancies.
+      job_title: held?.title ?? null,
       facts: {
         job_id: held?.id ?? null,
         job_country: /(?:netherlands|nederland|\bNL\b)/i.test(held?.region || "") ? "NL" : null,
+        job_source: link ? sources[link.site] ?? "Company website" : null,
+        applied_before: Boolean(sameEmployer?.length),
+        adult: Array.isArray(profile.education) && profile.education.length > 0,
+        never_worked_here: Boolean(display) && hasHistory && !history.includes(display),
         name: profile.name || null,
         email: answers.email || email,
         phone: answers.phone ?? null,
@@ -1353,6 +1629,33 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     if (rows.length) await svc(env, "application_questions?on_conflict=user_id,question_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) })
 
     return json(200, { saved: rows.length })
+  }
+  // Browser saw "not accepting applications" — close the posting for the whole server (everyone's lists).
+  if (route === "job-closed" && req.method === "POST") {
+    let body: Json
+    try {
+      body = await readBody()
+    } catch {
+      return json(400, { error: "Send { url }." })
+    }
+    const link = jobLink(String(body?.url ?? ""), true)
+    const held = link ? (await heldJob(env, link))?.[0] : null
+    if (!held) return json(404, { status: "unknown", message: "odds does not hold that job yet." })
+    if (held.closed_at) return json(200, { status: "closed", id: held.id, already: true })
+    const now = new Date().toISOString()
+    await svc(env, `postings?id=eq.${encodeURIComponent(held.id)}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ closed_at: now, last_checked: now }),
+    })
+    // End any in-flight apply queue for this job (this user).
+    await svc(env, `application_runs?user_id=eq.${me.id}&posting_id=eq.${encodeURIComponent(held.id)}&status=in.(queued,filling,needs_input,ready)`, {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ status: "failed", message: "This job is no longer accepting applications. No application was submitted.", updated_at: now }),
+    }).catch(() => undefined)
+    void logApplyAgentEvent(env, me.id, "job-closed", held.id, { url: String(body?.url ?? "").slice(0, 200) })
+    return json(200, { status: "closed", id: held.id })
   }
   // The person pressed Submit and LinkedIn said it was sent: the job is applied on their odds tracker (kept for them first if it was not).
   if (route === "applied" && req.method === "POST") {

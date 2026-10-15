@@ -244,6 +244,8 @@ export interface Profile {
   /** Who you are, shown on the profile page. None of it is used to rank jobs. */
   name: string
   firstName?: string
+  phone?: string
+  email?: string
   lastName?: string
   headline: string
   place: string

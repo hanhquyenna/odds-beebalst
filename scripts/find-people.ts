@@ -35,7 +35,7 @@ const employers = await sql<Employer>(`
   )
   select r.employer, max(r.employer_display) as display, coalesce(array_agg(distinct r.family) filter (where r.family is not null), '{}') as families, count(*)::int as jobs,
     exists (select 1 from job_people p where p.employer = r.employer and p.jev->>'role' = 'recruiter') as has_recruiter,
-    exists (select 1 from job_people p where p.employer = r.employer and p.jev->>'role' = 'hiring_manager') as has_manager
+    exists (select 1 from job_people p where p.employer = r.employer and p.jev->>'role' in ('department_manager','hiring_manager')) as has_manager
   from recent r group by r.employer order by max(r.day) desc, count(*) desc`)
 
 interface Person { url: string; name: string; headline: string; place: string; photo: string; title: string; company: string; companyUrl: string; positions: Array<{ title: string; company: string; since: string }> }
@@ -100,7 +100,7 @@ for (const e of employers) {
       const judged = found.map((p) => ({ p, k: keep(p, j.role, e, page) }))
       const kept = judged.filter((x) => x.k.ok).map((x) => x.p)
       if (kept.length) {
-        await sql(`insert into job_people (employer, profile_url, name, headline, place, photo, positions, jev) values ${kept.map((p) => `(${lit(e.employer)}, ${lit(p.url)}, ${lit(p.name)}, ${lit(p.title || p.headline)}, ${lit(p.place)}, ${lit(p.photo)}, ${lit(JSON.stringify(p.positions))}::jsonb, ${lit(JSON.stringify({ source: "rules", role: j.role, decision_final: "keep", company: p.company }))}::jsonb)`).join(",")}
+        await sql(`insert into job_people (employer, profile_url, name, headline, place, photo, positions, jev) values ${kept.map((p) => `(${lit(e.employer)}, ${lit(p.url)}, ${lit(p.name)}, ${lit(p.title || p.headline)}, ${lit(p.place)}, ${lit(p.photo)}, ${lit(JSON.stringify(p.positions))}::jsonb, ${lit(JSON.stringify({ source: "rules", role: j.role === "hiring_manager" ? "department_manager" : j.role, relationship_basis: "title_only", decision_final: "keep", company: p.company }))}::jsonb)`).join(",")}
           on conflict (employer, profile_url) do update set headline = excluded.headline, place = excluded.place, positions = excluded.positions, jev = job_people.jev || excluded.jev, fetched_at = now()`)
       }
       stored += kept.length; totals[j.role] += kept.length
@@ -113,4 +113,4 @@ for (const e of employers) {
   }
   await sql(`insert into job_people_runs (employer, found, kept, cost_usd) values (${lit(e.employer)}, 0, 0, 0) on conflict (employer) do update set searched_at = now()`)
 }
-console.log(`\n${employers.length} employers; searches ${searched} (Apify runs ${apifyRuns}); skipped without a LinkedIn page ${skippedNoPage}; stored ${stored} (recruiters ${totals.recruiter}, hiring managers ${totals.hiring_manager})`)
+console.log(`\n${employers.length} employers; searches ${searched} (Apify runs ${apifyRuns}); skipped without a LinkedIn page ${skippedNoPage}; stored ${stored} (recruiters ${totals.recruiter}, department leads ${totals.hiring_manager})`)

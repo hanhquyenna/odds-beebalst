@@ -4,9 +4,9 @@ import { SEED_VIEWS, addView, duplicateView, normalizeViews, removeView, renameV
 import { NO_TRACKER_FILTER } from "@/lib/tracker"
 
 describe("the starting set", () => {
-  test("follows the templates: a table, a pipeline board and a calendar", () => {
-    expect(SEED_VIEWS.map((v) => v.name)).toEqual(["All jobs", "Pipeline", "Calendar"])
-    expect(SEED_VIEWS.map((v) => v.layout)).toEqual(["table", "board", "calendar"])
+  test("is one table: the board and the calendar are layouts of it, picked in the layout menu", () => {
+    expect(SEED_VIEWS.map((v) => v.name)).toEqual(["All jobs"])
+    expect(SEED_VIEWS.map((v) => v.layout)).toEqual(["table"])
     expect(new Set(SEED_VIEWS.map((v) => v.id)).size).toBe(SEED_VIEWS.length)
   })
 })
@@ -37,6 +37,14 @@ describe("normalizeViews", () => {
     expect(normalizeViews([])).toHaveLength(SEED_VIEWS.length)
     expect(normalizeViews([{ nothing: true }])).toHaveLength(SEED_VIEWS.length)
   })
+  test("drops the old Pipeline and Calendar starting tabs", () => {
+    const v = normalizeViews([
+      { id: "all", name: "All jobs", layout: "table" },
+      { id: "pipeline", name: "Pipeline", layout: "board" },
+      { id: "calendar", name: "Calendar", layout: "calendar" },
+    ])
+    expect(v.map((x) => x.id)).toEqual(["all"])
+  })
   test("names are kept short", () => {
     expect(normalizeViews([{ id: "a", name: "x".repeat(100), layout: "table" }])[0].name).toHaveLength(40)
   })
@@ -61,7 +69,7 @@ describe("changing the set", () => {
   test("rename, update, remove", () => {
     expect(renameView(base, "all", "Everything")[0].name).toBe("Everything")
     expect(renameView(base, "all", "   ")[0].name).toBe("All jobs")
-    expect(updateView(base, "pipeline", { layout: "table" })[1].layout).toBe("table")
+    expect(updateView(base, "all", { layout: "board" })[0].layout).toBe("board")
     expect(removeView(base, "pipeline").map((v) => v.id)).not.toContain("pipeline")
   })
   test("the last view cannot be removed", () => {

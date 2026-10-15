@@ -14,6 +14,7 @@ let current = { id: "", url: "", phase: "peeking", chance: null, saved: false, k
 function draw(state, label, title, note) {
   if (!button) return
   button.dataset.state = state
+  button.dataset.kind = /%$/.test(label) ? "chance" : "plain"
   button.replaceChildren()
   const text = document.createElement("span")
   text.className = "odds-text"
@@ -29,19 +30,19 @@ function draw(state, label, title, note) {
   button.setAttribute("aria-label", title)
 }
 
-const percent = (n) => (typeof n === "number" ? `${n}%` : "—")
+const percent = (n) => (typeof n === "number" ? `${n}%` : "Check")
 
 /** Draws the button for whatever is known about the open job. */
 function show() {
   if (!button) return
   const c = current
   if (c.phase === "peeking" || c.phase === "adding") return draw("busy", "…", "Looking up your chance for this job")
-  if (c.phase === "connect") return draw("problem", "—", "Connect odds to see your interview chance here")
-  if (c.phase === "error") return draw("problem", "—", "Try again", c.message || "odds did not answer.")
-  if (c.closed) return draw("idle", "—", "This job is closed")
-  if (c.needsProfile) return draw("idle", "Import LinkedIn", "Import your LinkedIn profile or add a CV in Odds to calculate your interview chance")
+  if (c.phase === "connect") return draw("problem", "Connect", "Connect odds to see your interview chance here")
+  if (c.phase === "error") return draw("problem", "Retry", "Try again", c.message || "odds did not answer.")
+  if (c.closed) return draw("idle", "Closed", "This job is closed")
+  if (c.needsProfile) return draw("idle", "Add CV", "Import your LinkedIn profile or add a CV in Odds to calculate your interview chance")
   if (c.saved) return draw("done", percent(c.chance), "Estimated interview chance. Open this job in the side panel", c.needsProfile ? "Add your CV on odds to see your chance." : null)
-  if (!c.known) return draw("idle", "?%", "odds does not have this job yet. Open the job details while Odds reads this job")
+  if (!c.known) return draw("idle", "Check", "odds does not have this job yet. Open the job details while Odds reads this job")
   draw("idle", percent(c.chance), `Your interview chance for this job is ${percent(c.chance)}. Open this job in the side panel`, c.needsProfile ? "Add your CV on odds to see your chance." : null)
 }
 
@@ -316,7 +317,7 @@ function renderCard(badge, result) {
     return
   }
   const unknown = result.status === "ok" && result.known === false
-  const label = result.needs_profile ? "Import LinkedIn" : typeof result.chance_pct === "number" ? `${result.chance_pct}%` : unknown ? "?%" : "—"
+  const label = result.needs_profile ? "Add CV" : typeof result.chance_pct === "number" ? `${result.chance_pct}%` : unknown ? "Check" : "Retry"
   const title = result.needs_profile ? "Import your LinkedIn profile or add a CV in Odds to calculate your interview chance" : typeof result.chance_pct === "number" ? `Your interview chance: ${result.chance_pct}%. Open this job in Odds.` : result.status === "connect" ? "Connect Odds to see your interview chance" : result.closed ? "This job is closed" : unknown ? "Odds does not have this job yet. Open the job details while Odds reads this job." : result.message || "Open this job in Odds"
   const aria = `${label}. ${result.job?.title || "Open this job in Odds"}`
   const state = result.status === "ok" ? "ready" : "problem"
@@ -324,6 +325,8 @@ function renderCard(badge, result) {
   if (badge.title !== title) badge.title = title
   if (badge.getAttribute("aria-label") !== aria) badge.setAttribute("aria-label", aria)
   if (badge.dataset.state !== state) badge.dataset.state = state
+  const kind = /%$/.test(label) ? "chance" : "plain"
+  if (badge.dataset.kind !== kind) badge.dataset.kind = kind
 }
 function cardResult(id, result) {
   // A look-up that answers after the job was pressed (and is being added) does not undo the press.

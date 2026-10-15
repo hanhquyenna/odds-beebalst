@@ -66,7 +66,7 @@ window.addEventListener("message", (event) => {
     }
     // "odds apply" on a job in the app: open it in the person's tab and fill its application in there.
     if (event.data.type === "apply" && typeof event.data.url === "string") {
-      chrome.runtime.sendMessage({ type: "apply-in-tab", url: event.data.url }, (answer) => {
+      chrome.runtime.sendMessage({ type: "apply-in-tab", url: event.data.url, reveal: event.data.reveal === true, postingId: typeof event.data.postingId === "string" ? event.data.postingId : null }, (answer) => {
         void chrome.runtime.lastError
         toApp({ type: "application-started", url: event.data.url, ok: answer?.ok !== false, message: answer?.message || "" })
       })
@@ -74,7 +74,8 @@ window.addEventListener("message", (event) => {
     // The app asking how a job's application is going.
     if (event.data.type === "application-status" && typeof event.data.url === "string") {
       const url = event.data.url
-      chrome.runtime.sendMessage({ type: "application-status", url }, (answer) => {
+      const postingId = typeof event.data.postingId === "string" ? event.data.postingId : null
+      chrome.runtime.sendMessage({ type: "application-status", url, postingId }, (answer) => {
         if (!chrome.runtime.lastError) toApp({ type: "application-status", url, state: answer?.state || null })
       })
     }
@@ -121,5 +122,11 @@ chrome.storage.local.get("oddsPhoneControl").then(v => { phoneControl.checked = 
 phoneControl.addEventListener("change", () => chrome.storage.local.set({ oddsPhoneControl: phoneControl.checked }))
 // Poll immediately on opening and every five seconds while the panel is visible.
 const pollPhone = () => chrome.runtime.sendMessage({ type: "application-poll" }, () => void chrome.runtime.lastError)
+const syncApplyChips = () => chrome.runtime.sendMessage({ type: "application-statuses" }, (answer) => {
+  if (chrome.runtime.lastError || !Array.isArray(answer?.runs)) return
+  toApp({ type: "apply-activity-sync", runs: answer.runs })
+})
 pollPhone()
+syncApplyChips()
 setInterval(pollPhone, 5000)
+setInterval(syncApplyChips, 2000)

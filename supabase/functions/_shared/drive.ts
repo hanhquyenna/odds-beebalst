@@ -7,13 +7,14 @@
 // upload path stays one and the same whether Drive is connected or not.
 //
 // Secrets: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET (a Google Cloud OAuth client, "Web application", with the redirect URI
-// <SUPABASE_URL>/functions/v1/drive/callback and the scope drive.file).
+// <SUPABASE_URL>/functions/v1/drive/callback and the scopes drive.file and gmail.send). One consent connects Drive and Gmail together.
 
 const DRIVE = "https://www.googleapis.com/drive/v3/files"
 const UPLOAD = "https://www.googleapis.com/upload/drive/v3/files"
 const FOLDER = "application/vnd.google-apps.folder"
 
-export const SCOPES = "https://www.googleapis.com/auth/drive.file openid email"
+/** Drive for files, Gmail for outreach: one Google consent covers both. */
+export const SCOPES = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.send openid email"
 export const FOLDER_NAMES = { root: "odds", cv: "CVs", cover_letter: "Cover letters" } as const
 
 export interface DriveEnv {

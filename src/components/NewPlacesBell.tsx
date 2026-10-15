@@ -1,7 +1,7 @@
+import { toast } from "sonner"
 import { BellSimpleIcon, BriefcaseIcon, CalendarIcon, CheckIcon, ChevronRightIcon, BadgeCheckIcon } from "@/components/icons"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { toast } from "sonner"
 import { CompanyLogo } from "@/components/CompanyMark"
 import { JobDrawer } from "@/components/JobBoard"
 import { usePhone } from "@/lib/use-phone"
@@ -146,7 +146,6 @@ export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.El
     void (count > 0 ? nav.setAppBadge?.(count) : nav.clearAppBadge?.())?.catch(() => undefined)
     if (count > before && !first.current) {
       setShake(true)
-      toast(count - before === 1 ? "1 new notification" : `${count - before} new notifications`, { id: "notifications", action: { label: "Open", onClick: () => setOpen(true) } })
       window.setTimeout(() => setShake(false), 900)
     }
     first.current = false

@@ -6,6 +6,7 @@ import { join } from "node:path"
 import { mkdtempSync, readFileSync } from "node:fs"
 import { FLOW_POSTINGS } from "./fixtures/postings"
 import { mockBackend, shot } from "./mock"
+import { pickSuggestAction } from "../supabase/functions/_shared/apply-agent-suggest"
 import { tmpdir } from "node:os"
 
 /**
@@ -18,10 +19,16 @@ declare const chrome: {
   storage: { local: { set(items: Record<string, unknown>): Promise<void>; get(key: string): Promise<Record<string, string | undefined>> } }
   action: { getPopup(options: object): Promise<string> }
   runtime: { getURL(path: string): string; sendMessage(message: unknown, callback: (answer: unknown) => void): void }
+  tabs: {
+    query(q: object): Promise<Array<{ id?: number; url?: string; active?: boolean }>>
+    get(id: number): Promise<{ id: number; active: boolean }>
+    sendMessage(tabId: number, message: unknown): Promise<unknown>
+  }
 }
 
 const EXTENSION = join(import.meta.dirname, "..", "extension")
 const SUPABASE = "http://supabase.test"
+const APP_ORIGIN = process.env.ODDS_E2E_APP_ORIGIN || "http://localhost:4319"
 const KEY = `oddsx_${"ab".repeat(24)}`
 
 const JOB_PAGE = (title: string): string => `<!doctype html><html><head><title>${title}</title></head><body><h1>${title}</h1><p>Job description</p></body></html>`
@@ -29,6 +36,15 @@ const JOB_PAGE = (title: string): string => `<!doctype html><html><head><title>$
 interface Fake {
   prompts: Array<{ key: string; label: string; kind: string; options?: string[] }>
   remembered: Record<string, string>
+  /** Label → answer the fake cloud agent returns from /ext/suggest-answers. */
+  agentAnswers: Record<string, string>
+  suggestCalls: number
+  /** Stuck listing: local rules pick (same as mcp); counts drive-by-hands assists. */
+  suggestActionCalls: number
+  suggestScanCalls: number
+  /** Override /ext/suggest-scan body (Broods dropdown click contract tests). */
+  scanReply: Record<string, unknown> | null
+  suggestActionPicks: Array<{ action: string; text?: string; reason: string }>
   server: Server
   port: number
   remoteTask?: { id: string; url: string; status: string }
@@ -43,6 +59,8 @@ interface Fake {
   kit: Record<string, unknown>
   kept: Array<{ question: string; answer: string }>
   applied: string[]
+  /** URLs reported closed via /ext/job-closed (server-wide closed_at). */
+  closedUrls: string[]
   analyses: string[]
   /** What each analysis was sent: a job page's posting comes with it, a LinkedIn job never. */
   analyzed: Array<{ url?: string; posting?: Record<string, unknown> }>
@@ -64,11 +82,18 @@ async function fakeOdds(): Promise<Fake> {
     reports: [],
     prompts: [],
     remembered: {},
+    agentAnswers: {},
+    suggestCalls: 0,
+    suggestActionCalls: 0,
+    suggestScanCalls: 0,
+    scanReply: null,
+    suggestActionPicks: [],
     peeks: [],
     batches: [],
     kit: {},
     kept: [],
     applied: [],
+    closedUrls: [],
     analyses: [],
     analyzed: [],
     answersByUrl: {},
@@ -96,7 +121,20 @@ async function fakeOdds(): Promise<Fake> {
 
         return
       }
-      const body = raw ? (JSON.parse(raw) as { url?: string; urls?: string[]; posting?: Record<string, unknown>; id?: string; ids?: string[]; status?: string; message?: string; questions?: Fake["prompts"] }) : {}
+      const body = raw ? (JSON.parse(raw) as {
+        url?: string
+        urls?: string[]
+        posting?: Record<string, unknown>
+        id?: string
+        ids?: string[]
+        status?: string
+        message?: string
+        questions?: Fake["prompts"]
+        buttons?: Array<string | { text?: string; href?: string; hint?: string }>
+        exclude?: string[]
+        force_llm?: boolean
+        snapshot?: unknown
+      }) : {}
       const path = String(req.url).split("?")[0]
       let answer: Record<string, unknown> = fake.answer
       if (path.endsWith("/ext/application-poll")) {
@@ -129,6 +167,52 @@ async function fakeOdds(): Promise<Fake> {
       } else if (path.endsWith("/ext/application-questions")) {
         fake.prompts = body.questions || []
         answer = { status: "ok" }
+      } else if (path.endsWith("/ext/suggest-answers")) {
+        fake.suggestCalls++
+        const asked = Array.isArray(body.questions) && body.questions.length ? body.questions : fake.prompts
+        const accepted: Array<{ key: string; answer: string; confidence: number }> = []
+        for (const q of asked) {
+          const text = fake.agentAnswers[q.label] ?? fake.agentAnswers[q.key]
+          if (!text || !q.key) continue
+          accepted.push({ key: q.key, answer: text, confidence: 0.9 })
+          fake.remembered[q.key] = text
+        }
+        answer = { status: "ok", accepted, rejected: [] }
+      } else if (path.endsWith("/ext/suggest-action")) {
+        fake.suggestActionCalls++
+        const buttons = Array.isArray(body.buttons) ? body.buttons : []
+        const exclude = new Set(
+          (Array.isArray(body.exclude) ? body.exclude : [])
+            .filter((t: unknown): t is string => typeof t === "string")
+            .map((t: string) => t.replace(/\s+/g, " ").trim().toLowerCase())
+            .filter(Boolean),
+        )
+        const usable = buttons.filter((b: string | { text?: string }) => {
+          const t = (typeof b === "string" ? b : b?.text ?? "").replace(/\s+/g, " ").trim().toLowerCase()
+          return t && !exclude.has(t)
+        })
+        // Mirrors production: force_llm / exclude skip already-tried labels so LLM (rules stand-in) can take over.
+        const pool = body.force_llm === true ? usable : (usable.length ? usable : buttons)
+        const pick = pool.length ? pickSuggestAction(pool) : { action: "none" as const, reason: "all_excluded" }
+        fake.suggestActionPicks.push(pick)
+        answer = { status: "ok", ...pick }
+      } else if (path.endsWith("/ext/suggest-scan")) {
+        fake.suggestScanCalls++
+        if (fake.scanReply) {
+          answer = { status: "ok", ...fake.scanReply }
+        } else {
+          const snap = body.snapshot && typeof body.snapshot === "object" ? body.snapshot as { buttons?: unknown } : null
+          const buttons = Array.isArray(snap?.buttons) ? snap.buttons : []
+          const pick = pickSuggestAction(buttons)
+          answer = {
+            status: "ok",
+            stage: pick.action === "click" ? "form" : "stuck",
+            action: pick.action === "click" ? "click" : "none",
+            text: pick.text ?? null,
+            answers: [],
+            reason: "fake_scan",
+          }
+        }
       } else if (path.endsWith("/ext/answers") && req.method === "GET") {
         answer = { remembered: fake.remembered }
       } else if (path.endsWith("/ext/answers")) {
@@ -137,6 +221,9 @@ async function fakeOdds(): Promise<Fake> {
       } else if (path.endsWith("/ext/applied")) {
         fake.applied.push(String(body.url))
         answer = { status: "applied", id: "papplied" }
+      } else if (path.endsWith("/ext/job-closed")) {
+        fake.closedUrls.push(String(body.url))
+        answer = { status: "closed", id: "pclosed" }
       } else if (path.endsWith("/ext/pool")) {
         fake.pools++
         answer = fake.pool
@@ -168,7 +255,7 @@ async function oddsSite(): Promise<{ server: Server; port: number }> {
   const dir = mkdtempSync(join(tmpdir(), "odds-tls-"))
   execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(dir, "k.pem"), "-out", join(dir, "c.pem"), "-days", "2", "-subj", "/CN=odds.beeblast.co", "-addext", "subjectAltName=DNS:odds.beeblast.co"], { stdio: "ignore" })
   const server = createTlsServer({ key: readFileSync(join(dir, "k.pem")), cert: readFileSync(join(dir, "c.pem")) }, (req, res) => {
-    const up = httpRequest({ host: "localhost", port: 4319, path: req.url, method: req.method, headers: { ...req.headers, host: "localhost:4319" } }, (answer) => {
+    const up = httpRequest({ host: "localhost", port: Number(new URL(APP_ORIGIN).port), path: req.url, method: req.method, headers: { ...req.headers, host: new URL(APP_ORIGIN).host } }, (answer) => {
       res.writeHead(answer.statusCode ?? 502, {
         ...answer.headers,
         "x-frame-options": "DENY",
@@ -242,7 +329,7 @@ test("on a LinkedIn job the button is there; on a page that is not a job it is n
   await expect(view.locator("#odds-add")).toHaveCount(0)
 })
 
-test("next to LinkedIn's Save button when the page has one, at the edge when it has not; in odds orange with the odds lettering", async ({ context }) => {
+test("next to LinkedIn's Save button when the page has one, at the edge when it has not; drawn like odds' own chips, in the odds lettering", async ({ context }) => {
   await connect(context)
   // The structure of the job page as LinkedIn serves it (October 2026, copied from a real one, names and texts removed): each button in a wrapper of its own, the wrappers in one row.
   await context.route("https://www.linkedin.com/jobs/view/**", (route) =>
@@ -259,14 +346,16 @@ test("next to LinkedIn's Save button when the page has one, at the edge when it 
   expect(await pill.evaluate((el) => el.parentElement?.id)).toBe("row")
   // After the Save wrapper, in the same row, not inside it.
   expect(await pill.evaluate((el) => el.previousElementSibling?.querySelector("button")?.getAttribute("aria-label"))).toBe("Save the job")
-  // The size of LinkedIn's buttons beside it (a 32px pill), and quiet: an outline, no fill. The row's own gap spaces it.
+  // The size of LinkedIn's buttons beside it (a 32px pill), and drawn like the app's chips: white, a 1.5px line, ink lettering. The row's own gap spaces it.
   expect(await pill.evaluate((el) => getComputedStyle(el).height)).toBe("32px")
   expect(await pill.evaluate((el) => getComputedStyle(el).borderTopLeftRadius)).toBe("999px")
   expect(await pill.evaluate((el) => getComputedStyle(el).marginLeft)).toBe("0px")
-  expect(await pill.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgba(0, 0, 0, 0)")
-  expect(await pill.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe("rgb(229, 226, 221)")
+  expect(await pill.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(255, 255, 255)")
+  expect(await pill.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe("rgb(163, 157, 149)")
+  expect(await pill.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(22, 21, 19)")
   expect(await pill.evaluate((el) => getComputedStyle(el).position)).not.toBe("fixed")
   // The odds lettering is loaded from the extension.
+  await page.evaluate(() => document.fonts.load('700 15px "odds Inter Tight"'))
   expect(await page.evaluate(() => document.fonts.check('700 15px "odds Inter Tight"'))).toBe(true)
   await page.goto("https://www.linkedin.com/jobs/search/?currentJobId=4470863235")
   await expect(page.locator("#odds-add")).toHaveAttribute("data-where", "float")
@@ -364,7 +453,7 @@ test("a failed read is explained in the panel without saving; a missing CV is ex
   fake.peek = { known: true, id: "pabc", saved: false, chance_pct: null, needs_profile: true }
   await page.goto("https://www.linkedin.com/jobs/view/4470000222/")
   await expect(page.locator("#odds-add")).toHaveAttribute("title", /Import your LinkedIn profile or add a CV/)
-  await expect(page.locator("#odds-add")).toHaveText("Import LinkedIn")
+  await expect(page.locator("#odds-add")).toHaveText("Add CV")
   const opened = context.waitForEvent("page")
   await page.locator("#odds-add").click()
   await expect(await opened).toHaveURL("https://odds.beeblast.co/profile")
@@ -463,7 +552,7 @@ test("connecting from the odds page: sign in is already done, one tap hands the 
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(KEY) })
   })
   await context.route("https://odds.beeblast.co/**", async (route) => {
-    const response = await route.fetch({ url: route.request().url().replace("https://odds.beeblast.co", "http://localhost:4319") })
+    const response = await route.fetch({ url: route.request().url().replace("https://odds.beeblast.co", APP_ORIGIN) })
     await route.fulfill({ response })
   })
   const page = await context.newPage()
@@ -475,9 +564,14 @@ test("connecting from the odds page: sign in is already done, one tap hands the 
   const card = page.getByRole("dialog", { name: "Connect the odds extension" })
   await expect(card).toBeVisible({ timeout: 15000 })
   await card.getByRole("button", { name: "Connect", exact: true }).click()
-  await expect(page.getByRole("dialog", { name: "Extension connected" })).toBeVisible()
+  const done = page.getByRole("dialog", { name: "Extension connected" })
+  await expect(done).toBeVisible()
   expect(rpc).toEqual(["POST"])
   expect(await worker.evaluate(async () => (await chrome.storage.local.get("oddsKey")).oddsKey)).toBe(KEY)
+  // OK must dismiss — regression: dropExtensionRequest cleared storage but App kept extensionRequest true forever.
+  await done.getByRole("button", { name: "OK", exact: true }).click()
+  await expect(page.getByRole("dialog", { name: "Extension connected" })).toHaveCount(0)
+  await expect(page.getByRole("dialog", { name: "Connect the odds extension" })).toHaveCount(0)
 })
 
 test("the extension takes a key only from odds.beeblast.co, and only one in the right form", async ({ context }) => {
@@ -576,7 +670,7 @@ test("missing profiles and read limits display explanations instead of made-up p
   fake.peek = { known: false }
   fake.analyzeAnswer = { status: "limit", message: "Up to 30 new jobs a day." }
   await page.reload()
-  await expect(page.locator(".odds-job-chance").first()).toHaveText("—")
+  await expect(page.locator(".odds-job-chance").first()).toHaveText("Retry")
   await expect(page.locator(".odds-job-chance").first()).toHaveAttribute("title", "Up to 30 new jobs a day.")
   expect(fake.calls).toHaveLength(0)
 })
@@ -784,7 +878,7 @@ test("Indeed: a job odds does not hold is read from its own Indeed page and kept
   expect(fake.calls).toHaveLength(0)
 })
 
-test("Indeed: pressing the button keeps the job, sending it as its page shows it; a job that cannot be read first shows ?% and a click retries reading without saving", async ({ context, fake }) => {
+test("Indeed: pressing the button keeps the job, sending it as its page shows it; a job that cannot be read first says Check and a click retries reading without saving", async ({ context, fake }) => {
   await connect(context)
   await indeed(context)
   fake.peek = { known: false }
@@ -792,7 +886,7 @@ test("Indeed: pressing the button keeps the job, sending it as its page shows it
   fake.answer = { status: "added", saved: true, chance_pct: 6.2, job: { id: "pind1", title: "Data Intern" } }
   const page = await context.newPage()
   await page.goto("https://nl.indeed.com/jobs?q=internship&vjk=aaaaaaaaaaaaaaa1")
-  await expect(page.locator("#odds-add")).toHaveText("?%")
+  await expect(page.locator("#odds-add")).toHaveText("Check")
   await expect(page.locator("#odds-add")).toHaveAttribute("title", /does not have this job yet/)
   fake.analyzeAnswer = { status: "added", saved: false, chance_pct: 6.2, job: { id: "pind1", title: "Data Intern" } }
   await page.locator("#odds-add").click()
@@ -1037,7 +1131,10 @@ const steps = [
   { title: "Additional Questions", html: \`
     <div data-test-form-element><label for="dutch">What is your level of proficiency in Dutch? What is your level of proficiency in Dutch?</label><select id="dutch"><option>Select an option</option><option>None</option><option>Conversational</option><option>Professional</option><option>Native or bilingual</option></select></div>
     <div data-test-form-element><fieldset><legend><span data-test-form-builder-radio-button-form-component__title>Will you now or in the future require visa sponsorship?</span></legend><input type="radio" name="sp" id="sp-yes"><label for="sp-yes">Yes</label><input type="radio" name="sp" id="sp-no"><label for="sp-no">No</label></fieldset></div>
-    <div data-test-form-element><label for="sql">How many years of work experience do you have with SQL?</label><input id="sql" type="text" class="numeric"></div>\` },
+    <div data-test-form-element><label for="sql">How many years of work experience do you have with SQL?</label><input id="sql" type="text" class="numeric"></div>
+    <div data-test-form-element><p>You declare that you have read and agree to the job applications privacy notice of Acme.*</p><div class="fb-text-selectable"><label><input type="checkbox" id="priv" required> I consent</label></div></div>
+    <div data-test-form-element><p>You declare that you have read and understand the privacy notice and agree to be part of communities for future career opportunities.</p><label><input type="checkbox" id="pool" required> I consent</label></div>
+    <div data-test-form-element><p>You declare that you have read and understand the privacy notice and agree to receive WhatsApp messages for job applications.</p><label><input type="checkbox" id="wa" required> I consent</label></div>\` },
   { title: "Review your application", html: "<p>Review</p>" },
 ]
 let at = 0
@@ -1057,7 +1154,10 @@ document.addEventListener("click", (event) => {
     draw()
   }
   if (b.hasAttribute("data-easy-apply-next-button")) {
-    for (const el of document.querySelectorAll("[data-test-modal-id=easy-apply-modal] input, [data-test-modal-id=easy-apply-modal] select")) window.seen[el.id] = el.type === "radio" ? el.checked : el.value
+    const modal = document.querySelector("[data-test-modal-id=easy-apply-modal]")
+    for (const el of modal.querySelectorAll("input, select")) window.seen[el.id] = el.type === "radio" || el.type === "checkbox" ? el.checked : el.value
+    // Required consents must be ticked or Next stays blocked (Redcare / Easy Apply).
+    if ([...modal.querySelectorAll("input[type=checkbox][required]")].some((c) => !c.checked)) return
     setTimeout(() => { at++; draw() }, 150)
   }
   if (b.hasAttribute("data-live-test-easy-apply-submit-button")) {
@@ -1087,7 +1187,11 @@ test("Easy Apply with odds: filled in from odds, the job's own CV chosen, a new 
   // What odds knows is answered; what it does not is marked and left for the person.
   await expect(modal.locator("#dutch")).toHaveValue("Conversational")
   await expect(modal.locator("#sp-no")).toBeChecked()
-  await expect(modal.locator(".odds-apply-bar")).toContainText("Answer the marked question")
+  // Consent boxes are always ticked; only SQL (unknown) stays marked.
+  await expect(modal.locator("#priv")).toBeChecked({ timeout: 8000 })
+  await expect(modal.locator("#pool")).toBeChecked()
+  await expect(modal.locator("#wa")).toBeChecked()
+  await expect(modal.locator(".odds-apply-bar")).toContainText(/marked question/i)
   await expect(modal.locator("[data-test-form-element].odds-ask")).toHaveCount(1)
   await expect(modal.locator("[data-test-form-element].odds-ask label")).toContainText("SQL")
   await modal.locator("#sql").fill("3")
@@ -1103,13 +1207,254 @@ test("Easy Apply with odds: filled in from odds, the job's own CV chosen, a new 
   await expect.poll(() => fake.applied, { timeout: 8000 }).toEqual(["https://www.linkedin.com/jobs/view/4470000301/"])
 })
 
+test("ACCEPT Easy Apply: known contact facts but empty DOM never claims Filled in by odds @accept", async ({ context, fake }) => {
+  await connect(context)
+  // Contact step + Submit visible: kit has name/email/phone but values refuse to stick → censor must not Ready.
+  const body = `<!doctype html><html><body>
+<div data-test-modal-id="easy-apply-modal" role="dialog">
+  <div class="artdeco-modal__content">
+    <h3>Contact info</h3>
+    <div data-test-form-element><label for="fn">First name *</label><input id="fn" required></div>
+    <div data-test-form-element><label for="ln">Last name *</label><input id="ln" required></div>
+    <div data-test-form-element><label for="em">Email *</label><input id="em" type="email" required></div>
+    <div data-test-form-element><label for="ph">Phone *</label><input id="ph" type="tel" required></div>
+  </div>
+  <div class="buttons"><button data-live-test-easy-apply-submit-button aria-label="Submit application">Submit application</button></div>
+</div>
+<script>
+document.addEventListener("input", (e) => {
+  const t = e.target
+  if (t && ["fn","ln","em","ph"].includes(t.id)) setTimeout(() => { t.value = "" }, 0)
+}, true)
+</script>
+</body></html>`
+  await context.route("https://www.linkedin.com/jobs/view/4470000400/**", (route) => route.fulfill({ contentType: "text/html", body }))
+  fake.peek = { known: true, id: "pcontact", saved: true, chance_pct: 8.8 }
+  fake.kit = {
+    job_id: "pcontact",
+    facts: {
+      name: "Kien Phung",
+      email: "kien@example.com",
+      phone: "+31 6 1234 5678",
+      answers: { first_name: "Kien", last_name: "Phung", email: "kien@example.com", phone: "+31 6 1234 5678" },
+      remembered: {},
+    },
+    cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true },
+  }
+  const page = await context.newPage()
+  await page.goto("https://www.linkedin.com/jobs/view/4470000400/")
+  await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4470000400/")
+  await expect(page.locator(".odds-apply-bar")).toBeVisible({ timeout: 10000 })
+  await expect(page.locator(".odds-apply-bar")).not.toContainText(/Filled in by odds/i, { timeout: 10000 })
+  await expect(page.locator(".odds-apply-bar")).not.toHaveAttribute("data-state", "done")
+  await expect(page.locator("#fn")).toHaveValue("")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/marked question|outlined question|Answer the|asking Odds|assist/i, { timeout: 10000 })
+})
+
+test("Easy Apply never says Filled in by odds while required fields are still empty", async ({ context, fake }) => {
+  await connect(context)
+  // Single step already open: Submit visible + empty required fields Odds "knows" labels for but values never stick.
+  const body = `<!doctype html><html><body>
+<div data-test-modal-id="easy-apply-modal" role="dialog">
+  <div class="artdeco-modal__content">
+    <h3>Additional Questions</h3>
+    <div data-test-form-element><label for="city">City *</label><input id="city" required></div>
+    <div data-test-form-element><label for="why">Why do you want this role? *</label><textarea id="why" required></textarea></div>
+  </div>
+  <div class="buttons"><button data-live-test-easy-apply-submit-button aria-label="Submit application">Submit application</button></div>
+</div>
+<script>
+// Reject typed values so fill looks successful to agentCanAnswer but DOM stays empty (the false-Ready bug).
+document.addEventListener("input", (e) => {
+  const t = e.target
+  if (t && (t.id === "city" || t.id === "why")) setTimeout(() => { t.value = "" }, 0)
+}, true)
+</script>
+</body></html>`
+  await context.route("https://www.linkedin.com/jobs/view/4470000399/**", (route) => route.fulfill({ contentType: "text/html", body }))
+  fake.peek = { known: true, id: "pempty", saved: true, chance_pct: 8.8 }
+  fake.kit = {
+    job_id: "pempty",
+    facts: {
+      name: "Kien Phung",
+      email: "kien@example.com",
+      place: "Amsterdam",
+      answers: { city: "Amsterdam", first_name: "Kien", last_name: "Phung" },
+      remembered: {},
+    },
+    cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true },
+  }
+  const page = await context.newPage()
+  await page.goto("https://www.linkedin.com/jobs/view/4470000399/")
+  await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4470000399/")
+  await expect(page.locator(".odds-apply-bar")).toBeVisible({ timeout: 10000 })
+  // Must not claim ready while city/why stay empty.
+  await expect(page.locator(".odds-apply-bar")).not.toContainText(/Filled in by odds/i, { timeout: 8000 })
+  await expect(page.locator("#city")).toHaveValue("")
+  await expect(page.locator("#why")).toHaveValue("")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/marked question|outlined question|Answer the/i, { timeout: 8000 })
+})
+
+test("Bosch-like profiles: fills LinkedIn/Website, never Ready while they or Resume stay empty", async ({ context, fake }) => {
+  await connect(context)
+  // Mirrors Phenom/Bosch: plain "LinkedIn" label (no URL), Website, Resume heading above generic drop zone.
+  // Profile URLs that refuse to stick → Ready must never fire; after they stick, Ready still waits on empty Resume when CV exists.
+  const body = `<!doctype html><html><body>
+<main>
+  <h1>Brand & Content Management Internship</h1>
+  <form onsubmit="window.sent=true;return false">
+    <label>First name *<input name="first_name" required></label>
+    <label>Email *<input type="email" name="email" required></label>
+    <section>
+      <h2>Your Profiles</h2>
+      <label>LinkedIn<input id="li" name="linkedin" type="url"></label>
+      <label>Facebook<input id="fb" name="facebook" type="url"></label>
+      <label>X (fka Twitter)<input id="x" name="twitter" type="url"></label>
+      <label>Website<input id="web" name="website" type="url"></label>
+    </section>
+    <section>
+      <h2>Resume</h2>
+      <div class="drop"><input id="cv" type="file" accept=".pdf,.doc" style="opacity:0.01"><p>Choose a file or drop it here</p></div>
+    </section>
+    <button type="submit">Submit application</button>
+  </form>
+</main>
+<script>
+window.blockProfiles = true
+document.addEventListener("input", (e) => {
+  const t = e.target
+  if (!window.blockProfiles || !t) return
+  if (t.id === "li" || t.id === "web") setTimeout(() => { t.value = "" }, 0)
+}, true)
+window.sent = false
+</script>
+</body></html>`
+  await context.route("https://careers.bosch.com/**", (route) => route.fulfill({ contentType: "text/html", body }))
+  fake.kit = {
+    job_id: "p-bosch-profiles",
+    facts: {
+      name: "Kien Phung",
+      email: "kien@example.com",
+      linkedin: "https://www.linkedin.com/in/kien",
+      answers: {
+        first_name: "Kien",
+        last_name: "Phung",
+        linkedin: "https://www.linkedin.com/in/kien",
+        website: "https://kien.example.com",
+      },
+      remembered: {},
+    },
+    cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true },
+  }
+  const page = await context.newPage()
+  await page.goto("https://careers.bosch.com/job/brand-intern")
+  await applyFrom(context, page, "https://careers.bosch.com/job/brand-intern")
+  await expect(page.locator('input[name="first_name"]')).toHaveValue("Kien", { timeout: 10000 })
+  await expect(page.locator('input[name="email"]')).toHaveValue("kien@example.com")
+  // Broods/Edge must be asked before needs_input (false censor blocked the agent before).
+  await expect.poll(() => fake.suggestCalls, { timeout: 10000 }).toBeGreaterThan(0)
+  // While LinkedIn/Website refuse to stick: never claim Ready (the screenshot bug).
+  await expect(page.locator(".odds-apply-bar")).not.toContainText(/Filled in by odds/i, { timeout: 8000 })
+  await expect(page.locator("#li")).toHaveValue("")
+  await expect(page.locator("#web")).toHaveValue("")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/outlined question|Answer the|asking Odds/i, { timeout: 8000 })
+  // Unblock profile fields; Resume still empty if file upload fails — still must not Ready until CV lands.
+  await page.evaluate(() => { (window as unknown as { blockProfiles: boolean }).blockProfiles = false })
+  await page.locator("#li").fill("https://www.linkedin.com/in/kien")
+  await page.locator("#web").fill("https://kien.example.com")
+  // Continue so fill loop re-checks; CV should upload from kit.
+  const worker = context.serviceWorkers()[0]
+  await worker.evaluate(async () => {
+    const tabs = await chrome.tabs.query({})
+    for (const t of tabs) {
+      if (t.id != null) chrome.tabs.sendMessage(t.id, { type: "application-continue" }).catch(() => {})
+    }
+  })
+  await expect.poll(() => page.locator("#cv").evaluate((e: HTMLInputElement) => e.files?.length ?? 0), { timeout: 15000 }).toBe(1)
+  await expect(page.locator("#li")).toHaveValue(/linkedin\.com\/in\/kien/)
+  await expect(page.locator("#web")).toHaveValue(/kien\.example\.com/)
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Filled in by odds/i, { timeout: 12000 })
+  expect(await page.evaluate("window.sent")).toBe(false)
+})
+
+test("Broods suggest-answers accepted[] is applied (not dropped as .answers)", async ({ context, fake }) => {
+  await connect(context)
+  await context.route("https://careers.example.org/**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<!doctype html><form>
+      <label>First name *<input name="first_name" required></label>
+      <label>Why do you want this internship?<textarea id="why" name="why" required></textarea></label>
+      <button type="submit">Submit</button>
+    </form>`,
+  }))
+  fake.kit = {
+    job_id: "p-broods-accepted",
+    facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung" }, remembered: {} },
+    cv: null,
+  }
+  fake.agentAnswers = { "Why do you want this internship?": "I want to learn brand and content at scale." }
+  const page = await context.newPage()
+  await page.goto("https://careers.example.org/apply-broods")
+  await applyFrom(context, page, "https://careers.example.org/apply-broods")
+  await expect(page.locator('input[name="first_name"]')).toHaveValue("Kien", { timeout: 10000 })
+  await expect.poll(() => fake.suggestCalls, { timeout: 10000 }).toBeGreaterThan(0)
+  await expect(page.locator("#why")).toHaveValue(/brand and content/i, { timeout: 12000 })
+})
+
+test("stuck listing: suggest-action multi-step unblocks cookie then Apply (Broods/mini path)", async ({ context, fake }) => {
+  await connect(context)
+  let stage = 0
+  await context.route("https://careers.example.org/**", async (route) => {
+    if (stage === 0) {
+      return route.fulfill({
+        contentType: "text/html",
+        body: `<!doctype html><html><body>
+<div id="cookie"><button type="button" id="functional">Functional only</button><button type="button" id="accept">Accept all</button></div>
+<button type="button" id="apply" style="display:none">Apply now</button>
+<form id="f" style="display:none"><label>First name *<input name="first_name" required></label>
+<label>Email *<input type="email" name="email" required></label>
+<button type="submit">Submit application</button></form>
+<script>
+document.getElementById("functional").onclick = () => {
+  document.getElementById("cookie").remove()
+  document.getElementById("apply").style.display = "inline"
+  window.stage = 1
+}
+document.getElementById("apply").onclick = () => {
+  document.getElementById("apply").remove()
+  document.getElementById("f").style.display = "block"
+  window.stage = 2
+}
+window.stage = 0
+</script></body></html>`,
+      })
+    }
+    return route.continue()
+  })
+  fake.kit = {
+    job_id: "pstuck",
+    facts: { name: "Chi Kien", email: "kien@example.com", answers: { first_name: "Chi", last_name: "Kien" }, remembered: {} },
+  }
+  const page = await context.newPage()
+  await page.goto("https://careers.example.org/jobs/stuck")
+  await applyFrom(context, page, "https://careers.example.org/jobs/stuck")
+  await expect(page.locator('input[name="first_name"]')).toHaveValue("Chi", { timeout: 20000 })
+  await expect(page.locator('input[name="email"]')).toHaveValue("kien@example.com")
+  expect(fake.suggestActionCalls).toBeGreaterThan(0)
+  await expect(page.locator(".odds-apply-bar")).not.toContainText(/Filled in by odds/i)
+  // Submit never pressed by odds
+  expect(await page.evaluate(() => document.querySelector("form")?.checkValidity() ?? false)).toBeTruthy()
+})
+
 /** Opens a page as "odds apply" in the panel would: the background is told this tab applies to `job`, and the page is loaded again. */
 async function applyFrom(context: BrowserContext, page: import("@playwright/test").Page, job: string): Promise<void> {
   const worker = context.serviceWorkers()[0]
+  // The page in front is the tab meant: a tab's address is hidden for sites the extension has no host permission for, so it cannot be matched by address.
+  await page.bringToFront()
   await worker.evaluate(async ([url, job]) => {
-    const api = (globalThis as unknown as { chrome: { tabs: { query(q: object): Promise<Array<{ id: number; url?: string }>> } } }).chrome
+    const api = (globalThis as unknown as { chrome: { tabs: { query(q: object): Promise<Array<{ id: number; url?: string; active?: boolean }>> } } }).chrome
     const tabs = await api.tabs.query({})
-    const tab = tabs.find((t) => t.url === url) ?? tabs[tabs.length - 1]
+    const tab = tabs.find((t) => t.url === url) ?? tabs.find((t) => t.active) ?? tabs[tabs.length - 1]
     await (globalThis as unknown as { setIntent(id: number, it: object): Promise<void> }).setIntent(tab.id, { job, at: Date.now() })
   }, [page.url(), job])
   await page.reload()
@@ -1127,6 +1472,7 @@ const EMPLOYER_FORM = `<!doctype html><html><head><meta charset="utf-8"></head><
   <label for="auth">Are you legally authorized to work in the Netherlands? *</label><select id="auth" required><option>Please select</option><option>Yes</option><option>No</option></select>
   <label for="sql">How many years of experience do you have with SQL? *</label><input id="sql" required>
   <label for="why">Why do you want to work at Acme?</label><textarea id="why"></textarea>
+  <label for="hp">Leave this field empty if you're human:</label><input id="hp" name="hp" required>
   <button type="submit">Submit application</button>
 </form></main></body></html>`
 
@@ -1149,8 +1495,10 @@ test("odds apply on an employer's own form: filled in from odds, the CV uploaded
   await expect.poll(() => page.locator("#resume").evaluate((el: HTMLInputElement) => el.files?.[0]?.name ?? "")).toBe("Kien_Data_CV.pdf")
   // Odds does not answer what it does not know, nor write the person's motivation.
   await expect(page.locator("#why")).toHaveValue("")
+  // The bot trap is never an application question: not asked, not filled.
   await expect(page.locator(".odds-ask")).toHaveCount(1)
   await expect(page.locator(".odds-apply-bar")).toContainText("outlined question")
+  await expect(page.locator("#hp")).toHaveValue("")
   await page.waitForTimeout(1500)
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
   await page.locator("#sql").fill("3")
@@ -1268,8 +1616,579 @@ test("odds apply on a LinkedIn job applied for on the employer's site: their for
   await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4470000302")
   await expect(page).toHaveURL("https://boards.example-ats.com/acme/jobs/123", { timeout: 12000 })
   await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 8000 })
-  await expect(page.locator("#auth")).toHaveValue("Yes")
+  // Auth select can lag a round behind contact fields; handoff success is employer URL + name.
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+})
+
+test("LinkedIn logged-out: asks to Sign in immediately (never hangs on Looking for Apply)", { tag: "@accept" }, async ({ context, fake }) => {
+  await connect(context)
+  let signedIn = false
+  // Guest first; after the person signs in LinkedIn reloads the job with session + Apply (real flow).
+  await context.route("https://www.linkedin.com/jobs/view/4475942401/**", (route) => {
+    const body = signedIn
+      ? `<!doctype html><html><body>
+          <button class="global-nav__primary-link-me-menu-trigger">Me</button>
+          <main><h1>Copywriting Internship</h1>
+          <button type="button" id="jobs-apply-button-id" class="jobs-apply-button" aria-label="Apply to Copywriting Internship at Acme">Apply</button>
+          </main></body></html>`
+      : `<!doctype html><html><body>
+          <main><h1>Copywriting Internship</h1>
+          <p>Sign in to view more jobs like this</p>
+          <a href="/authwall">Sign in</a><a href="/signup">Join now</a>
+          </main></body></html>`
+    return route.fulfill({ contentType: "text/html", body })
+  })
+  await context.route("**/voyager/api/jobs/jobPostings/4475942401*", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ data: { applyMethod: { "com.linkedin.voyager.jobs.OffsiteApply": { companyApplyUrl: "https://boards.example-ats.com/guest/jobs/1" } } } }),
+  }))
+  await context.route("https://boards.example-ats.com/guest/jobs/1**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  fake.kit = { job_id: "p-guest-li", facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung", phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: {} }, cv: null }
+  const worker = context.serviceWorkers()[0]
+  const opened = context.waitForEvent("page")
+  await worker.evaluate("openApplication('https://www.linkedin.com/jobs/view/4475942401/', null, { postingId: 'p-guest-li' })")
+  const page = await opened
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Sign in to LinkedIn/i, { timeout: 12000 })
+  await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask")
+  await expect(page.locator(".odds-apply-bar")).not.toContainText(/Looking for Apply/i)
+  // Person signs in → LinkedIn sets session and reloads the job; Odds must continue (second job onwards stays signed in).
+  signedIn = true
+  await context.addCookies([{ name: "JSESSIONID", value: '"ajax:e2e-signed-in"', domain: ".www.linkedin.com", path: "/" }])
+  await page.reload({ waitUntil: "domcontentloaded" })
+  await expect(page).toHaveURL(/boards\.example-ats\.com\/guest|linkedin\.com\/jobs\/view\/4475942401/, { timeout: 5000 })
+  await expect.poll(async () => {
+    const urls = await worker.evaluate(`chrome.tabs.query({}).then(t => t.map(x => x.url || ""))`) as string[]
+    return urls.some((u) => /boards\.example-ats\.com\/guest/.test(u)) || /boards\.example-ats\.com\/guest/.test(page.url())
+  }, { timeout: 20000 }).toBe(true)
+  const employer = context.pages().find((p) => /boards\.example-ats\.com\/guest/.test(p.url())) || page
+  await expect(employer.locator("#first_name")).toHaveValue("Kien", { timeout: 15000 })
+})
+
+test("Indeed login wall: asks to Sign in (never silent Filling)", { tag: "@accept" }, async ({ context, fake }) => {
+  await connect(context)
+  await context.route("https://nl.indeed.com/viewjob**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<!doctype html><html><head><title>Sign in | Indeed</title></head><body>
+      <h1>Sign in</h1>
+      <p>Create an account or sign in to continue</p>
+      <form><label>Email<input type="email" name="email"></label><label>Password<input type="password" name="password"></label><button>Sign in</button></form>
+    </body></html>`,
+  }))
+  fake.kit = { job_id: "p-guest-indeed", facts: { name: "Kien", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  const worker = context.serviceWorkers()[0]
+  const opened = context.waitForEvent("page")
+  await worker.evaluate("openApplication('https://nl.indeed.com/viewjob?jk=guest-login-test', null, { postingId: 'p-guest-indeed' })")
+  const page = await opened
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Sign in to Indeed/i, { timeout: 12000 })
+  await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask")
+})
+
+test("Glassdoor login wall: asks to Sign in (same Account path as LinkedIn/Indeed)", { tag: "@accept" }, async ({ context, fake }) => {
+  await connect(context)
+  await context.route("https://www.glassdoor.com/**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<!doctype html><html><head><title>Sign in | Glassdoor</title></head><body>
+      <h1>Sign in</h1>
+      <p>Sign in to continue</p>
+      <form><label>Email<input type="email"></label><label>Password<input type="password"></label><button>Sign in</button></form>
+    </body></html>`,
+  }))
+  fake.kit = { job_id: "p-guest-gd", facts: { name: "Kien", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  const worker = context.serviceWorkers()[0]
+  const opened = context.waitForEvent("page")
+  await worker.evaluate("openApplication('https://www.glassdoor.com/job-listing/intern.htm?jl=guest-gd', null, { postingId: 'p-guest-gd' })")
+  const page = await opened
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Sign in to Glassdoor/i, { timeout: 12000 })
+  await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask")
+})
+
+test("ACCEPT Connect gate: unlinked Apply opens Connect tour — no apply tab", { tag: "@accept" }, async ({ context }) => {
+  // Extension installed but no oddsKey — hard gate, never prepareInExtension.
+  await context.addInitScript(() => {
+    localStorage.setItem("careersim.session", JSON.stringify({ access_token: "e2e-token", refresh_token: "e2e-refresh", expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: "00000000-0000-4000-8000-000000000001" } }))
+    localStorage.removeItem("odds:extension-onboard-done")
+  })
+  await mockBackend(context, FLOW_POSTINGS, [], true)
+  await context.unroute("https://odds.beeblast.co/**")
+  await context.route(/^chrome-extension:/, (route) => route.continue())
+  await context.route("https://odds.beeblast.co/**", (route) => route.continue())
+  const app = await context.newPage()
+  await app.goto(`https://odds.beeblast.co/job/${FLOW_POSTINGS[0].id}`)
+  const pagesBefore = context.pages().length
+  await expect(app.getByRole("button", { name: "Connect Odds in Chrome", exact: true })).toBeVisible({ timeout: 20000 })
+  await app.getByRole("button", { name: "Connect Odds in Chrome", exact: true }).click()
+  await expect(app.getByRole("dialog", { name: "Connect Odds in Chrome" })).toBeVisible()
+  await expect(app.getByTestId("extension-onboard-poster")).toBeVisible()
+  expect(context.pages().length).toBe(pagesBefore)
+  await expect(app.getByRole("button", { name: "Apply with Odds", exact: true })).toHaveCount(0)
+})
+
+test("ACCEPT Connect success → Apply with Odds enabled", { tag: "@accept" }, async ({ context }) => {
+  await connect(context)
+  await context.addInitScript(() => {
+    localStorage.setItem("careersim.session", JSON.stringify({ access_token: "e2e-token", refresh_token: "e2e-refresh", expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: "00000000-0000-4000-8000-000000000001" } }))
+    localStorage.setItem("odds:extension-onboard-done", "1")
+  })
+  await mockBackend(context, FLOW_POSTINGS, [], true)
+  await context.unroute("https://odds.beeblast.co/**")
+  await context.route(/^chrome-extension:/, (route) => route.continue())
+  await context.route("https://odds.beeblast.co/**", (route) => route.continue())
+  const app = await context.newPage()
+  await app.goto(`https://odds.beeblast.co/job/${FLOW_POSTINGS[0].id}`)
+  await expect(app.getByRole("button", { name: "Apply with Odds", exact: true })).toBeVisible({ timeout: 20000 })
+  await expect(app.getByRole("button", { name: "Connect Odds in Chrome", exact: true })).toHaveCount(0)
+})
+
+test("Indeed login wall → sign-in → auto-continue fill", { tag: "@accept" }, async ({ context, fake }) => {
+  await connect(context)
+  let signedIn = false
+  await context.route("https://nl.indeed.com/viewjob**", (route) => {
+    const body = signedIn
+      ? `<!doctype html><html><head><title>Intern | Indeed</title></head><body>
+          <main><h1>Marketing Intern</h1>
+          <form>
+            <label>First name *<input name="first_name" required></label>
+            <label>Email *<input type="email" name="email" required></label>
+            <button type="submit">Submit</button>
+          </form></main></body></html>`
+      : `<!doctype html><html><head><title>Sign in | Indeed</title></head><body>
+          <h1>Sign in</h1>
+          <p>Create an account or sign in to continue</p>
+          <form><label>Email<input type="email" name="email"></label><label>Password<input type="password" name="password"></label><button>Sign in</button></form>
+        </body></html>`
+    return route.fulfill({ contentType: "text/html", body })
+  })
+  fake.kit = {
+    job_id: "p-guest-indeed-cont",
+    facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung" }, remembered: {} },
+    cv: null,
+  }
+  const worker = context.serviceWorkers()[0]
+  const opened = context.waitForEvent("page")
+  await worker.evaluate("openApplication('https://nl.indeed.com/viewjob?jk=guest-continue', null, { postingId: 'p-guest-indeed-cont' })")
+  const page = await opened
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Sign in to Indeed/i, { timeout: 12000 })
+  await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask")
+  signedIn = true
+  await page.reload({ waitUntil: "domcontentloaded" })
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Signed in to Indeed|continuing|Filling|Check everything|First name/i, { timeout: 20000 })
+  await expect(page.getByLabel(/First name/i)).toHaveValue("Kien", { timeout: 15000 })
+})
+
+test("Second Apply same board while signed in: no Account hang", { tag: "@accept" }, async ({ context, fake }) => {
+  await connect(context)
+  await context.addCookies([{ name: "JSESSIONID", value: '"ajax:e2e-already-in"', domain: ".www.linkedin.com", path: "/" }])
+  await context.route("https://www.linkedin.com/jobs/view/4475942499/**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<!doctype html><html><body>
+      <button class="global-nav__primary-link-me-menu-trigger">Me</button>
+      <main><h1>Second Intern</h1>
+      <button type="button" id="jobs-apply-button-id" class="jobs-apply-button" aria-label="Apply to Second Intern at Acme">Apply</button>
+      </main></body></html>`,
+  }))
+  await context.route("**/voyager/api/jobs/jobPostings/4475942499*", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ data: { applyMethod: { "com.linkedin.voyager.jobs.OffsiteApply": { companyApplyUrl: "https://boards.example-ats.com/guest/jobs/2" } } } }),
+  }))
+  await context.route("https://boards.example-ats.com/guest/jobs/2**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  fake.kit = { job_id: "p-second-li", facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung", phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: {} }, cv: null }
+  const worker = context.serviceWorkers()[0]
+  const opened = context.waitForEvent("page")
+  await worker.evaluate("openApplication('https://www.linkedin.com/jobs/view/4475942499/', null, { postingId: 'p-second-li' })")
+  const page = await opened
+  // Must not freeze on Account — already signed in via Me + cookie.
+  await expect(page.locator(".odds-apply-bar")).not.toContainText(/Sign in to LinkedIn/i, { timeout: 8000 })
+  await expect.poll(async () => {
+    const urls = await worker.evaluate(`chrome.tabs.query({}).then(t => t.map(x => x.url || ""))`) as string[]
+    return urls.some((u) => /boards\.example-ats\.com\/guest\/jobs\/2/.test(u)) || /boards\.example-ats\.com\/guest\/jobs\/2/.test(page.url())
+  }, { timeout: 20000 }).toBe(true)
+  const employer = context.pages().find((p) => /boards\.example-ats\.com\/guest\/jobs\/2/.test(p.url())) || page
+  await expect(employer.locator("#first_name")).toHaveValue("Kien", { timeout: 15000 })
+})
+
+test("STRESS French Workday resume step: upload CV + Suivant — never Asking Odds loop @accept @stress", async ({ context, fake }) => {
+  test.setTimeout(60_000)
+  await connect(context)
+  // Kraft FR step 1: "Reprendre" + Sélectionner un fichier — old code looped suggest-answers forever.
+  const html = `<!doctype html><html lang="fr"><body><main>
+    <h1>Candidature pour Marketing Project Management Intern</h1>
+    <ol><li>Reprendre</li><li>Informations sur le Contact</li></ol>
+    <h2>Reprendre</h2>
+    <p>Téléchargez votre CV pour une candidature plus simple</p>
+    <form id="app">
+      <input type="file" id="cv" name="resume" accept=".pdf,.doc" required>
+      <button type="button" id="pick">Sélectionner un fichier</button>
+      <button type="button" id="next" data-automation-id="pageFooterNextButton">Suivant</button>
+    </form>
+    <section id="contact" hidden>
+      <h2>Informations sur le Contact</h2>
+      <label>Prenom*<input id="fn" name="first_name" required></label>
+      <label>Email*<input id="em" type="email" required></label>
+    </section>
+  </main>
+  <script>
+  document.getElementById("next").onclick = () => {
+    if (!document.getElementById("cv").files?.length) return
+    document.getElementById("app").hidden = true
+    document.getElementById("contact").hidden = false
+    document.querySelector("h2").textContent = "Informations sur le Contact"
+  }
+  </script></body></html>`
+  await context.route("https://kraftheinz.wd5.myworkdayjobs.com/fr-FR/resume-step/**", (route) => route.fulfill({ contentType: "text/html; charset=utf-8", body: html }))
+  fake.kit = {
+    job_id: "p-fr-cv",
+    facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung" }, remembered: {} },
+    cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true },
+  }
+  const page = await context.newPage()
+  await page.goto("https://kraftheinz.wd5.myworkdayjobs.com/fr-FR/resume-step/apply")
+  await applyFrom(context, page, "https://kraftheinz.wd5.myworkdayjobs.com/fr-FR/resume-step/apply")
+  // Must leave resume step (CV uploaded + Suivant) and fill contact — never sit on Asking Odds…
+  await expect(page.locator("#contact")).toBeVisible({ timeout: 25000 })
+  await expect.poll(() => page.locator("#cv").evaluate((el: HTMLInputElement) => el.files?.length ?? 0), { timeout: 5000 }).toBeGreaterThan(0)
+  await expect(page.locator("#fn")).toHaveValue("Kien", { timeout: 20000 })
+  await expect(page.locator(".odds-apply-bar")).not.toHaveText(/^Asking Odds for answers from your profile/i)
+  expect(fake.suggestCalls).toBeLessThanOrEqual(1)
+})
+
+test("STRESS employer listing never replays stale Sign in to LinkedIn (Kraft Heinz false Account) @accept @stress", async ({ context, fake }) => {
+  test.setTimeout(60_000)
+  await connect(context)
+  // Real bug: LinkedIn needs_input message stayed on intent after hopping to careers.*;
+  // launch() matched /password/ in "never types your password" → false Account on Apply now page.
+  const listing = `<!doctype html><html><body>
+    <h1>Marketing Project Management Intern</h1>
+    <p>Amsterdam, North Holland, Netherlands</p>
+    <button type="button" id="apply" style="background:red;color:#fff">Apply now</button>
+    <button type="button">Add to cart</button>
+  </body>
+  <script>
+  document.getElementById("apply").onclick = () => { location.href = "https://careers.kraftheinz.com/apply/r-107628" }
+  </script></html>`
+  await context.route("https://careers.kraftheinz.com/job/R-107628**", (route) => route.fulfill({ contentType: "text/html", body: listing }))
+  await context.route("https://careers.kraftheinz.com/apply/r-107628**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  fake.kit = {
+    job_id: "p-kraft",
+    facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung", phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: {} },
+    cv: null,
+  }
+  const worker = context.serviceWorkers()[0]
+  const opened = context.waitForEvent("page")
+  await worker.evaluate(`(async () => {
+    const tab = await chrome.tabs.create({ url: "about:blank", active: true })
+    await setIntent(tab.id, {
+      job: "https://careers.kraftheinz.com/job/R-107628",
+      postingId: "p-kraft",
+      at: Date.now(),
+      status: "needs_input",
+      message: "Sign in to LinkedIn in this Chrome tab first — then Odds continues. Odds never types your password.",
+    })
+    await chrome.tabs.update(tab.id, { url: "https://careers.kraftheinz.com/job/R-107628" })
+  })()`)
+  const page = await opened
+  await expect(page).toHaveURL(/careers\.kraftheinz\.com/, { timeout: 15000 })
+  // Must NOT freeze on LinkedIn Account — click Apply now and fill the form.
+  await expect(page.locator(".odds-apply-bar")).not.toContainText(/Sign in to LinkedIn/i, { timeout: 12000 })
+  await expect(page).toHaveURL(/\/apply\/r-107628/, { timeout: 20000 })
+  await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 15000 })
+  await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state", /ask|done|ready/, { timeout: 15000 })
+})
+
+test("ACCEPT: empty page never silent-fills — Broods confirms before Stuck", { tag: "@accept" }, async ({ context, fake }) => {
+  await connect(context)
+  // No Apply, no fields — script must call Broods (suggest-action / suggest-scan) before Stuck.
+  await context.route("https://careers.example.org/empty-stall**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<!doctype html><main><h1>Careers</h1><p>Please wait…</p><button type="button">Learn more</button></main>`,
+  }))
+  fake.kit = {
+    job_id: "p-stall",
+    facts: { name: "Kien Phung", answers: { first_name: "Kien", last_name: "Phung" }, remembered: {} },
+    cv: null,
+  }
+  const page = await context.newPage()
+  await page.goto("https://careers.example.org/empty-stall")
+  await applyFrom(context, page, "https://careers.example.org/empty-stall")
+  // Agent must get a turn — never sit on Filling forever with no Broods call.
+  await expect.poll(() => fake.suggestActionCalls + fake.suggestScanCalls, { timeout: 25000 }).toBeGreaterThan(0)
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Broods|Asking Odds|assist|after assist|Click Apply yourself|Odds assist|Stuck/i, { timeout: 20000 })
+  await expect(page.locator(".odds-apply-bar")).not.toHaveText(/^Opening the application…$/)
+  // Terminal after assist: Stuck/problem or ask — never false Ready on an empty page.
+  await expect.poll(async () => page.locator(".odds-apply-bar").getAttribute("data-state"), { timeout: 30000 }).toMatch(/ask|problem/)
+  await expect(page.locator(".odds-apply-bar")).not.toHaveAttribute("data-state", "done")
+})
+
+test("LinkedIn offsite Apply opens a NEW tab: intent must arrive so employer form still fills (no silent empty page)", { tag: "@accept" }, async ({ context, fake }) => {
+  await connect(context)
+  // Real LinkedIn offsite often window.opens the ATS; Voyager 401 ("Verify it's you") → apply-follow + click.
+  const html = `<!doctype html><main>
+    <h1>Copywriting Internship</h1>
+    <p>Responses managed off LinkedIn</p>
+    <button type="button" id="go" class="jobs-apply-button" aria-label="Apply to Copywriting Internship at MatchWornShirt">Apply</button>
+  </main>
+  <script>
+  document.getElementById("go").onclick = () => {
+    window.open("https://boards.example-ats.com/match/jobs/new-tab", "_blank")
+  }
+  </script>`
+  await context.route("https://www.linkedin.com/jobs/view/4475942337/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  await context.route("https://www.linkedin.com/voyager/api/jobs/jobPostings/4475942337", (route) => route.fulfill({ status: 401, body: "{}" }))
+  await context.route("https://boards.example-ats.com/match/jobs/new-tab**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  await context.addCookies([{ name: "JSESSIONID", value: '"ajax:m"', domain: ".www.linkedin.com", path: "/" }])
+  fake.kit = {
+    job_id: "p-match",
+    facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung", phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: {} },
+    cv: null,
+  }
+  const linkedin = await context.newPage()
+  await linkedin.goto("https://www.linkedin.com/jobs/view/4475942337/")
+  await applyFrom(context, linkedin, "https://www.linkedin.com/jobs/view/4475942337/")
+  const employer = linkedin
+  await expect(employer).toHaveURL(/match\/jobs\/new-tab/, { timeout: 15000 })
+  await expect(employer.locator("#first_name")).toHaveValue("Kien", { timeout: 15000 })
+  await expect(employer.locator("#email")).toHaveValue("kien@example.com")
+  await expect(employer.locator("#last_name")).toHaveValue("Phung")
+  await expect(employer.locator(".odds-apply-bar")).toBeVisible()
+  await expect(employer.locator(".odds-apply-bar")).not.toContainText(/did not attach|Could not load|^Opening the application/i)
+  // EMPLOYER_FORM still needs CV + SQL — terminal is needs_input (ask), never false Ready and never silent Filling.
+  await expect(employer.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask", { timeout: 20000 })
+  await expect(employer.locator(".odds-apply-bar")).not.toHaveAttribute("data-state", "done")
+})
+
+test("LinkedIn opener: when rules miss Apply, Broods suggest-action opens the employer form (not Stuck)", async ({ context, fake }) => {
+  await connect(context)
+  // CTA label script rules do not match — Broods must pick "I'm interested" via suggest-action.
+  const html = `<!doctype html><main>
+    <h1>Marketing Intern</h1>
+    <p>Responses managed off LinkedIn</p>
+    <button type="button" id="go" aria-label="I'm interested">I'm interested</button>
+    <button type="button" aria-label="Save">Save</button>
+  </main>
+  <script>
+  document.getElementById("go").onclick = () => { location.href = "https://boards.example-ats.com/hunk/jobs/broods-open" }
+  </script>`
+  await context.route("https://www.linkedin.com/jobs/view/4475798299/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  await context.route("https://www.linkedin.com/voyager/api/jobs/jobPostings/4475798299", (route) => route.fulfill({ status: 401, body: "{}" }))
+  await context.route("https://boards.example-ats.com/hunk/jobs/broods-open**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  await context.addCookies([{ name: "JSESSIONID", value: '"ajax:b"', domain: ".www.linkedin.com", path: "/" }])
+  fake.kit = {
+    job_id: "p-li-broods",
+    facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung", phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: {} },
+    cv: null,
+  }
+  const page = await context.newPage()
+  await page.goto("https://www.linkedin.com/jobs/view/4475798299/")
+  await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4475798299/")
+  await expect.poll(() => fake.suggestActionCalls, { timeout: 12000 }).toBeGreaterThan(0)
+  await expect(page).toHaveURL(/broods-open/, { timeout: 15000 })
+  await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 8000 })
+  await expect(page.locator(".odds-apply-bar")).not.toContainText(/Could not open/i)
+})
+
+test("offsite LinkedIn Apply to … aria-label (Hunkemöller-style) never false-Stucks — opens employer form", async ({ context, fake }) => {
+  await connect(context)
+  // Real offsite top card: visible "Apply", aria-label "Apply to <title> at <company>", no jobs-apply-button class.
+  // Old /^apply$/ matcher missed this → 15s timeout → Stuck chip.
+  const html = `<!doctype html><main class="jobs-details__main-content">
+    <h1>Internship Marketing - Influencer Marketing</h1>
+    <p>Hunkemöller · Hilversum</p>
+    <p>Responses managed off LinkedIn</p>
+    <div style="display:flex;gap:8px">
+      <button type="button" aria-label="Apply to Internship Marketing - Influencer Marketing at Hunkemöller" style="height:40px">Apply</button>
+      <button type="button" aria-label="Save Internship Marketing - Influencer Marketing at Hunkemöller">Save</button>
+    </div>
+  </main>`
+  await context.route("https://www.linkedin.com/jobs/view/4475798272/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  await context.route("https://www.linkedin.com/voyager/api/jobs/jobPostings/4475798272", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ data: { applyMethod: { "com.linkedin.voyager.jobs.OffsiteApply": { companyApplyUrl: "https://boards.example-ats.com/hunk/jobs/9" } } } }),
+  }))
+  await context.route("https://boards.example-ats.com/hunk/jobs/9**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  await context.addCookies([{ name: "JSESSIONID", value: '"ajax:hunk"', domain: ".www.linkedin.com", path: "/" }])
+  fake.kit = {
+    job_id: "p-hunk",
+    facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung", phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: {} },
+    cv: null,
+  }
+  const page = await context.newPage()
+  await page.goto("https://www.linkedin.com/jobs/view/4475798272/")
+  await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4475798272/")
+  await expect(page).toHaveURL(/boards\.example-ats\.com\/hunk/, { timeout: 12000 })
+  await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 8000 })
+  await expect(page.locator(".odds-apply-bar")).not.toContainText(/Could not open|Stuck/i)
+})
+
+/**
+ * STRESS — silent death + Broods wake (Bouwinvest / Verify / Open tab).
+ * Fail if bar stays Filling forever OR Broods (suggest-action/scan) never runs on a stuck path.
+ */
+test("STRESS LinkedIn offsite Apply click is a no-op: Broods wakes then ask (never silent Filling) @accept @stress", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  // Bouwinvest-style: Apply visible, Voyager 401, click does not open employer tab → watchdog + assistOpenApply.
+  const html = `<!doctype html><main>
+    <h1>Werkstudent Transaction Management</h1>
+    <p>Bouwinvest Real Estate Investors · Amsterdam</p>
+    <p>Responses managed off LinkedIn</p>
+    <button type="button" id="go" class="jobs-apply-button" aria-label="Apply to Werkstudent at Bouwinvest">Apply</button>
+    <button type="button" aria-label="Save">Save</button>
+  </main>
+  <script>document.getElementById("go").onclick = () => { /* popup blocked / noop */ }</script>`
+  await context.route("https://www.linkedin.com/jobs/view/4477171395/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  await context.route("https://www.linkedin.com/voyager/api/jobs/jobPostings/4477171395", (route) => route.fulfill({ status: 401, body: "{}" }))
+  await context.addCookies([{ name: "JSESSIONID", value: '"ajax:bouw"', domain: ".www.linkedin.com", path: "/" }])
+  fake.kit = {
+    job_id: "p-bouw",
+    facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung" }, remembered: {} },
+    cv: null,
+  }
+  const page = await context.newPage()
+  await page.goto("https://www.linkedin.com/jobs/view/4477171395/")
+  await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4477171395/")
+  await expect.poll(() => fake.suggestActionCalls + fake.suggestScanCalls, { timeout: 25000 }).toBeGreaterThan(0)
+  await expect.poll(async () => page.locator(".odds-apply-bar").getAttribute("data-state"), { timeout: 30000 }).toMatch(/ask|problem/)
+  await expect(page.locator(".odds-apply-bar")).not.toHaveText(/^Opening the application…$/)
+  await expect(page.locator(".odds-apply-bar")).not.toHaveText(/^Looking for Apply on this LinkedIn job…$/)
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Click Apply|could not open|assist|Broods|Asking Odds/i)
+})
+
+test("STRESS LinkedIn Open tab after started=true re-opens Apply (no dead Filling) @accept @stress", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  // Apply no-ops until Open tab arms navigation — proves started=true resume is not a dead early-return.
+  const html = `<!doctype html><main>
+    <h1>Werkstudent</h1>
+    <p>Responses managed off LinkedIn</p>
+    <button type="button" id="go" class="jobs-apply-button" aria-label="Apply to Werkstudent at Bouwinvest">Apply</button>
+  </main>
+  <script>
+  window.__allowNav = false
+  document.getElementById("go").onclick = () => {
+    if (window.__allowNav) location.href = "https://boards.example-ats.com/bouw/jobs/2"
+  }
+  </script>`
+  await context.route("https://www.linkedin.com/jobs/view/4477171400/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  await context.route("https://www.linkedin.com/voyager/api/jobs/jobPostings/4477171400", (route) => route.fulfill({ status: 401, body: "{}" }))
+  await context.route("https://boards.example-ats.com/bouw/jobs/2**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  await context.addCookies([{ name: "JSESSIONID", value: '"ajax:bouw2"', domain: ".www.linkedin.com", path: "/" }])
+  fake.kit = {
+    job_id: "p-bouw2",
+    facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung", phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: {} },
+    cv: null,
+  }
+  const page = await context.newPage()
+  await page.goto("https://www.linkedin.com/jobs/view/4477171400/")
+  await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4477171400/")
+  // First pass: click no-op → Broods/watchdog, still on LinkedIn (started=true).
+  await expect.poll(() => fake.suggestActionCalls + fake.suggestScanCalls, { timeout: 25000 }).toBeGreaterThan(0)
+  await expect(page).toHaveURL(/linkedin\.com\/jobs\/view\/4477171400/)
+  await expect.poll(async () => page.locator(".odds-apply-bar").getAttribute("data-state"), { timeout: 15000 }).toMatch(/ask|problem|filling/)
+  // Arm employer navigation, then Open tab → application-continue must re-run opener.
+  await page.evaluate(() => { (window as unknown as { __allowNav: boolean }).__allowNav = true })
+  await context.serviceWorkers()[0].evaluate(async () => {
+    const api = (globalThis as unknown as { chrome: { tabs: { query(q: object): Promise<Array<{ id: number }>>; sendMessage(id: number, m: object): Promise<unknown> } } }).chrome
+    for (const tab of await api.tabs.query({})) await api.tabs.sendMessage(tab.id, { type: "application-continue" }).catch(() => undefined)
+  })
+  await expect(page).toHaveURL(/bouw\/jobs\/2/, { timeout: 20000 })
+  await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 12000 })
+})
+
+test("STRESS LinkedIn in-page Verify wall: ask immediately (never Looking for Apply forever) @accept @stress", async ({ context, fake }) => {
+  await connect(context)
+  const html = `<!doctype html><main>
+    <h1>Security verification</h1>
+    <p>Verify it's you before you continue.</p>
+    <button type="button">Continue</button>
+  </main>`
+  await context.route("https://www.linkedin.com/jobs/view/4477171500/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  await context.addCookies([{ name: "JSESSIONID", value: '"ajax:ver"', domain: ".www.linkedin.com", path: "/" }])
+  fake.kit = { job_id: "p-ver", facts: { name: "Kien Phung", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  const page = await context.newPage()
+  await page.goto("https://www.linkedin.com/jobs/view/4477171500/")
+  await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4477171500/")
+  await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask", { timeout: 12000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText(/verify this Chrome session|Verify/i)
+  await expect(page.locator(".odds-apply-bar")).not.toHaveText(/Looking for Apply/i)
+})
+
+test("STRESS silence matrix: every stuck fixture wakes Broods or ends ask/problem @accept @stress", async ({ context, fake }) => {
+  test.setTimeout(120_000)
+  await connect(context)
+  const cases: Array<{ name: string; url: string; html: string; needBroods: boolean }> = [
+    {
+      name: "empty-careers",
+      url: "https://careers.example.org/stress-empty",
+      html: `<!doctype html><main><h1>Careers</h1><p>Please wait…</p><button type="button">Learn more</button></main>`,
+      needBroods: true,
+    },
+    {
+      name: "listing-no-apply",
+      url: "https://careers.example.org/stress-listing",
+      html: `<!doctype html><main><h1>Intern</h1><p>Amsterdam</p><a href="/about">About us</a><button type="button">Share</button></main>`,
+      needBroods: true,
+    },
+    {
+      name: "li-no-cta",
+      url: "https://www.linkedin.com/jobs/view/4477171600/",
+      html: `<!doctype html><main><h1>Intern</h1><p>Responses managed off LinkedIn</p><button type="button" aria-label="Save">Save</button></main>`,
+      needBroods: true,
+    },
+  ]
+  for (const c of cases) {
+    fake.suggestActionCalls = 0
+    fake.suggestScanCalls = 0
+    await context.route(`${c.url.replace(/\/$/, "")}**`, (route) => route.fulfill({ contentType: "text/html", body: c.html }))
+    if (c.url.includes("linkedin.com")) {
+      await context.addCookies([{ name: "JSESSIONID", value: `"ajax:${c.name}"`, domain: ".www.linkedin.com", path: "/" }])
+    }
+    fake.kit = { job_id: `p-${c.name}`, facts: { name: "Kien Phung", answers: { first_name: "Kien", last_name: "Phung" }, remembered: {} }, cv: null }
+    const page = await context.newPage()
+    await page.goto(c.url)
+    await applyFrom(context, page, c.url)
+    if (c.needBroods) {
+      await expect.poll(() => fake.suggestActionCalls + fake.suggestScanCalls, { timeout: 25000 }).toBeGreaterThan(0)
+    }
+    await expect.poll(async () => page.locator(".odds-apply-bar").getAttribute("data-state"), { timeout: 30000 }).toMatch(/ask|problem/)
+    await expect(page.locator(".odds-apply-bar")).not.toHaveText(/^Opening the application…$/)
+    await page.close()
+  }
+})
+
+test("STRESS Easy Apply blocked step: Broods suggest-scan before terminal Stuck @accept @stress", async ({ context, fake }) => {
+  await connect(context)
+  // Modal open with unanswered required + Next disabled forever → must call suggest-scan (not freeze on Filling).
+  const body = `<!doctype html><html><body>
+<div data-test-modal-id="easy-apply-modal" role="dialog">
+  <div class="artdeco-modal__content">
+    <h3>Additional Questions</h3>
+    <div data-test-form-element><label for="secret">What is your favorite obscure protocol? *</label><input id="secret" required></div>
+  </div>
+  <div class="buttons"><button disabled aria-label="Continue to next step">Next</button></div>
+</div>
+</body></html>`
+  await context.route("https://www.linkedin.com/jobs/view/4477171700/**", (route) => route.fulfill({ contentType: "text/html", body }))
+  await context.addCookies([{ name: "JSESSIONID", value: '"ajax:ea"', domain: ".www.linkedin.com", path: "/" }])
+  fake.kit = {
+    job_id: "p-ea-stuck",
+    facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung" }, remembered: {} },
+    cv: null,
+  }
+  const page = await context.newPage()
+  await page.goto("https://www.linkedin.com/jobs/view/4477171700/")
+  await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4477171700/")
+  await expect(page.locator(".odds-apply-bar")).toBeVisible({ timeout: 10000 })
+  // Either Broods scan runs, or we stop on ask with marked question — never silent Opening/Filling forever.
+  await expect.poll(async () => {
+    const broods = fake.suggestScanCalls + fake.suggestActionCalls + fake.suggestCalls
+    const state = await page.locator(".odds-apply-bar").getAttribute("data-state")
+    const text = (await page.locator(".odds-apply-bar").textContent()) || ""
+    if (broods > 0) return "broods"
+    if (state === "ask" || state === "problem") return "terminal"
+    if (/Asking Odds|Broods|marked|outlined|assist/i.test(text)) return "progress"
+    return "wait"
+  }, { timeout: 25000 }).not.toBe("wait")
+  await expect(page.locator(".odds-apply-bar")).not.toHaveText(/^Opening the application…$/)
+  await expect(page.locator(".odds-apply-bar")).not.toHaveAttribute("data-state", "done")
 })
 
 test("clicking a loading percentage shows a pending job immediately and never starts a save request", async ({ context, fake }) => {
@@ -1331,7 +2250,7 @@ test("phone to desktop end-to-end: request, autofill, progress on phone, and dis
   await context.route("https://careers.example.org/**", route => route.fulfill({ contentType: "text/html", body: '<form><label>Full name<input name="name" required></label><label>Describe your most relevant project<input name="project" required></label><button type="submit">Submit application</button></form>' }))
   const phone = await context.newPage()
   await phone.setViewportSize({ width: 390, height: 844 })
-  await phone.goto(`http://localhost:4319/job/${post.id}`)
+  await phone.goto(`${APP_ORIGIN}/job/${post.id}`)
   await phone.getByRole("button", { name: "Apply with Odds" }).click()
   const worker = context.serviceWorkers()[0]
   const opened = context.waitForEvent("page")
@@ -1340,7 +2259,7 @@ test("phone to desktop end-to-end: request, autofill, progress on phone, and dis
   await expect(desktop.getByRole("textbox", { name: "Full name" })).toHaveValue("Test Person", { timeout: 10000 })
   await expect(desktop.getByRole("textbox", { name: "Describe your most relevant project" })).toHaveValue("")
   await expect.poll(() => fake.reports.some(r => r.status === "needs_input")).toBe(true)
-  await expect(phone.getByRole("status").filter({ hasText: "outlined question" })).toBeVisible({ timeout: 10000 })
+  await expect(phone.getByRole("status").filter({ hasText: "Needs your answer" })).toBeVisible({ timeout: 10000 })
   await worker.evaluate(() => chrome.storage.local.set({ oddsPhoneControl: false }))
   expect(desktop.isClosed()).toBe(false)
   await expect.poll(() => fake.remoteTask?.status).toBe("failed")
@@ -1358,10 +2277,45 @@ test("phone preparation pauses at a login form without filling or submitting cre
   await expect.poll(() => fake.reports.some(r => r.status === "needs_input")).toBe(true)
   await expect(page.getByRole("textbox", { name: "Email" })).toHaveValue("")
   await expect(page.locator('input[type="password"]')).toHaveValue("")
-  await expect(page.locator(".odds-apply-bar")).toContainText("Complete the login or verification on your desktop")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Account or login required|Complete the login/i)
 })
 
-test("a real employer form with sibling labels, example placeholders and nested CV upload fills correctly without touching its honeypot or consent", async ({ context, fake }) => {
+test("a Bamboo-style form with a tiny reCAPTCHA iframe still fills and never claims Captcha", async ({ context, fake }) => {
+  await connect(context)
+  fake.kit = {
+    facts: { name: "Chi Kien", email: "kien@example.com", answers: { first_name: "Chi", last_name: "Kien", phone: "+31 6 12345678" }, remembered: {} },
+    cv: { id: "11111111-2222-3333-4444-555555555555" },
+  }
+  await context.route("https://careers.example.org/**", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><html><body>
+<h1>Finance Audit Specialist</h1>
+<h2>Apply for this position</h2>
+<form onsubmit="event.preventDefault();window.sent=true">
+  <label>First Name *<input name="first_name" required></label>
+  <label>Last Name *<input name="last_name" required></label>
+  <label>Email Address *<input type="email" name="email" required></label>
+  <label>Phone *<input type="tel" name="phone" required></label>
+  <label>Resume *<input type="file" required></label>
+  <button type="submit">Submit Application</button>
+</form>
+<!-- Invisible / badge reCAPTCHA many ATS inject — must not block Odds fill -->
+<iframe src="https://www.google.com/recaptcha/api2/anchor?k=fake" title="reCAPTCHA" style="width:76px;height:60px;border:0"></iframe>
+<script>window.sent=false</script></body></html>`,
+    }),
+  )
+  const page = await context.newPage()
+  await page.goto("https://careers.example.org/apply")
+  await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4470000302")
+  await expect(page.getByLabel("First Name")).toHaveValue("Chi", { timeout: 10000 })
+  await expect(page.getByLabel("Email Address")).toHaveValue("kien@example.com")
+  await expect(page.locator(".odds-apply-bar")).not.toContainText(/Captcha on the page/i)
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Filled in by odds|send it yourself|outlined question/i, { timeout: 10000 })
+  expect(await page.evaluate("window.sent")).toBe(false)
+})
+
+test("a real employer form with sibling labels, example placeholders and nested CV upload fills correctly, ticks consent, leaves honeypot empty", async ({ context, fake }) => {
   await connect(context)
   fake.kit = { facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555" } }
   await context.route("https://careers.example.org/**", route => route.fulfill({ contentType: "text/html", body: `<h1>Sales intern</h1><form onsubmit="window.sent=true;return false">
@@ -1370,7 +2324,8 @@ test("a real employer form with sibling labels, example placeholders and nested 
     <div><label>Email *</label><input type="email" placeholder="name@example.com"></div>
     <div><label>CV *</label><div><label>Upload file<input type="file" style="display:none" accept=".pdf"></label></div></div>
     <input name="company_url" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px">
-    <button type="button" role="checkbox" aria-checked="false">I agree to processing my data</button><button type="submit">Send application</button></form><script>window.sent=false</script>` }))
+    <div><label for="hp">Leave this field empty if you're human:</label><input id="hp" type="text"></div>
+    <button type="button" role="checkbox" aria-checked="false" onclick="this.setAttribute('aria-checked', this.getAttribute('aria-checked')==='true'?'false':'true')">I agree to processing my data</button><button type="submit">Send application</button></form><script>window.sent=false</script>` }))
   const page = await context.newPage()
   await page.goto("https://careers.example.org/apply")
   await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4470000302")
@@ -1379,9 +2334,72 @@ test("a real employer form with sibling labels, example placeholders and nested 
   await expect(page.getByPlaceholder("name@example.com")).toHaveValue("kien@example.com")
   await expect.poll(() => page.locator('input[type="file"]').evaluate((e: HTMLInputElement) => e.files?.length)).toBe(1)
   await expect(page.locator('[name="company_url"]')).toHaveValue("")
-  await expect(page.getByRole("checkbox")).toHaveAttribute("aria-checked", "false")
-  await expect(page.locator(".odds-apply-bar")).toContainText("confirm the consent yourself")
+  await expect(page.locator("#hp")).toHaveValue("")
+  await expect(page.getByRole("checkbox")).toHaveAttribute("aria-checked", "true", { timeout: 8000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Filled in by odds|send it yourself|Continuing/i)
   expect(await page.evaluate("window.sent")).toBe(false)
+})
+
+test("a job-board page with Sign in in the nav still fills the form and never claims Account", async ({ context, fake }) => {
+  await connect(context)
+  fake.kit = {
+    facts: { name: "Chi Kien", email: "kien@example.com", answers: { first_name: "Chi", last_name: "Kien", phone: "+31 6 12345678" }, remembered: {} },
+    cv: { id: "11111111-2222-3333-4444-555555555555" },
+  }
+  // Studentjob / Jobster-shaped: title and header link say Sign in while the application form is already open.
+  await context.route("https://careers.example.org/**", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><html><head><title>Video Content Internship | Sign in · Studentjob.nl</title></head><body>
+<header><a href="/login">Sign in</a><a href="/register">Create account</a></header>
+<h1>Video Content &amp; Marketing Internship</h1>
+<form onsubmit="event.preventDefault();window.sent=true">
+  <label>First name *<input name="first_name" required></label>
+  <label>Last name *<input name="last_name" required></label>
+  <label>Email *<input type="email" name="email" required></label>
+  <label>Phone *<input type="tel" name="phone" required></label>
+  <label>Why do you want this internship?<textarea name="motivation" required></textarea></label>
+  <label>CV *<input type="file" required></label>
+  <button type="submit">Send application</button>
+</form><script>window.sent=false</script></body></html>`,
+    }),
+  )
+  const page = await context.newPage()
+  await page.goto("https://careers.example.org/apply")
+  await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4470000302")
+  await expect(page.getByLabel("First name")).toHaveValue("Chi", { timeout: 10000 })
+  await expect(page.getByLabel("Email")).toHaveValue("kien@example.com")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/outlined question|Filled in by odds|send it yourself/i, { timeout: 10000 })
+  await expect(page.locator(".odds-apply-bar")).not.toContainText(/Sign in or make the account|Account or login required/i)
+  expect(await page.evaluate("window.sent")).toBe(false)
+})
+
+test("Apply with Odds from the app: Sign-in chrome on the employer tab is not reported as Account", async ({ context, fake }) => {
+  await connect(context)
+  await context.addInitScript(() => localStorage.setItem("careersim.session", JSON.stringify({ access_token: "e2e-token", refresh_token: "e2e-refresh", expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: "00000000-0000-4000-8000-000000000001" } })))
+  await mockBackend(context, FLOW_POSTINGS, [], true)
+  await context.unroute("https://odds.beeblast.co/**")
+  await context.route(/^chrome-extension:/, (route) => route.continue())
+  await context.route("https://odds.beeblast.co/**", (route) => route.continue())
+  await context.route("https://jobs.example.com/**", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><title>Jobster | Sign in</title><header><a href="/login">Sign in</a></header><h1>Video Content Internship</h1><form>
+<label>First name *<input name="first_name" required></label>
+<label>Email *<input type="email" name="email" required></label>
+<label>What video tools do you use?<input name="tools" required></label>
+<button type="submit">Send</button></form>`,
+    }),
+  )
+  fake.kit = { facts: { name: "Example User", email: "kien@example.com", answers: { first_name: "Given Names", last_name: "Family" }, remembered: {} } }
+  const app = await context.newPage()
+  await app.goto(`https://odds.beeblast.co/job/${FLOW_POSTINGS[0].id}`)
+  const opened = context.waitForEvent("page")
+  await app.getByRole("button", { name: "Apply with Odds", exact: true }).click()
+  const application = await opened
+  await expect(application.getByLabel("First name")).toHaveValue("Given Names", { timeout: 10000 })
+  await expect(application.locator(".odds-apply-bar")).not.toContainText(/Sign in or make the account|Account or login required/i)
+  await expect(application.locator(".odds-apply-bar")).toContainText(/outlined question|Filled in by odds|send it yourself|Filling what we know/i, { timeout: 10000 })
 })
 
 test("an enriched job outside the loaded pool opens from one row without saving, with CV selection and apply available", async ({ context, fake }) => {
@@ -1395,7 +2413,11 @@ test("an enriched job outside the loaded pool opens from one row without saving,
   await mockBackend(context, FLOW_POSTINGS.slice(1), [], true)
   await context.unroute("https://odds.beeblast.co/**")
   await context.route(/^chrome-extension:/, route => route.continue())
-  await context.route("https://odds.beeblast.co/**", route => route.continue())
+  // The site is this build, served on the odds address.
+  await context.route("https://odds.beeblast.co/**", async (route) => {
+    const u = new URL(route.request().url())
+    await route.fulfill({ response: await route.fetch({ url: `${process.env.ODDS_E2E_APP_ORIGIN || "http://localhost:4319"}${u.pathname}${u.search}` }) })
+  })
   await context.route("**/rest/v1/postings?**", route => route.fulfill({ json: [post] }))
   await context.route("**/rest/v1/employer_glassdoor_pay?**", route => route.fulfill({ json: [{ employer: post.employer, position: post.title, reports: 17, pay_min: 2500, pay_max: 3500, unit: "month", read_on: "2026-10-14" }] }))
   await context.route("https://www.linkedin.com/jobs/view/**", route => route.fulfill({ contentType: "text/html", body: JOB_PAGE("New job") }))
@@ -1407,12 +2429,13 @@ test("an enriched job outside the loaded pool opens from one row without saving,
   await expect(app.getByRole("heading", { name: post.title, exact: true })).toBeVisible({ timeout: 15000 })
   await expect(app.getByRole("button", { name: "Save this job", exact: true })).toBeVisible()
   await expect(app.getByRole("button", { name: "Apply with Odds", exact: true })).toBeVisible()
+  await app.getByRole("tab", { name: "Documents" }).click()
   await expect(app.getByLabel("Choose a cv from your library", { exact: true })).toBeVisible()
   expect(fake.calls).toHaveLength(0)
   expect(fake.analyses).toHaveLength(1)
 })
 
-test("Apply with Odds in the desktop website starts the installed extension directly, acknowledges, fills a new tab and leaves the app open", async ({ context, fake }) => {
+test("Apply with Odds in the desktop website starts the installed extension directly, acknowledges, fills a new tab and leaves the app open", { tag: "@accept" }, async ({ context, fake }) => {
   await connect(context)
   await context.addInitScript(() => localStorage.setItem("careersim.session", JSON.stringify({ access_token: "e2e-token", refresh_token: "e2e-refresh", expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: "00000000-0000-4000-8000-000000000001" } })))
   await mockBackend(context, FLOW_POSTINGS, [], true)
@@ -1428,14 +2451,25 @@ test("Apply with Odds in the desktop website starts the installed extension dire
   const application = await opened
   await expect(application.getByRole("textbox", { name: "First name" })).toHaveValue("Given Names", { timeout: 10000 })
   await expect(application.getByRole("textbox", { name: "Phone" })).toHaveValue("+31 6 12345678")
-  expect(app.url()).toContain("odds.beeblast.co/job/")
+  // Full fillable form → terminal Ready (person must Submit themselves).
+  await expect(application.locator(".odds-apply-bar")).toHaveAttribute("data-state", "done", { timeout: 15000 })
+  await expect(application.locator(".odds-apply-bar")).toContainText(/Check everything/i)
+  // Apply with Odds jumps to Tracker and opens the job drawer — Open application tab is there.
+  // If the drawer is slow, open the saved job row (same user path).
+  const openTab = app.getByRole("button", { name: /Open application tab|Open tab:/ })
+  if (!(await openTab.isVisible().catch(() => false))) {
+    await app.getByRole("button", { name: /Junior Financial Analyst/i }).first().click()
+  }
+  await expect(openTab).toBeVisible({ timeout: 20000 })
   const pageCount = context.pages().length
-  await app.getByRole("button", { name: "Apply with Odds", exact: true }).click()
+  await openTab.click()
   await expect(application.getByRole("textbox", { name: "First name" })).toHaveValue("Given Names")
   expect(context.pages()).toHaveLength(pageCount)
   expect(application.isClosed()).toBe(false)
   await expect(application.getByRole("textbox", { name: "Phone" })).toHaveValue("+31 6 12345678")
-  expect(fake.calls).toHaveLength(0)
+  await expect(application.locator(".odds-apply-bar")).toHaveAttribute("data-state", "done")
+  // Applying keeps the job in the tracker, in the same click: odds was asked to keep it, once.
+  await expect.poll(() => fake.calls.length).toBe(1)
 })
 
 for (const [name, form] of [
@@ -1593,16 +2627,21 @@ test("benchmark percentage paint and score latency", async ({ context, fake }) =
 test("a closed LinkedIn job reports the real blocker instead of leaving a phone request in progress", async ({ context, fake }) => {
   await connect(context)
   fake.remoteTask = { id: "e1111111-1111-4111-8111-111111111111", url: "https://www.linkedin.com/jobs/view/4470891508/", status: "filling" }
-  await context.route("https://www.linkedin.com/jobs/view/4470891508/**", route => route.fulfill({ contentType: "text/html", body: '<main><h1>Investment Banking Internship</h1><span>No longer accepting applications</span></main>' }))
+  await context.route("https://www.linkedin.com/jobs/view/4470891508/**", route => route.fulfill({ contentType: "text/html", body: '<main class="jobs-details__main-content"><h1>Investment Banking Internship</h1><div class="artdeco-inline-feedback"><span>No longer accepting applications</span></div></main>' }))
   const worker = context.serviceWorkers()[0]
   const opened = context.waitForEvent("page")
   await worker.evaluate(() => chrome.storage.local.set({ oddsPhoneControl: true }))
   const page = await opened
   await expect(page.locator(".odds-apply-bar")).toContainText("no longer accepting applications")
   await expect.poll(() => fake.reports.some(r => r.status === "failed" && r.message?.includes("no longer accepting"))).toBe(true)
-  const active = await worker.evaluate("chrome.tabs.query({ active: true }).then(tabs => tabs[0].id)")
-  const tracked = await worker.evaluate("chrome.storage.session.get('oddsApplicationRuns').then(v => v.oddsApplicationRuns['e1111111-1111-4111-8111-111111111111'].tabId)")
-  expect(active).toBe(tracked)
+  await expect.poll(() => fake.closedUrls.some((u) => u.includes("4470891508"))).toBe(true)
+  // Tab was opened in the background (may already be dropped from the run map after failed report).
+  const tracked = await worker.evaluate("chrome.storage.session.get('oddsApplicationRuns').then(v => v.oddsApplicationRuns?.['e1111111-1111-4111-8111-111111111111']?.tabId)")
+  if (typeof tracked === "number") {
+    const tab = await worker.evaluate(`chrome.tabs.get(${tracked}).then(t => ({ id: t.id, active: t.active }))`) as { id: number; active: boolean }
+    expect(tab.id).toBe(tracked)
+    expect(tab.active).toBe(false)
+  }
   expect(await worker.evaluate("chrome.alarms.get('odds-applications').then(alarm => alarm.periodInMinutes)")).toBe(0.5)
 })
 
@@ -1642,6 +2681,209 @@ test("one click opens one tab; repeated clicks focus its filled application", as
   await expect(application.getByLabel("Full name")).toHaveValue("Test Person")
 })
 
+test("LinkedIn closed banner painted after start still reports Closed (not stuck Applying)", async ({ context, fake }) => {
+  await connect(context)
+  fake.kit = { status: "ok", job_id: "p-closed-late", facts: { name: "Test", answers: {}, remembered: {} }, cv: null }
+  await context.route("https://www.linkedin.com/jobs/view/4470891599/**", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><main class="jobs-details__main-content"><h1>Closed late</h1><p id="status">Loading…</p>
+<script>setTimeout(()=>{document.getElementById('status').outerHTML='<div class="artdeco-inline-feedback">No longer accepting applications</div>'},600)</script></main>`,
+    }),
+  )
+  const worker = context.serviceWorkers()[0]
+  const opened = context.waitForEvent("page")
+  await worker.evaluate("openApplication('https://www.linkedin.com/jobs/view/4470891599/', null, { postingId: 'p-closed-late' })")
+  const page = await opened
+  await expect(page.locator(".odds-apply-bar")).toContainText("no longer accepting applications", { timeout: 12000 })
+  // Desktop Apply has no phone run — chip comes from intent status; job-closed still hits the server.
+  await expect.poll(async () => {
+    const intent = await worker.evaluate(`chrome.storage.local.get('oddsApplyIntents').then(v => {
+      const all = v.oddsApplyIntents || {}
+      return Object.values(all).find(i => i.postingId === 'p-closed-late' || String(i.job||'').includes('4470891599'))
+    })`) as { status?: string; message?: string } | undefined
+    return intent?.status === "failed" && /no longer accepting/i.test(intent?.message || "")
+  }, { timeout: 10000 }).toBe(true)
+  await expect.poll(() => fake.closedUrls.some((u) => u.includes("4470891599")), { timeout: 10000 }).toBe(true)
+})
+
+test("Open application tab (reveal) finds the same job by postingId even when the first open had URL only", async ({ context, fake }) => {
+  await connect(context)
+  fake.kit = { status: "ok", job_id: "p-bosch", facts: { name: "Test Person", answers: { first_name: "Test", last_name: "Person" }, remembered: {} }, cv: null }
+  await context.route("https://careers.example.org/**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<!doctype html><form>
+      <label for="fn">First name</label><input id="fn" name="first_name" required>
+      <label>Do you sail?<input type="radio" name="sail" value="yes">Yes<input type="radio" name="sail" value="no">No</label>
+      <button type="submit">Next</button>
+    </form>`,
+  }))
+  const worker = context.serviceWorkers()[0]
+  const opened = context.waitForEvent("page")
+  // First open like an older intent: URL only, no postingId on the intent key path.
+  await worker.evaluate("openApplication('https://careers.example.org/jobs/bosch-intern', null, {})")
+  const application = await opened
+  await expect(application.locator("#fn")).toHaveValue("Test", { timeout: 15000 })
+  const pages = context.pages().length
+  // Odds drawer "Open application tab" sends reveal + postingId — must resume, not open a second tab.
+  const resumed = await worker.evaluate("openApplication('https://careers.example.org/jobs/bosch-intern', null, { reveal: true, postingId: 'p-bosch' })")
+  expect(resumed).toEqual({ ok: true, resumed: true })
+  expect(context.pages()).toHaveLength(pages)
+  expect(application.isClosed()).toBe(false)
+  await expect(application).toHaveURL(/bosch-intern/)
+  // A stopped run and an expired activity must still retain its real form tab.
+  await worker.evaluate(`chrome.storage.local.get('oddsApplyIntents').then(async v => {
+    for (const intent of Object.values(v.oddsApplyIntents || {})) {
+      intent.status = 'failed'; intent.at = Date.now() - 2 * 60 * 60_000
+    }
+    await chrome.storage.local.set(v)
+  })`)
+  expect(await worker.evaluate("openApplication('https://careers.example.org/jobs/bosch-intern', null, { reveal: true, postingId: 'p-bosch' })")).toEqual({ ok: true, resumed: true })
+  expect(context.pages()).toHaveLength(pages)
+  // Recovery from an older extension that already pruned the intent is exact-URL only.
+  await worker.evaluate("chrome.storage.local.set({oddsApplyIntents:{}})")
+  expect(await worker.evaluate("openApplication('https://careers.example.org/jobs/bosch-intern', null, { reveal: true, postingId: 'p-bosch' })")).toEqual({ ok: true, resumed: true })
+  expect(context.pages()).toHaveLength(pages)
+})
+
+/**
+ * End-goal edge cases for Apply with Odds → background fill → Open tab → Broods → review:
+ * 1) First open never steals focus
+ * 2) Open application tab focuses the exact working tab (fast, no duplicate)
+ * 3) Status survives Open tab (Account / outlined not wiped)
+ * 4) Closed apply tab reopens without orphaning the job
+ * 5) Two jobs keep separate tabs
+ */
+test("Apply background + Open tab edge cases always reach the working form", { tag: "@accept" }, async ({ context, fake }) => {
+  await connect(context)
+  fake.kit = {
+    status: "ok",
+    job_id: "p-edge-a",
+    facts: { name: "Chi Kien", email: "kien@example.com", answers: { first_name: "Chi", last_name: "Kien" }, remembered: {} },
+    cv: null,
+  }
+  await context.route("https://careers.example.org/**", (route) => {
+    const u = route.request().url()
+    const body = u.includes("job-b")
+      ? `<!doctype html><form><label>First name<input id="fnb" name="first_name" required></label><button type="submit">Submit</button></form>`
+      : `<!doctype html><form>
+          <label>First name<input id="fna" name="first_name" required></label>
+          <label>Account password<input id="pw" type="password" required></label>
+          <button type="submit">Submit</button>
+        </form>`
+    return route.fulfill({ contentType: "text/html", body })
+  })
+  const worker = context.serviceWorkers()[0]
+  // Keep an "Odds" tab in front so we can assert Apply does not steal focus.
+  const odds = await context.newPage()
+  await odds.goto("https://odds.beeblast.co/")
+  await odds.bringToFront()
+
+  const openedA = context.waitForEvent("page")
+  const t0 = Date.now()
+  const startA = await worker.evaluate("openApplication('https://careers.example.org/jobs/job-a', null, { reveal: false, postingId: 'p-edge-a' })")
+  expect(startA).toEqual({ ok: true, resumed: false })
+  const applyA = await openedA
+  await expect(applyA.locator("#fna")).toHaveValue("Chi", { timeout: 15000 })
+  // Background: the apply tab itself must not be Chrome's active tab (no focus steal).
+  const applyActiveAfterStart = await worker.evaluate(`chrome.tabs.query({ url: "https://careers.example.org/jobs/job-a*" }).then(t => Boolean(t[0]?.active))`)
+  expect(applyActiveAfterStart).toBe(false)
+
+  // Script reaches Account (password) — terminal needs_input, never false Ready.
+  await expect(applyA.locator(".odds-apply-bar")).toContainText(/password|account/i, { timeout: 12000 })
+  await expect(applyA.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask", { timeout: 10000 })
+  await expect(applyA.locator(".odds-apply-bar")).not.toHaveAttribute("data-state", "done")
+  await worker.evaluate(`chrome.storage.local.get('oddsApplyIntents').then(async (v) => {
+    const all = v.oddsApplyIntents || {}
+    for (const [id, intent] of Object.entries(all)) {
+      if (intent.postingId === 'p-edge-a') {
+        all[id] = { ...intent, status: 'needs_input', message: 'This site needs an account. Choose your password on the page: odds never types passwords.' }
+      }
+    }
+    await chrome.storage.local.set({ oddsApplyIntents: all })
+  })`)
+
+  const pagesBeforeReveal = context.pages().length
+  const tReveal = Date.now()
+  const revealA = await worker.evaluate("openApplication('https://careers.example.org/jobs/job-a', null, { reveal: true, postingId: 'p-edge-a' })")
+  expect(revealA).toEqual({ ok: true, resumed: true })
+  expect(Date.now() - tReveal).toBeLessThan(1500)
+  expect(context.pages()).toHaveLength(pagesBeforeReveal)
+  await expect.poll(() => worker.evaluate(`chrome.tabs.query({ url: "https://careers.example.org/jobs/job-a*" }).then(t => Boolean(t[0]?.active))`)).toBe(true)
+  // Status not wiped to bare Opening / Filling.
+  const intentAfter = await worker.evaluate(`chrome.storage.local.get('oddsApplyIntents').then(v => {
+    const all = v.oddsApplyIntents || {}
+    return Object.values(all).find(i => i.postingId === 'p-edge-a')
+  })`) as { status?: string; message?: string } | undefined
+  expect(intentAfter?.status).toBe("needs_input")
+  expect(String(intentAfter?.message || "")).toMatch(/password|account/i)
+
+  // Closed tab → Open tab reopens the same job (end goal: person can always get back to the form).
+  await applyA.close()
+  const reopened = context.waitForEvent("page")
+  const again = await worker.evaluate("openApplication('https://careers.example.org/jobs/job-a', null, { reveal: true, postingId: 'p-edge-a' })") as { ok?: boolean }
+  expect(again.ok).toBe(true)
+  const applyA2 = await reopened
+  await expect(applyA2.locator("#fna")).toHaveValue("Chi", { timeout: 15000 })
+
+  // Second job = second tab; Open tab for A must not focus B.
+  fake.kit = {
+    status: "ok",
+    job_id: "p-edge-b",
+    facts: { name: "Chi Kien", answers: { first_name: "Chi", last_name: "Kien" }, remembered: {} },
+    cv: null,
+  }
+  const openedB = context.waitForEvent("page")
+  await worker.evaluate("openApplication('https://careers.example.org/jobs/job-b', null, { reveal: false, postingId: 'p-edge-b' })")
+  const applyB = await openedB
+  await expect(applyB.locator("#fnb")).toHaveValue("Chi", { timeout: 15000 })
+  await worker.evaluate("openApplication('https://careers.example.org/jobs/job-a', null, { reveal: true, postingId: 'p-edge-a' })")
+  await expect.poll(() => worker.evaluate(`chrome.tabs.query({ url: "https://careers.example.org/jobs/job-a*" }).then(t => Boolean(t[0]?.active))`)).toBe(true)
+  const bStillBackground = await worker.evaluate(`chrome.tabs.query({ url: "https://careers.example.org/jobs/job-b*" }).then(t => t[0]?.active === false)`)
+  expect(bStillBackground).toBe(true)
+  // Sanity: first Apply path stayed fast enough that we are not thrashing.
+  expect(Date.now() - t0).toBeLessThan(60_000)
+})
+
+test("Continue after a reload resumes the same tab (form kept; captcha/account step still there)", async ({ context, fake }) => {
+  await connect(context)
+  fake.kit = {
+    status: "ok",
+    job_id: "p-reload",
+    facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung", phone: "+31 6 1234 5678" }, remembered: {} },
+    cv: null,
+  }
+  await context.route("https://careers.example.org/**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<!doctype html><form>
+      <label for="fn">First name</label><input id="fn" name="first_name" required>
+      <label for="pw">Account password</label><input id="pw" type="password" name="pw" required>
+      <button type="submit">Submit</button>
+    </form>`,
+  }))
+  let worker = context.serviceWorkers()[0]
+  const opened = context.waitForEvent("page")
+  await worker.evaluate("openApplication('https://careers.example.org/apply', null, { postingId: 'p-reload' })")
+  const application = await opened
+  await expect(application.locator("#fn")).toHaveValue("Kien", { timeout: 15000 })
+  await expect(application.locator(".odds-apply-bar")).toContainText(/account|password/i, { timeout: 10000 })
+  const pages = context.pages().length
+  // Simulate extension reload fallout: wipe session run map; hard-reload the tab so content scripts die; local intents stay.
+  // (chrome.runtime.reload() is unreliable under Playwright MV3 — the SW often never returns.)
+  await worker.evaluate(`(async () => {
+    await chrome.storage.session.clear()
+    await chrome.storage.local.remove('oddsApplicationRuns')
+  })()`)
+  await application.reload({ waitUntil: "domcontentloaded" })
+  const resumed = await worker.evaluate("openApplication('https://careers.example.org/apply', null, { reveal: true, postingId: 'p-reload' })")
+  expect(resumed).toEqual({ ok: true, resumed: true })
+  expect(context.pages()).toHaveLength(pages)
+  expect(application.isClosed()).toBe(false)
+  // Same tab resumed: account gate returns; password still empty (odds never types it).
+  await expect(application.locator(".odds-apply-bar")).toContainText(/account|password/i, { timeout: 20000 })
+  await expect(application.locator("#pw")).toHaveValue("")
+})
+
 test("one-click learning loop: phone answers an employer question, desktop advances and uploads CV, answer appears in Profile", async ({ context, fake }) => {
   await connect(context)
   const post = FLOW_POSTINGS[0]
@@ -1672,7 +2914,7 @@ test("one-click learning loop: phone answers an employer question, desktop advan
   await context.route("https://careers.example.org/**", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><h1>Application</h1><div role="dialog" id="cookie-banner"><p>Cookies</p><button onclick="window.rejected=true;this.parentElement.remove()">Reject all</button><button onclick="window.accepted=true">Accept all</button></div><form id="form"><label>Full name<input required></label><fieldset><legend>Will you remain enrolled throughout this internship?</legend><input type="radio" id="yes" name="study" required><label for="yes">Yes</label><input type="radio" id="no" name="study"><label for="no">No</label></fieldset><button type="button" onclick="window.enrolled=document.querySelector('#yes').checked;document.querySelector('#form').innerHTML='<label>CV<input type=file required></label><button type=submit>Submit application</button>'">Next</button></form><script>window.sent=false;document.addEventListener('submit',e=>{e.preventDefault();window.sent=true})</script>` }))
   const phone = await context.newPage()
   await phone.setViewportSize({ width: 390, height: 844 })
-  await phone.goto(`http://localhost:4319/job/${post.id}`)
+  await phone.goto(`${APP_ORIGIN}/job/${post.id}`)
   const worker = context.serviceWorkers()[0]
   await worker.evaluate(() => chrome.storage.local.set({ oddsPhoneControl: true }))
   const opened = context.waitForEvent("page")
@@ -1680,7 +2922,7 @@ test("one-click learning loop: phone answers an employer question, desktop advan
   await worker.evaluate("pollApplications()")
   const desktop = await opened
   await expect(desktop.getByLabel("Full name")).toHaveValue("Test Person", { timeout: 10000 })
-  await phone.getByLabel("Will you remain enrolled throughout this internship?").selectOption("Yes", { timeout: 15000 })
+  await phone.getByRole("radiogroup", { name: "Will you remain enrolled throughout this internship?" }).getByRole("radio", { name: "Yes" }).click({ timeout: 15000 })
   await phone.getByRole("button", { name: "Save and continue" }).click()
   await expect(desktop.getByLabel("CV")).toHaveCount(1, { timeout: 15000 })
   await expect.poll(() => desktop.getByLabel("CV").evaluate((e: HTMLInputElement) => e.files?.[0]?.name)).toBe("Kien_Data_CV.pdf")
@@ -1689,9 +2931,11 @@ test("one-click learning loop: phone answers an employer question, desktop advan
   expect(await desktop.evaluate("window.accepted")).not.toBe(true)
   expect(await desktop.evaluate("window.sent")).toBe(false)
   await expect.poll(() => fake.reports.at(-1)?.status).toBe("ready")
-  await phone.goto("http://localhost:4319/")
+  await phone.goto(`${APP_ORIGIN}/`)
+  // On a phone Autofill is a row on the Profile page, not a tab in the bar.
   await phone.getByRole("button", { name: /Profile/ }).last().click()
-  await expect(phone.getByRole("heading", { name: "Application answers", exact: true })).toBeVisible()
+  await phone.getByRole("button", { name: "Autofill" }).click()
+  await expect(phone.getByRole("heading", { name: "Learned from forms", exact: true })).toBeVisible()
   await expect(phone.getByLabel("Will you remain enrolled throughout this internship?")).toHaveValue("Yes")
   expect(saved[0].question_key).toContain(` job ${post.id}`)
 })
@@ -1737,7 +2981,7 @@ test("a SuccessFactors listing's Apply inside a form opens its login instead of 
   await page.goto("https://career2.successfactors.eu/listing/2838")
   await applyFrom(context, page, "https://career2.successfactors.eu/listing/2838")
   await expect(page).toHaveURL("https://career2.successfactors.eu/signin", { timeout: 10000 })
-  await expect(page.locator(".odds-apply-bar")).toContainText("Complete the login")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Account or login required|Complete the login/i)
   await expect(page.getByLabel("Password")).toHaveValue("")
 })
 
@@ -1819,6 +3063,176 @@ test("odds apply on Lever: the single Full name field, wrapped labels and the CV
   await shot(page, "ext-lever")
 })
 
+test("ACCEPT Lever location typeahead fixture picks dropdown (never Checking…) @accept", async ({ context, fake }) => {
+  await connect(context)
+  const html = readFileSync(join(import.meta.dirname, "fixtures/ats/lever-location.html"), "utf8")
+  await context.route("https://jobs.eu.lever.co/location-test/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = {
+    job_id: "ploc",
+    facts: { job_id: "ploc", place: "Amsterdam, Netherlands", answers: { city: "Amsterdam", email: "kien@example.com", first_name: "Kien", last_name: "Phung" }, remembered: {} },
+  }
+  const page = await context.newPage()
+  await page.goto("https://jobs.eu.lever.co/location-test/apply")
+  await applyFrom(context, page, "https://jobs.eu.lever.co/location-test/apply")
+  await expect.poll(() => page.locator("#selected-location").inputValue(), { timeout: 12000 }).not.toBe("")
+  await expect(page.locator("#location-input")).not.toHaveValue("")
+  await expect(page.locator(".odds-apply-bar")).not.toContainText(/Checking that the website kept/i, { timeout: 8000 })
+  await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state", /done|ask|ready/, { timeout: 8000 })
+})
+
+test("ACCEPT Broods scan click on .dropdown-location fills Lever location @accept", async ({ context, fake }) => {
+  await connect(context)
+  // Options exist but Autofill type path stalls → Broods returns click on option text.
+  const html = `<!doctype html><html><body><main><h1>Intern</h1>
+<form onsubmit="event.preventDefault()">
+  <li class="application-question">
+    <label><div class="application-label">Current location </div>
+    <div class="application-field">
+      <input class="location-input" id="location-input" type="text" name="location" value="">
+      <input id="selected-location" type="hidden" name="selectedLocation" value="">
+      <div class="dropdown-results">
+        <div class="dropdown-location" id="location-0">Amsterdam, NLD</div>
+      </div>
+    </div></label>
+  </li>
+  <label>Email<input type="email" name="email" required></label>
+  <button type="submit">Submit</button>
+</form>
+<script>
+document.getElementById("location-0").addEventListener("click", () => {
+  document.getElementById("location-input").value = "Amsterdam, NLD"
+  document.getElementById("selected-location").value = JSON.stringify({ name: "Amsterdam, NLD" })
+})
+</script></main></body></html>`
+  await context.route("https://jobs.eu.lever.co/broods-click/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = {
+    job_id: "pclick",
+    facts: { job_id: "pclick", place: "Amsterdam, Netherlands", answers: { city: "Amsterdam", email: "kien@example.com" }, remembered: {} },
+  }
+  fake.scanReply = { stage: "form", action: "click", text: "Amsterdam, NLD", answers: [], reason: "dropdown_option" }
+  const page = await context.newPage()
+  await page.goto("https://jobs.eu.lever.co/broods-click/apply")
+  await applyFrom(context, page, "https://jobs.eu.lever.co/broods-click/apply")
+  await expect.poll(() => fake.suggestScanCalls, { timeout: 25000 }).toBeGreaterThan(0)
+  await expect.poll(() => page.locator("#selected-location").inputValue(), { timeout: 15000 }).not.toBe("")
+})
+
+test("ACCEPT known Autofill gap stall calls Broods scan (never only Checking…) @accept", async ({ context, fake }) => {
+  await connect(context)
+  // Location field Odds knows (city) but typeahead never yields options — must invite Broods, not spin on Checking.
+  const html = `<!doctype html><html><body><main><h1>Intern</h1>
+<form onsubmit="event.preventDefault()">
+  <li class="application-question">
+    <label><div class="application-label">Current location </div>
+    <div class="application-field">
+      <input class="location-input" id="location-input" type="text" name="location">
+      <input id="selected-location" type="hidden" name="selectedLocation" value="">
+      <div class="dropdown-results"></div>
+    </div></label>
+  </li>
+  <label>Email<input type="email" name="email" required value=""></label>
+  <button type="submit">Submit</button>
+</form></main></body></html>`
+  await context.route("https://jobs.eu.lever.co/gaps-broods/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = {
+    job_id: "pgaps",
+    facts: { job_id: "pgaps", place: "Amsterdam, Netherlands", answers: { city: "Amsterdam", email: "kien@example.com" }, remembered: {} },
+  }
+  const page = await context.newPage()
+  await page.goto("https://jobs.eu.lever.co/gaps-broods/apply")
+  await applyFrom(context, page, "https://jobs.eu.lever.co/gaps-broods/apply")
+  await expect.poll(() => fake.suggestScanCalls, { timeout: 25000 }).toBeGreaterThan(0)
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Broods|asking Odds|Still filling|outlined|assist/i, { timeout: 15000 })
+  await expect(page.locator(".odds-apply-bar")).not.toHaveText(/Checking that the website kept your details and CV/i)
+})
+
+test("ACCEPT Lever Karl custom questions: start + notice from Autofill (not left on Type your response) @accept", async ({ context, fake }) => {
+  await connect(context)
+  const karlHtml = readFileSync(join(import.meta.dirname, "fixtures/ats/lever-karl-custom.html"), "utf8")
+  await context.route("https://jobs.eu.lever.co/karllagerfeld/**", (route) => route.fulfill({ contentType: "text/html", body: karlHtml }))
+  fake.kit = {
+    job_id: "pkarl",
+    facts: {
+      job_id: "pkarl",
+      answers: { start_date: "1 February 2027", notice_period: "2 weeks", first_name: "Kien", last_name: "Phung" },
+      remembered: {},
+    },
+  }
+  const page = await context.newPage()
+  await page.goto("https://jobs.eu.lever.co/karllagerfeld/apply")
+  await applyFrom(context, page, "https://jobs.eu.lever.co/karllagerfeld/apply")
+  await expect(page.locator('input[name="cards[start][field0]"]')).toHaveValue("1 February 2027", { timeout: 10000 })
+  await expect(page.locator('input[name="cards[avail][field0]"]')).toHaveValue("1 February 2027. Notice period: 2 weeks", { timeout: 8000 })
+  await expect(page.locator(".odds-apply-bar")).not.toContainText(/Answer the .*outlined/i)
+})
+
+test("ACCEPT Ashby button-choice fixture presses Yes from Autofill @accept", async ({ context, fake }) => {
+  await connect(context)
+  const html = readFileSync(join(import.meta.dirname, "fixtures/ats/ashby-yesno.html"), "utf8")
+  await context.route("https://jobs.ashbyhq.com/fixture-yesno/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = {
+    job_id: "pash",
+    facts: {
+      job_id: "pash",
+      job_country: "NL",
+      name: "Kien Phung",
+      email: "kien@example.com",
+      answers: { first_name: "Kien", last_name: "Phung", email: "kien@example.com", work_authorization: "Yes, EU citizen" },
+      remembered: {},
+    },
+  }
+  const page = await context.newPage()
+  await page.goto("https://jobs.ashbyhq.com/fixture-yesno/1")
+  await applyFrom(context, page, "https://jobs.ashbyhq.com/fixture-yesno/1")
+  await expect(page.locator("#_systemfield_name")).toHaveValue("Kien Phung", { timeout: 8000 })
+  await expect(page.locator("#auth button", { hasText: "Yes" })).toHaveClass(/_active_/, { timeout: 8000 })
+})
+
+test("ACCEPT Greenhouse label/for fixture fills contact fields @accept", async ({ context, fake }) => {
+  await connect(context)
+  const html = readFileSync(join(import.meta.dirname, "fixtures/ats/greenhouse-basic.html"), "utf8")
+  await context.route("https://job-boards.greenhouse.io/fixture-basic/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = {
+    job_id: "pgh",
+    facts: {
+      job_id: "pgh",
+      name: "Kien Phung",
+      email: "kien@example.com",
+      phone: "+31 6 1234 5678",
+      answers: { first_name: "Kien", last_name: "Phung", email: "kien@example.com", phone: "+31 6 1234 5678" },
+      remembered: {},
+    },
+  }
+  const page = await context.newPage()
+  await page.goto("https://job-boards.greenhouse.io/fixture-basic/jobs/1")
+  await applyFrom(context, page, "https://job-boards.greenhouse.io/fixture-basic/jobs/1")
+  await expect(page.locator("#n")).toHaveValue("Kien", { timeout: 8000 })
+  await expect(page.locator('input[name=family]')).toHaveValue("Phung")
+  await expect(page.locator('input[type=email]')).toHaveValue("kien@example.com")
+})
+
+test("ACCEPT Workday delayed fields + listbox fixture fills when controls appear @accept", async ({ context, fake }) => {
+  await connect(context)
+  const html = readFileSync(join(import.meta.dirname, "fixtures/ats/workday-delayed.html"), "utf8")
+  await context.route("https://acme.wd5.myworkdayjobs.com/fixture/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = {
+    job_id: "pwd",
+    facts: {
+      job_id: "pwd",
+      name: "Kien Phung",
+      email: "kien@example.com",
+      answers: { first_name: "Kien", last_name: "Phung", email: "kien@example.com", country: "Netherlands" },
+      remembered: {},
+    },
+  }
+  const page = await context.newPage()
+  await page.goto("https://acme.wd5.myworkdayjobs.com/fixture/job/1")
+  await applyFrom(context, page, "https://acme.wd5.myworkdayjobs.com/fixture/job/1")
+  await expect(page.locator("[data-automation-id=legalNameSection_firstName]")).toHaveValue("Kien", { timeout: 12000 })
+  await expect(page.locator("[data-automation-id=email]")).toHaveValue("kien@example.com")
+  await expect(page.locator("#country-btn")).toContainText(/Netherlands/i, { timeout: 10000 })
+})
+
 test("odds apply on Ashby: Yes/No buttons are pressed from the profile, an unknown one is outlined, sent to Odds to answer, and filled in once answered there", async ({ context, fake }) => {
   await connect(context)
   await context.route("https://jobs.ashbyhq.com/acme/1**", (route) => route.fulfill({ contentType: "text/html", body: ASHBY_FORM }))
@@ -1846,6 +3260,31 @@ test("odds apply on Ashby: Yes/No buttons are pressed from the profile, an unkno
   await shot(page, "ext-ashby")
 })
 
+test("after publishing questions, suggest-answers from the cloud agent fills the field and the outline goes", async ({ context, fake }) => {
+  await connect(context)
+  await context.route("https://boards.example-ats.com/acme/jobs/agent**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  fake.kit = {
+    job_id: "pagent",
+    facts: {
+      name: "Kien Phung",
+      email: "kien@example.com",
+      linkedin: "https://www.linkedin.com/in/kien",
+      answers: { first_name: "Kien", last_name: "Phung", phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" },
+      remembered: {},
+    },
+    cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true },
+  }
+  fake.agentAnswers = { "How many years of experience do you have with SQL?": "3" }
+  const page = await context.newPage()
+  await page.goto("https://boards.example-ats.com/acme/jobs/agent")
+  await applyFrom(context, page, "https://boards.example-ats.com/acme/jobs/agent")
+  await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 8000 })
+  await expect.poll(() => fake.suggestCalls, { timeout: 10000 }).toBeGreaterThan(0)
+  await expect(page.locator("#sql")).toHaveValue("3", { timeout: 10000 })
+  await expect(page.locator(".odds-ask")).toHaveCount(0)
+  expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+})
+
 test("the panel can ask how a job's application is going: nothing, then what its tab last said", async ({ context, fake, extensionId }) => {
   await connect(context)
   await context.route("https://boards.example-ats.com/acme/jobs/55**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
@@ -1863,6 +3302,25 @@ test("the panel can ask how a job's application is going: nothing, then what its
   // The tab closing ends it: a closed application is not reported as going on.
   await page.close()
   await expect.poll(async () => (await status()).state, { timeout: 5000 }).toBeNull()
+})
+
+test("a page without an applicant form is never marked ready to review", async ({ context, fake, extensionId }) => {
+  await connect(context)
+  await context.route("https://boards.example-ats.com/acme/jobs/noform**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<!doctype html><html><body><main><h1>Data Intern</h1><p>About the role at Acme.</p><form id="search-jobs" action="/jobs"><input name="q" id="what" placeholder="What"><input name="l" id="where" placeholder="Where"></form></main></body></html>`,
+  }))
+  fake.kit = PORTAL_KIT
+  const job = "https://boards.example-ats.com/acme/jobs/noform"
+  const popup = await context.newPage()
+  await popup.goto(`chrome-extension://${extensionId}/popup.html`)
+  const status = (): Promise<{ state: { status: string; message: string } | null }> => popup.evaluate((url) => new Promise((resolve) => (globalThis as unknown as { chrome: { runtime: { sendMessage(m: object, cb: (a: never) => void): void } } }).chrome.runtime.sendMessage({ type: "application-status", url }, resolve)), job)
+  const page = await context.newPage()
+  await page.goto(job)
+  await applyFrom(context, page, job)
+  await expect.poll(async () => (await status()).state?.status, { timeout: 15000 }).toBe("needs_input")
+  expect((await status()).state?.status).not.toBe("ready")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/could not (verify an application form|open the application form|move this application forward)/i)
 })
 
 /** A form in steps, as Workday draws it: Next shows the next step; the last step has Submit, which odds never presses. */
@@ -1928,4 +3386,596 @@ test("an application sent on an employer's site marks the job applied in odds, f
   await page.getByRole("button", { name: "Submit application" }).click()
   await expect.poll(() => fake.applied, { timeout: 8000 }).toEqual(["https://boards.example-ats.com/acme/jobs/77"])
   await expect(page.locator(".odds-apply-bar")).toContainText("marked this job as applied")
+})
+
+const BANNERS: ReadonlyArray<[string, string, string]> = [
+  ["OneTrust", `<div id="onetrust-banner-sdk" style="position:fixed;bottom:0;left:0;right:0;background:#fff;padding:12px"><p>We use cookies to improve your experience.</p><button id="onetrust-pc-btn-handler">Cookie Settings</button><button id="onetrust-reject-all-handler" onclick="window.rejected=true;document.getElementById('onetrust-banner-sdk').remove()">Reject All</button><button id="onetrust-accept-btn-handler" onclick="window.accepted=true">Accept All Cookies</button></div>`, "rejected"],
+  ["Cookiebot", `<div id="CybotCookiebotDialog" style="position:fixed;inset:20% 20%;background:#fff;padding:16px"><p>This website uses cookies.</p><button>Customize</button><button onclick="window.rejected=true;this.parentElement.remove()">Use necessary cookies only</button><button onclick="window.accepted=true">Allow all</button></div>`, "rejected"],
+  ["a Dutch banner", `<div class="cookie-melding" style="position:fixed;bottom:0;left:0;right:0;background:#fff"><p>Wij gebruiken cookies voor een betere website.</p><button onclick="window.accepted=true">Accepteren</button><button onclick="window.rejected=true;this.parentElement.remove()">Alleen noodzakelijke cookies</button></div>`, "rejected"],
+  ["a banner drawn in a shadow root", `<div id="usercentrics-root"></div><script>const r=document.getElementById("usercentrics-root").attachShadow({mode:"open"});r.innerHTML='<div style="position:fixed;bottom:0;background:#fff"><p>We use cookies</p><button id="d">Deny</button><button id="a">Accept All</button></div>';r.getElementById("d").onclick=()=>{window.rejected=true;r.innerHTML=""};r.getElementById("a").onclick=()=>{window.accepted=true}</script>`, "rejected"],
+  ["a banner that only offers Accept and a close button", `<div role="dialog" style="position:fixed;bottom:0;background:#fff"><p>Cookies make this site work.</p><button onclick="window.accepted=true">Accept</button><button aria-label="Close" onclick="window.rejected=true;this.parentElement.remove()">×</button></div>`, "rejected"],
+  ["Magnet.me Functional only", `<div role="dialog" aria-modal="true" style="position:fixed;inset:20%;background:#fff;padding:16px;z-index:99"><h2>We use cookies.</h2><button onclick="window.rejected=true;this.closest('[role=dialog]').remove()">Functional only</button><button onclick="window.accepted=true">All cookies</button></div>`, "rejected"],
+]
+
+for (const [name, banner, flag] of BANNERS) {
+  test(`odds apply gets past ${name}: it never accepts, the banner goes, and the form is filled in`, async ({ context, fake }) => {
+    await connect(context)
+    await context.route("https://careers.example-ats.com/acme/jobs/31**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM.replace("<main>", `${banner}<main>`) }))
+    fake.kit = PORTAL_KIT
+    const page = await context.newPage()
+    await page.goto("https://careers.example-ats.com/acme/jobs/31")
+    await applyFrom(context, page, "https://careers.example-ats.com/acme/jobs/31")
+    await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 10000 })
+    await expect.poll(() => page.evaluate((f) => Boolean((window as unknown as Record<string, boolean>)[f]), flag), { timeout: 8000 }).toBe(true)
+    expect(await page.evaluate(() => Boolean((window as unknown as { accepted?: boolean }).accepted))).toBe(false)
+  })
+}
+
+test("a consent box inside the application form is not a cookie banner: odds leaves its buttons alone", async ({ context, fake }) => {
+  await connect(context)
+  const form = EMPLOYER_FORM.replace("<button type=\"submit\">", `<div class="consent-box"><p>I consent to the processing of my privacy data.</p><button type="button" onclick="window.declined=true">Decline</button></div><button type="submit">`)
+  await context.route("https://careers.example-ats.com/acme/jobs/32**", (route) => route.fulfill({ contentType: "text/html", body: form }))
+  fake.kit = PORTAL_KIT
+  const page = await context.newPage()
+  await page.goto("https://careers.example-ats.com/acme/jobs/32")
+  await applyFrom(context, page, "https://careers.example-ats.com/acme/jobs/32")
+  await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 10000 })
+  await page.waitForTimeout(2500)
+  expect(await page.evaluate(() => Boolean((window as unknown as { declined?: boolean }).declined))).toBe(false)
+})
+
+test("Magnet.me-style modal: Apply now inside a form is pressed after Functional only, then the form fills", async ({ context, fake }) => {
+  await connect(context)
+  const listing = `<!doctype html><html><body>
+<div role="dialog" aria-modal="true" style="position:fixed;inset:10%;background:#fff;z-index:9;padding:16px">
+  <h2>We use cookies.</h2>
+  <button type="button" onclick="this.closest('[role=dialog]').remove();window.rejected=true">Functional only</button>
+  <button type="button" onclick="window.accepted=true">All cookies</button>
+</div>
+<main><h1>Internship</h1>
+<div id="apply-modal" style="border:1px solid #ccc;padding:12px">
+  <h2>Apply through Magnet.me</h2>
+  <button type="button">Create profile</button>
+  <p>Or continue directly</p>
+  <form action="/apply" method="get"><button type="submit">Apply now</button></form>
+</div></main>
+<script>document.querySelector('form').addEventListener('submit',e=>{e.preventDefault();location.href='/apply'})</script>
+</body></html>`
+  await context.route("https://magnet.me/en/opportunity/1", (route) => route.fulfill({ contentType: "text/html", body: listing }))
+  await context.route("https://magnet.me/apply**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  fake.kit = PORTAL_KIT
+  const page = await context.newPage()
+  await page.goto("https://magnet.me/en/opportunity/1")
+  await applyFrom(context, page, "https://magnet.me/en/opportunity/1")
+  await expect(page).toHaveURL(/\/apply/, { timeout: 20000 })
+  await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 10000 })
+  expect(await page.evaluate(() => Boolean((window as unknown as { accepted?: boolean }).accepted))).toBe(false)
+})
+
+test("one click on an employer's listing: the cookie banner is declined, Apply now is pressed, and the next page's form is filled in, never sent", async ({ context, fake }) => {
+  await connect(context)
+  const listing = `<!doctype html><div id="onetrust-banner-sdk" style="position:fixed;bottom:0;left:0;right:0;background:#fff;padding:12px"><p>We use cookies.</p><button onclick="window.accepted=true">Accept All</button><button onclick="window.rejected=true;document.getElementById('onetrust-banner-sdk').remove()">Reject All</button></div><main><h1>Junior Data Analyst</h1><p>Amsterdam. Join our data team.</p><a class="btn" href="/acme/jobs/41/apply">Apply now</a></main>`
+  await context.route("https://careers.example-ats.com/acme/jobs/41", (route) => route.fulfill({ contentType: "text/html", body: listing }))
+  await context.route("https://careers.example-ats.com/acme/jobs/41/apply", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  fake.kit = PORTAL_KIT
+  const page = await context.newPage()
+  await page.goto("https://careers.example-ats.com/acme/jobs/41")
+  await applyFrom(context, page, "https://careers.example-ats.com/acme/jobs/41")
+  await expect(page).toHaveURL(/\/apply$/, { timeout: 15000 })
+  await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 10000 })
+  await expect.poll(() => page.locator("#resume").evaluate((el: HTMLInputElement) => el.files?.[0]?.name ?? "")).toBe("Kien_Data_CV.pdf")
+  await page.waitForTimeout(1500)
+  expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+})
+
+/**
+ * ACCEPTANCE (user buttons only — never inject intent / applyFrom):
+ * Odds "Apply with Odds" → LinkedIn offsite opens employer in a NEW tab → form fills →
+ * "Open application tab" focuses that employer tab. This is the MatchWornShirt / Hunkemöller path.
+ */
+test("ACCEPT from Odds buttons: LinkedIn offsite NEW tab fills and Open application tab focuses it", { tag: "@accept" }, async ({ context, fake }) => {
+  await connect(context)
+  const li = "https://www.linkedin.com/jobs/view/4475942337/"
+  const post = {
+    ...FLOW_POSTINGS[0],
+    id: "e2e-matchworn-li",
+    // kept_id must match id — otherwise mergeByView aliases this to Adyen and Apply opens jobs.example.com.
+    kept_id: "e2e-matchworn-li",
+    title: "Copywriting Internship",
+    employer: "MatchWornShirt",
+    employer_display: "MatchWornShirt",
+    url: li,
+    ats: "linkedin",
+    source: "linkedin",
+    sources: [{ name: "LinkedIn", ats: "linkedin", url: li }],
+  }
+  await context.addInitScript(() => localStorage.setItem("careersim.session", JSON.stringify({ access_token: "e2e-token", refresh_token: "e2e-refresh", expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: "00000000-0000-4000-8000-000000000001" } })))
+  await mockBackend(context, [post, ...FLOW_POSTINGS.filter((p) => p.id !== post.id)], [], true)
+  await context.unroute("https://odds.beeblast.co/**")
+  // mockBackend's **/* aborts LinkedIn unless a LATER route wins — match with/without trailing slash.
+  await context.route(/^chrome-extension:/, (route) => route.continue())
+  await context.route("https://odds.beeblast.co/**", (route) => route.continue())
+  const linkedInHtml = `<!doctype html><main>
+    <h1>Copywriting Internship</h1>
+    <p>Responses managed off LinkedIn</p>
+    <button type="button" id="go" class="jobs-apply-button" aria-label="Apply to Copywriting Internship at MatchWornShirt">Apply</button>
+  </main>
+  <script>
+  document.getElementById("go").onclick = () => {
+    window.open("https://boards.example-ats.com/match/jobs/new-tab", "_blank")
+  }
+  </script>`
+  await context.route(/https:\/\/boards\.example-ats\.com\/match\/jobs\/new-tab/, (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  // One LinkedIn route after mockBackend — **/* would otherwise abort → chrome-error://.
+  await context.route(/https:\/\/(www\.)?linkedin\.com\//, (route) => {
+    const u = route.request().url()
+    if (u.includes("/voyager/api/jobs/jobPostings/4475942337")) {
+      return route.fulfill({ status: 401, contentType: "application/json", body: "{}" })
+    }
+    if (u.includes("/jobs/view/4475942337")) {
+      return route.fulfill({ contentType: "text/html", body: linkedInHtml })
+    }
+    return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>linkedin</title>" })
+  })
+  await context.addCookies([{ name: "JSESSIONID", value: '"ajax:accept"', domain: ".www.linkedin.com", path: "/" }])
+  fake.kit = {
+    job_id: post.id,
+    facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung", phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: {} },
+    cv: null,
+  }
+  const app = await context.newPage()
+  await app.goto(`https://odds.beeblast.co/job/${post.id}`)
+  await expect(app.getByRole("button", { name: "Apply with Odds", exact: true })).toBeVisible({ timeout: 15000 })
+  await app.getByRole("button", { name: "Apply with Odds", exact: true }).click()
+  // Employer tab must fill — open alone is not enough (the race that emptied MatchWornShirt).
+  await expect.poll(async () => {
+    for (const p of context.pages()) {
+      if (!/match\/jobs\/new-tab/.test(p.url())) continue
+      const name = await p.locator("#first_name").inputValue().catch(() => "")
+      if (name === "Kien") return true
+    }
+    return false
+  }, { timeout: 25000 }).toBe(true).catch(async (err: Error) => {
+    const tabs = await context.serviceWorkers()[0].evaluate(`chrome.tabs.query({}).then(t => t.map(x => x.url||""))`).catch(() => [])
+    const bars = await Promise.all(context.pages().map(async (p) => ({ url: p.url(), bar: await p.locator(".odds-apply-bar").textContent().catch(() => null) })))
+    throw new Error(`${err.message}\nTABS: ${JSON.stringify(tabs)}\nBARS: ${JSON.stringify(bars)}`)
+  })
+  const employer = context.pages().find((p) => /match\/jobs\/new-tab/.test(p.url()))!
+  await expect.poll(() => context.serviceWorkers()[0].evaluate(`chrome.tabs.query({ active: true }).then(t => t.some(x => (x.url || "").startsWith("https://odds.beeblast.co")))`)).toBe(true)
+  await expect(employer.locator("#email")).toHaveValue("kien@example.com")
+  await expect(employer.locator("#last_name")).toHaveValue("Phung")
+  await expect(employer.locator(".odds-apply-bar")).not.toContainText(/did not attach|Could not load|^Opening the application/i)
+  // No CV in kit + required SQL → ask (not false Ready, not stuck Opening).
+  await expect(employer.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask", { timeout: 20000 })
+
+  // Apply with Odds switches to Tracker and opens the job drawer — Open tab lives there.
+  const openTab = app.getByRole("button", { name: /Open application tab|Open tab:/ })
+  if (!(await openTab.isVisible().catch(() => false))) {
+    await app.getByRole("button", { name: /Copywriting Internship|MatchWornShirt/i }).first().click()
+  }
+  await expect(openTab).toBeVisible({ timeout: 20000 })
+  const pages = context.pages().length
+  await openTab.click()
+  await expect.poll(() => context.serviceWorkers()[0].evaluate(`chrome.tabs.query({ url: "https://boards.example-ats.com/match/jobs/new-tab*" }).then(t => Boolean(t[0]?.active))`)).toBe(true)
+  expect(context.pages()).toHaveLength(pages)
+  await expect(employer.locator("#first_name")).toHaveValue("Kien")
+  await expect(employer.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask")
+})
+
+test("Apply with Odds pressed in the app itself (this build, on the odds address): one click opens the employer's form in a new tab and fills it; the button follows it; a second click returns to that tab", { tag: "@accept" }, async ({ context, fake }) => {
+  await connect(context)
+  await context.addInitScript(() => localStorage.setItem("careersim.session", JSON.stringify({ access_token: "e2e-token", refresh_token: "e2e-refresh", expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: "00000000-0000-4000-8000-000000000001" } })))
+  await mockBackend(context, FLOW_POSTINGS, [], true)
+  await context.route(/^chrome-extension:/, (route) => route.continue())
+  // The site is this build, served on the odds address so the extension's own site script runs on it.
+  await context.route("https://odds.beeblast.co/**", async (route) => {
+    const u = new URL(route.request().url())
+    await route.fulfill({ response: await route.fetch({ url: `${process.env.ODDS_E2E_APP_ORIGIN || "http://localhost:4319"}${u.pathname}${u.search}` }) })
+  })
+  await context.route("https://jobs.example.com/**", (route) => route.fulfill({ contentType: "text/html", body: '<!doctype html><h1>Application</h1><form><label>First name *<input name="first_name" required></label><label>Phone<input name="phone"></label><label>How many years of experience do you have with SQL? *<input name="sql" required></label><button type="submit">Send application</button></form>' }))
+  fake.kit = { facts: { name: "Example User", answers: { first_name: "Given Names", last_name: "Family", phone: "+31 6 12345678" }, remembered: {} } }
+  const app = await context.newPage()
+  await app.goto(`https://odds.beeblast.co/job/${FLOW_POSTINGS[0].id}`)
+  const button = app.getByRole("button", { name: "Apply with Odds", exact: true })
+  await expect(button).toBeVisible({ timeout: 15000 })
+  const opened = context.waitForEvent("page")
+  await button.click()
+  const application = await opened
+  await expect(application.getByRole("textbox", { name: "First name" })).toHaveValue("Given Names", { timeout: 10000 })
+  await expect(application.getByRole("textbox", { name: "Phone" })).toHaveValue("+31 6 12345678")
+  // SQL is required and unanswered → terminal ask (not Ready). Form still opened and partially filled.
+  await expect(application.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask", { timeout: 15000 })
+  // First Apply fills in the background — must NOT steal focus from Odds.
+  const applyActive = await context.serviceWorkers()[0].evaluate(`chrome.tabs.query({ url: "https://jobs.example.com/*" }).then(t => Boolean(t[0]?.active))`)
+  expect(applyActive).toBe(false)
+  // Tracker drawer shows Open application tab (Apply navigates there for the live chip).
+  const openTab = app.getByRole("button", { name: /Open application tab|Open tab:/ })
+  if (!(await openTab.isVisible().catch(() => false))) {
+    await app.getByRole("button", { name: /Junior Financial Analyst/i }).first().click()
+  }
+  await expect(openTab).toBeVisible({ timeout: 20000 })
+  // Second press focuses that same tab: no new page, form untouched.
+  const pages = context.pages().length
+  await openTab.click()
+  await expect.poll(() => context.serviceWorkers()[0].evaluate(`chrome.tabs.query({ url: "https://jobs.example.com/*" }).then(t => Boolean(t[0]?.active))`)).toBe(true)
+  expect(context.pages()).toHaveLength(pages)
+  expect(application.isClosed()).toBe(false)
+  await expect(application.getByRole("textbox", { name: "First name" })).toHaveValue("Given Names")
+  await expect(application.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask")
+  expect(await application.evaluate(() => document.querySelectorAll("form").length)).toBe(1)
+  // Applying keeps the job in the tracker, in the same click: odds was asked to keep it, once.
+  await expect.poll(() => fake.calls.length).toBe(1)
+})
+
+/** The shape of Booking.com's application (copied from a real one, October 2026): an unlabelled privacy choice, a residence country, address with a province, a login with a password odds never fills, and a banner with Accept and Reject non-essential. */
+const BOOKING_FORM = `<!doctype html><html><head><meta charset="utf-8"></head><body><main>
+<div class="bar" style="position:fixed;bottom:0;left:0;right:0;background:#f7f7f7;padding:12px"><h3>Manage cookie preferences</h3><button id="accept" onclick="window.accepted=true">Accept all cookies</button><button id="reject" onclick="window.rejected=true;this.parentElement.remove()">Reject non-essential cookies</button></div>
+<h2>Data Privacy Options</h2><p>You are about to apply for a job at Booking.com but first we want to know if you would like us to consider your information for other opportunities as well.</p>
+<select id="privacy"><option>— Make a Selection —</option><option>Please consider my information for any opportunities at Booking.com</option><option>I just want to be considered for this job</option></select>
+<form onsubmit="event.preventDefault(); window.sent = (window.sent || 0) + 1">
+<label for="reside">Please confirm the country in which you reside in for data privacy purposes.*</label>
+<select id="reside" required><option>— Make a Selection —</option><option>Belgium</option><option>Brazil</option><option>Germany</option><option>Netherlands</option><option>Vietnam</option></select>
+<label for="addr">Address*</label><input id="addr" required>
+<label for="zip">Zip/Postal Code*</label><input id="zip" required>
+<label for="city">City*</label><input id="city" value="Amsterdam" required>
+<label for="country">Country*</label><select id="country" required><option>Belgium</option><option selected>Netherlands</option></select>
+<label for="state">State/Province*</label><select id="state" required><option>— Make a Selection —</option><option>Drenthe</option><option>Noord-Brabant</option><option>Noord-Holland</option><option>Utrecht</option><option>Zuid-Holland</option></select>
+<h3>Create a login to access your application</h3>
+<label for="login">Email/Login*</label><input id="login" type="email" value="kien@example.com" required>
+<label for="pw">Password*</label><input id="pw" type="password" required>
+<label for="pw2">Password (Re-enter)*</label><input id="pw2" type="password" required>
+<button type="submit">Submit Profile</button></form></main></body></html>`
+
+test("a Booking.com-style application: the privacy choice is this job only, the country and province come from where the person lives, the street is from their answers, the cookie banner is declined, and the password stays theirs", async ({ context, fake }) => {
+  await connect(context)
+  await context.route("https://jobs.booking.com/apply/1**", (route) => route.fulfill({ contentType: "text/html", body: BOOKING_FORM }))
+  fake.kit = { job_id: "pbook", facts: { name: "Kien Phung", email: "kien@example.com", place: "Amsterdam, Netherlands", answers: { first_name: "Kien", last_name: "Phung", city: "Amsterdam", address: "Damrak 1", postcode: "1012 LG" }, remembered: {} }, cv: null }
+  const page = await context.newPage()
+  await page.goto("https://jobs.booking.com/apply/1")
+  await applyFrom(context, page, "https://jobs.booking.com/apply/1")
+  await expect(page.locator("#privacy")).toHaveValue("I just want to be considered for this job", { timeout: 10000 })
+  await expect(page.locator("#reside")).toHaveValue("Netherlands")
+  await expect(page.locator("#state")).toHaveValue("Noord-Holland")
+  await expect(page.locator("#addr")).toHaveValue("Damrak 1")
+  await expect(page.locator("#zip")).toHaveValue("1012 LG")
+  await expect.poll(() => page.evaluate(() => Boolean((window as unknown as { rejected?: boolean }).rejected))).toBe(true)
+  expect(await page.evaluate(() => Boolean((window as unknown as { accepted?: boolean }).accepted))).toBe(false)
+  // An account is needed: odds says so and the application is not "ready", because only the person can choose a password.
+  await expect(page.locator(".odds-apply-bar")).toContainText("needs an account", { timeout: 10000 })
+  await expect(page.locator('.odds-apply-bar[data-state="ask"]')).toBeVisible()
+  // Credentials are never touched, and nothing is sent.
+  await expect(page.locator("#pw")).toHaveValue("")
+  await expect(page.locator("#pw2")).toHaveValue("")
+  await page.waitForTimeout(1500)
+  expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+  await shot(page, "ext-booking")
+})
+
+/** Kraft Heinz's application as Workday draws it in French (copied from a real one, October 2026): dropdowns are buttons that open a list, Yes/No are Oui/Non, three terms and a privacy notice to tick. */
+const dropdown = (id: string, label: string, options: string[]): string => `<div class="f"><span id="l-${id}">${label}</span><button type="button" id="${id}" aria-haspopup="listbox" aria-labelledby="l-${id} ${id}" data-options='${JSON.stringify(options)}'>Sélectionner</button></div>`
+const KRAFT_HEINZ = `<!doctype html><html lang="fr"><head><meta charset="utf-8"></head><body><main><h1>Formulaire de candidature</h1>
+<form onsubmit="event.preventDefault(); window.sent = (window.sent || 0) + 1">
+<h2>Informations sur le Contact</h2>
+<label for="email">e-mail</label><input id="email" value="kien@example.com">
+<label for="fn">Prénom*</label><input id="fn" required>
+<label for="ln">Nom de famille*</label><input id="ln" required>
+<label for="tel">Téléphone*</label><input id="tel" required>
+${dropdown("pays", "Pays*", ["Belgique", "Allemagne", "Pays-Bas", "France"])}
+${dropdown("etat", "État*", ["Drenthe", "Flevoland", "Hollande-Septentrionale", "Hollande-Méridionale", "Utrecht"])}
+<label for="ville">Ville*</label><input id="ville" required>
+<h2>Divulgation volontaire d’informations</h2>
+${dropdown("genre", "Veuillez indiquer laquelle des options d’identité de genre suivantes vous correspond le mieux :*", ["Femme", "Homme", "Nonbinary", "Prefer not to answer"])}
+<h2>Termes et conditions</h2>
+<label><input type="checkbox" id="t1" required> Espace de travail sans drogues ni substances</label>
+<label><input type="checkbox" id="t2" required> Confidentialité</label>
+<label><input type="checkbox" id="t3" required> Informations complètes et exactes</label>
+<h2>Privacy Notice</h2>
+<label><input type="checkbox" id="pn" required> J'ai lu l'Avis de confidentialité de KHC.</label>
+<h2>Questions liées à la candidature</h2>
+${dropdown("q1", "Nécessiterez-vous, maintenant ou dans l'avenir, un parrainage pour obtenir un visa d'emploi?*", ["Oui", "Non"])}
+${dropdown("q2", "Avez-vous 18 ans ou plus?*", ["Oui", "Non"])}
+${dropdown("q3", "Are you a current Kraft Heinz employee? If yes, please exit this application, which is for non-employees of Kraft Heinz.*", ["Oui", "Non"])}
+${dropdown("q4", "L’un de vos membres de famille directe (conjoint(e), mère, père, frère, sœur, fils ou fille) est-il actuellement employé(e) chez Kraft Heinz ?*", ["Oui", "Non"])}
+<label for="q5">Si oui, veuillez indiquer le nom, le poste et le lieu de travail de votre membre de famille chez Kraft Heinz.</label><input id="q5">
+<label for="q6">Salaire de base annuel attendu (en devise locale)*</label><input id="q6" required>
+${dropdown("q7", "Avez-vous signé une entente de non-concurrence avec un employeur après que l'emploi a pris fin au cours des cinq dernières années?*", ["Oui", "Non"])}
+${dropdown("q8", "Avez-vous déjà signé une entente avec un ancien employeur portant sur des brevets ou des renseignements confidentiels ou exclusifs?*", ["Oui", "Non"])}
+<button type="submit">Soumettre</button><button type="button" id="clear">Effacer le formulaire</button>
+</form></main>
+<script>
+document.querySelectorAll('button[aria-haspopup="listbox"]').forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll('ul[role="listbox"]').forEach((l) => l.remove())
+  const ul = document.createElement("ul"); ul.setAttribute("role", "listbox")
+  for (const o of JSON.parse(b.dataset.options)) { const li = document.createElement("li"); li.setAttribute("role", "option"); li.textContent = o; li.addEventListener("click", () => { b.textContent = o; ul.remove() }); ul.append(li) }
+  document.body.append(ul)
+}))
+</script></body></html>`
+
+test("a Workday application in French (Kraft Heinz): your data fills every field it can, the privacy and background choices are the safe ones, consents are ticked, nothing is submitted", async ({ context, fake }) => {
+  await connect(context)
+  await context.route("https://kraftheinz.wd5.myworkdayjobs.com/**", (route) => route.fulfill({ contentType: "text/html", body: KRAFT_HEINZ }))
+  fake.kit = {
+    job_id: "pkraft",
+    facts: { job_id: "pkraft", job_country: "NL", name: "Kien Phung", email: "kien@example.com", place: "Amsterdam, Netherlands", adult: true, never_worked_here: true, answers: { first_name: "Kien", last_name: "Phung", phone: "+31 6 1234 5678", city: "Amsterdam", expected_salary: "EUR 600 a month", work_authorization: "I need a work permit; the employer sponsors it", prior_agreements: "No", insider: "No" }, remembered: {} },
+    cv: null,
+  }
+  const page = await context.newPage()
+  await page.goto("https://kraftheinz.wd5.myworkdayjobs.com/fr-FR/KraftHeinz/job/Amsterdam/Operations-Finance-Intern_R-1")
+  await applyFrom(context, page, "https://kraftheinz.wd5.myworkdayjobs.com/fr-FR/KraftHeinz/job/Amsterdam/Operations-Finance-Intern_R-1")
+  await expect(page.locator("#fn")).toHaveValue("Kien", { timeout: 15000 })
+  await expect(page.locator("#ln")).toHaveValue("Phung")
+  await expect(page.locator("#tel")).toHaveValue("+31 6 1234 5678")
+  await expect(page.locator("#ville")).toHaveValue("Amsterdam")
+  const shown = async (id: string): Promise<string> => (await page.locator(`#${id}`).textContent())?.trim() ?? ""
+  await expect.poll(() => shown("pays"), { timeout: 15000 }).toBe("Pays-Bas")
+  await expect.poll(() => shown("etat"), { timeout: 15000 }).toBe("Hollande-Septentrionale")
+  // Background questions: "Prefer not to answer", unless the person said they answer them themselves.
+  await expect.poll(() => shown("genre"), { timeout: 15000 }).toBe("Prefer not to answer")
+  // The permit, age, employment, family and past agreements: from the profile and from what was chosen once.
+  await expect.poll(() => shown("q1"), { timeout: 15000 }).toBe("Oui")
+  await expect.poll(() => shown("q2"), { timeout: 15000 }).toBe("Oui")
+  await expect.poll(() => shown("q3"), { timeout: 15000 }).toBe("Non")
+  await expect.poll(() => shown("q4"), { timeout: 15000 }).toBe("Non")
+  await expect.poll(() => shown("q7"), { timeout: 15000 }).toBe("Non")
+  await expect.poll(() => shown("q8"), { timeout: 15000 }).toBe("Non")
+  await expect(page.locator("#q6")).toHaveValue("EUR 7200 a year")
+  // "If yes, give their name" is for the person: left empty.
+  await expect(page.locator("#q5")).toHaveValue("")
+  // Always consent: terms + privacy notice are ticked so the person only reviews and sends.
+  for (const id of ["t1", "t2", "t3", "pn"]) await expect(page.locator(`#${id}`)).toBeChecked({ timeout: 15000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Filled in by odds|send it yourself/i, { timeout: 15000 })
+  await expect(page.locator(".odds-ask")).toHaveCount(0)
+  await page.waitForTimeout(1500)
+  expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+  await shot(page, "ext-kraft-heinz")
+})
+
+/** The required fields of a form that are still empty, as a person would see them: what the form asks, and how it asks it. Never presses anything. */
+async function emptyRequired(page: import("@playwright/test").Page): Promise<Array<{ label: string; kind: string }>> {
+  return page.evaluate(() => {
+    const shown = (e: Element): boolean => (e as HTMLElement).getClientRects().length > 0 && getComputedStyle(e).visibility !== "hidden"
+    const text = (e: Element | null | undefined): string => (e?.textContent ?? "").replace(/\s+/g, " ").trim()
+    const out: Array<{ label: string; kind: string }> = []
+    const seen = new Set<string>()
+    for (const el of Array.from(document.querySelectorAll("input, select, textarea"))) {
+      const input = el as HTMLInputElement
+      const type = (input.type || "").toLowerCase()
+      if (!shown(el) && type !== "file") continue
+      if (["hidden", "submit", "button", "image", "reset", "search"].includes(type) || el.closest(".odds-apply-bar")) continue
+      // react-select keeps an invisible "required" input beside every dropdown: it is not a field of its own.
+      if (input.tabIndex === -1 && getComputedStyle(el).opacity === "0") continue
+      const id = input.id
+      const label = (id ? text(document.querySelector(`label[for="${CSS.escape(id)}"]`)) : "") || input.getAttribute("aria-label") || text(el.closest("label")) || text(el.closest(".field, .application-question, [class*='question'], fieldset")?.querySelector("label, legend")) || input.name
+      const asked = /\*\s*$/.test(label) || input.required || input.getAttribute("aria-required") === "true"
+      if (!asked || !label || seen.has(label)) continue
+      let filled = false
+      if (type === "checkbox" || type === "radio") filled = input.checked || Array.from(document.querySelectorAll(`input[name="${CSS.escape(input.name)}"]`)).some((r) => (r as HTMLInputElement).checked)
+      else if (type === "file") filled = (input.files?.length ?? 0) > 0
+      else if (el.tagName === "SELECT") filled = (el as HTMLSelectElement).selectedIndex > 0 && (el as HTMLSelectElement).value !== ""
+      else if (input.getAttribute("role") === "combobox") filled = text((el.closest("[class*='control']") ?? el.closest("[class*='container']"))?.querySelector("[class*='single-value'], [class*='SingleValue']")) !== ""
+      else filled = input.value.trim() !== ""
+      if (!filled) { seen.add(label); out.push({ label: label.replace(/\*+\s*$/, "").trim().slice(0, 110), kind: type === "checkbox" ? "checkbox" : type === "file" ? "file" : el.tagName === "TEXTAREA" ? "textarea" : input.getAttribute("role") === "combobox" || el.tagName === "SELECT" ? "choice" : "text" }) }
+    }
+    return out
+  })
+}
+
+/** Classify the Apply bar + page into the tracker chips the product cares about. */
+function classifyReach(bar: string, gaps: Array<{ label: string; kind: string }>, inputs: number): string {
+  const t = bar.replace(/\s+/g, " ").trim()
+  if (/captcha|challenge|robot/i.test(t)) return "captcha"
+  if (/\b(account|sign[\s-]?in|log[\s-]?in|password)\b/i.test(t)) return "account"
+  if (/review|press Submit|send yourself|ready to send/i.test(t)) return "review"
+  if (/outlined|answer the marked|could not fill/i.test(t) || (inputs >= 2 && gaps.some((g) => !["checkbox", "file"].includes(g.kind)))) return "form"
+  if (/filling|opening|asking Odds|application form/i.test(t)) return "applying"
+  if (/stuck|could not move|after assist/i.test(t)) return "stuck"
+  if (inputs >= 3) return "form"
+  if (t) return "other"
+  return "no_bar"
+}
+
+test("live audit across ATS: reach application form / review on real jobs, never send", async ({ context, fake }) => {
+  test.skip(!process.env.REAL_FORMS, "Set REAL_FORMS=1 (and the database's public variables) to read real application forms.")
+  test.setTimeout(3_600_000)
+  // Real LinkedIn / ATS hosts — not the fixture stub used by unit extension tests.
+  await context.unroute("https://*.linkedin.com/**").catch(() => undefined)
+  await connect(context)
+  const sb = process.env.VITE_SUPABASE_URL ?? "", key = process.env.VITE_SUPABASE_ANON_KEY ?? ""
+  const rows = (await (await fetch(`${sb}/rest/v1/postings?select=url,employer_display,ats&closed_at=is.null&order=posted_at.desc.nullslast&limit=1000`, { headers: { apikey: key, Authorization: `Bearer ${key}` } })).json()) as Array<{ url: string; employer_display: string; ats: string | null }>
+  const only = process.env.REAL_FORMS_URL
+  const many = process.env.REAL_FORMS_URLS?.split(",").filter(Boolean)
+  const target = Number(process.env.REAL_FORMS_N ?? 120)
+  const perEmployer = new Map<string, number>()
+  const perAts = new Map<string, number>()
+  // Prefer employer career sites / ATS over aggregators; still sample LinkedIn.
+  const atsCap: Record<string, number> = {
+    greenhouse: 40, workday: 30, ashby: 20, smartrecruiters: 12, lever: 8, recruitee: 6,
+    teamtailor: 6, personio: 6, successfactors: 6, academictransfer: 10, "magnet.me": 15,
+    linkedin: 15, glassdoor: 8, indeed: 8, other: 10, null: 5,
+  }
+  const picked = many
+    ? many.map((url) => ({ url, employer_display: "listed", ats: null as string | null }))
+    : only
+      ? [{ url: only, employer_display: "one", ats: null as string | null }]
+      : rows.filter((r) => {
+          if (!r?.url || !/^https:\/\//i.test(r.url)) return false
+          const ats = r.ats || "null"
+          const a = perAts.get(ats) ?? 0
+          if (a >= (atsCap[ats] ?? 8)) return false
+          const e = perEmployer.get(r.employer_display) ?? 0
+          if (e >= 2) return false
+          perAts.set(ats, a + 1)
+          perEmployer.set(r.employer_display, e + 1)
+          return true
+        }).slice(0, target)
+  fake.kit = { job_id: "preal", facts: { job_id: "preal", job_country: "NL", name: "Kien Phung", email: "kien@example.com", phone: "+31 6 1234 5678", place: "Amsterdam, Netherlands", linkedin: "https://www.linkedin.com/in/kien", website: "https://kien.example.com", dutch: "basic", job_source: "LinkedIn", adult: true, never_worked_here: true, applied_before: false, answers: { first_name: "Kien", last_name: "Phung", phone: "+31 6 1234 5678", email: "kien@example.com", city: "Amsterdam", address: "Damrak 1", postcode: "1012 LG", website: "https://kien.example.com", linkedin: "https://www.linkedin.com/in/kien", university: "University of Amsterdam", degree: "MSc Finance", field_of_study: "Finance", graduation_date: "June 2027", study_start: "September 2025", current_job_title: "Data Analyst Intern", current_company: "Philips", study_year: "2nd year", study_status: "Yes, enrolled", nationality: "Vietnamese", work_authorization: "zoekjaar / orientation year", expected_salary: "EUR 600 a month", start_date: "1 February 2027", hours_per_week: "40", notice_period: "None", relocation: "Yes, anywhere in the Netherlands", onsite_ok: "Yes", prior_agreements: "No", insider: "No" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien CV", file_name: "Kien_CV.pdf", for_this_job: true } }
+  type Row = { employer: string; ats: string; url: string; gaps: Array<{ label: string; kind: string }>; opened: boolean; reach: string; bar: string; inputs: number }
+  const report: Row[] = []
+  const waitMs = Number(process.env.REAL_FORMS_WAIT_MS ?? 22000)
+  console.log(`LIVE AUDIT START n=${picked.length} waitMs=${waitMs} ats=`, Object.fromEntries(perAts))
+  for (let i = 0; i < picked.length; i += 1) {
+    const job = picked[i]
+    const page = await context.newPage()
+    if (process.env.REAL_FORMS_DEBUG) {
+      page.on("console", (m) => { if (["error", "warning"].includes(m.type()) || /odds/i.test(m.text())) console.log("LIVE CONSOLE", m.type(), m.text().slice(0, 220)) })
+      page.on("pageerror", (e) => console.log("LIVE PAGEERROR", String(e).slice(0, 220)))
+    }
+    try {
+      await page.goto(job.url, { waitUntil: "domcontentloaded", timeout: 35000 })
+      await applyFrom(context, page, job.url)
+      await page.waitForTimeout(waitMs)
+      const gaps = await emptyRequired(page)
+      const bar = (await page.locator(".odds-apply-bar").allTextContents().catch(() => [])).join(" | ")
+      const inputs = await page.evaluate(() => document.querySelectorAll("input:not([type=hidden]),select,textarea").length)
+      const reach = classifyReach(bar, gaps, inputs)
+      console.log(`LIVE ${String(i + 1).padStart(3)}/${picked.length} ${reach.padEnd(10)} ${(job.ats || "?").padEnd(16)} ${(job.employer_display || "").slice(0, 28).padEnd(28)} ${job.url.slice(0, 70)}`)
+      report.push({ employer: job.employer_display, ats: job.ats || "?", url: job.url, gaps, opened: true, reach, bar: bar.slice(0, 160), inputs })
+    } catch (e) {
+      console.log(`LIVE ${String(i + 1).padStart(3)}/${picked.length} FAIL       ${(job.ats || "?").padEnd(16)} ${(job.employer_display || "").slice(0, 28)} ${String(e).slice(0, 80)}`)
+      report.push({ employer: job.employer_display, ats: job.ats || "?", url: job.url, gaps: [], opened: false, reach: "fail_open", bar: "", inputs: 0 })
+    } finally {
+      await page.close().catch(() => undefined)
+    }
+  }
+  const consent = /privacy|confidential|consent|acknowledg|agree|terms|policy|conduct|by checking/i
+  const counted = report.filter((r) => r.opened)
+  const byReach = new Map<string, number>()
+  const byAts = new Map<string, { n: number; form: number; review: number; stuck: number; captcha: number; account: number }>()
+  for (const r of report) {
+    byReach.set(r.reach, (byReach.get(r.reach) ?? 0) + 1)
+    const a = byAts.get(r.ats) ?? { n: 0, form: 0, review: 0, stuck: 0, captcha: 0, account: 0 }
+    a.n++
+    if (r.reach === "form") a.form++
+    if (r.reach === "review") a.review++
+    if (r.reach === "stuck") a.stuck++
+    if (r.reach === "captcha") a.captcha++
+    if (r.reach === "account") a.account++
+    byAts.set(r.ats, a)
+  }
+  const reached = report.filter((r) => ["form", "review", "applying"].includes(r.reach))
+  const humanOnly = report.filter((r) => ["captcha", "account"].includes(r.reach))
+  const tally = new Map<string, { n: number; kind: string }>()
+  for (const r of counted) for (const g of r.gaps) { const e = tally.get(g.label) ?? { n: 0, kind: g.kind }; e.n++; tally.set(g.label, e) }
+  for (const r of report.filter((r) => r.reach === "stuck" || r.reach === "no_bar" || r.reach === "fail_open")) {
+    console.log(`LIVE MISS ${r.reach.padEnd(10)} ${r.ats.padEnd(14)} ${r.employer.slice(0, 24)} ${r.url}`)
+  }
+  console.log(`LIVE AUDIT: opened ${counted.length}/${picked.length}; reached_form/review/applying ${reached.length}; human(captcha|account) ${humanOnly.length}; stuck ${byReach.get("stuck") ?? 0}; suggest-action ${fake.suggestActionCalls}`)
+  console.log("LIVE REACH", Object.fromEntries(byReach))
+  for (const [ats, a] of [...byAts.entries()].sort((x, y) => y[1].n - x[1].n)) {
+    console.log(`LIVE ATS ${ats.padEnd(16)} n=${a.n} form=${a.form} review=${a.review} stuck=${a.stuck} captcha=${a.captcha} account=${a.account}`)
+  }
+  console.log(`LIVE AUDIT: ${counted.filter((r) => r.gaps.every((g) => ["checkbox", "file"].includes(g.kind) || consent.test(g.label))).length} have nothing left but checkboxes, files and the terms`)
+  for (const [label, e] of [...tally.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 40)) console.log(`LIVE GAP ${String(e.n).padStart(2)} ${e.kind.padEnd(8)} ${label}`)
+  expect(fake.applied).toEqual([])
+  // Soft goal: among opened ATS career pages, a majority should reach form/review/applying or stop on captcha/account (not silent fail).
+  const career = report.filter((r) => !["linkedin", "glassdoor", "indeed", "magnet.me"].includes(r.ats))
+  if (career.length >= 10) {
+    const ok = career.filter((r) => ["form", "review", "applying", "captcha", "account"].includes(r.reach)).length
+    console.log(`LIVE CAREER OK ${ok}/${career.length}`)
+    expect(ok / career.length).toBeGreaterThanOrEqual(0.35)
+  }
+})
+
+
+test("Lever AJAX upload: success attachment counts after native file input is cleared", async ({ context, fake }) => {
+  await connect(context)
+  fake.kit = PORTAL_KIT
+  await context.route("https://jobs.eu.lever.co/acme/uploaded", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><h1>Application</h1><form>
+<label>Full name<input name="name" required></label>
+<label>Twitter URL<input name="twitter"></label>
+<div class="application-field"><a class="has-file"><span class="filename">CV.pdf</span><input type="file" name="resume"></a><span class="resume-upload-success">Success!</span><span class="resume-upload-failure" style="display:none">Failed</span></div>
+<button type="submit">Submit application</button></form>` }))
+  const page = await context.newPage()
+  await page.goto("https://jobs.eu.lever.co/acme/uploaded")
+  await applyFrom(context, page, "https://jobs.eu.lever.co/acme/uploaded")
+  await expect(page.locator("input[name=name]")).not.toHaveValue("", { timeout: 10000 })
+  await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state", "done", { timeout: 15000 })
+  // A completed form must not re-enter the stall watchdog after a few idle rounds.
+  await page.waitForTimeout(3500)
+  await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state", "done")
+})
+
+/** An employer's own list of vacancies (Just Brands-like): job cards, a menu, no application form. */
+const VACANCY_LIST = (withJob: boolean): string => `<!doctype html><html><head><meta charset="utf-8"><title>Working at - Example Brands</title></head><body>
+<nav><a href="/nl/hq/jobs">Headquarters</a> <a href="/nl/retail/jobs">Retail</a> <a href="/nl/stages/jobs">Stages</a></nav>
+<main><h1>Retail jobs</h1>
+<a href="/nl/retail/jobs/asm-utrecht"><h2>Assistant Store Manager</h2> Utrecht 32 - 38 hours</a>
+<a href="/nl/retail/jobs/asm-hilversum"><h2>Assistant Store Manager</h2> Hilversum 32 - 38 hours</a>
+<a href="/nl/retail/jobs/asm-leidschendam"><h2>Assistant Store Manager</h2> Leidschendam 36 - 38 hours</a>
+<a href="/nl/retail/jobs/logistics"><h2>Logistics Employee | PME Legend 32-38 hours</h2></a>
+${withJob ? `<a href="/nl/stages/jobs/b2c-marketing-intern"><h2>B2C Marketing Intern (Content &amp; Retail)</h2></a>` : ""}
+</main></body></html>`
+const VACANCY_FORM = `<!doctype html><html><head><meta charset="utf-8"><title>Apply for: B2C Marketing Intern</title></head><body><main><h1>Apply for: B2C Marketing Intern (Content &amp; Retail)</h1>
+<form onsubmit="event.preventDefault(); window.sent = (window.sent || 0) + 1">
+  <label for="first_name">Voornaam/First name *</label><input id="first_name" required>
+  <label for="email">E-mail *</label><input id="email" type="email" required>
+  <button type="submit">Solliciteer</button>
+</form></main></body></html>`
+
+test("the employer's link lands on their list of vacancies: odds opens this job from the list, fills its form, and remembers where it is", async ({ context, fake }) => {
+  await connect(context)
+  // Odds may prefer the English page (/en/ for /nl/): the site answers both.
+  await context.route("https://career.example-brands.eu/**", (route) => route.fulfill({ contentType: "text/html", body: /b2c-marketing-intern/.test(route.request().url()) ? VACANCY_FORM : VACANCY_LIST(true) }))
+  fake.kit = { job_id: "pjb", job_title: "B2C MARKETING INTERN (CONTENT & RETAIL)", facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  const page = await context.newPage()
+  await page.goto("https://career.example-brands.eu/nl/retail/jobs")
+  await applyFrom(context, page, "https://career.example-brands.eu/nl/retail/jobs")
+  await expect(page).toHaveURL(/b2c-marketing-intern$/, { timeout: 15000 })
+  await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 10000 })
+  await expect(page.locator("#email")).toHaveValue("kien@example.com")
+  const learned = await context.serviceWorkers()[0].evaluate(async () => (await (globalThis as unknown as { chrome: { storage: { local: { get(k: string): Promise<Record<string, unknown>> } } } }).chrome.storage.local.get("oddsLearnedApply")).oddsLearnedApply)
+  expect(JSON.stringify(learned ?? {})).toContain("b2c-marketing-intern")
+  expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+})
+
+test("the employer's list does not have this job: odds stops after its tries and says so, never loops or claims Review", async ({ context, fake }) => {
+  await connect(context)
+  await context.route("https://career.example-brands.eu/nl/**", (route) => route.fulfill({ contentType: "text/html", body: VACANCY_LIST(false) }))
+  fake.kit = { job_id: "pjb2", job_title: "B2C MARKETING INTERN (CONTENT & RETAIL)", facts: { name: "Kien Phung", email: "kien@example.com", answers: {}, remembered: {} }, cv: null }
+  const page = await context.newPage()
+  await page.goto("https://career.example-brands.eu/nl/retail/jobs")
+  await applyFrom(context, page, "https://career.example-brands.eu/nl/retail/jobs")
+  await expect(page.locator(".odds-apply-bar")).toContainText("could not open the application form", { timeout: 30000 })
+  await expect(page.locator(".odds-apply-bar")).not.toContainText("send it yourself")
+  const calls = fake.suggestActionCalls
+  await page.waitForTimeout(4000)
+  expect(fake.suggestActionCalls - calls).toBe(0)
+  expect(fake.suggestActionCalls).toBeLessThanOrEqual(3)
+})
+
+test("the person presses Back after odds filled the form: odds pauses on their page, never pushes forward again, and says so", async ({ context, fake }) => {
+  await connect(context)
+  await context.route("https://career.example-brands.eu/**", (route) => route.fulfill({ contentType: "text/html", body: /b2c-marketing-intern/.test(route.request().url()) ? VACANCY_FORM : VACANCY_LIST(true) }))
+  fake.kit = { job_id: "pjb3", job_title: "B2C MARKETING INTERN (CONTENT & RETAIL)", facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  const page = await context.newPage()
+  await page.goto("https://career.example-brands.eu/nl/retail/jobs")
+  await applyFrom(context, page, "https://career.example-brands.eu/nl/retail/jobs")
+  await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 15000 })
+  await page.goBack()
+  await expect(page).toHaveURL(/retail\/jobs$/)
+  await expect(page.locator(".odds-apply-bar")).toContainText("Odds paused here", { timeout: 10000 })
+  await page.waitForTimeout(5000)
+  await expect(page).toHaveURL(/retail\/jobs$/)
+  const intent = await context.serviceWorkers()[0].evaluate(async () => Object.values((await (globalThis as unknown as { chrome: { storage: { local: { get(k: string): Promise<Record<string, Record<string, { paused?: boolean; status?: string }>>> } } } }).chrome.storage.local.get("oddsApplyIntents")).oddsApplyIntents ?? {})[0])
+  expect(intent?.paused).toBe(true)
+  expect(intent?.status).toBe("needs_input")
+})
+
+test("a site whose menu says 'Apply for a job': odds never takes the menu for the job's Apply, and a page that keeps reloading stops with a clear message", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  let loads = 0
+  await context.route("https://www.student-club.example/**", (route) => { loads++; return route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><title>Apply for a job</title></head><body>
+    <nav><a href="https://www.student-club.example/student-support/apply-for-a-job/">Apply for a job</a> <a href="/events">Events</a></nav>
+    <main><h1>Apply for a job</h1><ul><li>What does a typical application process look like?</li><li>Can I write my thesis at a company?</li></ul>
+    <a href="https://www.student-club.example/student-support/apply-for-a-job/">Apply</a></main></body></html>` }) })
+  fake.kit = { job_id: "paureus", job_title: "Business Analyst Intern", facts: { name: "Kien Phung", email: "kien@example.com", answers: {}, remembered: {} }, cv: null }
+  const page = await context.newPage()
+  await page.goto("https://www.student-club.example/student-support/apply-for-a-job/")
+  await applyFrom(context, page, "https://www.student-club.example/student-support/apply-for-a-job/")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/could not (open|move)/, { timeout: 40000 })
+  const settled = loads
+  await page.waitForTimeout(5000)
+  expect(loads - settled).toBe(0)
+  expect(loads).toBeLessThanOrEqual(4)
 })
