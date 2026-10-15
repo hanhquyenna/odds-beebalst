@@ -1,4 +1,4 @@
-// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts and apply-form.ts (sources 3b17128cf3fa51a4). Do not edit.
+// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts and apply-form.ts (sources 6d504130585db3ab). Do not edit.
 (() => {
   var __defProp = Object.defineProperty;
   var __returnValue = (v) => v;
@@ -21,9 +21,15 @@
     answerText: () => answerText,
     applicationQuestionKey: () => applicationQuestionKey,
     chooseOption: () => chooseOption,
+    demographicChoice: () => demographicChoice,
+    graduationParts: () => graduationParts,
     nationalNumber: () => nationalNumber,
+    nlProvinceOf: () => nlProvinceOf,
+    preferenceChoice: () => preferenceChoice,
+    privacyChoice: () => privacyChoice,
     questionKey: () => questionKey,
     questionText: () => questionText,
+    residenceCountry: () => residenceCountry,
     valueFor: () => valueFor
   });
   function questionKey(label) {
@@ -48,48 +54,166 @@
     const t = phone.replace(/[^\d+]/g, "");
     return t.startsWith("+") ? t.replace(/^\+(31|32|33|34|39|44|49|1|351|353|36|48|45|46|47|41|43|30|420|421|90|91|84|86|62|60|63|65|66|55|52|27|234|20|7)/, "").replace(/^0/, "") : t.replace(/^0/, "");
   }
+  var NL_PROVINCE = {
+    "North Holland": ["amsterdam", "haarlem", "zaandam", "alkmaar", "hilversum", "amstelveen", "purmerend", "hoorn", "heerhugowaard", "haarlemmermeer", "schiphol", "diemen"],
+    "South Holland": ["rotterdam", "the hague", "den haag", "s gravenhage", "leiden", "delft", "dordrecht", "zoetermeer", "gouda", "schiedam", "alphen aan den rijn", "wassenaar"],
+    Utrecht: ["utrecht", "amersfoort", "zeist", "nieuwegein", "veenendaal", "houten"],
+    "North Brabant": ["eindhoven", "tilburg", "breda", "s hertogenbosch", "den bosch", "helmond", "oss", "veldhoven", "roosendaal", "bergen op zoom"],
+    Gelderland: ["nijmegen", "arnhem", "apeldoorn", "ede", "wageningen", "doetinchem", "zutphen"],
+    Limburg: ["maastricht", "heerlen", "venlo", "sittard", "geleen", "roermond"],
+    Groningen: ["groningen"],
+    Overijssel: ["zwolle", "enschede", "deventer", "hengelo", "almelo"],
+    Flevoland: ["almere", "lelystad"],
+    Friesland: ["leeuwarden", "drachten", "heerenveen"],
+    Drenthe: ["assen", "emmen", "hoogeveen"],
+    Zeeland: ["middelburg", "vlissingen", "goes"]
+  };
+  function nlProvinceOf(city) {
+    const key = questionKey(city);
+    return Object.entries(NL_PROVINCE).find(([, places]) => places.includes(key))?.[0] ?? null;
+  }
+  var NL_NAME = /^(nl|nld|the netherlands|netherlands|nederland|holland)$/i;
+  function residenceCountry(facts) {
+    const kept = facts.answers?.country?.trim();
+    if (kept)
+      return kept;
+    const parts = (facts.place ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+    const last = parts[parts.length - 1];
+    if (parts.length > 1 && last)
+      return NL_NAME.test(last) ? "Netherlands" : last;
+    const city = facts.answers?.city?.trim() || parts[0];
+    return city && nlProvinceOf(city) ? "Netherlands" : null;
+  }
+  function residenceProvince(facts) {
+    const country = residenceCountry(facts);
+    if (country && !NL_NAME.test(country))
+      return null;
+    const city = facts.answers?.city?.trim() || (facts.place ?? "").split(",")[0]?.trim();
+    return city ? nlProvinceOf(city) : null;
+  }
+  function privacyChoice(options) {
+    const only = /\b(just|only|solely|merely)\b.*\b(this|the)\b.*\b(job|position|role|vacancy|opening|application)\b|\b(this|the) (job|position|role|vacancy|opening) only\b|\bonly for this\b|\bnot (for )?(any )?(other|future)\b/i;
+    return options.findIndex((o) => only.test(o));
+  }
+  var MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  function graduationParts(text) {
+    const t = text.trim();
+    const year = /\b(20\d{2})\b/.exec(t)?.[1] ?? null;
+    const named = MONTHS.find((m) => new RegExp(`\\b${m.slice(0, 3)}`, "i").test(t));
+    const numeric = /\b(0?[1-9]|1[0-2])\s*[/.-]\s*20\d{2}\b/.exec(t)?.[1];
+    return { month: named ?? (numeric ? MONTHS[Number(numeric) - 1] : null), year };
+  }
+  function salaryFor(raw, key) {
+    const text = (raw ?? "").trim();
+    if (!text)
+      return null;
+    const amount = Number(digits(text));
+    const monthly = /\b(month|monthly|maand|mo)\b|\/\s*m\b/i.test(text);
+    const yearly = /\b(year|yearly|annual|annually|annum|jaar|yr)\b|\bp\.?a\.?\b/i.test(text);
+    const wantsYear = /\b(annual|annually|per year|yearly|a year|jaarsalaris|per jaar|jaarlijks|total compensation|annuel|annuelle|par an|jahres\w*|jahrlich)\b/.test(key);
+    const wantsMonth = /\b(monthly|per month|a month|per maand|maandsalaris|maandelijks|mensuel|mensuelle|par mois|monatlich)\b/.test(key);
+    if (!Number.isFinite(amount) || amount <= 0)
+      return text;
+    const currency = /(€|eur\b|euro)/i.test(text) ? "EUR" : /(\$|usd)/i.test(text) ? "USD" : /(£|gbp)/i.test(text) ? "GBP" : "EUR";
+    if (wantsYear && monthly && !yearly)
+      return `${currency} ${amount * 12} a year`;
+    if (wantsMonth && yearly && !monthly)
+      return `${currency} ${Math.round(amount / 12)} a month`;
+    return text;
+  }
+  var DECLINE = /^(decline|prefer not|i (do not|don'?t) wish|i'?d rather not|rather not|choose not|not (to )?(say|disclose|answer)|no answer)|\bdecline to (self[- ]identify|answer|state)\b|\bprefer not to (say|answer|disclose)\b/i;
+  var DEMOGRAPHIC = /\b(gender|genre|geslacht|geschlecht|race|ethnic\w*|veteran|pronouns?|how old are you|age (group|range|bracket)|lgbt\w*|sexual orientation|transgender|disabilit\w*|health condition|neurodiver\w*|under[- ]represented|caregiving|religio\w*)\b/i;
+  function preferenceChoice(label, options) {
+    const key = questionKey(label);
+    if (!/\b(prefer|preferred|favou?rite|if you had to choose|which of the following)\b/.test(key))
+      return -1;
+    if (/\b(visa|sponsor\w*|authori[sz]\w*|permit|disabilit\w*|gender|race|ethnic\w*|veteran|religio\w*|salary|compensation|relocat\w*|certif\w*|agree|consent)\b/.test(key))
+      return -1;
+    return options.findIndex((o) => o.trim() !== "" && !/^(select|choose|selecteer|make a selection|pick|— )/i.test(o.trim()) && !/^[—–-]/.test(o.trim()));
+  }
+  function demographicChoice(label, options, facts) {
+    if (/^i answer/i.test((facts.answers?.demographics ?? "").trim()) || !DEMOGRAPHIC.test(label))
+      return -1;
+    return options.findIndex((o) => DECLINE.test(o.trim()));
+  }
   function answerText(label, facts) {
     const key = questionKey(label);
     const a = facts.answers ?? {};
     const remembered = facts.remembered?.[applicationQuestionKey(label, facts.job_id)];
     const pick = (v) => v && v.trim() ? v.trim() : remembered || null;
-    if (/\b(first name|given name|voornaam)\b/.test(key))
+    if (/\b(value|values|priorities)\b/.test(key) && /\b(role|job|workplace|new position)\b/.test(key) && !/salary|pay|compensation/.test(key))
+      return pick(a.role_values);
+    const asks = /^(have you|has |do you|does |did you|are you|is |can you|could you|would you|will you|were you|was |if you)/.test(key);
+    if (/^(si oui|wenn ja|if yes)\b/.test(key) || /^if\b.*\b(not listed|another|other|not applicable|not already|you are not|you do not|you don t|specify|provide details|explain)\b/.test(key) && !/\bgraduation\b/.test(key))
+      return null;
+    if (/\b(first name|given name|voornaam|prenom|vorname)\b/.test(key))
       return pick(a.first_name);
-    if (/\b(last name|surname|family name|achternaam)\b/.test(key))
+    if (/\b(last name|surname|family name|achternaam|nom de famille|nachname)\b/.test(key))
       return pick(a.last_name);
     if (/^(full )?name$/.test(key))
       return a.first_name && a.last_name ? `${a.first_name} ${a.last_name}` : pick(facts.name);
-    if (/\b(e ?mail\w*)\b/.test(key))
+    if (/\b(e ?mail\w*|courriel)\b/.test(key))
       return pick(a.email) ?? pick(facts.email);
-    if (/\b(mobile|phone|telephone|telefoon\w*|mobiel\w*)\b/.test(key) && !/country|landcode/.test(key))
+    if (/\b(mobile|phone|telephone|telefon\w*|telefoon\w*|mobiel\w*|portable)\b/.test(key) && !/country|landcode|pays/.test(key))
       return pick(a.phone) ?? pick(facts.phone);
     if (/\blinkedin\b/.test(key) && /\b(url|profile|link)\b/.test(key))
       return pick(a.linkedin) ?? pick(facts.linkedin);
-    if (/\b(website|portfolio|github|personal site)\b/.test(key))
+    if (asks && /\b(based|living|located|residing|reside|live|resident)\b/.test(key) && /\b(netherlands|nederland|holland|amsterdam|rotterdam|utrecht|the hague|den haag|eindhoven|delft|leiden|groningen|breda|tilburg|nijmegen|maastricht|haarlem|almere)\b/.test(key) && !/relocat|willing|open to|office|days?\b|able|travel/.test(key)) {
+      const country = residenceCountry(facts);
+      return country ? NL_NAME.test(country) ? "Yes" : "No" : remembered || null;
+    }
+    if (/\b(hybrid|office|on site|onsite|in person)\b/.test(key) && /\b(days?|week|comfortable|open to|willing|able|confirm|expect|require)\b/.test(key))
+      return pick(a.onsite_ok);
+    if (!asks && /\b(website|portfolio|github|personal site)\b/.test(key))
       return pick(a.website);
-    if (/\b(city|location|where do you live|woonplaats)\b/.test(key) && !/relocat/.test(key))
+    if (!asks && /\b(city|ville|stadt|location|where do you live|woonplaats)\b/.test(key) && !/relocat/.test(key))
       return pick(a.city) ?? pick(facts.place?.split(",")[0]);
     if (/\b(postal code|postcode|zip code|zip)\b/.test(key))
       return pick(a.postcode);
     if (/^(street address|address|address line 1|adres|straat)/.test(key))
       return pick(a.address);
-    if (/^(country|country of residence|land)$/.test(key))
-      return pick(a.country);
+    if (/^(country|country of residence|land|pays|pays de residence)$/.test(key) || /\b(country|land)\b.*\b(reside|resides|residing|residence|live|living|located)\b|\b(reside|resides|residing|residence|live|living)\b.*\b(country|land)\b/.test(key))
+      return pick(residenceCountry(facts));
+    if (/^(state|province|state province|province state|state or province|provincie|region|state region|province region|etat|etat province|bundesland)$/.test(key))
+      return pick(residenceProvince(facts));
     if (remembered)
       return remembered;
     if (/\b(internship|stage|placement|work placement)\b.*\b(agreement|contract|overeenkomst)\b|\bstage ?overeenkomst|\b(agreement|overeenkomst)\b.*\b(university|school|college)\b/.test(key))
       return pick(a.internship_agreement);
-    if (/\b(graduat\w*|afstudeer\w*)\b/.test(key))
-      return pick(a.graduation_date);
+    if (/\b(graduat\w*|afstudeer\w*)\b/.test(key)) {
+      if (/\b(did you graduate|have you graduated|you graduated|graduated from)\b/.test(key))
+        return null;
+      const date = a.graduation_date ?? "";
+      const part = graduationParts(date);
+      if (/\bmonth\b/.test(key))
+        return pick(part.month);
+      if (/\byear\b/.test(key))
+        return pick(part.year);
+      return pick(date);
+    }
+    if (/\b(current|which|what)\b.*\byear\b.*\b(studies|study|degree|programme|program|education)\b|\byear of (your )?(studies|study|degree|programme|program)\b|\b(jaar van je studie|studiejaar)\b/.test(key))
+      return pick(a.study_year);
+    if (/\b(how did you (hear|find|learn)|where did you (hear|find|see)|source of (your )?application)\b/.test(key))
+      return pick(facts.job_source);
+    if (/\b(previously|before|already|earlier)\b.*\bappl(ied|y|ication)\b|\bappl(ied|ication)\b.*\b(before|previously|this season|earlier)\b/.test(key))
+      return facts.applied_before ? "Yes" : remembered || null;
+    if (/\b(degree|diploma|level of education|education level|highest level|opleidingsniveau)\b/.test(key))
+      return pick(a.degree);
+    if (/\b(18|eighteen)\b.*\b(ans|years|jaar|older|plus|ouder|alt)\b|\b(at least|over|above)\b.*\b18\b/.test(key))
+      return facts.adult ? "Yes" : remembered || null;
+    if (/\b(current|currently)\b.*\b(employee|employe\w*|employed)\b/.test(key) && !/\b(family|spouse|parent|sibling|relative|famille)\b/.test(key))
+      return facts.never_worked_here ? "No" : remembered || null;
+    if (/\b(family|relative|spouse|parent|sibling|membre de votre famille|famille)\b.*\b(employ\w*|work\w*|travaill\w*)\b/.test(key))
+      return /^no\b/i.test(a.insider ?? "") ? "No" : remembered || null;
+    if (/\b(non ?compet\w*|non ?concurrence|noncompete|restrictive covenant)\b|\b(patent|patents|brevets?|confidential\w*|proprietary|exclusive information)\b.*\b(agreement|entente|contract|accord|signed|sign)\b|\b(agreement|entente|signed|sign)\b.*\b(patent|patents|brevets?|confidential\w*|proprietary)\b/.test(key))
+      return /^no\b/i.test(a.prior_agreements ?? "") ? "No" : remembered || null;
     if (/\b(are you|currently|presently)\b.*\b(student|enrolled|studying)\b|\b(enrolled|enrolment|enrollment|ingeschreven)\b/.test(key))
       return pick(a.study_status);
     if (/\b(field of study|major|study programme|study program|discipline|area of study|opleiding|studierichting)\b/.test(key))
       return pick(a.field_of_study);
-    if (/\b(degree|diploma|level of education|education level|highest level|opleidingsniveau)\b/.test(key))
-      return pick(a.degree);
     if (/\b(university|universiteit|school|college|institution|hogeschool|school name)\b/.test(key) && key.split(" ").length <= 6 && !/\b(high school|year|date|reference|referral|hear|find|about|why)\b/.test(key))
       return pick(a.university);
-    if (/\b(nationality|nationaliteit|citizenship)\b/.test(key))
+    if (/\b(nationality|nationaliteit|citizenship)\b/.test(key) && key.length <= 90)
       return pick(a.nationality);
     if (/\b(relocat\w*)\b/.test(key))
       return pick(a.relocation);
@@ -97,16 +221,27 @@
       return pick(a.notice_period);
     if (/\b(start date|when can you start|available to start|availability|earliest start|beschikbaar)\b/.test(key))
       return pick(a.start_date);
-    if (/\bhours\b.*\bweek\b|\bper week\b|\buren\b/.test(key))
+    if (!asks && /\bhours\b.*\bweek\b|\bper week\b|\buren\b/.test(key))
       return pick(a.hours_per_week);
-    if (/\b(salary|compensation|pay|wage|salaris|stipend)\b/.test(key))
-      return pick(a.expected_salary);
+    if (/\b(salary|compensation|pay|wage|salaris|salaire|gehalt|stipend)\b/.test(key))
+      return pick(salaryFor(a.expected_salary, key));
     if (/\b(sponsor\w*|visa)\b/.test(key)) {
+      if (/\b(details|explain|describe|elaborate|please provide|why)\b/.test(key))
+        return null;
       if (facts.job_id && facts.job_country !== "NL")
+        return null;
+      if (/\b(orientation year|search year|zoekjaar|highly skilled|kennismigrant|blue card)\b/.test(key))
         return null;
       const w = a.work_authorization ?? "";
       if (!w)
         return null;
+      if (/\bwithout\b.*\b(sponsor|visa)|\b(no|not)\b.*\b(sponsor|visa)\w*\b.*\b(needed|required)|\b(valid|current|existing)\b.*\b(visa|work permit|permit)\b/.test(key)) {
+        if (/\b(need|require)s?\b.*\b(sponsor|visa|permit)/i.test(w) || /\bno(t)?\b.*\b(allowed|authori[sz]ed|permit)\b/i.test(w))
+          return "No";
+        if (/^\s*yes\b|\b(eu|eea) (citizen|national)|\bfree to work|\ballowed to work|\bauthori[sz]ed\b|\bpermit\b/i.test(w))
+          return "Yes";
+        return null;
+      }
       if (/\b(need|require)s?\b.*\b(sponsor|visa|permit)/i.test(w) || /\bno(t)?\b.*\b(allowed|authori[sz]ed|permit)\b/i.test(w))
         return "Yes";
       if (/^\s*yes\b|\b(eu|eea) (citizen|national)|\bfree to work|\bno (sponsor|visa)\w* (needed|required)|\ballowed to work|\bauthori[sz]ed\b/i.test(w))
@@ -123,15 +258,26 @@
         return "No";
       return /^\s*yes\b|\b(eu|eea)\b|\ballowed\b|\bauthori[sz]ed\b|\bfree to work\b|\bpermit\b/i.test(w) ? "Yes" : null;
     }
-    if (/\bdutch\b|\bnederlands\b/.test(key) && /\b(level|proficiency|speak|fluent|niveau)\b/.test(key))
+    if (/\bdutch\b|\bnederlands\b/.test(key) && /\b(level|proficiency|speak|fluent|niveau)\b/.test(key)) {
+      if (asks) {
+        const level = (facts.dutch ?? "").toLowerCase();
+        if (!level)
+          return remembered || null;
+        const good = level === "professional" || level === "native";
+        if (/\benglish\b/.test(key))
+          return good ? remembered || null : "No";
+        return good ? "Yes" : "No";
+      }
       return pick(facts.dutch);
+    }
     return null;
   }
   var norm = (t) => t.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9+]+/g, " ").trim();
   function chooseOption(options, answer, label = "") {
-    const want = norm(answer);
-    const opts = options.map(norm);
-    const real = (i) => !/^(select an option|select|selecteer|choose|kies|kiezen)\b/.test(opts[i]) && opts[i] !== "";
+    const canon = (t) => norm(t).replace(/\bnoord\b/g, "north").replace(/\bzuid\b/g, "south").replace(/\bfryslan\b/g, "friesland").replace(/\bnederland\b/g, "netherlands").replace(/^the netherlands$/, "netherlands").replace(/^pays bas$|^niederlande$/, "netherlands").replace(/^hollande septentrionale$|^nordholland$/, "north holland").replace(/^hollande meridionale$|^sudholland$/, "south holland").replace(/^brabant septentrional$|^nordbrabant$/, "north brabant").replace(/^frise$/, "friesland").replace(/^zelande$/, "zeeland").replace(/^geldre$/, "gelderland");
+    const want = canon(answer);
+    const opts = options.map(canon);
+    const real = (i) => !/^(select an option|select|selecteer|choose|kies|kiezen|make a selection|pick one)\b/.test(opts[i]) && opts[i] !== "";
     if (!want)
       return -1;
     if (/\b(dutch|nederlands)\b/i.test(label) && DUTCH_OPTION[want]) {
@@ -144,10 +290,17 @@
       if (i >= 0)
         return i;
     }
-    const yes = /^(yes|ja|true|y)\b/.test(want);
-    const no = /^(no|nee|false|n)\b/.test(want);
+    const nth = /\b([1-6])(st|nd|rd|th)?\b/.exec(want)?.[1];
+    if (nth && /\byear\b|\bjaar\b/.test(`${want} ${norm(label)}`)) {
+      const ordinal = ["", "first", "second", "third", "fourth", "fifth", "sixth"][Number(nth)];
+      const i = opts.findIndex((o, n) => real(n) && (new RegExp(`\\b${nth}(st|nd|rd|th)?\\b`).test(o) || o.includes(ordinal)) && /\byear\b|\bjaar\b/.test(o));
+      if (i >= 0)
+        return i;
+    }
+    const yes = /^(yes|ja|true|y|oui|si)\b/.test(want);
+    const no = /^(no|nee|false|n|non|nein)\b/.test(want);
     if (yes || no)
-      return opts.findIndex((o, n) => real(n) && (yes ? /^(yes|ja)\b/ : /^(no|nee)\b/).test(o));
+      return opts.findIndex((o, n) => real(n) && (yes ? /^(yes|ja|oui|si)\b/ : /^(no|nee|non|nein)\b/).test(o));
     const n = Number(digits(answer));
     if (answer.trim() && Number.isFinite(n)) {
       return options.findIndex((o, i) => {

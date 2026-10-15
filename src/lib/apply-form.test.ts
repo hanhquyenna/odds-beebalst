@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { applicationQuestionKey, answerText, chooseOption, nationalNumber, questionKey, questionText, valueFor, type Facts } from "../../supabase/functions/_shared/apply-form"
+import { applicationQuestionKey, answerText, chooseOption, nationalNumber, privacyChoice, questionKey, questionText, valueFor, type Facts } from "../../supabase/functions/_shared/apply-form"
 
 const facts: Facts = {
   name: "Phung Chi Kien",
@@ -127,4 +127,64 @@ describe("what an international student is asked", () => {
     expect(answerText("What high school did you attend?", student)).toBeNull()
     expect(answerText("How did you hear about us? (university career fair)", student)).toBeNull()
   })
+})
+
+describe("the questions every Dutch form asks that odds can answer from what it has", () => {
+  const nl: Facts = { place: "Amsterdam, Netherlands", answers: { city: "Amsterdam" } }
+  test("the country someone lives in, from what they kept or where they are", () => {
+    expect(answerText("Please confirm the country in which you reside for data privacy purposes. *", nl)).toBe("Netherlands")
+    expect(answerText("Country of residence", { place: "Utrecht", answers: {} })).toBe("Netherlands")
+    expect(answerText("Country you live in", { answers: { country: "Germany" } })).toBe("Germany")
+    expect(answerText("Country", { answers: {} })).toBeNull()
+  })
+  test("the province of a Dutch town, and nothing for a place odds does not know", () => {
+    expect(answerText("State/Province *", nl)).toBe("North Holland")
+    expect(answerText("Province", { place: "Eindhoven", answers: {} })).toBe("North Brabant")
+    expect(answerText("State/Province", { place: "Springfield, United States", answers: {} })).toBeNull()
+    expect(answerText("State/Province", { place: "Smalltown, Netherlands", answers: {} })).toBeNull()
+  })
+  test("the Dutch name of a province is the same place as the English one, in a dropdown", () => {
+    expect(chooseOption(["— Make a Selection —", "Drenthe", "Noord-Holland", "Zuid-Holland", "Utrecht"], "North Holland")).toBe(2)
+    expect(chooseOption(["Noord-Brabant", "Fryslân"], "Friesland")).toBe(1)
+    expect(chooseOption(["Nederland", "Belgium"], "Netherlands")).toBe(0)
+  })
+  test("a data privacy choice picks the one that shares least: this job only", () => {
+    expect(privacyChoice(["— Make a Selection —", "Please consider my information for any opportunities at Booking.com", "I just want to be considered for this job"])).toBe(2)
+    expect(privacyChoice(["Yes, keep my details for future roles", "No, only for this position"])).toBe(1)
+    expect(privacyChoice(["Yes", "No"])).toBe(-1)
+  })
+})
+
+describe("the questions a traineeship form asks, answered from code", () => {
+  const f: Facts = { place: "Amsterdam, Netherlands", job_source: "LinkedIn", answers: { first_name: "Kien", last_name: "Phung", university: "University of Amsterdam", field_of_study: "Data science", graduation_date: "July 2027", study_year: "2nd year", work_authorization: "I need a work permit; the employer sponsors it" } }
+  test("school, field, residing country, sponsorship and the graduation month and year each get their own part", () => {
+    expect(answerText("School", f)).toBe("University of Amsterdam")
+    expect(answerText("What is your latest field of study?", f)).toBe("Data science")
+    expect(answerText("What country are you currently residing?", f)).toBe("Netherlands")
+    expect(answerText("Will you require immigration sponsorship now or in the future?", f)).toBe("Yes")
+    expect(answerText("When is your expected year of graduation?", f)).toBe("2027")
+    expect(answerText("When is your expected graduation month?", f)).toBe("July")
+  })
+  test("the year of study fits a list written as 'Year 2', '2nd year' or 'Second year'", () => {
+    const year = answerText("What is the current year of your studies?", f) ?? ""
+    expect(year).toBe("2nd year")
+    expect(chooseOption(["Year 1", "Year 2", "Year 3"], year, "Current year of studies")).toBe(1)
+    expect(chooseOption(["First year", "Second year", "Third year"], year, "Current year of studies")).toBe(1)
+    expect(chooseOption(["1st year", "2nd year"], year, "Current year of studies")).toBe(1)
+  })
+  test("how you heard is where you found the job, and 'applied before' is only ever a known yes", () => {
+    expect(answerText("How did you hear about us?", f)).toBe("LinkedIn")
+    expect(chooseOption(["Company website", "LinkedIn", "Friend"], "LinkedIn")).toBe(1)
+    const q = "Have you previously applied to this role or a similar role with us this season?"
+    expect(answerText(q, { ...f, applied_before: true })).toBe("Yes")
+    expect(answerText(q, f)).toBeNull()
+  })
+  test("what only the person knows is left to them: gender, grades, a language they prefer, a cohort, the policies", () => {
+    for (const q of ["What is your gender?", "What is your current academic performance rating?", "If you had to choose, which of the following programming languages would you prefer:", "Preferred Global Traineeship Cohort:", "Privacy Statement", "Interview Conduct Policy"]) expect(answerText(q, f)).toBeNull()
+  })
+})
+
+ test("saved role values fill an explicit priorities question without guessing", () => {
+  expect(answerText("What do you value in a new role?", { answers: { role_values: "Mentorship & skill development; Work-life balance" } })).toBe("Mentorship & skill development; Work-life balance")
+  expect(answerText("What do you value in a new role?", { answers: {} })).toBeNull()
 })

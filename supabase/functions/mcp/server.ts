@@ -377,9 +377,14 @@ const ME_TOOLS = [
             degree: { type: "string" },
             field_of_study: { type: "string" },
             graduation_date: { type: "string" },
+            study_year: { type: "string" },
             study_status: { type: "string" },
             internship_agreement: { type: "string" },
             nationality: { type: "string" },
+            onsite_ok: { type: "string" },
+            prior_agreements: { type: "string", description: "\"No\" or \"Yes\": a non-compete or a patents/confidentiality agreement with a past employer. Forms ask it; odds only answers \"No\"." },
+            insider: { type: "string", description: "\"No\" when neither they nor close family work at the companies they apply to." },
+            demographics: { type: "string", description: "Either \"Prefer not to say\" (odds picks that option on forms' gender, age and background questions) or \"I answer them myself\"." },
             notice_period: { type: "string" },
             relocation: { type: "string" },
             notes: { type: "string", description: "Anything else forms ask that stays the same." },
@@ -1113,7 +1118,7 @@ const EXT_DAILY_READS = 30
 /** Jobs from any other site a person's browser may hand over in a day: free to read, but each one goes into the table everyone sees. */
 const EXT_DAILY_PAGE_READS = 300
 /** A job we hold, found by the address it was stored under (job boards loaded in bulk kept longer ones: heldFilter finds those by the job's id). */
-const heldJob = (env: Env, link: JobLink): Promise<Json[] | null> => rest(env, `postings?select=id,closed_at,region&${heldFilter(link)}&order=closed_at.desc.nullsfirst&limit=1`).catch(() => [])
+const heldJob = (env: Env, link: JobLink): Promise<Json[] | null> => rest(env, `postings?select=id,closed_at,region,employer,employer_display&${heldFilter(link)}&order=closed_at.desc.nullsfirst&limit=1`).catch(() => [])
 
 /**
  * Keys and profiles seen in the last minute, kept by this instance: a list of jobs coming into view asks several times a second, and each answer
@@ -1202,7 +1207,7 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     const link = jobLink(String(body?.url || ""), true)
     const held = link ? (await heldJob(env, link))?.[0] : null
     if (!held) return json(404, { error: "Job not registered in Odds." })
-    const questions = (Array.isArray(body?.questions) ? body.questions : []).slice(0, 30).filter((q: Json) => ["text", "textarea", "number", "radio", "select"].includes(q?.kind) && typeof q?.label === "string" && typeof q?.key === "string" && q.key.length >= 2 && q.key.length <= 300 && q.label.length >= 2 && q.label.length <= 500 && !/password|captcha|verification code|security code|social security|\bbsn\b|credit card/i.test(q.label)).map((q: Json) => ({ key: applicationQuestionKey(q.label, held.id), label: q.label, kind: q.kind, options: ["radio", "select"].includes(q.kind) ? (Array.isArray(q.options) ? q.options : []).filter((v: unknown) => typeof v === "string").slice(0, 100).map((v: string) => v.slice(0, 200)) : [] }))
+    const questions = (Array.isArray(body?.questions) ? body.questions : []).slice(0, 30).filter((q: Json) => ["text", "textarea", "number", "radio", "select"].includes(q?.kind) && typeof q?.label === "string" && typeof q?.key === "string" && q.key.length >= 2 && q.key.length <= 300 && q.label.length >= 2 && q.label.length <= 500 && !/password|captcha|verification code|security code|social security|\bbsn\b|credit card/i.test(q.label)).map((q: Json) => ({ key: applicationQuestionKey(q.label, held.id), label: q.label, kind: q.kind, options: ["radio", "select"].includes(q.kind) ? (Array.isArray(q.options) ? q.options : []).filter((v: unknown) => typeof v === "string").slice(0, 300).map((v: string) => v.slice(0, 200)) : [] }))
     await svc(env, "application_prompts?on_conflict=user_id,posting_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: me.id, posting_id: held.id, questions, updated_at: new Date().toISOString() }) })
     return json(200, { status: "ok" })
   }
@@ -1312,6 +1317,14 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
       svc(env, `documents?user_id=eq.${me.id}&kind=eq.cv&is_main=eq.true&select=id,name,file_name`),
     ])
     const answers = { ...personalFromProfile(profile, email), ...savedAnswers }
+    // Whether the person already applied to another job at this employer, known from their own applications; never "no" from silence.
+    const appliedIds = ((await svc(env, `applications?user_id=eq.${me.id}&select=posting_id`)) ?? []).map((a: Json) => String(a.posting_id)).filter((id: string) => id && id !== held?.id)
+    const sameEmployer = held?.employer && appliedIds.length > 0 ? await svc(env, `postings?id=in.(${appliedIds.map((id: string) => encodeURIComponent(id)).join(",")})&employer=eq.${encodeURIComponent(String(held.employer))}&select=id&limit=1`) : []
+    // Facts that hold for nearly everyone, taken from the profile: university education means an adult; no job at this employer on the profile (or CV) means not a current employee.
+    const display = String(held?.employer_display ?? "").toLowerCase()
+    const history = `${JSON.stringify(profile.positions ?? [])} ${String(profile.cv ?? "")}`.toLowerCase()
+    const hasHistory = (Array.isArray(profile.positions) && profile.positions.length > 0) || String(profile.cv ?? "").trim().length > 40
+    const sources: Record<string, string> = { linkedin: "LinkedIn", indeed: "Indeed", glassdoor: "Glassdoor", "magnet.me": "Magnet.me", academictransfer: "AcademicTransfer" }
     const attached = held ? (await svc(env, `job_documents?user_id=eq.${me.id}&posting_id=eq.${encodeURIComponent(held.id)}&kind=eq.cv&select=document_id`))?.[0] : null
     const cvRow = attached ? (await svc(env, `documents?user_id=eq.${me.id}&id=eq.${attached.document_id}&select=id,name,file_name`))?.[0] : null
     const cv = cvRow ?? mainCv?.[0] ?? null
@@ -1321,6 +1334,10 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
       facts: {
         job_id: held?.id ?? null,
         job_country: /(?:netherlands|nederland|\bNL\b)/i.test(held?.region || "") ? "NL" : null,
+        job_source: link ? sources[link.site] ?? "Company website" : null,
+        applied_before: Boolean(sameEmployer?.length),
+        adult: Array.isArray(profile.education) && profile.education.length > 0,
+        never_worked_here: Boolean(display) && hasHistory && !history.includes(display),
         name: profile.name || null,
         email: answers.email || email,
         phone: answers.phone ?? null,

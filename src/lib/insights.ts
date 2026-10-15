@@ -16,6 +16,8 @@ export interface Insights {
   /** The application still waiting that was sent longest ago. */
   longest: { postingId: string; days: number } | null
   thisWeek: number
+  /** Applications sent in each of the last eight weeks, the oldest first and this week last. */
+  weeks: number[]
   /** Everything sent, then what reached an interview, then an offer. */
   funnel: { applied: number; interview: number; offer: number }
 }
@@ -48,6 +50,16 @@ export function insightsOf(applications: ReadonlyArray<Pick<Application, "postin
     noReplyPct: answered + silent === 0 ? null : Math.round((silent / (answered + silent)) * 100),
     firstReplyDays: middle,
     longest: waiting[0] ?? null,
+    weeks: Array.from({ length: 8 }, (_, i) => {
+      const from = today - (7 - i) * 7 * DAY - 6 * DAY
+      const to = today - (7 - i) * 7 * DAY
+
+      return applications.filter((a) => {
+        const day = dayOf(a.logged_at)
+
+        return day !== null && day >= from && day <= to
+      }).length
+    }),
     thisWeek: applications.filter((a) => {
       const day = dayOf(a.logged_at)
 

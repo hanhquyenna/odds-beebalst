@@ -7,7 +7,7 @@ const app = (id: string, stage: string, logged_at: string): { posting_id: string
 describe("insightsOf", () => {
   test("nothing under a number means no number", () => {
     const i = insightsOf([], [], now)
-    expect(i).toEqual({ total: 0, noReplyPct: null, firstReplyDays: null, longest: null, thisWeek: 0, funnel: { applied: 0, interview: 0, offer: 0 } })
+    expect(i).toEqual({ total: 0, noReplyPct: null, firstReplyDays: null, longest: null, thisWeek: 0, weeks: [0, 0, 0, 0, 0, 0, 0, 0], funnel: { applied: 0, interview: 0, offer: 0 } })
   })
   test("the no-reply share counts only what was answered or went unanswered, never what is still waiting", () => {
     const apps = [app("a", "no_reply", "2026-09-01"), app("b", "no_reply", "2026-09-02"), app("c", "rejected", "2026-09-03"), app("d", "interview", "2026-09-04"), app("e", "applied", "2026-10-10")]
@@ -34,5 +34,10 @@ describe("insightsOf", () => {
       { applied_on: "2026-09-01", outcome: null, outcome_on: null },
     ]
     expect(insightsOf([], shots, now).firstReplyDays).toBe(7)
+  })
+  test("the weeks are the last eight, oldest first, this one last", () => {
+    const apps = [app("a", "applied", "2026-10-15"), app("b", "applied", "2026-10-12"), app("c", "applied", "2026-10-05"), app("d", "applied", "2026-08-25"), app("e", "applied", "2026-08-10")]
+    // Weeks end today (15 Oct), 8 Oct, 1 Oct ... : 15 and 12 Oct are this week, 5 Oct the one before, 25 Aug is seven weeks back, 10 Aug is older than eight weeks.
+    expect(insightsOf(apps, [], now).weeks).toEqual([1, 0, 0, 0, 0, 0, 1, 2])
   })
 })

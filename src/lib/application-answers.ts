@@ -36,9 +36,15 @@ export const ANSWER_FIELDS: ReadonlyArray<AnswerField> = [
   { key: "degree", label: "Degree you are doing", placeholder: "Master's degree (MSc)" },
   { key: "field_of_study", label: "Field of study", placeholder: "Data science" },
   { key: "graduation_date", label: "Graduation date", placeholder: "July 2027" },
+  { key: "study_year", label: "Year of your studies", placeholder: "2nd year" },
   { key: "study_status", label: "Are you a student now", placeholder: "Yes, enrolled full time" },
   { key: "internship_agreement", label: "Internship agreement from your university", placeholder: "Yes, my university signs one" },
   { key: "nationality", label: "Nationality", placeholder: "Vietnamese" },
+  { key: "onsite_ok", label: "Fine working from the office", placeholder: "Yes, a few days a week" },
+  { key: "demographics", label: "Gender, age and background questions", placeholder: "Prefer not to say, or I answer them myself" },
+  { key: "prior_agreements", label: "Non-compete or confidentiality agreement with a past employer", placeholder: "No" },
+  { key: "insider", label: "You or family working at a company you apply to", placeholder: "No" },
+  { key: "role_values", label: "What you value in a role", placeholder: "Up to three priorities, separated by semicolons", long: true },
   { key: "notes", label: "Anything else forms ask", placeholder: "", long: true },
 ]
 
@@ -58,7 +64,7 @@ export async function loadAnswers(): Promise<AnswerValues> {
 export async function saveAnswers(userId: string, values: AnswerValues): Promise<void> {
   const data: AnswerValues = {}
   for (const f of ANSWER_FIELDS) {
-    const v = (values[f.key] ?? "").trim().slice(0, f.key === "notes" ? 600 : 200)
+    const v = (values[f.key] ?? "").trim().slice(0, f.key === "notes" || f.key === "role_values" ? 600 : 200)
     if (v !== "") data[f.key] = v
   }
   const { error } = await supabase.from("application_answers").upsert({ user_id: userId, data, updated_at: new Date().toISOString() }, { onConflict: "user_id" })

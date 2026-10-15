@@ -147,7 +147,6 @@ export function CompanySection({ post }: { post: Posting }): React.JSX.Element |
   const file = useCompanyProfile(post.employer)
   const extra = useCompanyMore(post.employer)
   const [more, setMore] = useState<boolean>(false)
-  const [allNews, setAllNews] = useState<boolean>(false)
   if (company === undefined) return null
   const f = company?.facts ?? null
   const money = companyMoney(company?.money ?? [], file, extra?.money)
@@ -216,33 +215,41 @@ export function CompanySection({ post }: { post: Posting }): React.JSX.Element |
 
       {file?.gptw2026 ? <p className="mt-5 text-sm">On the Great Place to Work list, Netherlands 2026.</p> : null}
 
-      {news.length > 0 ? (
-        <div className="mt-5">
-          <h3 className="mb-2 text-base font-semibold tracking-tight">Latest news</h3>
-          <ul className="flex flex-col divide-y-[1.5px]">
-            {news.slice(0, allNews ? 15 : 4).map((n) => (
-              <li key={n.url ?? n.title} className="py-2.5">
-                {n.url ? (
-                  <a href={n.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline hover:underline-offset-4">
-                    {n.title}
-                  </a>
-                ) : (
-                  <span className="font-medium">{n.title}</span>
-                )}
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {[n.site, dayText(n.date)].filter(Boolean).join(" · ")}
-                </p>
-              </li>
-            ))}
-          </ul>
-          {news.length > 4 ? (
-            <button type="button" onClick={() => setAllNews(!allNews)} className="mt-2 cursor-pointer text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground">
-              {allNews ? "Fewer" : `All ${Math.min(15, news.length)} headlines`}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+    </Section>
+  )
+}
 
+/** What has been written about the company lately, as headlines. Its own section, after what people who work there say. */
+export function CompanyNews({ post }: { post: Posting }): React.JSX.Element | null {
+  const company = useJobCompany(post.employer, post.employer_display)
+  const extra = useCompanyMore(post.employer)
+  const [allNews, setAllNews] = useState<boolean>(false)
+  const news = companyNews(company?.news ?? [], extra?.news)
+  if (news.length === 0) return null
+
+  return (
+    <Section title="Latest news">
+      <div>
+        <ul className="flex flex-col divide-y-[1.5px]">
+          {news.slice(0, allNews ? 15 : 4).map((n) => (
+            <li key={n.url ?? n.title} className="py-2.5">
+              {n.url ? (
+                <a href={n.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline hover:underline-offset-4">
+                  {n.title}
+                </a>
+              ) : (
+                <span className="font-medium">{n.title}</span>
+              )}
+              <p className="mt-0.5 text-xs text-muted-foreground">{[n.site, dayText(n.date)].filter(Boolean).join(" · ")}</p>
+            </li>
+          ))}
+        </ul>
+        {news.length > 4 ? (
+          <button type="button" onClick={() => setAllNews(!allNews)} className="mt-2 cursor-pointer text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground">
+            {allNews ? "Fewer" : `All ${Math.min(15, news.length)} headlines`}
+          </button>
+        ) : null}
+      </div>
     </Section>
   )
 }

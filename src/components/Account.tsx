@@ -22,6 +22,8 @@ import { TrackerTable } from "@/components/TrackerTable"
 import { SimilarJobs } from "@/components/SimilarJobs"
 import { ClaudePromo } from "@/components/ClaudeGuide"
 import { DueNow } from "@/components/DueNow"
+import { ExtensionNotice } from "@/components/ExtensionNotice"
+import { Insights } from "@/components/Insights"
 import { HeardBack } from "@/components/HeardBack"
 import { Button } from "@/components/ui/button"
 import { JobListSkeleton } from "@/components/Skeleton"
@@ -54,13 +56,15 @@ interface AccountProps {
   onOpenClaude?: () => void
   /** Goes to another page of the account (the People page, from a nudge that is due). */
   onOpenPage?: (page: AccountPage) => void
+  /** Goes to the Autofill or Documents tab (from a step of the setup notice). */
+  onOpenTab?: (tab: "autofill" | "documents") => void
 }
 
 /**
  * The account's own page: the jobs you kept, where you applied, and what we
  * read from you. The big button goes to the jobs that fit.
  */
-export function Account({ page = "home", looking, onStartLooking, onStopLooking, onOpenClaude, onOpenPage }: AccountProps): React.JSX.Element {
+export function Account({ page = "home", looking, onStartLooking, onStopLooking, onOpenClaude, onOpenPage, onOpenTab }: AccountProps): React.JSX.Element {
   const data = useData()
   const saved = useSavedViews()
   const { active, filters, configName } = saved
@@ -180,11 +184,16 @@ export function Account({ page = "home", looking, onStartLooking, onStopLooking,
 
             <SearchSummary />
 
-            <HeardBack />
-
+            {/* What needs attention sits right under the numbers: finishing setup, the extension being found. */}
             <Suspense fallback={null}>
-              <SetupCard onJobs={onStartLooking} />
+              <SetupCard onJobs={onStartLooking} onOpenTab={onOpenTab} />
             </Suspense>
+
+            <ExtensionNotice onJobs={onStartLooking} />
+
+            <Insights framed />
+
+            <HeardBack />
 
             <DueNow onOpenJob={setRevisit} onOpenPeople={() => onOpenPage?.("people")} />
 

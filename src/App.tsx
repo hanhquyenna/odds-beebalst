@@ -484,7 +484,7 @@ export default function App(): React.JSX.Element {
 
             {(view === "account" || view === "jobs" || view === "tracker" || view === "people" || view === "companies") && onboarded ? (
               <Suspense fallback={<JobListSkeleton />}>
-                <Account page={view === "tracker" || view === "people" || view === "companies" ? view : "home"} onOpenPage={(next) => setView(next === "home" ? "account" : next)} looking={view === "jobs"} onEdit={() => setView("answers")} onStartLooking={showJobs} onStopLooking={() => setView("account")} onOpenClaude={() => goTab("claude")} />
+                <Account page={view === "tracker" || view === "people" || view === "companies" ? view : "home"} onOpenPage={(next) => setView(next === "home" ? "account" : next)} onOpenTab={(tab) => setView(tab)} looking={view === "jobs"} onEdit={() => setView("answers")} onStartLooking={showJobs} onStopLooking={() => setView("account")} onOpenClaude={() => goTab("claude")} />
               </Suspense>
             ) : null}
 

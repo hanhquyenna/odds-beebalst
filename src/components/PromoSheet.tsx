@@ -10,7 +10,7 @@ import type { Platform } from "@/lib/push"
  * one big button and "Not now". The pictures are drawn from the same phone screens as the Home Screen steps (PhoneMock.tsx).
  */
 
-const BRAND_BACKDROP = "bg-[radial-gradient(120%_90%_at_50%_0%,oklch(0.78_0.17_60),var(--brand)_55%,var(--brand-ink))]"
+export const BRAND_BACKDROP = "bg-[radial-gradient(120%_90%_at_50%_0%,oklch(0.78_0.17_60),var(--brand)_55%,var(--brand-ink))]"
 
 export function PromoSheet({
   titleId,

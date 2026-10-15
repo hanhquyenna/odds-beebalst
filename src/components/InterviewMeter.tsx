@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
-import { Insights } from "@/components/Insights"
 import { Caret, OddsPanel } from "@/components/OddsExplain"
 import { openStatusColors } from "@/components/StatusPicker"
 import { useData } from "@/lib/data"
@@ -173,7 +172,6 @@ export function SearchSummary(): React.JSX.Element {
           <OddsRow title={total > 0 ? `At least one interview from your ${total} ${total === 1 ? "application" : "applications"}` : "At least one interview"} mid={interview.mid} aside={<Contributors items={interview.contributions} />} />
           <OddsRow title={total > 0 ? `At least one job offer from your ${total} ${total === 1 ? "application" : "applications"}` : "At least one job offer"} mid={job.mid} offer />
         </div>
-        <Insights />
         <button type="button" aria-expanded={explain} aria-controls="odds-explained" onClick={() => setExplain(!explain)} className="mt-6 inline-flex cursor-pointer items-center gap-1 text-sm font-medium underline underline-offset-4">
           How does it work <Caret open={explain} />
         </button>

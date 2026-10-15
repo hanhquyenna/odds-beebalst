@@ -24,13 +24,13 @@ test("phone can queue one preparation, see progress, and cancel without a Submit
   await page.getByRole("button", { name: "Apply with Odds" }).click()
   await expect(page.getByRole("button", { name: "Waiting for Chrome" })).toBeDisabled()
   expect(requests).toBe(1)
-  await expect(page.getByRole("status").filter({ hasText: "Waiting for your desktop" })).toBeVisible()
+  await expect(page.getByRole("status").filter({ hasText: "Waiting for your laptop" })).toBeVisible()
   state.run = { ...state.run, status: "ready", message: "Filled in. Review and submit on your desktop." }
-  await expect(page.getByRole("status").filter({ hasText: "Review and submit" })).toBeVisible({ timeout: 10000 })
+  await expect(page.getByRole("status").filter({ hasText: "Ready to review" })).toBeVisible({ timeout: 10000 })
   await expect(page.getByRole("button", { name: /^Submit/ })).toHaveCount(0)
-  await page.getByRole("button", { name: "Cancel preparation" }).click()
+  await page.getByRole("button", { name: "Cancel", exact: true }).click()
   await expect(page.getByRole("button", { name: "Apply with Odds" })).toBeEnabled()
-  await expect(page.getByRole("status").filter({ hasText: "Preparation cancelled" })).toBeVisible()
+  await expect(page.getByRole("status")).toHaveCount(0)
 })
 
 
@@ -39,7 +39,7 @@ test("an offline desktop is explained and cannot silently accept another prepara
   await context.route("**/rest/v1/application_desktops?**", route => route.fulfill({ json: [] }))
   await page.goto(`/job/${FLOW_POSTINGS[0].id}`)
   await expect(page.getByRole("button", { name: "No desktop connected" })).toBeDisabled()
-  await expect(page.getByRole("status").filter({ hasText: "enable phone control" })).toBeVisible()
+  await expect(page.getByText("Open Chrome on your computer to start.")).toBeVisible()
 })
 
 
@@ -59,7 +59,7 @@ test("expired preparations show one message and let the user try again", async (
   await context.route("**/rest/v1/application_desktops?**", route => route.fulfill({ json: [{ device_id: "test" }] }))
   await page.goto(`/job/${post.id}`)
   await expect(page.getByText(message, { exact: true })).toHaveCount(1)
-  await expect(page.getByRole("button", { name: "Apply with Odds" })).toBeEnabled()
+  await expect(page.getByRole("button", { name: "Try again" })).toBeEnabled()
 })
 
 test("application questions can be answered in the job panel and saved for the waiting desktop", async ({ page, context }) => {
@@ -68,9 +68,9 @@ test("application questions can be answered in the job panel and saved for the w
   await context.route("**/rest/v1/application_prompts?**", route => route.fulfill({ json: [{ posting_id: post.id, updated_at: new Date().toISOString(), questions: [{ key: "enrolled job " + post.id, label: "Will you remain enrolled throughout this internship?", kind: "radio", options: ["Yes", "No"] }] }] }))
   await context.route("**/rest/v1/rpc/answer_application_questions", route => { sent = route.request().postDataJSON(); return route.fulfill({ status: 204 }) })
   await page.goto(`/job/${post.id}`)
-  await page.getByLabel("Will you remain enrolled throughout this internship?").selectOption("Yes")
+  await page.getByRole("radiogroup", { name: "Will you remain enrolled throughout this internship?" }).getByRole("radio", { name: "Yes" }).click()
   await page.getByRole("button", { name: "Save and continue" }).click()
-  await expect(page.getByRole("status").filter({ hasText: "Answers saved" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Saved" })).toBeVisible()
   expect(sent).toEqual({ p_posting_id: post.id, p_answers: { ["enrolled job " + post.id]: "Yes" } })
   await expect(page.getByRole("button", { name: "Ask Claude to apply" })).toHaveCount(0)
 })

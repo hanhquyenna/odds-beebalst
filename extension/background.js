@@ -171,6 +171,30 @@ async function cvFile(doc) {
   }
 }
 
+// What an application needs is asked for as soon as it is started, while the page is still loading: the details and the CV file are ready by the time the form is.
+const PREPARED_MS = 120_000
+const kits = new Map()
+const cvFiles = new Map()
+function kitFor(url, fresh = false) {
+  const hit = kits.get(url)
+  if (!fresh && hit && Date.now() - hit.at < PREPARED_MS) return hit.promise
+  const promise = ext("apply-kit", { method: "POST", body: JSON.stringify({ url }) })
+  kits.set(url, { at: Date.now(), promise })
+  promise.then((kit) => {
+    const doc = kit?.cv?.id
+    if (typeof doc === "string" && !cvFiles.has(doc)) cvFileFor(doc)
+  }).catch(() => kits.delete(url))
+  return promise
+}
+function cvFileFor(doc) {
+  const hit = cvFiles.get(doc)
+  if (hit && Date.now() - hit.at < PREPARED_MS) return hit.promise
+  const promise = cvFile(doc)
+  cvFiles.set(doc, { at: Date.now(), promise })
+  promise.then((file) => { if (file?.status !== "ok") cvFiles.delete(doc) })
+  return promise
+}
+
 /** A sign-in for the odds app inside the panel, made by odds from the extension's key. */
 async function session() {
   const key = await savedKey()
@@ -291,7 +315,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   }
   // "odds apply" in the panel: the job is opened in the person's tab and its form filled in there (apply.js on LinkedIn, apply-any.js elsewhere).
   if (message?.type === "apply-in-tab" && typeof message.url === "string" && /^https:\/\//.test(message.url)) {
-    openApplication(message.url).then(reply).catch(() => reply({ ok: false, message: "Could not open the application. Try again." }))
+    openApplication(message.url, sender.tab).then(reply).catch(() => reply({ ok: false, message: "Could not open the application. Try again." }))
     return true
   }
   // The panel asking how this job's application is going: the state its tab last reported (filling, needs_input, ready, failed), or none.
@@ -342,7 +366,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   }
   // Applying: what the form needs, the person's own answers kept, the job marked applied, their CV for the upload.
   if (message?.type === "apply-kit" && typeof message.url === "string") {
-    ext("apply-kit", { method: "POST", body: JSON.stringify({ url: message.url }) }).then(reply)
+    kitFor(message.url).then(reply)
     return true
   }
   if (message?.type === "application-questions" && sender.tab && typeof message.url === "string") {
@@ -363,7 +387,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return true
   }
   if (message?.type === "cv-file" && typeof message.doc === "string") {
-    cvFile(message.doc).then(reply)
+    cvFileFor(message.doc).then(reply)
     return true
   }
   if (message?.type === "lookup-cached" && typeof message.url === "string") {
@@ -478,8 +502,10 @@ async function intentOf(tabId) {
 }
 // Serialize double clicks per vacancy, and focus the existing application rather than lose its filled fields.
 const applicationStarts = new Map()
-function openApplication(url) {
+/** The application opens in a tab of its own right beside the one it was asked from, which stays where it is. */
+function openApplication(url, from) {
   const job = globalThis.oddsSites.jobLink(url)?.url || url
+  kitFor(url, true).catch(() => undefined)
   if (applicationStarts.has(job)) return applicationStarts.get(job)
   const opening = (async () => {
     if (!await savedKey()) return { ok: false, message: "Connect Odds from the extension icon first." }
@@ -495,7 +521,9 @@ function openApplication(url) {
       await chrome.tabs.sendMessage(tab.id, { type: "application-continue" }).catch(() => undefined)
       return { ok: true, resumed: true }
     }
-    const tab = await chrome.tabs.create({ url: "about:blank", active: true })
+    const origin = from ?? (await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []))[0]
+    const beside = origin && typeof origin.index === "number" ? { index: origin.index + 1, windowId: origin.windowId, ...(typeof origin.id === "number" ? { openerTabId: origin.id } : {}) } : {}
+    const tab = await chrome.tabs.create({ url: "about:blank", active: true, ...beside })
     if (typeof tab.id !== "number") return { ok: false, message: "Could not open an application tab." }
     await setIntent(tab.id, { job: url, at: Date.now(), status: "filling" })
     await chrome.tabs.update(tab.id, { url, active: true })

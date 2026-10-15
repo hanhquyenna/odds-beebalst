@@ -3,17 +3,16 @@ import { CompanyLogo } from "@/components/CompanyMark"
 import { BookmarkIcon } from "@/components/icons"
 import { KeyFacts } from "@/components/Tag"
 import { MoreAtEmployer } from "@/components/CompanyInsights"
-import { CompanySection, PastHires, ReviewsSection } from "@/components/JobCompany"
+import { CompanyNews, CompanySection, PastHires, ReviewsSection } from "@/components/JobCompany"
 import { CompanyResearch } from "@/components/CompanyResearch"
 import { PostingText } from "@/components/PostingText"
 import { OddsApply } from "@/components/OddsApply"
-import { JobFacts } from "@/components/JobFacts"
-import { ResumeMatch } from "@/components/ResumeMatch"
+import { CvMatch } from "@/components/CvMatch"
 import { SourceLinks } from "@/components/SourceChips"
 import { StatusPicker } from "@/components/StatusPicker"
 import { JobProperties } from "@/components/JobProperties"
 import { Hint } from "@/components/Hint"
-import { CareerLadder, FitCard, LockedPersonal, PayCard, Recommendations, UspStrip } from "@/components/JobPersonal"
+import { CareerLadder, LockedPersonal, PayCard, Recommendations, UspStrip } from "@/components/JobPersonal"
 import { Section } from "@/components/Section"
 import { JobDocuments } from "@/components/JobDocuments"
 import { useData } from "@/lib/data"
@@ -44,6 +43,14 @@ interface JobDetailProps {
   /** The public preview: the personal sections become a locked card whose button leads into the form. */
   locked?: { onUnlock: () => void }
 }
+
+type JobTab = "overview" | "company" | "people" | "documents"
+const JOB_TABS: ReadonlyArray<{ value: JobTab; label: string }> = [
+  { value: "overview", label: "Overview" },
+  { value: "company", label: "Company" },
+  { value: "people", label: "People" },
+  { value: "documents", label: "Documents" },
+]
 
 /**
  * The whole job behind a card, opened by tapping it. Everything about the
@@ -120,9 +127,9 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
   const saved = data.saved.has(post.id)
   const [asking, setAsking] = useState<boolean>(false)
   // Overview is the job; Company is who you would join. The tab starts over on each job.
-  const [tabAt, setTabAt] = useState<{ id: string; tab: "overview" | "company" }>({ id: post.id, tab: "overview" })
-  const tab = tabAt.id === post.id ? tabAt.tab : "overview"
-  const setTab = (next: "overview" | "company"): void => setTabAt({ id: post.id, tab: next })
+  const [tabAt, setTabAt] = useState<{ id: string; tab: JobTab }>({ id: post.id, tab: "overview" })
+  const tab: JobTab = tabAt.id === post.id ? tabAt.tab : "overview"
+  const setTab = (next: JobTab): void => setTabAt({ id: post.id, tab: next })
   const fit = base ? (base.failing === 0 ? "met every requirement" : base.failing === 1 ? "missing one requirement" : "missing several requirements") : ""
 
   return (
@@ -162,7 +169,6 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
             <Hint label="About this pay">{pay.basis === "Stated" ? "Stated by the employer, before tax." : pay.basis === "Allowance" && pay.source ? allowanceNote(pay.source as AllowanceSource) : pay.source === "Typical traineeship pay" ? TRAINEE_NOTE : "Typical for this kind of job across employers, before tax (CBS 2024). The employer does not state pay for this one."}</Hint>
           </p>
         ) : null}
-        <JobFacts post={post} />
         {/* Status at the left, the way into the posting at the right, on one line. */}
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
           <StatusPicker post={post} fit={fit} onLocked={locked?.onUnlock} />
@@ -172,17 +178,17 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
         {locked ? <KeyFacts post={post} onPick={onPick} /> : null}
       </header>
 
-      <div role="tablist" aria-label="Job" className="-mb-4 flex gap-1 border-b-[1.5px]">
-        {(["overview", "company"] as const).map((value) => (
+      <div role="tablist" aria-label="Job" className="-mb-4 flex gap-1 overflow-x-auto border-b-[1.5px]">
+        {JOB_TABS.map(({ value, label }) => (
           <button
             key={value}
             type="button"
             role="tab"
             aria-selected={tab === value}
             onClick={() => setTab(value)}
-            className={`-mb-[1.5px] cursor-pointer border-b-[2.5px] px-4 py-2.5 text-sm font-medium transition-colors duration-150 ${tab === value ? "border-foreground font-semibold text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+            className={`-mb-[1.5px] shrink-0 cursor-pointer border-b-[2.5px] px-4 py-2.5 text-sm font-medium transition-colors duration-150 ${tab === value ? "border-foreground font-semibold text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
           >
-            {value === "overview" ? "Overview" : "Company"}
+            {label}
           </button>
         ))}
       </div>
@@ -193,41 +199,47 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
             <LockedPersonal onUnlock={locked?.onUnlock ?? onBack} />
           ) : (
             <>
-              <ResumeMatch post={job} st={base} />
               <JobProperties post={job} st={st} />
               <UspStrip post={job} st={st} />
               <Recommendations post={job} base={base} whatIf={whatIf} setWhatIf={setWhatIf} />
-              <FitCard post={job} st={st} requirements={requirements} />
             </>
           )}
 
-          <Suspense fallback={null}>
-            <JobPeople post={post} />
-          </Suspense>
+          <CvMatch post={job} st={base} requirements={requirements} />
 
-          {!locked ? <JobDocuments post={post} /> : null}
+          <PastHires post={post} />
 
           {body !== "" ? (
             <Section title="About the job">{body ? <PostingText body={body} /> : <p className="text-sm text-muted-foreground">Loading the posting…</p>}</Section>
           ) : null}
 
           {st ? <PayCard post={post} st={st} /> : null}
-        </>
-      ) : (
-        <>
-          <PastHires post={post} />
 
+          {st ? <CareerLadder post={post} st={st} onPick={onPick} /> : null}
+
+          <MoreAtEmployer post={post} onOpenJob={onOpenJob} />
+        </>
+      ) : null}
+
+      {tab === "company" ? (
+        <>
           <CompanySection post={post} />
 
           <CompanyResearch post={post} />
 
           <ReviewsSection post={post} />
 
-          {st ? <CareerLadder post={post} st={st} onPick={onPick} /> : null}
-
-          <MoreAtEmployer post={post} onOpenJob={onOpenJob} />
+          <CompanyNews post={post} />
         </>
-      )}
+      ) : null}
+
+      {tab === "people" ? (
+        <Suspense fallback={null}>
+          <JobPeople post={post} />
+        </Suspense>
+      ) : null}
+
+      {tab === "documents" ? (!locked ? <JobDocuments post={post} /> : <LockedPersonal onUnlock={locked.onUnlock} />) : null}
     </div>
   )
 }

@@ -1342,7 +1342,7 @@ test("phone to desktop end-to-end: request, autofill, progress on phone, and dis
   await expect(desktop.getByRole("textbox", { name: "Full name" })).toHaveValue("Test Person", { timeout: 10000 })
   await expect(desktop.getByRole("textbox", { name: "Describe your most relevant project" })).toHaveValue("")
   await expect.poll(() => fake.reports.some(r => r.status === "needs_input")).toBe(true)
-  await expect(phone.getByRole("status").filter({ hasText: "outlined question" })).toBeVisible({ timeout: 10000 })
+  await expect(phone.getByRole("status").filter({ hasText: "Needs your answer" })).toBeVisible({ timeout: 10000 })
   await worker.evaluate(() => chrome.storage.local.set({ oddsPhoneControl: false }))
   expect(desktop.isClosed()).toBe(false)
   await expect.poll(() => fake.remoteTask?.status).toBe("failed")
@@ -1397,7 +1397,11 @@ test("an enriched job outside the loaded pool opens from one row without saving,
   await mockBackend(context, FLOW_POSTINGS.slice(1), [], true)
   await context.unroute("https://odds.beeblast.co/**")
   await context.route(/^chrome-extension:/, route => route.continue())
-  await context.route("https://odds.beeblast.co/**", route => route.continue())
+  // The site is this build, served on the odds address.
+  await context.route("https://odds.beeblast.co/**", async (route) => {
+    const u = new URL(route.request().url())
+    await route.fulfill({ response: await route.fetch({ url: `http://localhost:4319${u.pathname}${u.search}` }) })
+  })
   await context.route("**/rest/v1/postings?**", route => route.fulfill({ json: [post] }))
   await context.route("**/rest/v1/employer_glassdoor_pay?**", route => route.fulfill({ json: [{ employer: post.employer, position: post.title, reports: 17, pay_min: 2500, pay_max: 3500, unit: "month", read_on: "2026-10-14" }] }))
   await context.route("https://www.linkedin.com/jobs/view/**", route => route.fulfill({ contentType: "text/html", body: JOB_PAGE("New job") }))
@@ -1409,6 +1413,7 @@ test("an enriched job outside the loaded pool opens from one row without saving,
   await expect(app.getByRole("heading", { name: post.title, exact: true })).toBeVisible({ timeout: 15000 })
   await expect(app.getByRole("button", { name: "Save this job", exact: true })).toBeVisible()
   await expect(app.getByRole("button", { name: "Apply with Odds", exact: true })).toBeVisible()
+  await app.getByRole("tab", { name: "Documents" }).click()
   await expect(app.getByLabel("Choose a cv from your library", { exact: true })).toBeVisible()
   expect(fake.calls).toHaveLength(0)
   expect(fake.analyses).toHaveLength(1)
@@ -1682,7 +1687,7 @@ test("one-click learning loop: phone answers an employer question, desktop advan
   await worker.evaluate("pollApplications()")
   const desktop = await opened
   await expect(desktop.getByLabel("Full name")).toHaveValue("Test Person", { timeout: 10000 })
-  await phone.getByLabel("Will you remain enrolled throughout this internship?").selectOption("Yes", { timeout: 15000 })
+  await phone.getByRole("radiogroup", { name: "Will you remain enrolled throughout this internship?" }).getByRole("radio", { name: "Yes" }).click({ timeout: 15000 })
   await phone.getByRole("button", { name: "Save and continue" }).click()
   await expect(desktop.getByLabel("CV")).toHaveCount(1, { timeout: 15000 })
   await expect.poll(() => desktop.getByLabel("CV").evaluate((e: HTMLInputElement) => e.files?.[0]?.name)).toBe("Kien_Data_CV.pdf")
@@ -2006,6 +2011,12 @@ test("Apply with Odds pressed in the app itself (this build, on the odds address
   const application = await opened
   await expect(application.getByRole("textbox", { name: "First name" })).toHaveValue("Given Names", { timeout: 10000 })
   await expect(application.getByRole("textbox", { name: "Phone" })).toHaveValue("+31 6 12345678")
+  // The application is a tab right beside the app's, which stays on the job.
+  const where = await context.serviceWorkers()[0].evaluate(async () => {
+    const tabs = await (globalThis as unknown as { chrome: { tabs: { query(q: object): Promise<Array<{ url?: string; index: number; active: boolean }>> } } }).chrome.tabs.query({})
+    return { app: tabs.find((t) => (t.url ?? "").startsWith("https://odds.beeblast.co/job/"))?.index ?? -1, shown: tabs.find((t) => t.active)?.index ?? -2 }
+  })
+  expect(where.shown).toBe(where.app + 1)
   // The question odds cannot answer is outlined, and the button in the app says where things are.
   await expect(app.getByRole("button", { name: /Continue application/ })).toBeVisible({ timeout: 15000 })
   expect(app.url()).toContain("odds.beeblast.co/job/")
@@ -2018,4 +2029,124 @@ test("Apply with Odds pressed in the app itself (this build, on the odds address
   await expect(application.getByRole("textbox", { name: "First name" })).toHaveValue("Given Names")
   expect(await application.evaluate(() => document.querySelectorAll("form").length)).toBe(1)
   expect(fake.calls).toHaveLength(0)
+})
+
+/** The shape of Booking.com's application (copied from a real one, October 2026): an unlabelled privacy choice, a residence country, address with a province, a login with a password odds never fills, and a banner with Accept and Reject non-essential. */
+const BOOKING_FORM = `<!doctype html><html><head><meta charset="utf-8"></head><body><main>
+<div class="bar" style="position:fixed;bottom:0;left:0;right:0;background:#f7f7f7;padding:12px"><h3>Manage cookie preferences</h3><button id="accept" onclick="window.accepted=true">Accept all cookies</button><button id="reject" onclick="window.rejected=true;this.parentElement.remove()">Reject non-essential cookies</button></div>
+<h2>Data Privacy Options</h2><p>You are about to apply for a job at Booking.com but first we want to know if you would like us to consider your information for other opportunities as well.</p>
+<select id="privacy"><option>— Make a Selection —</option><option>Please consider my information for any opportunities at Booking.com</option><option>I just want to be considered for this job</option></select>
+<form onsubmit="event.preventDefault(); window.sent = (window.sent || 0) + 1">
+<label for="reside">Please confirm the country in which you reside in for data privacy purposes.*</label>
+<select id="reside" required><option>— Make a Selection —</option><option>Belgium</option><option>Brazil</option><option>Germany</option><option>Netherlands</option><option>Vietnam</option></select>
+<label for="addr">Address*</label><input id="addr" required>
+<label for="zip">Zip/Postal Code*</label><input id="zip" required>
+<label for="city">City*</label><input id="city" value="Amsterdam" required>
+<label for="country">Country*</label><select id="country" required><option>Belgium</option><option selected>Netherlands</option></select>
+<label for="state">State/Province*</label><select id="state" required><option>— Make a Selection —</option><option>Drenthe</option><option>Noord-Brabant</option><option>Noord-Holland</option><option>Utrecht</option><option>Zuid-Holland</option></select>
+<h3>Create a login to access your application</h3>
+<label for="login">Email/Login*</label><input id="login" type="email" value="kien@example.com" required>
+<label for="pw">Password*</label><input id="pw" type="password" required>
+<label for="pw2">Password (Re-enter)*</label><input id="pw2" type="password" required>
+<button type="submit">Submit Profile</button></form></main></body></html>`
+
+test("a Booking.com-style application: the privacy choice is this job only, the country and province come from where the person lives, the street is from their answers, the cookie banner is declined, and the password stays theirs", async ({ context, fake }) => {
+  await connect(context)
+  await context.route("https://jobs.booking.com/apply/1**", (route) => route.fulfill({ contentType: "text/html", body: BOOKING_FORM }))
+  fake.kit = { job_id: "pbook", facts: { name: "Kien Phung", email: "kien@example.com", place: "Amsterdam, Netherlands", answers: { first_name: "Kien", last_name: "Phung", city: "Amsterdam", address: "Damrak 1", postcode: "1012 LG" }, remembered: {} }, cv: null }
+  const page = await context.newPage()
+  await page.goto("https://jobs.booking.com/apply/1")
+  await applyFrom(context, page, "https://jobs.booking.com/apply/1")
+  await expect(page.locator("#privacy")).toHaveValue("I just want to be considered for this job", { timeout: 10000 })
+  await expect(page.locator("#reside")).toHaveValue("Netherlands")
+  await expect(page.locator("#state")).toHaveValue("Noord-Holland")
+  await expect(page.locator("#addr")).toHaveValue("Damrak 1")
+  await expect(page.locator("#zip")).toHaveValue("1012 LG")
+  await expect.poll(() => page.evaluate(() => Boolean((window as unknown as { rejected?: boolean }).rejected))).toBe(true)
+  expect(await page.evaluate(() => Boolean((window as unknown as { accepted?: boolean }).accepted))).toBe(false)
+  // Credentials are never touched, and nothing is sent.
+  await expect(page.locator("#pw")).toHaveValue("")
+  await expect(page.locator("#pw2")).toHaveValue("")
+  await page.waitForTimeout(1500)
+  expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+  await shot(page, "ext-booking")
+})
+
+/** Kraft Heinz's application as Workday draws it in French (copied from a real one, October 2026): dropdowns are buttons that open a list, Yes/No are Oui/Non, three terms and a privacy notice to tick. */
+const dropdown = (id: string, label: string, options: string[]): string => `<div class="f"><span id="l-${id}">${label}</span><button type="button" id="${id}" aria-haspopup="listbox" aria-labelledby="l-${id} ${id}" data-options='${JSON.stringify(options)}'>Sélectionner</button></div>`
+const KRAFT_HEINZ = `<!doctype html><html lang="fr"><head><meta charset="utf-8"></head><body><main><h1>Formulaire de candidature</h1>
+<form onsubmit="event.preventDefault(); window.sent = (window.sent || 0) + 1">
+<h2>Informations sur le Contact</h2>
+<label for="email">e-mail</label><input id="email" value="kien@example.com">
+<label for="fn">Prénom*</label><input id="fn" required>
+<label for="ln">Nom de famille*</label><input id="ln" required>
+<label for="tel">Téléphone*</label><input id="tel" required>
+${dropdown("pays", "Pays*", ["Belgique", "Allemagne", "Pays-Bas", "France"])}
+${dropdown("etat", "État*", ["Drenthe", "Flevoland", "Hollande-Septentrionale", "Hollande-Méridionale", "Utrecht"])}
+<label for="ville">Ville*</label><input id="ville" required>
+<h2>Divulgation volontaire d’informations</h2>
+${dropdown("genre", "Veuillez indiquer laquelle des options d’identité de genre suivantes vous correspond le mieux :*", ["Femme", "Homme", "Nonbinary", "Prefer not to answer"])}
+<h2>Termes et conditions</h2>
+<label><input type="checkbox" id="t1" required> Espace de travail sans drogues ni substances</label>
+<label><input type="checkbox" id="t2" required> Confidentialité</label>
+<label><input type="checkbox" id="t3" required> Informations complètes et exactes</label>
+<h2>Privacy Notice</h2>
+<label><input type="checkbox" id="pn" required> J'ai lu l'Avis de confidentialité de KHC.</label>
+<h2>Questions liées à la candidature</h2>
+${dropdown("q1", "Nécessiterez-vous, maintenant ou dans l'avenir, un parrainage pour obtenir un visa d'emploi?*", ["Oui", "Non"])}
+${dropdown("q2", "Avez-vous 18 ans ou plus?*", ["Oui", "Non"])}
+${dropdown("q3", "Are you a current Kraft Heinz employee? If yes, please exit this application, which is for non-employees of Kraft Heinz.*", ["Oui", "Non"])}
+${dropdown("q4", "L’un de vos membres de famille directe (conjoint(e), mère, père, frère, sœur, fils ou fille) est-il actuellement employé(e) chez Kraft Heinz ?*", ["Oui", "Non"])}
+<label for="q5">Si oui, veuillez indiquer le nom, le poste et le lieu de travail de votre membre de famille chez Kraft Heinz.</label><input id="q5">
+<label for="q6">Salaire de base annuel attendu (en devise locale)*</label><input id="q6" required>
+${dropdown("q7", "Avez-vous signé une entente de non-concurrence avec un employeur après que l'emploi a pris fin au cours des cinq dernières années?*", ["Oui", "Non"])}
+${dropdown("q8", "Avez-vous déjà signé une entente avec un ancien employeur portant sur des brevets ou des renseignements confidentiels ou exclusifs?*", ["Oui", "Non"])}
+<button type="submit">Soumettre</button><button type="button" id="clear">Effacer le formulaire</button>
+</form></main>
+<script>
+document.querySelectorAll('button[aria-haspopup="listbox"]').forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll('ul[role="listbox"]').forEach((l) => l.remove())
+  const ul = document.createElement("ul"); ul.setAttribute("role", "listbox")
+  for (const o of JSON.parse(b.dataset.options)) { const li = document.createElement("li"); li.setAttribute("role", "option"); li.textContent = o; li.addEventListener("click", () => { b.textContent = o; ul.remove() }); ul.append(li) }
+  document.body.append(ul)
+}))
+</script></body></html>`
+
+test("a Workday application in French (Kraft Heinz): your data fills every field it can, the privacy and background choices are the safe ones, nothing is made up that matters, and it stops at the terms for you to tick", async ({ context, fake }) => {
+  await connect(context)
+  await context.route("https://kraftheinz.wd5.myworkdayjobs.com/**", (route) => route.fulfill({ contentType: "text/html", body: KRAFT_HEINZ }))
+  fake.kit = {
+    job_id: "pkraft",
+    facts: { job_id: "pkraft", job_country: "NL", name: "Kien Phung", email: "kien@example.com", place: "Amsterdam, Netherlands", adult: true, never_worked_here: true, answers: { first_name: "Kien", last_name: "Phung", phone: "+31 6 1234 5678", city: "Amsterdam", expected_salary: "EUR 600 a month", work_authorization: "I need a work permit; the employer sponsors it", prior_agreements: "No", insider: "No" }, remembered: {} },
+    cv: null,
+  }
+  const page = await context.newPage()
+  await page.goto("https://kraftheinz.wd5.myworkdayjobs.com/fr-FR/KraftHeinz/job/Amsterdam/Operations-Finance-Intern_R-1")
+  await applyFrom(context, page, "https://kraftheinz.wd5.myworkdayjobs.com/fr-FR/KraftHeinz/job/Amsterdam/Operations-Finance-Intern_R-1")
+  await expect(page.locator("#fn")).toHaveValue("Kien", { timeout: 15000 })
+  await expect(page.locator("#ln")).toHaveValue("Phung")
+  await expect(page.locator("#tel")).toHaveValue("+31 6 1234 5678")
+  await expect(page.locator("#ville")).toHaveValue("Amsterdam")
+  const shown = async (id: string): Promise<string> => (await page.locator(`#${id}`).textContent())?.trim() ?? ""
+  await expect.poll(() => shown("pays"), { timeout: 15000 }).toBe("Pays-Bas")
+  await expect.poll(() => shown("etat"), { timeout: 15000 }).toBe("Hollande-Septentrionale")
+  // Background questions: "Prefer not to answer", unless the person said they answer them themselves.
+  await expect.poll(() => shown("genre"), { timeout: 15000 }).toBe("Prefer not to answer")
+  // The permit, age, employment, family and past agreements: from the profile and from what was chosen once.
+  await expect.poll(() => shown("q1"), { timeout: 15000 }).toBe("Oui")
+  await expect.poll(() => shown("q2"), { timeout: 15000 }).toBe("Oui")
+  await expect.poll(() => shown("q3"), { timeout: 15000 }).toBe("Non")
+  await expect.poll(() => shown("q4"), { timeout: 15000 }).toBe("Non")
+  await expect.poll(() => shown("q7"), { timeout: 15000 }).toBe("Non")
+  await expect.poll(() => shown("q8"), { timeout: 15000 }).toBe("Non")
+  await expect(page.locator("#q6")).toHaveValue("EUR 7200 a year")
+  // "If yes, give their name" is for the person: left empty.
+  await expect(page.locator("#q5")).toHaveValue("")
+  // The end: only the terms are left, and they are the person's.
+  await expect(page.locator(".odds-apply-bar")).toContainText("Tick the terms yourself", { timeout: 15000 })
+  for (const id of ["t1", "t2", "t3", "pn"]) await expect(page.locator(`#${id}`)).not.toBeChecked()
+  await expect(page.locator(".odds-ask")).toHaveCount(0)
+  await page.waitForTimeout(1500)
+  expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+  await shot(page, "ext-kraft-heinz")
 })

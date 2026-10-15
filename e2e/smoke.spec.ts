@@ -126,6 +126,7 @@ test.describe("signed-in account", () => {
       }),
     )
     await page.goto(`/job/${post.id}`)
+    await page.getByRole("tab", { name: "People" }).click()
     const people = page.getByRole("heading", { name: "People", exact: true })
     await expect(people).toBeVisible()
     const managers = page.getByRole("region", { name: /Hiring managers|Department leads/ })

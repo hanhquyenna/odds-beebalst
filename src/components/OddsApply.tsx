@@ -1,4 +1,6 @@
 import { ApplicationQuestions } from "@/components/ApplicationQuestions"
+import { ApplyProgress, type ApplyPhase } from "@/components/ApplyProgress"
+import { Button } from "@/components/ui/button"
 import { useEffect, useState } from "react"
 import { prepareInExtension, useExtensionPresent } from "@/lib/extension-connect"
 import { onApplicationSignal, type ApplicationState } from "@/lib/embed"
@@ -6,7 +8,6 @@ import { embedded, extensionParent } from "@/lib/embedded"
 import { useData } from "@/lib/data"
 import { activeApplication, applicationState, cancelApplication, continueApplication, requestApplication, type ApplicationRun } from "@/lib/application-runs"
 import { sourcesOf } from "@/components/SourceChips"
-import { ArrowRightIcon, SparkleIcon } from "@/components/icons"
 import type { Posting } from "@/lib/types"
 
 /**
@@ -16,10 +17,8 @@ import type { Posting } from "@/lib/types"
  */
 export function OddsApply({ post }: { post: Posting }): React.JSX.Element | null {
   const user = useData().session?.user.id
-  return <div className="flex w-full flex-col gap-2">
-    <OddsApplyForm key={`${user}:${post.id}`} post={post} />
-    {user && !post.local ? <ApplicationQuestions key={post.id} postingId={post.id} /> : null}
-  </div>
+
+  return <OddsApplyForm key={`${user}:${post.id}`} post={post} />
 }
 
 function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
@@ -90,19 +89,32 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
     if (!userId || post.local) return null
     const active = run && activeApplication(run)
     const unavailable = run?.status === "failed" && /no longer accepting applications|job is closed/i.test(run.message)
+    const phase: ApplyPhase | null = run && (active || run.status === "failed") ? (run.status as ApplyPhase) : null
+    const press = (): void => {
+      setPending(true); setError("")
+      void (active ? continueApplication(post.id) : requestApplication(post.id)).then(setRun).catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not prepare this application.")).finally(() => setPending(false))
+    }
+    const label = unavailable ? "Applications closed" : pending ? "Sending…" : active ? run.status === "ready" ? "Review application" : run.status === "needs_input" ? "Continue application" : run.status === "queued" ? "Waiting for Chrome" : "Open application" : run?.status === "failed" ? "Try again" : online ? "Apply with Odds" : "No desktop connected"
+    const primary = (
+      <Button type="button" disabled={pending || Boolean(active && run.status === "queued") || (!online && !active) || unavailable} onClick={press} className="h-11 min-h-11 w-full flex-1 cursor-pointer rounded-lg bg-brand-ink text-base text-white hover:bg-brand-ink/90">
+        {label}
+      </Button>
+    )
+    const cancel = run && active ? (
+      <Button type="button" variant="outline" disabled={pending} onClick={() => {
+        setPending(true)
+        void cancelApplication(run.id).then(() => setRun({ ...run, status: "cancelled", message: "Cancelled." })).catch(() => setError("Could not cancel. Try again.")).finally(() => setPending(false))
+      }} className="h-11 cursor-pointer rounded-lg px-5 text-base">Cancel</Button>
+    ) : null
+
     return (
-      <div className="flex w-full flex-col gap-2 rounded-xl border border-brand/25 bg-brand/5 p-3">
-        <button type="button" disabled={pending || Boolean(active && run.status === "queued") || !online || unavailable} className="h-11 cursor-pointer rounded-lg bg-brand-ink px-4 text-sm font-semibold text-white disabled:bg-brand/15 disabled:text-brand-ink" onClick={() => {
-          setPending(true); setError("")
-          void (active ? continueApplication(post.id) : requestApplication(post.id)).then(setRun).catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not prepare this application.")).finally(() => setPending(false))
-        }}>{unavailable ? "Applications closed" : pending ? "Sending request…" : active ? run.status === "ready" ? "Review application" : run.status === "needs_input" ? "Continue application" : run.status === "queued" ? "Waiting for Chrome" : "Open application" : online ? "Apply with Odds" : "No desktop connected"}</button>
-        <p className="text-xs text-muted-foreground" role={run?.status === "failed" ? "alert" : "status"}>{(run ? `${["ready", "needs_input"].includes(run.status) ? "On your desktop: " : ""}${run.message}` : "") || (online ? "Your desktop is connected. It fills the form; you review and submit there." : "Open the Odds extension in desktop Chrome and enable phone control. Your computer must be awake.")}</p>
-        {active && run.status === "queued" ? <p className="text-xs text-muted-foreground">This browser uses your connected Chrome extension. Open desktop Chrome and the Odds side panel to receive this request now; background checks run about every 30 seconds while Chrome is awake.</p> : null}
-        {run && active ? <button type="button" disabled={pending} className="self-start text-xs underline" onClick={() => {
-          setPending(true)
-          void cancelApplication(run.id).then(() => setRun({ ...run, status: "cancelled", message: "Preparation cancelled." })).catch(() => setError("Could not cancel. Try again.")).finally(() => setPending(false))
-        }}>Cancel preparation</button> : null}
-        {error ? <p role="alert" className="text-xs text-red-700">{error}</p> : null}
+      <div className={`flex w-full flex-col gap-4 transition-shadow duration-300 ${phase ? (phase === "needs_input" ? "rounded-xl border-2 border-brand bg-card p-4 ring-4 ring-brand/30 shadow-lg" : "rounded-xl border-2 border-brand/70 bg-card p-4 ring-4 ring-brand/10 shadow-md") : ""}`}>
+        {phase ? <ApplyProgress phase={phase} /> : null}
+        <ApplicationQuestions inline postingId={post.id} aside={primary} empty={<div className="flex flex-col gap-2 sm:flex-row">{primary}{run?.status === "needs_input" ? null : cancel}</div>} />
+        {run?.status === "needs_input" && cancel ? <div className="flex">{cancel}</div> : null}
+        {run?.status === "failed" ? <p role="alert" className="text-sm text-destructive">{run.message}</p> : null}
+        {!online && !active ? <p className="text-sm text-muted-foreground">Open Chrome on your computer to start.</p> : null}
+        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       </div>
     )
   }
@@ -112,37 +124,38 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
 
   const stalled = state?.status === "filling" && now - state.at > 60_000
   const login = state?.status === "needs_input" && /log ?in|sign in|verification|captcha|account/i.test(state.message)
+  const phase: ApplyPhase | null = state && state.status !== "submitted" ? state.status : null
   const label = sent ? "Opening application…"
     : !state ? "Apply with Odds"
-    : state.status === "filling" ? "Filling… · open tab"
+    : state.status === "filling" ? "Open tab"
     : state.status === "needs_input" ? login ? "Complete step in browser" : "Continue application"
     : state.status === "ready" ? "Review application"
     : state.status === "failed" ? "Try again"
     : "Application sent"
-  const line = error || (state ? stalled ? "Still working. If nothing changes, open the tab to see where it is." : state.message : "") || "Your profile details and CV, filled in for you. You review and submit."
+  const press = (): void => {
+    setError("")
+    setSent(true)
+    if (embedded && parent) window.parent.postMessage({ source: "odds-site", type: "apply", url: main.url }, parent)
+    else void (async () => {
+      try {
+        await prepareInExtension(applicationUrl)
+        setSent(false)
+      } catch (e) { setError(e instanceof Error ? e.message : "Could not start the application."); setSent(false) }
+    })()
+  }
+  const primary = (
+    <Button type="button" disabled={sent || state?.status === "submitted"} onClick={press} className="h-11 min-h-11 w-full flex-1 cursor-pointer rounded-lg bg-brand-ink text-base text-white hover:bg-brand-ink/90">
+      {label}
+    </Button>
+  )
+
   return (
-    <div className="flex w-full flex-col gap-2 rounded-xl border border-brand/25 bg-brand/5 p-2.5">
-      <button
-        type="button"
-        disabled={sent || state?.status === "submitted"}
-        onClick={() => {
-          setError("")
-          setSent(true)
-          if (embedded && parent) window.parent.postMessage({ source: "odds-site", type: "apply", url: main.url }, parent)
-          else void (async () => {
-            try {
-              await prepareInExtension(applicationUrl)
-              setSent(false)
-            } catch (e) { setError(e instanceof Error ? e.message : "Could not start the application."); setSent(false) }
-          })()
-        }}
-        className="group flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-lg bg-brand-ink px-3.5 py-3 text-left text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-ink/90 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-brand/40 disabled:cursor-wait disabled:opacity-70"
-      >
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white/15"><SparkleIcon weight="fill" className="size-4" aria-hidden="true" /></span>
-        <span className="flex-1">{label}</span>
-        <ArrowRightIcon className="size-4 shrink-0" aria-hidden="true" />
-      </button>
-      <p className={error || state?.status === "failed" ? "text-center text-xs text-red-700" : "text-center text-xs text-muted-foreground"} role={error || state?.status === "failed" ? "alert" : "status"}>{line}</p>
+    <div className={`flex w-full flex-col gap-4 transition-shadow duration-300 ${phase ? (phase === "needs_input" ? "rounded-xl border-2 border-brand bg-card p-4 ring-4 ring-brand/30 shadow-lg" : "rounded-xl border-2 border-brand/70 bg-card p-4 ring-4 ring-brand/10 shadow-md") : ""}`}>
+      {phase ? <ApplyProgress phase={phase} /> : null}
+      {login ? <div className="flex gap-2">{primary}</div> : <ApplicationQuestions inline postingId={post.id} aside={primary} empty={<div className="flex gap-2">{primary}</div>} />}
+      {stalled ? <p className="text-sm text-muted-foreground">Still working. Open the tab to see where it is.</p> : null}
+      {state?.status === "failed" && state.message ? <p role="alert" className="text-sm text-destructive">{state.message}</p> : null}
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </div>
   )
 }

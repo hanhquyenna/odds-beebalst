@@ -31,6 +31,15 @@
       const button = buttons.find(b => REJECT.test(labelOf(b))) || buttons.find(b => CLOSE.test(labelOf(b)))
       if (button) { cookieAttempts.add(button); button.click(); return true }
     }
+    // A banner with no cookie-named id or class (a plain bar fixed to the screen): found by its reject button, and only inside a fixed box that talks of cookies.
+    for (const b of deep("button, a[role='button'], [role='button'], input[type='button']")) {
+      if (!shown(b) || b.disabled || cookieAttempts.has(b) || !REJECT.test(labelOf(b))) continue
+      for (let e = b.parentElement, depth = 0; e && depth < 6; e = e.parentElement, depth++) {
+        const text = e.textContent || ""
+        if (text.length > 3000 || !WORDS.test(text)) continue
+        if (/^(fixed|sticky)$/.test(getComputedStyle(e).position) && bannerLike(e)) { cookieAttempts.add(b); b.click(); return true }
+      }
+    }
     return false
   }
   globalThis.oddsApplicationHandoff = (url, ask, jobId) => {
@@ -42,7 +51,7 @@
     return {
       async publish(questions) {
         const seen = new Set()
-        const safe = questions.filter(q => q && ["text", "textarea", "number", "radio", "select", "choice", "combobox"].includes(q.kind) && !/password|captcha|verification code|security code|social security|\bbsn\b|credit card/i.test(q.label)).map(q => ({ key: A.applicationQuestionKey(q.label, jobId), label: A.questionText(q.label), kind: q.kind === "choice" ? "radio" : q.kind === "combobox" ? "text" : q.kind, ...(q.options ? { options: q.options.filter(o => o && !/^(please\s+)?(select|choose|selecteer|kies)\b/i.test(o)).slice(0, 100).map(o => o.slice(0, 200)) } : {}) })).filter(q => q.key.length >= 2 && !seen.has(q.key) && seen.add(q.key)).slice(0, 30)
+        const safe = questions.filter(q => q && ["text", "textarea", "number", "radio", "select", "choice", "combobox"].includes(q.kind) && !/password|captcha|verification code|security code|social security|\bbsn\b|credit card/i.test(q.label)).map(q => ({ key: A.applicationQuestionKey(q.label, jobId), label: A.questionText(q.label), kind: q.kind === "choice" ? "radio" : q.kind === "combobox" ? "text" : q.kind, ...(q.options ? { options: q.options.filter(o => o && !/^(please\s+)?(select|choose|selecteer|kies)\b/i.test(o)).slice(0, 300).map(o => o.slice(0, 200)) } : {}) })).filter(q => q.key.length >= 2 && !seen.has(q.key) && seen.add(q.key)).slice(0, 30)
         const signature = JSON.stringify(safe)
         if (signature === published || (published === null && !safe.length)) return
         published = signature

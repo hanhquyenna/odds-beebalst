@@ -1,136 +1,94 @@
-import { useState } from "react"
-import { CheckIcon } from "@/components/icons"
-import { SheetFrame } from "@/components/PromoSheet"
+import { createPortal } from "react-dom"
+import { useEffect, useRef, useState } from "react"
+import { ArrowLeftIcon, CheckIcon, XIcon } from "@/components/icons"
 import { Button } from "@/components/ui/button"
-import { loadAnswers, saveAnswers } from "@/lib/application-answers"
+import { loadAnswers, saveAnswers, type AnswerValues } from "@/lib/application-answers"
+import { personalFromProfile } from "../../supabase/functions/_shared/application-personal"
 import { useData } from "@/lib/data"
+import { SETUP_QUESTIONS } from "@/lib/setup-questions"
 import type { Setup } from "@/lib/setup"
 
-const RING = 2 * Math.PI * 46
-
-/** The picture: a ring that fills as the steps are done, with the steps floating round it. */
-function RingGraphic({ done, total, steps }: { done: number; total: number; steps: Setup["steps"] }): React.JSX.Element {
-  const spots = ["top-8 left-5", "top-24 right-5", "bottom-9 left-7", "bottom-6 right-9"] as const
-
-  return (
-    <div aria-hidden="true" className="absolute inset-0">
-      <div className="absolute top-1/2 left-1/2 flex size-32 -translate-x-1/2 -translate-y-1/2 items-center justify-center">
-        <svg viewBox="0 0 112 112" className="absolute inset-0 -rotate-90">
-          <circle cx="56" cy="56" r="46" fill="none" stroke="white" strokeOpacity="0.3" strokeWidth="9" />
-          <circle cx="56" cy="56" r="46" fill="none" stroke="white" strokeWidth="9" strokeLinecap="round" strokeDasharray={`${(RING * done) / total} ${RING}`} className="transition-[stroke-dasharray] duration-500" />
-        </svg>
-        <span className="relative text-4xl font-semibold tracking-tight text-white tabular-nums">{done}/{total}</span>
-      </div>
-      {steps.slice(0, 4).map((s, i) => (
-        <span
-          key={s.key}
-          className={`phone-prompt-pop absolute ${spots[i]} flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-semibold shadow-md ${s.done ? "bg-white text-neutral-900" : "bg-neutral-900 text-white"}`}
-          style={{ animationDelay: `${0.2 + i * 0.2}s` }}
-        >
-          {s.done ? <CheckIcon weight="bold" className="size-3.5 text-good-foreground" /> : null}
-          {s.title}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-/**
- * Finish setup: the questions every form asks, one at a time, tapped or typed, kept for every application. Opens from Home and from Autofill.
- * When none are left it says so and goes to the jobs.
- */
+/** One question at a time. Saved answers are the same account-owned values Autofill reads and edits. */
 export function SetupPanel({ setup, onClose, onJobs }: { setup: Setup; onClose: () => void; onJobs: () => void }): React.JSX.Element {
   const data = useData()
   const userId = data.session?.user.id ?? null
-  // The questions as they were when it opened, so the panel does not move under a person while they answer.
-  const [questions] = useState(() => (setup.missing.length ? setup.missing : []))
-  const [at, setAt] = useState<number>(0)
-  const [value, setValue] = useState<string>("")
-  const [busy, setBusy] = useState<boolean>(false)
-  const [error, setError] = useState<string | null>(null)
+  const [questions] = useState(() => [...SETUP_QUESTIONS])
+  const [at, setAt] = useState(0)
+  const [answers, setAnswers] = useState<AnswerValues>({})
+  const [ready, setReady] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  const frame = useRef<HTMLDivElement>(null)
   const finished = at >= questions.length
-  const q = finished ? null : questions[at]
-  const answersLeft = questions.length - at
-  // The answers step counts once the last question is kept.
-  const base = setup.steps.filter((s) => s.key !== "answers" && s.done).length
-  const done = Math.min(setup.total, base + (finished ? 1 : 0))
-  const steps = setup.steps.map((s) => (s.key === "answers" ? { ...s, done: finished } : s))
-
+  const q = questions[at]
+  const value = q ? answers[q.key] ?? "" : ""
+  const selected = value.split("; ").filter(Boolean)
+  const progress = Math.round(at / questions.length * 100)
+  useEffect(() => {
+    let live = true
+    void loadAnswers().then((saved) => { if (live) { setAnswers({ ...personalFromProfile(data.profile, data.session?.user.email), ...saved }); setReady(true) } })
+    return () => { live = false }
+  }, [data.profile, data.session?.user.email])
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    frame.current?.focus()
+    const key = (event: KeyboardEvent): void => {
+      if (event.key === "Escape" && !busy) onClose()
+      if (event.key === "Tab" && frame.current) {
+        const items = Array.from(frame.current.querySelectorAll<HTMLElement>('button:not([disabled]), input, [tabindex="0"]'))
+        const first = items[0]; const last = items.at(-1)
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+      }
+    }
+    window.addEventListener("keydown", key)
+    return () => { window.removeEventListener("keydown", key); previous?.focus() }
+  }, [onClose, busy])
+  const change = (next: string): void => { if (q) setAnswers((old) => ({ ...old, [q.key]: next })) }
   async function keep(): Promise<void> {
-    if (!q || !userId || !value.trim()) return
-    setBusy(true)
-    setError(null)
+    if (!q || !userId || !value.trim() || busy) return
+    setBusy(true); setError("")
     try {
       const current = await loadAnswers()
       await saveAnswers(userId, { ...current, [q.key]: value.trim() })
-      setValue("")
       setAt((n) => n + 1)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save. Try again.")
-    } finally {
-      setBusy(false)
-    }
+      setup.reload()
+    } catch { setError("Could not save your answer. Try again.") }
+    finally { setBusy(false) }
   }
-
-  return (
-    <SheetFrame titleId="setup-title" graphic={<RingGraphic done={done} total={setup.total} steps={steps} />} onClose={onClose}>
-      <div className="flex gap-1.5" aria-hidden="true">
-        {Array.from({ length: Math.max(questions.length, 1) }, (_, i) => (
-          <span key={i} className={`h-1.5 flex-1 rounded-full ${i < at || finished ? "bg-brand" : "bg-secondary"}`} />
-        ))}
-      </div>
-      <h2 id="setup-title" className="font-heading text-2xl leading-tight font-semibold tracking-tight">
-        {q ? q.title : "Applying takes one click"}
-      </h2>
-      {q ? (
-        <>
-          {q.choices ? (
-            <div role="radiogroup" aria-labelledby="setup-title" className="flex flex-col gap-2">
-              {q.choices.map((c) => (
-                <button
-                  key={c.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={value === c.value}
-                  onClick={() => setValue(c.value)}
-                  className={`flex min-h-12 cursor-pointer items-center justify-between rounded-xl border-[1.5px] px-4 text-left text-base font-medium transition-colors duration-150 ${value === c.value ? "border-brand bg-accent" : "hover:bg-secondary"}`}
-                >
-                  {c.label}
-                  <span className={`size-5 rounded-full border-[1.5px] ${value === c.value ? "border-brand bg-brand ring-[3px] ring-inset ring-accent" : ""}`} />
-                </button>
-              ))}
-            </div>
-          ) : (
-            <input
-              autoFocus
-              aria-labelledby="setup-title"
-              value={value}
-              placeholder={q.placeholder}
-              onChange={(e) => setValue(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && void keep()}
-              className="h-12 w-full rounded-xl border-[1.5px] bg-background px-4 text-base focus:border-ring focus:outline-none focus:ring-3 focus:ring-ring/40"
-            />
-          )}
-          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-          <div className="flex flex-col gap-1">
-            <Button type="button" size="lg" disabled={busy || !value.trim()} onClick={() => void keep()} className="h-12 w-full cursor-pointer rounded-full text-base">
-              {answersLeft === 1 ? "Save" : "Save and next"}
-            </Button>
-            <button type="button" onClick={() => { setValue(""); setAt((n) => n + 1) }} className="cursor-pointer py-2.5 text-sm text-muted-foreground">
-              Skip
-            </button>
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 sm:bg-black/40 sm:p-6">
+      <div ref={frame} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="setup-title" className="flex h-dvh w-full max-w-2xl flex-col overflow-hidden bg-card outline-none sm:h-[min(760px,90dvh)] sm:rounded-3xl sm:shadow-xl">
+        <header className="flex shrink-0 items-center gap-4 border-b px-5 py-4 sm:px-8">
+          <span className="text-2xl font-bold tracking-tighter">odds<span className="text-brand">.</span></span>
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-secondary" role="progressbar" aria-label="Setup progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><div className="h-full rounded-full bg-brand transition-[width] duration-200 motion-reduce:transition-none" style={{ width: `${progress}%` }} /></div>
+          <span className="text-xs text-muted-foreground tabular-nums">{progress}%</span>
+          <button type="button" onClick={onClose} aria-label="Close" className="flex size-8 cursor-pointer items-center justify-center rounded-full hover:bg-secondary"><XIcon className="size-4" /></button>
+        </header>
+        <div className="flex-1 overflow-y-auto px-5 py-7 sm:px-12 sm:py-10">
+          <p className="mb-3 text-center text-xs font-medium text-brand-ink">{finished ? "Your application profile" : `Let’s get started · ${at + 1} of ${questions.length}`}</p>
+          <h2 id="setup-title" className="mx-auto max-w-md text-center text-2xl leading-tight font-semibold tracking-tight sm:text-3xl">{finished ? "Your answers are ready to use" : q.title}</h2>
+          <p className="mt-3 text-center text-sm text-muted-foreground">{finished ? "Saved answers are available to Autofill. You can review or change them any time." : q.maxSelections ? `Select up to ${q.maxSelections}` : q.optional ? "Optional · you can skip this question" : "Answer once. Reuse it on your applications."}</p>
+          {!finished ? <div className="mx-auto mt-6 max-w-md rounded-2xl bg-secondary/60 px-4 py-3 text-sm text-muted-foreground">{value ? "We’ve pre-filled your saved details. Check them before continuing." : "Odds remembers your answers so you don’t have to enter them on every form."}</div> : null}
+          <div className="mx-auto mt-7 max-w-md">
+            {!ready ? <p role="status">Loading your saved answers…</p> : finished ? <div className="rounded-2xl border bg-brand/5 p-6 text-center"><CheckIcon className="mx-auto mb-3 size-10 text-brand-ink" /><p className="text-sm text-muted-foreground">Any unanswered questions stay available in Autofill. Odds will ask when a form needs something new.</p></div> : q.choices ? (
+              <div role={q.maxSelections ? "group" : "radiogroup"} aria-labelledby="setup-title" className="flex flex-wrap justify-center gap-2.5">
+                {q.choices.map((choice) => {
+                  const checked = q.maxSelections ? selected.includes(choice.value) : value === choice.value
+                  return <button key={choice.value} type="button" role={q.maxSelections ? "checkbox" : "radio"} aria-checked={checked} disabled={busy || Boolean(q.maxSelections && !checked && selected.length >= q.maxSelections)} onClick={() => change(q.maxSelections ? (checked ? selected.filter((v) => v !== choice.value) : [...selected, choice.value]).join("; ") : choice.value)} className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-full border-[1.5px] px-4 py-2.5 text-sm transition-colors disabled:cursor-default disabled:opacity-40 ${checked ? "border-brand bg-brand/10 text-brand-ink" : "bg-card hover:border-brand/50 hover:bg-secondary"}`}>{checked ? <CheckIcon className="size-4 shrink-0" /> : null}{choice.label}</button>
+                })}
+              </div>
+            ) : <input key={q.key} aria-labelledby="setup-title" value={value} disabled={busy} placeholder={q.placeholder} onChange={(e) => change(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void keep()} className="h-13 w-full rounded-xl border-[1.5px] bg-background px-4 text-base focus:border-brand focus:outline-none focus:ring-3 focus:ring-brand/15" />}
           </div>
-        </>
-      ) : (
-        <div className="flex flex-col gap-1">
-          <Button type="button" size="lg" onClick={() => { setup.reload(); onJobs() }} className="h-12 w-full cursor-pointer rounded-full text-base">
-            See jobs
-          </Button>
-          <button type="button" onClick={onClose} className="cursor-pointer py-2.5 text-sm text-muted-foreground">
-            Close
-          </button>
+          {error ? <p role="alert" className="mt-4 text-center text-sm text-destructive">{error}</p> : null}
         </div>
-      )}
-    </SheetFrame>
+        <footer className="shrink-0 border-t bg-card px-5 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-12">
+          {finished ? <Button type="button" onClick={() => { setup.reload(); onJobs() }} className="h-12 w-full rounded-xl bg-brand-ink text-base text-white hover:bg-brand-ink/90">See jobs</Button> : <>
+            <Button type="button" disabled={!ready || busy || !value.trim()} onClick={() => void keep()} className="h-12 w-full cursor-pointer rounded-xl bg-brand-ink text-base text-white hover:bg-brand-ink/90">{busy ? "Saving…" : "Save and Continue"}</Button>
+            <div className="mt-2 flex items-center justify-between text-sm"><button type="button" disabled={at === 0 || busy} onClick={() => { setError(""); setAt((n) => n - 1) }} className="flex cursor-pointer items-center gap-1 py-2 text-muted-foreground disabled:invisible"><ArrowLeftIcon className="size-4" />Back</button><span className="text-xs text-muted-foreground">Edit later in Autofill</span><button type="button" disabled={busy} onClick={() => { setError(""); setAt((n) => n + 1) }} className="cursor-pointer py-2 text-muted-foreground">Skip</button></div>
+          </>}
+        </footer>
+      </div>
+    </div>, document.body
   )
 }

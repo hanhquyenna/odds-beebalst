@@ -85,13 +85,22 @@
         out.push({ kind: "radio", el: radios, label, options: radios.map((r) => labelOf(r)) })
         continue
       }
-      const label = labelOf(el)
+      let label = labelOf(el)
+      // A choice about being considered for other roles has no label of its own on some forms: its options say what it is.
+      if (!label && el.tagName === "SELECT" && A.privacyChoice([...el.options].map((o) => o.text.trim())) >= 0) label = "Data privacy option"
       if (!label) continue
       if (el.getAttribute("role") === "combobox" && el.tagName === "INPUT") { out.push({ kind: "combobox", el, label }); continue }
       if (t === "file") out.push({ kind: "file", el, label })
       else if (el.tagName === "SELECT") out.push({ kind: "select", el, label, options: [...el.options].map((o) => o.text.trim()) })
       else if (el.tagName === "TEXTAREA") out.push({ kind: "textarea", el, label })
       else out.push({ kind: t === "number" ? "number" : "text", el, label })
+    }
+    // Dropdowns drawn as a button that opens a list (Workday): the button shows the choice, the list is made when it opens.
+    for (const b of document.querySelectorAll('button[aria-haspopup="listbox"], [role="combobox"][aria-haspopup="listbox"]:not(input)')) {
+      if (!shown(b) || b.closest("#odds-add, .odds-job-chance, .odds-apply-bar, nav, header, footer, [role='search']")) continue
+      const by = (b.getAttribute("aria-labelledby") || "").split(/\s+/).filter((id) => id && id !== b.id).map((id) => textOf(document.getElementById(id))).filter(Boolean).join(" ")
+      const label = by || (b.id && textOf(document.querySelector(`label[for="${CSS.escape(b.id)}"]`))) || b.getAttribute("aria-label") || ""
+      if (label) out.push({ kind: "listbox", el: b, label })
     }
     // Yes/No and other short choices drawn as buttons (Ashby): one entry per group, never the form's own Next/Submit.
     for (const box of document.querySelectorAll("div, fieldset")) {
@@ -114,27 +123,34 @@
     }
     return ""
   }
+  /** What a dropdown shows while nothing is chosen. */
+  const PLACEHOLDER = /^[\s—–-]*(select( one)?|choose|selecteer|selectionner|sélectionner|sélectionnez|wählen|make a selection|pick)|^$/i
   const pressed = (b) => b.getAttribute("aria-pressed") === "true" || b.getAttribute("aria-checked") === "true" || b.getAttribute("aria-selected") === "true" || [...b.classList].some((c) => /(^|[^a-z])(active|selected|checked|pressed)([^a-z]|$)/i.test(c))
   /** What a searchable dropdown shows as its choice (react-select and the like), empty while nothing is chosen. */
   const comboValue = (input) => textOf(input.closest("[class*='control'], [class*='container'], [class*='select']")?.querySelector("[class*='single-value'], [class*='SingleValue'], [class*='selected-value']"))
   /** Opens a dropdown and clicks the option that means `answer`; answers whether one was clicked. */
-  async function pickOption(input, answer, label) {
-    input.focus()
-    input.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }))
+  async function pickOption(input, answer, label, fallback) {
+    const button = input.tagName === "BUTTON" || input.getAttribute("aria-haspopup") === "listbox"
+    if (button) input.click()
+    else {
+      input.focus()
+      input.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }))
+    }
     await sleep(150)
-    const listbox = document.getElementById(input.getAttribute("aria-controls") || "") || input.closest("[class*='container'], div")?.querySelector("[role='listbox']") || document.querySelector("[role='listbox']")
-    const options = [...(listbox?.querySelectorAll("[role='option']") || [])]
-    const i = A.chooseOption(options.map(textOf), answer, label)
-    if (i < 0) { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); input.blur(); return null }
-    const text = textOf(options[i])
+    const listbox = document.getElementById(input.getAttribute("aria-controls") || "") || [...document.querySelectorAll("[role='listbox']")].filter(shown).pop() || input.closest("[class*='container'], div")?.querySelector("[role='listbox']")
+    const options = [...(listbox?.querySelectorAll("[role='option']") || [])].filter(shown)
+    const texts = options.map(textOf)
+    const i = answer !== null ? A.chooseOption(texts, answer, label) : fallback ? fallback(texts) : -1
+    if (i < 0) { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); if (!button) input.blur(); return null }
+    const text = texts[i]
     options[i].dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
     options[i].click()
     await sleep(100)
     return text
   }
 
-  const answered = (f) => (f.kind === "radio" ? f.el.some((r) => r.checked) : f.kind === "choice" ? f.el.some(pressed) : f.kind === "combobox" ? comboValue(f.el) !== "" : f.kind === "select" ? f.el.selectedIndex >= 0 && f.el.value.trim() !== "" && !/^(please\s+)?(select|choose|selecteer|kies)/i.test(f.options[f.el.selectedIndex] || "") : f.kind === "file" ? f.el.files?.length > 0 : f.el.value.trim() !== "")
+  const answered = (f) => (f.kind === "radio" ? f.el.some((r) => r.checked) : f.kind === "choice" ? f.el.some(pressed) : f.kind === "combobox" ? comboValue(f.el) !== "" : f.kind === "listbox" ? !PLACEHOLDER.test(textOf(f.el)) : f.kind === "select" ? f.el.selectedIndex >= 0 && f.el.value.trim() !== "" && !/^[\s—–-]*(please\s+)?(select|choose|selecteer|kies|make a selection|pick)/i.test(f.options[f.el.selectedIndex] || "") : f.kind === "file" ? f.el.files?.length > 0 : f.el.value.trim() !== "")
   const elOf = (f) => (Array.isArray(f.el) ? f.el[0] : f.el)
   const boxOf = (f) => (f.kind === "choice" && f.box.parentElement) || (f.kind === "radio" && elOf(f).closest('[role="radiogroup"], fieldset')) || elOf(f).closest("[role='radiogroup'], fieldset, [data-automation-id], .field, .form-group, .application-question, label, div") || elOf(f)
 
@@ -184,15 +200,32 @@
         }
         continue
       }
-      const answer = A.answerText(f.label, facts)
+      let answer = A.answerText(f.label, facts)
+      // "Consider me for other roles too?": the choice that shares least (this job only) is taken, never the one that lets an employer keep the details.
+      if (answer === null && (f.kind === "select" || f.kind === "radio" || f.kind === "choice")) {
+        const only = A.privacyChoice(f.options)
+        if (only >= 0) answer = f.options[only]
+      }
+      // Gender, age and background: only when the person chose "Prefer not to say" for them in Autofill.
+      if (answer === null && (f.kind === "select" || f.kind === "radio" || f.kind === "choice")) {
+        const decline = A.demographicChoice(f.label, f.options, facts)
+        if (decline >= 0) answer = f.options[decline]
+      }
+      // A choice that changes nothing (which language would you prefer, which office): the first real option.
+      if (answer === null && (f.kind === "select" || f.kind === "radio" || f.kind === "choice")) {
+        const pick = A.preferenceChoice(f.label, f.options)
+        if (pick >= 0) answer = f.options[pick]
+      }
       let ok = false
       let expected = null
       let expectedOption = -1
       let expectedText = null
-      if (answer !== null) {
+      if (answer !== null || f.kind === "listbox") {
         attempts.set(control, (attempts.get(control) || 0) + 1)
-        if (f.kind === "combobox") {
-          expectedText = await pickOption(f.el, answer, f.label)
+        if (f.kind === "combobox" || f.kind === "listbox") {
+          // A list that is only drawn when opened: its choices are read when it is, and the same defaults apply to them.
+          const fallback = (texts) => { const only = A.privacyChoice(texts); if (only >= 0) return only; const d = A.demographicChoice(f.label, texts, facts); return d >= 0 ? d : A.preferenceChoice(f.label, texts) }
+          expectedText = await pickOption(f.el, answer, f.label, fallback)
           ok = expectedText !== null
         } else if (f.kind === "select" || f.kind === "radio" || f.kind === "choice") {
           const i = A.chooseOption(f.options, answer, f.label)
@@ -211,7 +244,7 @@
         }
       }
       if (ok) {
-        const verify = () => expected !== null ? (f.el.value.trim() === expected.trim() || (/phone|mobile|telefoon/i.test(f.label) && f.el.value.replace(/\D/g, "") === expected.replace(/\D/g, ""))) : f.kind === "select" ? f.el.selectedIndex === expectedOption : f.kind === "radio" ? Boolean(f.el[expectedOption]?.checked) : f.kind === "choice" ? pressed(f.el[expectedOption]) : f.kind === "combobox" ? comboValue(f.el) === expectedText : answered(f)
+        const verify = () => expected !== null ? (f.el.value.trim() === expected.trim() || (/phone|mobile|telefoon/i.test(f.label) && f.el.value.replace(/\D/g, "") === expected.replace(/\D/g, ""))) : f.kind === "select" ? f.el.selectedIndex === expectedOption : f.kind === "radio" ? Boolean(f.el[expectedOption]?.checked) : f.kind === "choice" ? pressed(f.el[expectedOption]) : f.kind === "combobox" ? comboValue(f.el) === expectedText : f.kind === "listbox" ? textOf(f.el).toLowerCase().includes(String(expectedText).toLowerCase()) : answered(f)
         verifications.set(control, verify)
         await sleep(50)
         ok = verify() && answered(f) && control.getAttribute("aria-invalid") !== "true" && (!control.willValidate || control.validity.valid)
@@ -349,6 +382,7 @@
       verifiedRounds = (any || sawForm) && total === 0 ? verifiedRounds + 1 : 0
       if (any && (done || total || round > 2)) {
         if (/sign in|log in|create account|inloggen|account aanmaken/i.test(document.title + " " + textOf(document.querySelector("h1, h2")))) say("Sign in or make the account yourself; odds fills in the form after.", "ask")
+        else if (!total && [...document.querySelectorAll('input[type="checkbox"]')].some((c) => shown(c) && !c.checked && (c.required || c.getAttribute("aria-required") === "true"))) say("Everything is filled in. Tick the terms yourself and send it.", "done")
         else if (total) say(`odds filled in what it knows. Answer the ${total === 1 ? "outlined question" : `${total} outlined questions`}: odds keeps your answers. Then check the form and send it yourself.`, "ask")
         else if ([...document.querySelectorAll('[role="checkbox"][aria-checked="false"]')].some(shown)) say("Odds filled the details it knows. Review the form and confirm the consent yourself before sending.", "ask")
         else if (verifiedRounds < 2) say("Checking that the website kept your details and CV…", "busy")
@@ -378,7 +412,7 @@
           verifiedRounds = 0
         }
       }
-      await sleep(round < 10 ? 500 : 2000)
+      await sleep(round < 20 ? 250 : 2000)
     }
   }
   let running = false
