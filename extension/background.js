@@ -141,7 +141,7 @@ async function ext(route, init = {}) {
   if (!key) return { status: "connect" }
   let res
   try {
-    res = await fetch(`${await apiBase()}/ext/${route}`, { ...init, headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(30000) })
+    res = await fetch(`${await apiBase()}/ext/${route}`, { ...init, headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(/^(suggest-|drive-)/.test(route) ? 50000 : 30000) })
   } catch {
     return { status: "error", message: "odds did not answer." }
   }
@@ -397,7 +397,8 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
           visits[page] = (visits[page] || 0) + 1
           const loads = (hunt.loads || 0) + 1
           const keep = Object.fromEntries(Object.entries(visits).slice(-30))
-          if (visits[page] >= 3 || loads >= 15) {
+          // Broods drives through in-between prompts (preferences, sign-in walls, job lists): room for that, still a hard stop.
+          if (visits[page] >= 5 || loads >= 20) {
             let where = page
             try { const u = new URL(page); where = `${u.hostname}${u.pathname}` } catch { /* keep */ }
             stop = `Odds could not open the application form after assist: it kept landing on ${where.slice(0, 120)} without an application form. Open the job yourself and Odds fills it in.`
@@ -419,6 +420,31 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       const fresh = await intentOf(tabId)
       reply({ ok: true, title: fresh?.title || null, hunt: fresh?.hunt || { tries: 0, dead: [], tried: [] }, formSeen: Boolean(fresh?.formSeen), ...(stop ? { stop: true, message: stop } : {}) })
     })().catch(() => reply({ ok: false }))
+    return true
+  }
+  // Broods looks at the application tab (only when its page tools are stuck): the tab is the visible one in the Odds window, so no focus is taken.
+  if (message?.type === "drive-shot" && sender.tab && typeof sender.tab.id === "number") {
+    const tab = sender.tab
+    ;(async () => {
+      if (!tab.active) { await chrome.tabs.update(tab.id, { active: true }).catch(() => undefined); await new Promise((r) => setTimeout(r, 400)) }
+      const url = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 55 })
+      const image = url.replace(/^data:image\/jpeg;base64,/, "")
+      const size = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => ({ w: Math.round(innerWidth * devicePixelRatio), h: Math.round(innerHeight * devicePixelRatio) }) }).then((r) => r?.[0]?.result).catch(() => null)
+      reply({ image, width: size?.w ?? null, height: size?.h ?? null })
+    })().catch((e) => reply({ error: String(e?.message || e).slice(0, 200) }))
+    return true
+  }
+  // Broods drives the application tab: start (or resume after a page change) a run, take its next command, send back the result.
+  if (message?.type === "drive" && sender.tab && typeof sender.tab.id === "number" && ["start", "next", "result"].includes(message.op)) {
+    const tabId = sender.tab.id
+    const body = message.op === "start"
+      ? { url: String(message.url || ""), page: String(message.page || ""), run_id: typeof message.run_id === "string" ? message.run_id : null }
+      : message.op === "next" ? { run_id: message.run_id } : { run_id: message.run_id, id: message.id, result: message.result ?? null }
+    ext(`drive-${message.op}`, { method: "POST", body: JSON.stringify(body) }).then(async (res) => {
+      // The run follows the tab across page loads: the next page resumes it instead of starting another.
+      if (message.op === "start" && typeof res?.run_id === "string") await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], driveRun: res.run_id } })
+      reply(res)
+    }).catch(() => reply(null))
     return true
   }
   // The person went back a step (Back, or the form's own Back/Previous): Odds pauses there and the app says so; their own Next/Apply resumes.
@@ -492,7 +518,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return true
   }
   if (message?.type === "suggest-answers" && sender.tab && typeof message.url === "string") {
-    ext("suggest-answers", { method: "POST", body: JSON.stringify({ url: message.url, questions: Array.isArray(message.questions) ? message.questions : [] }) }).then(reply)
+    ext("suggest-answers", { method: "POST", body: JSON.stringify({ url: message.url, questions: Array.isArray(message.questions) ? message.questions : [], broods_only: message.broods_only === true }) }).then(reply)
     return true
   }
   if (message?.type === "suggest-action" && sender.tab && typeof message.url === "string") {
@@ -785,6 +811,27 @@ async function learnedApplyUrl(postingId, job) {
   return typeof url === "string" && /^https:\/\//.test(url) ? url : null
 }
 const PAUSED_MESSAGE = "You went back a step, so Odds paused here. Press Next or Apply yourself and Odds carries on, or press Apply with Odds again."
+/**
+ * The Odds window: one separate Chrome window for applications, created unfocused at the side of the screen so it never covers what the
+ * person is doing. Reused while it is open; its first blank tab is closed once an application tab is in it.
+ */
+async function oddsWindow(reveal) {
+  const { oddsRunWindow } = await chrome.storage.session.get("oddsRunWindow").catch(() => ({}))
+  if (typeof oddsRunWindow === "number") {
+    const w = await chrome.windows.get(oddsRunWindow).catch(() => null)
+    if (w) { if (reveal) await chrome.windows.update(w.id, { focused: true, state: "normal" }).catch(() => undefined); return w.id }
+  }
+  const main = await chrome.windows.getLastFocused({ windowTypes: ["normal"] }).catch(() => null)
+  const width = 1100
+  const left = typeof main?.left === "number" && typeof main?.width === "number" ? Math.max(0, main.left + main.width - width) : undefined
+  const created = await chrome.windows.create({ url: "about:blank", focused: Boolean(reveal), type: "normal", width, height: 820, ...(left !== undefined ? { left, top: main?.top ?? 0 } : {}) }).catch(() => null)
+  if (!created?.id) return typeof main?.id === "number" ? main.id : null
+  await chrome.storage.session.set({ oddsRunWindow: created.id }).catch(() => undefined)
+  // The window's own blank tab goes once the application tab is in.
+  const blank = created.tabs?.[0]?.id
+  if (typeof blank === "number") setTimeout(() => chrome.tabs.remove(blank).catch(() => undefined), 1500)
+  return created.id
+}
 /** Stable key for one vacancy: posting id when Odds sent it, else the canonical job link, else the exact apply URL (never merge unknown boards). */
 function jobKeyOf(url, postingId) {
   if (postingId) return `post:${postingId}`
@@ -884,15 +931,12 @@ function openApplication(url, from, opts = {}) {
       await continueInTab(tab.id, { reveal: false })
       return { ok: true, resumed: true }
     }
-    // New application: a tab in the same Chrome window as Odds (or the focused window) — not a second window.
+    // New application: in the Odds window — a separate Chrome window, opened without focus, where Broods works in the open (the person can
+    // glance at it) while their own window is never touched. Its tab is the visible one in that window, which is what lets Broods see it.
     // Intent MUST be stored before the job URL loads — otherwise apply.js asks apply-intent too early and never watches Closed.
-    let windowId = typeof from?.windowId === "number" ? from.windowId : null
-    if (typeof windowId !== "number") {
-      const focused = await chrome.windows.getLastFocused({ windowTypes: ["normal"] }).catch(() => null)
-      windowId = typeof focused?.id === "number" ? focused.id : null
-    }
+    const windowId = await oddsWindow(reveal)
     const tab = typeof windowId === "number"
-      ? await chrome.tabs.create({ windowId, url: "about:blank", active: reveal })
+      ? await chrome.tabs.create({ windowId, url: "about:blank", active: true })
       : (await chrome.windows.create({ url: "about:blank", focused: reveal, type: "normal" })).tabs?.[0]
     const tabId = tab?.id
     if (typeof tabId !== "number") return { ok: false, message: "Could not open an application tab." }

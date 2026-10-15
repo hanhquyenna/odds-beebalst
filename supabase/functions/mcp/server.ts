@@ -8,10 +8,11 @@
 // their own profile, documents, saved jobs and applications, and they can save a cover letter to Documents and mark a job applied.
 // Every one of those reads and writes is filtered by the user id the key belongs to. Nothing calls a paid service (no Apify, no models).
 // @ts-ignore: bundled from src/lib by scripts/build-mcp-core.sh
+import { driveExt, handleDriveMcp } from "./drive.ts"
 import * as core from "./core.js"
 import { handleOAuth, unauthorized } from "./oauth.ts"
 import { accessFor, contentOf, driveEnv, linkOf, pushIfConnected } from "../_shared/drive.ts"
-import { applicationQuestionKey } from "../_shared/apply-form.ts"
+import { applicationQuestionKey, chooseOption } from "../_shared/apply-form.ts"
 import { applyAgentEnabled, factsForAgent, hostOf, notifyApplyAgent, requestSuggestAction, requestSuggestScan, suggestAnswers, validateSuggestedAnswers, type ApplyAgentEnv, type ApplyQuestion } from "../_shared/apply-agent.ts"
 import { acceptActionPick, actionButtonsFingerprint, factsFromAgentPayload, pickSuggestAction, suggestFromRules } from "../_shared/apply-agent-suggest.ts"
 import { educationFromProfile, personalFromProfile, workFromProfile } from "../_shared/application-personal.ts"
@@ -44,7 +45,8 @@ export interface Env extends ApplyAgentEnv {
 }
 
 /** Per-user LLM/webhook answer calls per UTC day — keep low; rules + shared patterns cover the rest. */
-const APPLY_AGENT_DAILY_SUGGESTS = 20
+// Broods answers every form step now (one call a step), so the daily cap is per step, not per stuck question.
+const APPLY_AGENT_DAILY_SUGGESTS = 400
 
 async function logApplyAgentEvent(env: Env, userId: string, eventType: string, postingId: string | null, payload: Json): Promise<void> {
   await svc(env, "apply_agent_events", {
@@ -1224,6 +1226,15 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
   const me = await extWho(env, keyOf(req)).catch(() => null)
   if (!me) return json(401, { error: "Connect the odds extension again." })
   if (route === "me" && req.method === "GET") return json(200, { ok: true })
+  if (/^drive-(start|next|result)$/.test(route) && req.method === "POST") {
+    return driveExt(route, req, env, me.id, {
+      facts: () => agentFacts(env, me),
+      job: async (url: string) => {
+        const link = jobLink(url, true)
+        return link ? (await heldJob(env, link))?.[0] ?? null : null
+      },
+    })
+  }
   if (["application-poll", "application-report", "application-resume"].includes(route) && req.method === "POST") {
     const body = await req.json().catch(() => null)
     const uuid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
@@ -1398,7 +1409,17 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     if (!questions.length) return json(200, { status: "ok", accepted: [], rejected: [] })
     const factMap = await agentFacts(env, me)
     const ruleFacts = factsFromAgentPayload(factMap, held.id)
-    const fromRules = suggestFromRules(questions, ruleFacts)
+    // Broods-only: no built-in rules; the person's saved gender is the one thing copied directly (their own answer, never Broods').
+    const broodsOnly = body?.broods_only === true
+    const fromRules = broodsOnly
+      ? questions.flatMap((q) => {
+        if (!factMap.gender || !/\b(gender|geslacht|geschlecht|genre)\b/i.test(q.label) || /\b(identity|identit|transgender|pronoun|orientation)/i.test(q.label)) return []
+        const opts = q.options ?? []
+        const i = opts.length ? chooseOption([...opts], factMap.gender, q.label) : -1
+        const answer = opts.length ? (i >= 0 ? opts[i] : null) : factMap.gender
+        return answer ? [{ key: q.key, answer, confidence: 1 }] : []
+      })
+      : suggestFromRules(questions, ruleFacts)
     const have = new Set(fromRules.map((a) => a.key))
     let accepted = [...fromRules]
     let rejected: Array<{ key: string; reason: string }> = []
@@ -1423,6 +1444,7 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
             employer: held.employer_display ?? held.employer ?? null,
             questions: gaps,
             facts: factMap,
+            ...(broodsOnly ? { broods_only: true } : {}),
           })
           raw = result.raw
           rejected = result.rejected
@@ -1590,6 +1612,8 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
       job_id: held?.id ?? null,
       // The job's own title: the extension checks the employer's page is this job, not their list of vacancies.
       job_title: held?.title ?? null,
+      // Broods drives the application in the person's tab (switch on Connect; on unless they turned it off).
+      broods_drive: (profile as Json)?.broodsDrive !== false,
       facts: {
         job_id: held?.id ?? null,
         job_country: /(?:netherlands|nederland|\bNL\b)/i.test(held?.region || "") ? "NL" : null,
@@ -1754,6 +1778,8 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
 export async function handle(req: Request, env: Env): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS })
   if (new URL(req.url).pathname.includes("/ext/")) return handleExt(req, env)
+  // Broods' browser tools (one agent drives the person's tab through the Odds extension).
+  if (/\/drive\/?$/.test(new URL(req.url).pathname)) return handleDriveMcp(req, env)
   const oauth = await handleOAuth(req, env, CORS)
   if (oauth) return oauth
   if (req.method === "GET" && new URL(req.url).pathname.endsWith("/file")) return serveFile(req, env)

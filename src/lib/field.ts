@@ -70,7 +70,8 @@ function familyOfTitleFresh(text: string, sure: number): string | null {
 
   return post[best] >= sure ? M.families[best] : null
 }
-const skillTokens = (skills: Iterable<string>): string[] => [...skills].map((s) => `skill:${s.toLowerCase()}`)
+// A job without a skills list (null from the database) has no skill tokens: one bad row must not break every list that reads jobs.
+const skillTokens = (skills: Iterable<string> | null | undefined): string[] => (skills && typeof (skills as Iterable<string>)[Symbol.iterator] === "function" ? [...skills] : []).filter((s) => typeof s === "string").map((s) => `skill:${s.toLowerCase()}`)
 
 /** One reading per job title and per degree, kept per profile so the thousands of jobs scored against it do not redo it. */
 const cache = new WeakMap<Profile, Array<number[]>>()

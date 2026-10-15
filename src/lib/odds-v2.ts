@@ -464,12 +464,12 @@ export function strengthParts(post: Posting, profile: Profile, ctx: V2Context = 
 
   // 5b. The skills the posting names, weighted by how much it insists (must 1, strong 0.7, optional 0.4, nice 0.2). Only where it names
   // at least three. No field experiment varies listed skills, so this is our assumption and kept small: up to +-0.2.
-  if (post.skills.length >= 3) {
+  if ((post.skills ?? []).length >= 3) {
     const have = new Set([...base.skills, ...(ctx.extraSkills ?? [])].map((x) => x.toLowerCase()))
     const weight = { must: 1, strong: 0.7, optional: 0.4, nice: 0.2, unspecified: 0.6 } as Record<string, number>
     let got = 0
     let all = 0
-    for (const sk of post.skills) {
+    for (const sk of post.skills ?? []) {
       const w = weight[post.tiers?.[sk] ?? "unspecified"] ?? 0.6
       all += w
       if (have.has(sk.toLowerCase())) got += w

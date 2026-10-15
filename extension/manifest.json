@@ -27,7 +27,8 @@
     "https://ukpmpyfcnbhngkgbnkxi.supabase.co/*",
     "https://odds.beeblast.co/*",
     "https://*/*",
-    "http://localhost/*"
+    "http://localhost/*",
+    "<all_urls>"
   ],
   "content_scripts": [
     {

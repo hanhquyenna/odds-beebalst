@@ -61,6 +61,8 @@ export type ApplyAgentEvent =
       questions: ApplyQuestion[]
       /** Only keys a question may need — never the whole CV. */
       facts: Record<string, string>
+      /** Broods answers every question (no rules, no small model). */
+      broods_only?: boolean
     }
 
 // Demographics / legal / secrets only. Never bare "family"/"parent"/"terms" — those false-hit
@@ -69,9 +71,10 @@ const DENY = /\b(gender|genre|divulgation volontaire|identit\w* de genre|race|et
 
 const CONFIDENCE_FLOOR = 0.55
 const MAX_ANSWER = 500
-// Broods runs a quick pick then a browse pass (~4–8s); 4s threw every Broods reply away. The extension waits 12–20s.
-const SUGGEST_TIMEOUT_MS = 10000
-const SCAN_TIMEOUT_MS = 18000
+// Broods (gpt-6.1-sol, medium) takes ~6–8s for a quick pick and up to ~25s more when it browses; a short wait threw its replies away.
+// The extension waits a little longer than each of these.
+const SUGGEST_TIMEOUT_MS = 32000
+const SCAN_TIMEOUT_MS = 42000
 const NOTIFY_TIMEOUT_MS = 3000
 
 export function applyAgentEnabled(env: ApplyAgentEnv): boolean {
@@ -236,7 +239,7 @@ export async function requestSuggestAction(
       force_llm: Boolean(payload.force_llm),
       exclude: [...exclude],
     },
-    SUGGEST_TIMEOUT_MS,
+    SCAN_TIMEOUT_MS,
   )
   if (!res?.ok) return local
   let body: unknown
@@ -325,6 +328,7 @@ export async function suggestAnswers(
       employer: payload.employer ?? null,
       questions: askable,
       facts: payload.facts,
+      ...(payload.broods_only ? { broods_only: true } : {}),
     },
     SUGGEST_TIMEOUT_MS,
   )

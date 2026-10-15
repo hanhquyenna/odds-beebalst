@@ -129,9 +129,12 @@
       // Terms and consent require the person's own choice.
       return q.el.every((c) => c.checked)
     }
-    // Rules + Autofill + safe defaults (prefer-not / privacy / preference) — same as apply-any.
-    let answer = A.answerText(q.label, facts)
-    if (answer === null && typeof A.resolveAgentAnswer === "function") {
+    // Broods-only: exactly what Broods answered (or the saved gender). Otherwise rules + Autofill + safe defaults, same as apply-any.
+    const broodsOnly = globalThis.oddsBroodsOnly === true
+    // Same key Broods' answers were kept under (job-specific questions carry the job id, which sits on the kit, not on facts).
+    const kept = facts?.remembered?.[A.applicationQuestionKey(q.label, session?.kit?.job_id ?? facts?.job_id)]
+    let answer = broodsOnly ? ((typeof kept === "string" && kept.trim() ? kept : null) ?? globalThis.oddsSavedGender?.(q.label, facts) ?? null) : A.answerText(q.label, facts)
+    if (answer === null && !broodsOnly && typeof A.resolveAgentAnswer === "function") {
       answer = A.resolveAgentAnswer(q.label, facts, q.options || [])
     }
     if (answer === null) return false
@@ -272,8 +275,38 @@
   let session = null
 
   /** Fills in the step on screen. Answers the questions it can, marks the rest; answers the number of questions left for the person. */
+  let broodsStepSig = ""
+  let broodsStepCalls = 0
+  /** Broods reads this Easy Apply step once (all empty questions with their choices); the fill types exactly its answers. */
+  async function broodsStep(qs) {
+    if (globalThis.oddsBroodsOnly !== true || broodsStepCalls >= 15 || !session?.kit) return
+    const facts = session.kit.facts
+    const open = qs.filter((q) => q.kind !== "checkbox" && !answered(q) && !(facts.remembered || {})[A.applicationQuestionKey(q.label, session.kit.job_id)] && !globalThis.oddsSavedGender?.(q.label, facts))
+    if (!open.length) return
+    const sig = open.map((q) => q.label).join("|")
+    if (sig === broodsStepSig) return
+    broodsStepSig = sig
+    broodsStepCalls += 1
+    say(session.modal, "Broods is reading this step…", "filling")
+    const res = await ask({
+      type: "suggest-answers",
+      url: session.job?.url || location.href,
+      broods_only: true,
+      questions: open.slice(0, 30).map((q) => ({
+        key: A.applicationQuestionKey(q.label, session.kit.job_id),
+        label: A.questionText(q.label),
+        kind: q.kind === "radio" ? "radio" : q.kind === "select" ? "select" : q.kind === "textarea" ? "textarea" : q.kind === "number" ? "number" : "text",
+        ...(q.options ? { options: q.options.slice(0, 80) } : {}),
+      })),
+    }, 35000)
+    for (const a of (Array.isArray(res?.accepted) ? res.accepted : [])) {
+      if (typeof a?.key !== "string" || typeof a?.answer !== "string" || !a.answer.trim()) continue
+      facts.remembered = { ...(facts.remembered || {}), [a.key]: a.answer.slice(0, 1000) }
+    }
+  }
   async function fillStep(modal) {
     const qs = questionsOf(modal)
+    await broodsStep(qs)
     const besideCountry = qs.some((q) => /country code|landcode/i.test(q.label))
     let left = 0
     for (const q of qs) {
@@ -382,7 +415,7 @@
         ...(q.options ? { options: q.options.slice(0, 80) } : {}),
       }))
       say(modal, "Asking Odds for answers from your profile…", "filling")
-      const suggested = await ask({ type: "suggest-answers", url: session.job?.url || location.href, questions: payload }, 15000)
+      const suggested = await ask({ type: "suggest-answers", url: session.job?.url || location.href, questions: payload }, 25000)
       if (suggested?.status === "ok" && Array.isArray(suggested.accepted)) {
         for (const a of suggested.accepted) {
           if (typeof a?.key !== "string" || typeof a?.answer !== "string" || !a.answer.trim()) continue
@@ -398,7 +431,7 @@
     if (scannedSig !== sig) {
       scannedSig = sig
       say(modal, "No progress — Broods is reading this step…", "filling")
-      const scan = await ask({ type: "suggest-scan", url: session.job?.url || location.href, status: "stuck_easy_apply", snapshot: pageSnapshot(modal) }, 15000)
+      const scan = await ask({ type: "suggest-scan", url: session.job?.url || location.href, status: "stuck_easy_apply", snapshot: pageSnapshot(modal) }, 45000)
       if (scan?.stage === "captcha") {
         say(modal, "Captcha on the page — open the tab when you can, then Odds continues.", "ask")
         return "stop"
@@ -422,6 +455,178 @@
     return "retry"
   }
 
+  // ---- Broods drives the Easy Apply window (MCP): same commands as on employer sites, done inside LinkedIn's dialog. ----
+  // Hard rules here too, whatever Broods asks: never Submit/Send, never a password, nothing outside the dialog.
+  const DRIVE_DENY = /\b(submit|send application|send|password|captcha|sign[\s-]?up|register|create (an )?account|delete|remove|discard)\b/i
+  let driveQs = new Map()
+  let driveBtns = new Map()
+  const qValue = (q) => {
+    if (q.kind === "select") return q.el.selectedIndex > 0 ? q.options[q.el.selectedIndex] : ""
+    if (q.kind === "radio") return q.options[q.el.findIndex((r) => r.checked)] ?? ""
+    if (q.kind === "checkbox") return q.el.every((c) => c.checked) ? "checked" : ""
+    return String(q.el.value ?? "").slice(0, 300)
+  }
+  function driveModalPage(modal) {
+    driveQs = new Map()
+    driveBtns = new Map()
+    const fields = questionsOf(modal).slice(0, 60).map((q, i) => {
+      const id = `f${i}`
+      driveQs.set(id, q)
+      const consent = q.kind === "checkbox" && Boolean(A.isConsentCheckbox?.(q.label))
+      return { id, label: q.label.slice(0, 300), kind: q.kind === "text" && q.typeahead ? "typeahead" : q.kind, filled: answered(q), value: qValue(q), ...(q.options?.length ? { options: q.options.slice(0, 60) } : {}), ...(consent ? { consent: true } : {}) }
+    })
+    const cvCards = documentRadios(modal)
+    const cvUpload = modal.querySelector('input[type="file"]') || [...modal.querySelectorAll("button")].some((b) => /^upload (resume|cv)$/i.test(labelOfButton(b)))
+    // The CV counts as done only when it is the one Odds keeps for this job (LinkedIn often pre-selects an older one).
+    const want = [session.kit?.cv?.file_name, session.kit?.cv?.name].filter(Boolean).map((n) => String(n).toLowerCase().replace(/\.[a-z]+$/, ""))
+    const chosen = cvCards.find((r) => r.checked)
+    const chosenName = (chosen?.getAttribute("aria-label") || chosen?.closest('[role="radio"]')?.getAttribute("aria-label") || "").toLowerCase()
+    const rightCv = Boolean(chosen) && (!want.length || want.some((w) => chosenName.includes(w)))
+    if (cvCards.length || cvUpload) fields.push({ id: "cv", label: "Resume / CV", kind: "file", filled: rightCv, value: chosen?.getAttribute("aria-label") || "", ...(want.length ? { want: session.kit.cv.file_name || session.kit.cv.name } : {}) })
+    const buttons = buttonsOf(modal).slice(0, 30).map((b, i) => {
+      const id = `b${i}`
+      driveBtns.set(id, b)
+      const text = labelOfButton(b).slice(0, 100)
+      return { id, text, ...(isSubmit(b) || DRIVE_DENY.test(text) ? { blocked: true } : {}) }
+    })
+    return {
+      url: location.href.slice(0, 300),
+      title: (modal.querySelector("h2, h1")?.innerText || "Easy Apply").trim().slice(0, 160),
+      headings: [...modal.querySelectorAll("h2, h3")].map((h) => h.innerText.trim()).filter(Boolean).slice(0, 6),
+      errors: [...modal.querySelectorAll("[role=alert], .artdeco-inline-feedback--error")].map((e) => e.innerText.trim()).filter(Boolean).slice(0, 8),
+      captcha: false,
+      password_field: Boolean(modal.querySelector('input[type="password"]')),
+      fields,
+      buttons,
+    }
+  }
+
+  // ---- Sight: when the page tools cannot see or move something, Broods looks at a screenshot and acts at a point. ----
+  async function driveVision(cmd, sendResult, denyText) {
+    const args = cmd.args || {}
+    if (cmd.tool === "screenshot") {
+      const shot = await ask({ type: "drive-shot" }, 15000).catch(() => null)
+      if (!shot?.image) return { error: shot?.error || "Could not take a screenshot of this tab." }
+      return { image: shot.image, mime: "image/jpeg", width: shot.width, height: shot.height, note: "Coordinates for click_at are pixels in this image." }
+    }
+    const scale = (window.devicePixelRatio || 1)
+    if (cmd.tool === "click_at") {
+      const x = Number(args.x) / scale
+      const y = Number(args.y) / scale
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: "x and y are needed" }
+      const el = document.elementFromPoint(x, y)
+      if (!el) return { ok: false, error: "nothing at that point" }
+      const target = el.closest("a, button, input, select, textarea, label, [role='button'], [role='checkbox'], [role='option'], [role='radio'], [tabindex]") || el
+      const words = `${target.innerText || ""} ${target.getAttribute("aria-label") || ""} ${target.value || ""}`.replace(/\s+/g, " ").trim().slice(0, 120)
+      if (denyText.test(words)) return { ok: false, error: "Odds never presses this; it is the person's" }
+      if (target.matches("input[type=password]")) return { ok: false, error: "passwords are the person's" }
+      await sendResult({ ok: true, clicked: words || target.tagName.toLowerCase(), note: "screenshot or read_page next" })
+      for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 }))
+      target.click()
+      if (target.matches("input, textarea, select, [contenteditable='true']")) target.focus()
+      return null
+    }
+    if (cmd.tool === "type_text") {
+      const el = document.activeElement
+      if (!el || el === document.body) return { ok: false, error: "click_at a field first" }
+      if (el.matches("input[type=password]")) return { ok: false, error: "passwords are the person's" }
+      const text = String(args.text ?? "").slice(0, 2000)
+      if (el.matches("input, textarea")) {
+        const proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+        Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(el, (args.append ? el.value : "") + text)
+        el.dispatchEvent(new InputEvent("input", { bubbles: true, data: text, inputType: "insertText" }))
+        el.dispatchEvent(new Event("change", { bubbles: true }))
+      } else if (el.isContentEditable) document.execCommand("insertText", false, text)
+      return { ok: true, value: String(el.value ?? el.textContent ?? "").slice(0, 200) }
+    }
+    if (cmd.tool === "press_key") {
+      const key = String(args.key || "Enter")
+      if (!/^(Enter|Tab|Escape|ArrowDown|ArrowUp|ArrowLeft|ArrowRight|Space|Backspace)$/.test(key)) return { ok: false, error: "allowed keys: Enter, Tab, Escape, arrows, Space, Backspace" }
+      const el = document.activeElement || document.body
+      if (key === "Enter" && el.closest("form") && denyText.test((el.closest("form").querySelector("[type=submit]")?.innerText || "") + " ")) return { ok: false, error: "Enter here would submit; the person sends it" }
+      for (const type of ["keydown", "keypress", "keyup"]) el.dispatchEvent(new KeyboardEvent(type, { key: key === "Space" ? " " : key, bubbles: true, cancelable: true }))
+      return { ok: true }
+    }
+    if (cmd.tool === "scroll") {
+      window.scrollBy({ top: Math.max(-3000, Math.min(3000, Number(args.dy) || 600)), behavior: "instant" })
+      await sleep(250)
+      return { ok: true, scrollY: Math.round(window.scrollY) }
+    }
+    return null
+  }
+
+  async function driveModalCommand(modal, cmd, sendResult) {
+    const args = cmd.args || {}
+    if (cmd.tool === "read_page") return driveModalPage(modal)
+    if (["screenshot", "click_at", "type_text", "press_key", "scroll"].includes(cmd.tool)) return driveVision(cmd, sendResult, DRIVE_DENY)
+    if (cmd.tool === "options") { const q = driveQs.get(args.id); return { id: args.id, options: q?.options || [] } }
+    if (cmd.tool === "upload_cv") return { ok: await chooseCv(modal, session.kit) !== false, value: documentRadios(modal).find((r) => r.checked)?.getAttribute("aria-label") || "uploaded" }
+    if (cmd.tool === "fill") {
+      const facts = session.kit.facts
+      const besideCountry = [...driveQs.values()].some((q) => /country code|landcode/i.test(q.label))
+      const results = []
+      for (const it of (Array.isArray(args.fields) ? args.fields.slice(0, 40) : [])) {
+        const q = driveQs.get(it?.id)
+        const value = typeof it?.value === "string" ? it.value.slice(0, 2000) : ""
+        if (!q || !(Array.isArray(q.el) ? q.el[0] : q.el)?.isConnected) { results.push({ id: it?.id, ok: false, error: "field gone, read_page again" }); continue }
+        if (q.kind === "checkbox") {
+          // Consent yes (the person's choice in Odds): Broods may tick it.
+          const want = /^(yes|true|check|checked|on|1)$/i.test(value.trim())
+          for (const c of q.el) if (c.checked !== want) c.click()
+          results.push({ id: it.id, ok: q.el.every((c) => c.checked === want) })
+          continue
+        }
+        // fill() answers from what Broods said for this question (kept under its key), exactly like the Broods-only fill.
+        facts.remembered = { ...(facts.remembered || {}), [A.applicationQuestionKey(q.label, session.kit.job_id)]: value }
+        const ok = await Promise.race([fill(q, facts, besideCountry).catch(() => false), sleep(8000).then(() => false)])
+        await sleep(60)
+        results.push({ id: it.id, ok: Boolean(ok) && answered(q), value: qValue(q), ...(ok ? {} : { error: "no matching option or LinkedIn did not take it" }) })
+      }
+      return { results }
+    }
+    if (cmd.tool === "click") {
+      const b = driveBtns.get(args.id)
+      if (!b || !b.isConnected) return { ok: false, error: "button gone, read_page again" }
+      const text = labelOfButton(b)
+      if (isSubmit(b) || DRIVE_DENY.test(text)) return { ok: false, error: "Odds never presses this; it is the person's" }
+      const before = signature(modal)
+      b.click()
+      await changed(modal, before, 4000)
+      return { ok: true, clicked: text.slice(0, 100) }
+    }
+    return { error: `Unknown tool ${cmd.tool}` }
+  }
+  /** Broods drives this Easy Apply window until only Submit is left (or it needs the person); the bar says each step and the end. */
+  async function driveModal(modal) {
+    say(modal, "Broods is applying in this window…", "filling")
+    const url = session.job?.url || location.href
+    const start = await ask({ type: "drive", op: "start", url, page: url, run_id: null }, 30000)
+    const runId = start?.run_id
+    if (!runId) return say(modal, start?.error ? `Broods could not start: ${start.error}` : "Broods could not start. Press Apply with Odds again.", "ask")
+    let idle = 0
+    for (let i = 0; i < 400 && modal.isConnected && session?.modal === modal; i++) {
+      const next = await ask({ type: "drive", op: "next", run_id: runId }, 35000)
+      if (next?.done) {
+        if (next.status === "review") say(modal, next.message || "Filled in by Broods. Check everything, then press Submit yourself.", "done")
+        else if (next.status === "needs_you") say(modal, next.message || "Broods needs you for a step.", "ask")
+        else say(modal, `Odds assist could not finish this Easy Apply step after assist: ${next.message || "Broods stopped."}`, "ask")
+        return
+      }
+      if (next?.command) {
+        idle = 0
+        const cmd = next.command
+        say(modal, cmd.tool === "read_page" ? "Broods is reading this step…" : cmd.tool === "fill" ? "Broods is filling in your answers…" : cmd.tool === "click" ? "Broods is moving to the next step…" : "Broods is working…", "filling")
+        let sent = false
+        const sendResult = async (result) => { sent = true; await ask({ type: "drive", op: "result", run_id: runId, id: cmd.id, result }, 15000) }
+        const result = await driveModalCommand(modal, cmd, sendResult).catch((e) => ({ error: String(e?.message || e).slice(0, 200) }))
+        if (!sent) await sendResult(result)
+        continue
+      }
+      idle++
+      if (!next) await sleep(1500)
+      if (idle >= 6) return say(modal, "Odds assist could not finish this Easy Apply step after assist: Broods stopped answering. Finish it yourself.", "ask")
+    }
+  }
   async function run(modal) {
     const job = PAGE.site.open?.()
     session = { modal, job, kit: null, uploaded: false, submitted: false, handoff: globalThis.oddsApplicationHandoff?.(job?.url || location.href, ask) }
@@ -432,6 +637,11 @@
     session.kit = kit
     session.handoff = globalThis.oddsApplicationHandoff?.(job?.url || location.href, ask, kit.job_id)
     globalThis.oddsDismissCookies?.()
+    // Broods drives (switch on in Odds, the default): it applies in this window from the person's profile and Autofill.
+    if (kit.broods_drive === true) {
+      await driveModal(modal)
+      return
+    }
     for (let step = 0; step < 15 && modal.isConnected && session?.modal === modal; step++) {
       await sleep(250)
       let left = await fillStep(modal)
@@ -712,7 +922,7 @@
       buttons,
       status: "linkedin_open_apply",
       force_llm: true,
-    }).catch(() => null)
+    }, 45000).catch(() => null)
     if (action?.action === "click" && typeof action.text === "string" && await clickWant(action.text.replace(/\s+/g, " ").trim())) return true
     say(document.body, "No progress — Broods is reading this page…", "filling")
     const scan = await ask({
@@ -727,7 +937,7 @@
         buttons: buttons.map((b) => b.text),
         facts: {},
       },
-    }).catch(() => null)
+    }, 45000).catch(() => null)
     if (scan?.action === "click" && typeof scan.text === "string" && await clickWant(scan.text.replace(/\s+/g, " ").trim())) return true
     return false
   }

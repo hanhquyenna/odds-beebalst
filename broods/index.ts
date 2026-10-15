@@ -1,12 +1,13 @@
 /**
- * Odds Apply agents on Broods:
- * - apply-stuck: fast structured pick from extension snapshot (script hands)
- * - apply-roam: free-roam browse (obscura) for page context, then same pick schema
- *
- * Product: Broods understands the page; Odds Chrome extension executes clicks/fills
- * under the person's login. Never Submit / password / captcha.
+ * Odds Apply on Broods: ONE agent (odds-apply).
+ * - Drive mode: the person's own Chrome tab, through the Odds extension, via the odds-browser MCP tools
+ *   (read_page / fill / options / upload_cv / click / wait / finish). No cloud browser, no sandbox.
+ * - Pick mode: a quick structured answer for the extension (page scan, answers, which button) when no run_id is sent.
+ * It applies from each person's own context (Autofill + profile + CV excerpt) sent with the run. Never Submit / password / captcha /
+ * consent — the extension refuses those whatever the agent asks.
  */
-import { defineAgent, defineBroods, defineSandbox, env } from "broods"
+import { defineAgent, defineBroods, defineMcp, env } from "broods"
+import { ids } from "./_generated/ids"
 
 export default defineBroods({
   project: "odds-apply",
@@ -54,92 +55,91 @@ const PICK_RULES = `Return one apply_pick:
 - action=click → text must be an EXACT string from buttons[] when a button list is provided.
 - action=fill → answers[{key,answer}] for empty required fields. facts = the person's Autofill plus their profile (nationality_group, work_permit, lives_in, education, experience, skills, cv_excerpt). REASON from them, do not wait for an exact field: nationality_group Non-EU → "Non-EU"; an education ending in the future → enrolled / still studying, its degree → the education type option; lives_in a Dutch city → based in the Netherlands; hours_per_week 40 → 5 days; English used in experience/CV → English fluent. Never state anything the facts contradict. Never invent file paths for resume/CV/upload fields — leave those to the extension (prefer click Next if present, else action=none).
 - kind=suggest-answers (questions[] + facts, no buttons) → stage=form, action=fill, text=null, one answer per question the facts can answer; skip the rest.
-- Choice question with options → answer is an EXACT option string. Dates → YYYY-MM-DD. Yes/No → "Yes" or "No".
+- Choice question with options → answer is an EXACT option string. Dates → YYYY-MM-DD; a month and year only ("Aug 2027") → the last day of that month (2027-08-31). Yes/No → "Yes" or "No".
 - Open questions (why this role, motivation, reasons, what you bring) → 1–3 plain sentences in the first person from role_values, notes, experience, education and cv_excerpt, tied to the employer/job title. Always answer these when there is a profile.
 - Never answer gender, age, ethnicity, disability, religion, family, salary history, legal declarations, consent, passwords or captchas — skip them (the person answers those).
 - Never Submit, Send application, Submit Application, login, sign up, Accept all cookies, or password fields.
 - Job closed / no longer available / expired / position filled → stage=stuck, action=none, reason=listing_gone.
 - Only action=none when NO safe Apply/Next/Continue/Review/cookie control exists in buttons[].`
 
-/** Fast path: extension sends snapshot; Broods picks; script clicks in the person's tab. */
-export const applyStuck = defineAgent({
-  name: "apply-stuck",
-  description: "Fast Apply unblock from a page snapshot. Odds extension executes.",
+/** Broods' hands: the Odds MCP server, which carries each command to the person's Odds extension and back. */
+export const oddsBrowser = defineMcp({
+  name: "odds-browser",
+  url: "https://ukpmpyfcnbhngkgbnkxi.supabase.co/functions/v1/mcp/drive",
+  // Listed explicitly: the agent gets exactly these browser tools.
+  allowedTools: ["read_page", "fill", "options", "upload_cv", "click", "back", "screenshot", "click_at", "type_text", "press_key", "scroll", "wait", "finish"],
+})
+
+const DRIVE_RULES = `DRIVE MODE (the message has run_id): you are applying to a job in the person's own browser tab through the odds-browser tools.
+Every tool call takes run_id. Loop: read_page → decide → act (fill / options / upload_cv / click / back; screenshot + click_at / type_text / press_key / scroll when stuck) → read_page again → next. You have up to 80 steps: use them.
+
+GOAL: reach the employer's application form, fill ALL of it, and stop only when Submit/Send is the only thing left.
+
+PERSIST — do not give up early. Job boards (Glassdoor, Indeed, LinkedIn, agencies) put several layers between the job and the form:
+"Apply on employer's site", sign-up nudges, "desired job"/preferences pop-ups, job-alert prompts, "complete your profile", cookie banners, consent screens.
+These are steps to get THROUGH, not reasons to stop. The employer's portal eventually opens (often after the pop-up) — then fill it.
+- read_page.dialog is set when a pop-up is open: its fields/buttons are all you see. COMPLETE it: fill its fields sensibly (desired job / function = this job's title,
+  location = person.lives_in, availability = person.start_date, yes to consent/terms/privacy boxes), then click its Continue / Apply / Save / Done / Next / "Go to employer" button.
+- Prefer buttons that move toward the application: Apply / Apply now / Apply on employer's site / Solliciteren / Continue / Next / Volgende / Review.
+- Never click "Skip" or "Not now" when it navigates away from the job; if a click landed on an unrelated page (search results, home), use back (or click this job's link) and try another way.
+- Consent and privacy checkboxes: tick them (yes). Cookie banners: Reject / Necessary only / Functional only.
+- A job page without a form: click its Apply. A list of vacancies: open THIS job (by title), never a different job.
+- Only finish stuck after at least 5 genuinely different attempts on the same blocker (different buttons, filling the pop-up, back + retry, sight). Two tries is never enough.
+
+FILLING (from person = Autofill + profile + CV excerpt):
+- Fill every empty question of a step in ONE fill call; exact option strings for choices (call options when none are listed).
+- Dates YYYY-MM-DD (month+year → last day of that month). Phone: national number when a country-code field sits beside it.
+- Reason from facts: nationality_group Non-EU → "Non-EU"; studies ending in the future → enrolled; lives_in a Dutch city → based in NL; 40 hours → 5 days.
+- Open "why/motivation" questions: 1–3 first-person sentences from role_values, notes, experience, education, cv_excerpt, tied to the employer and job.
+- gender only from person.gender when present, else a "Prefer not to say" option if offered. Never answer age, ethnicity, disability, religion, family members,
+  salary history, criminal record or legal declarations — leave those for the person.
+- CV/resume file field → upload_cv. Never type into file fields.
+- After filling, click Next / Continue / Review. read_page and fix any errors (up to 3 tries per field).
+
+SIGHT (when stuck): read_page is your main view. When it cannot show or move what blocks you — a control missing from read_page, a fill that
+keeps failing, a custom widget, an overlay, a page that "looks" different from read_page — take a screenshot, look, and act by sight:
+click_at (x, y in the screenshot's pixels), type_text into the focused field, press_key (Enter/Tab/Escape/arrows), scroll. Then read_page again.
+Use sight before ever finishing stuck. Same rules: never Submit/Send, never passwords.
+
+STOP with finish only when:
+- review — only Submit/Send is left (NEVER press it). message: "Everything is filled in. Check it and press Submit yourself."
+- needs_you — a captcha, a password / account creation, or questions only the person can answer (list them in questions).
+- stuck — after 5+ different attempts including sight, or the job is closed (say exactly what blocks).
+Buttons marked blocked are refused. Never ask the person in chat; never stop without finish. After finish, output an apply_pick with action none.`
+
+/** The one Odds Apply agent: drives the person's tab (drive mode) or gives a quick pick (pick mode). */
+export const oddsApply = defineAgent({
+  name: "odds-apply",
+  description: "Applies to jobs in the person's own Chrome through the Odds extension (MCP), from their Autofill and profile. Never submits.",
   provider: { openai: { apiKey: env("OPENAI_API_KEY") } },
   model: {
     provider: "openai",
-    modelId: "gpt-6-luna",
-    reasoning: "none",
-    temperature: 0,
-    maxOutputTokens: 400,
+    modelId: "gpt-6.1-sol",
+    reasoning: "medium",
+    maxOutputTokens: 4000,
     output: {
       type: "object",
       name: "apply_pick",
       schema: applyPickSchema,
     },
   },
+  // Keyed by the MCP server's config-plane id (by name it is silently not attached: the agent then has no tools).
+  // The secret header belongs here (resolved from the Broods env var at sync), not on defineMcp.
+  mcp: { [ids.mcp["odds-browser"]]: { enabled: true, headers: { "x-odds-drive-key": "${ODDS_DRIVE_SECRET}" } } },
   agent: {
-    maxTurn: 8,
-    system: `You are the Odds Apply stuck agent. The Chrome extension sends a JSON page snapshot (title, headings, errors, fields with keys/empty, buttons).
+    maxTurn: 90,
+    system: `You are Odds Apply. Two modes.
 
+${DRIVE_RULES}
+
+PICK MODE (no run_id: the extension sent a page snapshot or questions): answer at once with one apply_pick, no tools.
 ${PICK_RULES}
 
-Examples (follow exactly when buttons match):
+Examples (pick mode):
 - buttons=["Review","Submit application","Back"] → {"stage":"form","action":"click","text":"Review","answers":[],"reason":"progress"}
-- buttons=["Continue","Submit Application","Back"] → {"stage":"form","action":"click","text":"Continue","answers":[],"reason":"progress"}
 - buttons=["Allow all","Necessary only","Manage"] → {"stage":"form","action":"click","text":"Necessary only","answers":[],"reason":"cookies"}
-- buttons=["Accept all","Reject non-essential","Close"] → {"stage":"form","action":"click","text":"Reject non-essential","answers":[],"reason":"cookies"}
-- title has captcha → stage=captcha action=wait_human
-- password field or Sign in wall → stage=account action=wait_human
-- job closed/expired → stage=stuck action=none reason=listing_gone
-- NEVER use reason=listing_gone unless title/headings/errors say the job is closed, expired, filled, or no longer available.
-
-The extension clicks/types in the person's logged-in tab. You only choose.`,
-  },
-  publicAccess: true,
-})
-
-/** Free-roam: Broods opens the URL with obscura browse, understands context, returns the same pick for the script. */
-export const applyWeb = defineSandbox({
-  name: "apply-web",
-  provider: "lambda",
-  image: "obscura",
-  persistent: true,
-  network: { mode: "allow-all" },
-  permissionMode: "bypass",
-  timeout: 90,
-})
-
-export const applyRoam = defineAgent({
-  name: "apply-roam",
-  description: "Free-roam browse of an apply URL, then structured pick for the Odds script.",
-  provider: { openai: { apiKey: env("OPENAI_API_KEY") } },
-  model: {
-    provider: "openai",
-    modelId: "gpt-6-luna",
-    reasoning: "none",
-    temperature: 0,
-    maxOutputTokens: 500,
-    output: {
-      type: "object",
-      name: "apply_pick",
-      schema: applyPickSchema,
-    },
-  },
-  sandboxes: [applyWeb],
-  browser: { enabled: true },
-  agent: {
-    maxTurn: 12,
-    system: `You are Odds Apply free-roam. The user message has a job application URL, optional snapshot (buttons/fields), and candidate facts.
-
-1) Optionally browse the URL (markdown) when the snapshot is thin.
-2) Your FINAL output must be apply_pick only — never end on browse markdown.
-3) If the page is a docs placeholder (example.com) with no Apply controls → stage=stuck action=none.
-
-${PICK_RULES}
-
-If browse shows a login or captcha wall, wait_human. Do not invent button labels not visible in browse or the snapshot.
-Keep turns short — Odds needs an answer in a few seconds.`
+- title has captcha → stage=captcha action=wait_human; password field or Sign in wall → stage=account action=wait_human
+- NEVER use reason=listing_gone unless title/headings/errors say the job is closed, expired, filled, or no longer available.`,
   },
   publicAccess: true,
 })

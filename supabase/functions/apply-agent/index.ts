@@ -116,7 +116,7 @@ async function broodsRunPick(
         conversationKey,
         events: [{
           role: "user",
-          content: [{ type: "text", text: JSON.stringify(userPayload).slice(0, 8000) }],
+          content: [{ type: "text", text: JSON.stringify(userPayload).slice(0, 16000) }],
         }],
       }),
       signal: AbortSignal.timeout(timeoutMs),
@@ -172,17 +172,17 @@ async function broodsRunPick(
   }
 }
 
-/** Stuck pick (~6s; gpt-6-luna + reasoning none). */
-async function broodsStuckPick(userPayload: Record<string, unknown>): Promise<BroodsScanPick | null> {
+/** Stuck pick (~6–8s; gpt-6.1-sol, medium effort). */
+async function broodsStuckPick(userPayload: Record<string, unknown>, timeoutMs = 15000): Promise<BroodsScanPick | null> {
   const agentId = (Deno.env.get("APPLY_AGENT_BROODS_AGENT_ID") ?? "").trim()
-  return broodsRunPick(agentId, userPayload, 6000)
+  return broodsRunPick(agentId, userPayload, timeoutMs)
 }
 
 /** Free-roam browse when stuck pick is empty (~12s). */
 async function broodsRoamPick(userPayload: Record<string, unknown>): Promise<BroodsScanPick | null> {
   const roamId = broodsRoamAgentId()
   if (!roamId) return null
-  return broodsRunPick(roamId, { ...userPayload, roam: true }, 12000)
+  return broodsRunPick(roamId, { ...userPayload, roam: true }, 25000)
 }
 
 async function broodsBestPick(userPayload: Record<string, unknown>): Promise<BroodsScanPick | null> {
@@ -552,6 +552,27 @@ Click text must be an exact button label from the list. answers only for empty r
   const postingId = typeof (body as { posting_id?: string }).posting_id === "string" ? (body as { posting_id: string }).posting_id : null
   const facts = factsFromAgentPayload(factsMap, postingId)
 
+  // Broods-only: every question goes to Broods (one call for the whole step); no rules, no small model.
+  if ((body as { broods_only?: boolean }).broods_only === true) {
+    const askable = questions.filter((q) => !isDeniedQuestion(q.label)).slice(0, 30)
+    const broods = askable.length && broodsConfigured() ? await broodsStuckPick({
+      kind: "suggest-answers",
+      title: (body as { title?: string | null }).title ?? null,
+      employer: (body as { employer?: string | null }).employer ?? null,
+      host: (body as { host?: string | null }).host ?? null,
+      questions: askable.map((q) => ({
+        key: q.key,
+        label: q.label.slice(0, 200),
+        kind: q.kind,
+        options: (q.options ?? []).slice(0, 60).map((o) => String(o).slice(0, 120)),
+      })),
+      facts: sliceFacts(factsMap),
+    }, 28000) : null
+    const want = new Set(askable.map((q) => q.key))
+    const answers = (broods?.answers ?? []).filter((a) => want.has(a.key) && a.answer.trim()).map((a) => ({ key: a.key, answer: a.answer, confidence: 0.8, evidence: "broods" }))
+    forwardAsync({ ...body, type: "suggest-answers.done", n: answers.length, broods_only: true })
+    return json(200, { answers })
+  }
   const fromRules = suggestFromRules(questions, facts)
   const have = new Set(fromRules.map((a) => a.key))
   const gaps = questions.filter((q) => !have.has(q.key) && !isDeniedQuestion(q.label)).slice(0, MAX_LLM_GAPS)

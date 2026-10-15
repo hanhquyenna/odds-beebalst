@@ -6,8 +6,8 @@ Odds Chrome extension = hands (clicks/fills in your logged-in tab). Broods = bra
 
 | Agent | Role | Id (production) |
 | --- | --- | --- |
-| `apply-stuck` | Fast pick from extension snapshot (`gpt-6-luna`, reasoning none) | `js74p8xs10efctdq5ynrkm6fmn8gagn5` |
-| `apply-roam` | Free-roam browse (obscura) when snapshot pick is empty (`gpt-6-luna`) | `js76rgrnz12qj43ys5qcnfwnm18gadsy` |
+| `apply-stuck` | Fast pick from extension snapshot (`gpt-6.1-sol`, medium effort, ~6–8s) | `js74p8xs10efctdq5ynrkm6fmn8gagn5` |
+| `apply-roam` | Free-roam browse (obscura) when snapshot pick is empty (`gpt-6.1-sol`, medium effort; obscura browser in a Lambda sandbox) | `js76rgrnz12qj43ys5qcnfwnm18gadsy` |
 | Sandbox `apply-web` | Obscura browser for roam | `m97d9856v8btgvawps2gkhp9jh8gbtag` |
 
 Ladder: rules → gpt-4o-mini → Broods stuck → Broods roam → human (account/captcha/submit).

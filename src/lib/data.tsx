@@ -1,3 +1,4 @@
+import { withSkillTiers } from "@/lib/skill-tiers"
 import { mergePool } from "@/lib/sources"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
@@ -171,6 +172,8 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
   const referrals = useMemo((): Set<string> => new Set([...manualReferrals, ...(profile.people ?? []).filter((p): boolean => p.status === "Referred" && Boolean(p.jobId)).map((p): string => p.jobId as string)]), [manualReferrals, profile.people])
   const timer = useRef<number | undefined>(undefined)
   const profileRef = useRef<Profile>(profile)
+  /** The account's stored profile has been read (or the account had none): only then may this device save the profile to it. */
+  const storedLoaded = useRef(false)
   profileRef.current = profile
   const facts = useProfileFacts(profile, session)
   const refreshFacts: () => void = facts.refresh
@@ -272,7 +275,8 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
   const logosReady = autoLogosReady && logoFor !== null
   // odds is for international students: a job that asks for Dutch is never in any list, whatever the filters say. (A job you saved before stays, fetched on its own below.)
   const withLogo = useMemo(() => remote.filter((p) => !p.dutch_required && (!logosReady || logoFor(p.employer, p.url) !== null)), [remote, logosReady, logoFor])
-  const postings = useMemo(() => [...local, ...withLogo], [local, withLogo])
+  // Jobs kept in this browser go through the same cleaning as fetched ones: one with no skills list (null) must not crash every list and score.
+  const postings = useMemo(() => [...local.map((p) => withSkillTiers(p)), ...withLogo], [local, withLogo])
   // A job you saved or applied to can leave the open pool (it closed). It is fetched on its own, once, so it stays in your list.
   const [keptExtra, setKeptExtra] = useState<Posting[]>([])
   const askedFor = useRef<Set<string>>(new Set())
@@ -325,6 +329,8 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
 
   // Signing in brings the stored profile and applications down; they win over this browser's copy.
   useEffect(() => {
+    // A new account (or sign-out): nothing may be saved until this account's stored profile is read.
+    storedLoaded.current = false
     if (!session || status !== "ready") {
       return
     }
@@ -337,10 +343,12 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
         if (stored) {
           setProfileState(migrateProfile({ ...DEFAULT_PROFILE, ...stored }))
           setProfileSaved(true)
+          storedLoaded.current = true
         } else {
           // First time this account is used: the database gets a row either way, so signing in always
           // leaves the account behind it up to date. With answers on this device they ride along, otherwise
           // the blank profile does: a later save fills it in.
+          storedLoaded.current = true
           saveProfile(session.user.id, profileRef.current)
             .then(() => setProfileSaved(true))
             .catch(() => undefined)
@@ -403,7 +411,9 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
     (next: Profile): void => {
       setProfileState(next)
       write(PROFILE_KEY, next)
-      if (!session) {
+      // Never save over the account's stored profile before it has been read: until then this device only has a blank or old copy, and
+      // saving it wiped a whole profile (roles, education, headline) when the job list failed to load. The stored one wins once it arrives.
+      if (!session || !storedLoaded.current) {
         return
       }
       window.clearTimeout(timer.current)

@@ -7,6 +7,7 @@ import { mkdtempSync, readFileSync } from "node:fs"
 import { FLOW_POSTINGS } from "./fixtures/postings"
 import { mockBackend, shot } from "./mock"
 import { pickSuggestAction } from "../supabase/functions/_shared/apply-agent-suggest"
+import { chooseOption, resolveAgentAnswer, type Facts } from "../supabase/functions/_shared/apply-form"
 import { tmpdir } from "node:os"
 
 /**
@@ -33,7 +34,14 @@ const KEY = `oddsx_${"ab".repeat(24)}`
 
 const JOB_PAGE = (title: string): string => `<!doctype html><html><head><title>${title}</title></head><body><h1>${title}</h1><p>Job description</p></body></html>`
 
+/** A scripted stand-in for the Broods agent: drives the real extension through /ext/drive-* with read_page/fill/upload_cv/click/finish. */
+interface DriveRun { outbox: Array<{ id: number; tool: string; args: Record<string, unknown> }>; resolvers: Map<number, (r: unknown) => void>; done: { status: string; message: string } | null; log: string[] }
 interface Fake {
+  drives: Map<string, DriveRun>
+  /** REAL_BROODS=1 runs: the real agent on a real run (see driveReal). */
+  realBroods?: { title: string; person: Record<string, string>; runId?: string; log: string[]; end?: { status: string; message: string } }
+  /** A test's own Broods moves (instead of the stand-in agent): gets cmd(tool, args) and returns how the run ends. */
+  driveScript?: (cmd: (tool: string, args?: Record<string, unknown>) => Promise<Record<string, unknown>>) => Promise<{ status: string; message: string }>
   prompts: Array<{ key: string; label: string; kind: string; options?: string[] }>
   remembered: Record<string, string>
   /** Label → answer the fake cloud agent returns from /ext/suggest-answers. */
@@ -76,6 +84,128 @@ interface Fake {
   pool: Record<string, unknown>
 }
 
+let driveSeq = 0
+/** The stand-in agent: read the page, answer what the person's facts answer (else leave it), consent yes, upload the CV, press Next/Review, stop at Submit. */
+async function driveAgent(fake: Fake, run: DriveRun): Promise<void> {
+  const cmd = (tool: string, args: Record<string, unknown> = {}) => new Promise<Record<string, unknown>>((resolve) => {
+    const c = { id: ++driveSeq, tool, args }
+    run.log.push(`${tool} ${JSON.stringify(args).slice(0, 160)}`)
+    run.resolvers.set(c.id, (r) => resolve((r ?? {}) as Record<string, unknown>))
+    run.outbox.push(c)
+  })
+  const kitFacts = ((fake.kit as { facts?: Facts }).facts ?? {}) as Facts
+  const tried = new Map<string, number>()
+  for (let step = 0; step < 25; step++) {
+    const page = await cmd("read_page") as { fields?: Array<{ id: string; label: string; kind: string; filled: boolean; options?: string[]; consent?: boolean; required?: boolean }>; buttons?: Array<{ id: string; text: string; blocked?: boolean }>; captcha?: boolean; password_field?: boolean }
+    if (page.captcha || page.password_field) { run.done = { status: "needs_you", message: "Sign in or solve the captcha." }; return }
+    const fields = page.fields ?? []
+    const open = fields.filter((f) => !f.filled && f.kind !== "file" && f.kind !== "checkbox" && !f.consent && (tried.get(f.label) ?? 0) < 2)
+    const answers: Array<{ id: string; value: string }> = []
+    for (const f of open) {
+      tried.set(f.label, (tried.get(f.label) ?? 0) + 1)
+      let options = f.options ?? []
+      if (!options.length && (f.kind === "listbox" || f.kind === "combobox")) options = ((await cmd("options", { id: f.id })) as { options?: string[] }).options ?? []
+      const said = fake.agentAnswers[f.label] ?? resolveAgentAnswer(f.label, { ...kitFacts, remembered: { ...(kitFacts.remembered ?? {}) } } as Facts, options)
+      if (!said) continue
+      const i = options.length ? chooseOption([...options], said, f.label) : -1
+      answers.push({ id: f.id, value: options.length ? (i >= 0 ? options[i] ?? said : said) : said })
+    }
+    // Consent and required boxes: yes (the person's choice in Odds).
+    for (const f of fields) if (f.kind === "checkbox" && !f.filled && (f.consent || f.required) && (tried.get(f.id + "box") ?? 0) < 2) { tried.set(f.id + "box", (tried.get(f.id + "box") ?? 0) + 1); answers.push({ id: f.id, value: "yes" }) }
+    if (answers.length) { await cmd("fill", { fields: answers }); continue }
+    const file = fields.find((f) => f.kind === "file" && !f.filled && (tried.get(f.id + "file") ?? 0) < 1)
+    if (file) { tried.set(file.id + "file", 1); await cmd("upload_cv", { id: file.id }); continue }
+    const left = fields.filter((f) => !f.filled && f.kind !== "file" && !f.consent && f.kind !== "checkbox")
+    const next = (page.buttons ?? []).find((b) => !b.blocked && /^(next|continue|review|review your application|continue to next step|apply|apply now)$/i.test(b.text.trim()))
+    if (left.length) { run.done = { status: "needs_you", message: `Answer: ${left.map((f) => f.label).join("; ")}` }; return }
+    if (next) { await cmd("click", { id: next.id }); continue }
+    if ((page.buttons ?? []).some((b) => b.blocked && /submit/i.test(b.text))) { run.done = { status: "review", message: "Everything is filled in. Check it and press Submit yourself." }; return }
+    run.done = { status: "stuck", message: "No way forward on this page." }
+    return
+  }
+  run.done = { status: "stuck", message: "Step limit." }
+}
+// ---- REAL_BROODS=1: the real Broods agent drives the real extension on real sites. The bridge stands in only for Odds' login: it starts
+// the run in the real database and carries commands between the database and the extension, exactly the path production uses.
+const REAL_USER = "a288b136-2a65-4dc5-9ab2-7ecad9afbb3d"
+const realDb = (sql: string): Array<Record<string, unknown>> => {
+  const out = execFileSync("bunx", ["supabase", "db", "query", "--linked", sql], { cwd: join(import.meta.dirname, ".."), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 60_000 })
+  const j = JSON.parse(out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1)) as { rows?: Array<Record<string, unknown>> }
+  return j.rows ?? []
+}
+const sqlText = (v: unknown): string => `'${JSON.stringify(v).replace(/'/g, "''")}'`
+async function startRealBroods(runId: string, url: string, title: string, person: Record<string, string>): Promise<void> {
+  const env = readFileSync(join(import.meta.dirname, "..", ".env.local"), "utf8")
+  const key = [...env.matchAll(/^BROODS_API_KEY=["']?([^"'\n]+)/gm)].at(-1)![1]
+  const secret = [...env.matchAll(/^BROODS_USER_TOKEN_SECRET=["']?([^"'\n]+)/gm)].at(-1)![1]
+  const enc = new TextEncoder()
+  const b64 = (b: Uint8Array) => btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+  const body = b64(enc.encode(JSON.stringify({ userId: REAL_USER, expiresAt: Date.now() + 3600000 })))
+  const dig = await crypto.subtle.digest("SHA-256", enc.encode(`broods-user-token:${secret}`))
+  const ck = await crypto.subtle.importKey("raw", dig, { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+  const token = `buat_${body}.${b64(new Uint8Array(await crypto.subtle.sign("HMAC", ck, enc.encode(body))))}`
+  const task = { run_id: runId, job: { title, url }, person, goal: "Apply to this job in the person's browser tab with the odds-browser tools until only Submit is left (finish review), or something only the person can do (finish needs_you)." }
+  void fetch("https://gateway.broods.app/v1/runs", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "text/event-stream", "X-Broods-User-Token": token },
+    body: JSON.stringify({ agentId: "js76teefba050scj7h6wp8n04x8ga3ac", eventId: crypto.randomUUID(), conversationKey: `odds-drive-${runId}`, events: [{ role: "user", content: [{ type: "text", text: JSON.stringify(task) }] }] }) }).then((r) => r.text()).catch(() => "")
+}
+async function driveReal(fake: Fake, path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const real = fake.realBroods!
+  if (path.endsWith("/drive-start")) {
+    if (typeof body.run_id === "string" && real.runId === body.run_id) return { run_id: body.run_id, resumed: true }
+    const [run] = realDb(`insert into public.drive_runs (user_id, url) values ('${REAL_USER}', ${sqlText(String(body.page || body.url)).replace(/^'"|"'$/g, "'")}) returning id`)
+    real.runId = String(run.id)
+    await startRealBroods(real.runId, String(body.page || body.url), real.title, real.person)
+    return { run_id: real.runId, resumed: false }
+  }
+  const runId = String(body.run_id)
+  if (path.endsWith("/drive-result")) {
+    realDb(`update public.drive_commands set status='done', result=${sqlText(body.result ?? {})}::jsonb, done_at=now() where id=${Number(body.id)} and run_id='${runId}'`)
+    real.log.push(`result ${JSON.stringify(body.result ?? {}).slice(0, 140)}`)
+    return { ok: true }
+  }
+  for (let i = 0; i < 6; i++) {
+    const [c] = realDb(`update public.drive_commands set status='taken', taken_at=now() where id = (select id from public.drive_commands where run_id='${runId}' and status='queued' order by id limit 1) returning id, tool, args`)
+    if (c) { real.log.push(`${c.tool} ${JSON.stringify(c.args).slice(0, 160)}`); return { command: c } }
+    const [r] = realDb(`select status, message, steps from public.drive_runs where id='${runId}'`)
+    if (r && r.status !== "running") { real.end = { status: String(r.status), message: String(r.message ?? "") }; return { done: true, status: r.status, message: r.message } }
+    await new Promise((res) => setTimeout(res, 700))
+  }
+  return { idle: true }
+}
+async function driveFake(fake: Fake, path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (fake.realBroods) return driveReal(fake, path, body)
+  if (path.endsWith("/drive-start")) {
+    if (typeof body.run_id === "string" && fake.drives.has(body.run_id) && !fake.drives.get(body.run_id)!.done) return { run_id: body.run_id, resumed: true }
+    const id = `run-${fake.drives.size + 1}`
+    const run: DriveRun = { outbox: [], resolvers: new Map(), done: null, log: [] }
+    fake.drives.set(id, run)
+    if (fake.driveScript) {
+      const cmd = (tool: string, args: Record<string, unknown> = {}) => new Promise<Record<string, unknown>>((resolve) => {
+        const c = { id: ++driveSeq, tool, args }
+        run.log.push(`${tool} ${JSON.stringify(args).slice(0, 160)}`)
+        run.resolvers.set(c.id, (r) => resolve((r ?? {}) as Record<string, unknown>))
+        run.outbox.push(c)
+      })
+      void fake.driveScript(cmd).then((end) => { run.done = end })
+    } else void driveAgent(fake, run)
+    return { run_id: id, resumed: false }
+  }
+  const run = fake.drives.get(String(body.run_id))
+  if (!run) return { error: "No such run." }
+  if (path.endsWith("/drive-result")) {
+    run.resolvers.get(Number(body.id))?.(body.result)
+    run.resolvers.delete(Number(body.id))
+    return { ok: true }
+  }
+  for (let waited = 0; waited < 3000; waited += 50) {
+    const c = run.outbox.shift()
+    if (c) return { command: c, steps: run.log.length }
+    if (run.done) return { done: true, ...run.done }
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  return { idle: true }
+}
+
 async function fakeOdds(): Promise<Fake> {
   const fake = {
     calls: [],
@@ -83,6 +213,7 @@ async function fakeOdds(): Promise<Fake> {
     prompts: [],
     remembered: {},
     agentAnswers: {},
+    drives: new Map(),
     suggestCalls: 0,
     suggestActionCalls: 0,
     suggestScanCalls: 0,
@@ -134,8 +265,13 @@ async function fakeOdds(): Promise<Fake> {
         exclude?: string[]
         force_llm?: boolean
         snapshot?: unknown
+        broods_only?: boolean
       }) : {}
       const path = String(req.url).split("?")[0]
+      if (/\/ext\/drive-(start|next|result)$/.test(path)) {
+        void driveFake(fake, path, body as Record<string, unknown>).then((out) => res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify(out)))
+        return
+      }
       let answer: Record<string, unknown> = fake.answer
       if (path.endsWith("/ext/application-poll")) {
         const tasks = fake.remoteTasks || (fake.remoteTask ? [fake.remoteTask] : [])
@@ -171,8 +307,19 @@ async function fakeOdds(): Promise<Fake> {
         fake.suggestCalls++
         const asked = Array.isArray(body.questions) && body.questions.length ? body.questions : fake.prompts
         const accepted: Array<{ key: string; answer: string; confidence: number }> = []
+        // Broods-only (the extension's default): Broods answers every question. Here the built-in rules stand in for Broods' reading of the
+        // person's facts, and a test's own agentAnswers win — so the tests exercise the Broods-only path end to end.
+        const kitFacts = ((fake.kit as { facts?: Facts }).facts ?? {}) as Facts
+        const standIn = (q: { label: string; options?: string[] }): string | null => {
+          if (body.broods_only !== true) return null
+          const facts = { ...kitFacts, remembered: { ...(kitFacts.remembered ?? {}), ...fake.remembered } } as Facts
+          const said = resolveAgentAnswer(q.label, facts, q.options ?? [])
+          if (said === null || said === "") return null
+          if (q.options?.length) { const i = chooseOption([...q.options], said, q.label); return i >= 0 ? q.options[i] ?? null : null }
+          return said
+        }
         for (const q of asked) {
-          const text = fake.agentAnswers[q.label] ?? fake.agentAnswers[q.key]
+          const text = fake.agentAnswers[q.label] ?? fake.agentAnswers[q.key] ?? standIn(q)
           if (!text || !q.key) continue
           accepted.push({ key: q.key, answer: text, confidence: 0.9 })
           fake.remembered[q.key] = text
@@ -3923,8 +4070,8 @@ test("the employer's link lands on their list of vacancies: odds opens this job 
   await expect(page).toHaveURL(/b2c-marketing-intern$/, { timeout: 15000 })
   await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 10000 })
   await expect(page.locator("#email")).toHaveValue("kien@example.com")
-  const learned = await context.serviceWorkers()[0].evaluate(async () => (await (globalThis as unknown as { chrome: { storage: { local: { get(k: string): Promise<Record<string, unknown>> } } } }).chrome.storage.local.get("oddsLearnedApply")).oddsLearnedApply)
-  expect(JSON.stringify(learned ?? {})).toContain("b2c-marketing-intern")
+  // Saved a moment after the form is seen: wait for it.
+  await expect.poll(async () => JSON.stringify(await context.serviceWorkers()[0].evaluate(async () => (await (globalThis as unknown as { chrome: { storage: { local: { get(k: string): Promise<Record<string, unknown>> } } } }).chrome.storage.local.get("oddsLearnedApply")).oddsLearnedApply) ?? {}), { timeout: 8000 }).toContain("b2c-marketing-intern")
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
 })
 
@@ -3977,5 +4124,146 @@ test("a site whose menu says 'Apply for a job': odds never takes the menu for th
   const settled = loads
   await page.waitForTimeout(5000)
   expect(loads - settled).toBe(0)
-  expect(loads).toBeLessThanOrEqual(4)
+  // Drive runs get a little more room (5 visits of one page), still a hard stop.
+  expect(loads).toBeLessThanOrEqual(12)
 })
+
+test("Broods drives an employer's form in the person's tab: reads it, fills from their facts, uploads the CV, leaves the unknown to them, never submits", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  await context.route("https://boards.example-ats.com/acme/jobs/777**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  fake.kit = { job_id: "pdrive", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", linkedin: "https://www.linkedin.com/in/kien", answers: { first_name: "Kien", last_name: "Phung", phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true } }
+  const page = await context.newPage()
+  await page.goto("https://boards.example-ats.com/acme/jobs/777")
+  await applyFrom(context, page, "https://boards.example-ats.com/acme/jobs/777")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Answer: .*SQL/, { timeout: 60000 })
+  await expect(page.locator("#first_name")).toHaveValue("Kien")
+  await expect(page.locator("#last_name")).toHaveValue("Phung")
+  await expect(page.locator("#email")).toHaveValue("kien@example.com")
+  await expect(page.locator("#auth")).toHaveValue("Yes")
+  await expect.poll(() => page.locator("#resume").evaluate((el: HTMLInputElement) => el.files?.[0]?.name ?? "")).toBe("Kien_Data_CV.pdf")
+  await expect(page.locator("#hp")).toHaveValue("")
+  const run = [...fake.drives.values()][0]
+  expect(run.log[0]).toMatch(/^read_page/)
+  expect(run.log.some((l) => l.startsWith("fill"))).toBe(true)
+  expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+})
+
+test("Broods drives LinkedIn Easy Apply: each step read and filled from the person's facts, Next pressed by Broods, the unknown left to them, Submit never pressed", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  await context.route("https://www.linkedin.com/jobs/view/4470000301/**", (route) => route.fulfill({ contentType: "text/html", body: EASY_APPLY }))
+  fake.peek = { known: true, id: "papply", saved: true, chance_pct: 8.8 }
+  fake.kit = {
+    job_id: "papply",
+    broods_drive: true,
+    facts: { name: "Kien Phung", email: "kien@example.com", phone: "+31 6 1234 5678", place: "Amsterdam, Netherlands", dutch: "basic", answers: { first_name: "Kien", last_name: "Phung", phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: {} },
+    cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true },
+  }
+  const page = await context.newPage()
+  await page.goto("https://www.linkedin.com/jobs/view/4470000301/")
+  await page.locator("#jobs-apply-button-id").click()
+  const modal = page.locator("[data-test-modal-id=easy-apply-modal]")
+  await expect(modal.locator(".odds-apply-bar")).toContainText(/Answer: .*SQL/, { timeout: 60000 })
+  await expect(modal.locator("h3")).toHaveText("Additional Questions")
+  await expect(modal.locator("#sp-no")).toBeChecked()
+  await expect(modal.locator("#dutch")).toHaveValue("Conversational")
+  expect(await page.evaluate(() => (window as unknown as { seen: Record<string, unknown> }).seen)).toMatchObject({ phone: "612345678", "jobsDocumentCardToggle-2": true })
+  const run = [...fake.drives.values()][0]
+  expect(run.log.filter((l) => l.startsWith("click")).length).toBeGreaterThanOrEqual(2)
+  expect(await page.evaluate(() => (window as unknown as { submits: number }).submits)).toBe(0)
+})
+
+/** Oracle Cloud's first step: email, a terms box whose real checkbox is hidden behind a styled label, NEXT that refuses until both are done. */
+const ORACLE_STEP = `<!doctype html><html><head><meta charset="utf-8"><title>Apply - Oracle</title>
+<style>.oj-check input{position:absolute;opacity:0;width:1px;height:1px} .oj-check .box{display:inline-block;width:16px;height:16px;border:1px solid #333}</style></head><body><main>
+<h1>You don't need to have an account</h1>
+<div id="step1"><label for="email">Email Address *</label><input id="email" type="email" required>
+<div class="oj-check"><label for="terms"><input id="terms" type="checkbox" required><span class="box"></span> I agree with the <a href="#t">terms and conditions</a> *</label></div>
+<p id="err" role="alert"></p>
+<button id="cancel">CANCEL</button> <button id="next">NEXT</button></div>
+<div id="step2" hidden><h2>Review your application</h2><button id="submit" onclick="window.sent=(window.sent||0)+1">Submit</button></div>
+</main><script>
+document.getElementById("next").addEventListener("click", () => {
+  if (!document.getElementById("email").value || !document.getElementById("terms").checked) { document.getElementById("err").textContent = "You need to agree to the terms and conditions."; return }
+  document.getElementById("step1").hidden = true; document.getElementById("step2").hidden = false
+})
+</script></body></html>`
+
+test("Broods drives an Oracle-style step: fills the email, ticks the terms box hidden behind a styled label (consent yes), presses NEXT, stops at Submit", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  await context.route("https://eklm.example-oraclecloud.com/**", (route) => route.fulfill({ contentType: "text/html", body: ORACLE_STEP }))
+  fake.kit = { job_id: "poracle", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { email: "kien@example.com" }, remembered: {} }, cv: null }
+  const page = await context.newPage()
+  await page.goto("https://eklm.example-oraclecloud.com/job/354/apply")
+  await applyFrom(context, page, "https://eklm.example-oraclecloud.com/job/354/apply")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/press Submit yourself/i, { timeout: 60000 })
+  await expect(page.locator("#terms")).toBeChecked()
+  await expect(page.locator("#email")).toHaveValue("kien@example.com")
+  await expect(page.locator("#step2")).toBeVisible()
+  expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+})
+
+test("Broods acts by sight when the page tools cannot: screenshot of the tab, a click at a point on a widget read_page does not list, the next step opens", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Custom widget</title></head><body style="margin:0"><main>
+  <h1>Almost there</h1>
+  <div id="go" style="position:absolute;left:200px;top:220px;width:180px;height:48px;background:#1a4;color:#fff;cursor:pointer">Continue</div>
+  <div id="step2" hidden><h2>Review</h2><button id="submit" onclick="window.sent=(window.sent||0)+1">Submit</button></div>
+  <script>document.getElementById("go").addEventListener("click", () => { document.getElementById("go").remove(); document.getElementById("step2").hidden = false })</script>
+  </main></body></html>`
+  await context.route("https://jobs.example-widget.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pwidget", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: {}, remembered: {} }, cv: null }
+  const page = await context.newPage()
+  let shotBytes = 0
+  fake.driveScript = async (cmd) => {
+    const before = await cmd("read_page") as { buttons?: Array<{ text: string }> }
+    expect((before.buttons ?? []).some((b) => /continue/i.test(b.text))).toBe(false)
+    const shot = await cmd("screenshot") as { image?: string; width?: number; height?: number; error?: string }
+    shotBytes = (shot.image ?? "").length
+    if (!shotBytes) console.log("SHOT", JSON.stringify(shot).slice(0, 300))
+    const dpr = await page.evaluate(() => devicePixelRatio)
+    await cmd("click_at", { x: (200 + 90) * dpr, y: (220 + 24) * dpr })
+    const after = await cmd("read_page") as { buttons?: Array<{ text: string; blocked?: boolean }> }
+    return (after.buttons ?? []).some((b) => b.blocked && /submit/i.test(b.text))
+      ? { status: "review", message: "Everything is filled in. Check it and press Submit yourself." }
+      : { status: "stuck", message: "The click did not open the next step." }
+  }
+  await page.goto("https://jobs.example-widget.com/apply")
+  await applyFrom(context, page, "https://jobs.example-widget.com/apply")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/press Submit yourself/i, { timeout: 60000 })
+  expect(shotBytes).toBeGreaterThan(1000)
+  await expect(page.locator("#step2")).toBeVisible()
+  expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+})
+
+
+// ---- Real sites, real Broods (REAL_BROODS=1 only: costs model calls and needs network). A made-up person; nothing is ever submitted. ----
+const REAL_JOBS = [
+  { name: "greenhouse-dept", url: "https://job-boards.greenhouse.io/dept/jobs/8105170", title: "Junior Paid Search (SEA) Consultant" },
+  { name: "lever-tomtom", url: "https://jobs.eu.lever.co/tomtom/669fa744-174e-4682-81b3-fa85322cafc5", title: "Senior Applied Scientist - Graph Optimization" },
+  { name: "ashby-prosus", url: "https://jobs.ashbyhq.com/prosus/eeb0e0d9-9d3f-4321-8acd-11558dde7c7d", title: "ML Engineering Intern - LLM Research & Development" },
+]
+const TEST_PERSON = { first_name: "Test", last_name: "Applicant", email: "test.applicant@example.com", phone: "+31 6 1234 5678", lives_in: "Amsterdam, Netherlands", nationality_group: "Non-EU nationality", work_permit: "Orientation year (zoekjaar) permit: may work in the Netherlands without sponsorship", education: "Master, Business Analytics, Vrije Universiteit Amsterdam, Sep 2025–Aug 2027", experience: "Data Analyst, Shopee, 2022–2024", linkedin: "https://www.linkedin.com/in/test-applicant", start_date: "1 February 2027", hours_per_week: "40", role_values: "learning fast; international teams; measurable impact" }
+for (const job of REAL_JOBS) {
+  test(`REAL: Broods drives ${job.name} (real site, real Broods, never submits)`, async ({ context, fake }) => {
+    test.skip(process.env.REAL_BROODS !== "1", "real sites + real Broods: set REAL_BROODS=1")
+    test.setTimeout(420_000)
+    await connect(context)
+    fake.realBroods = { title: job.title, person: TEST_PERSON, log: [] }
+    fake.kit = { job_id: `preal-${job.name}`, broods_drive: true, facts: { name: "Test Applicant", email: TEST_PERSON.email, phone: TEST_PERSON.phone, answers: { first_name: "Test", last_name: "Applicant", email: TEST_PERSON.email, phone: TEST_PERSON.phone }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Test_Applicant_CV", file_name: "Test_Applicant_CV.pdf", for_this_job: true } }
+    const page = await context.newPage()
+    let submits = 0
+    page.on("request", (r) => { if (r.method() === "POST" && /\/(applications?|apply|submit|candidates?)\b/i.test(r.url()) && !/supabase|broods|127\.0\.0\.1|localhost/.test(r.url())) submits++ })
+    await page.goto(job.url, { waitUntil: "domcontentloaded" })
+    await applyFrom(context, page, job.url)
+    await expect.poll(() => fake.realBroods?.end?.status ?? "", { timeout: 400_000, intervals: [3000] }).not.toBe("")
+    await page.screenshot({ path: `test-results/real-${job.name}.png`, fullPage: true })
+    console.log(`REAL ${job.name}: ${fake.realBroods?.end?.status} — ${fake.realBroods?.end?.message}`)
+    console.log(`REAL ${job.name} steps:\n  ${fake.realBroods?.log.join("\n  ")}`)
+    expect(["review", "needs_you"]).toContain(fake.realBroods?.end?.status)
+    expect(submits).toBe(0)
+  })
+}

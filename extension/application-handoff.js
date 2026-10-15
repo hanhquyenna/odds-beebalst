@@ -44,6 +44,13 @@
     }
     return false
   }
+  /**
+   * Broods answers every question: the built-in answer rules stay in the code but are switched off. The extension only types and clicks
+   * what Broods answered (from Autofill, profile and CV). Never passwords, captchas, consent or Submit. Set to false to bring the rules back.
+   */
+  globalThis.oddsBroodsOnly = true
+  /** Gender copied from the person's own Autofill answer (never a guess, never Broods). */
+  globalThis.oddsSavedGender = (label, facts) => /\b(gender|geslacht|geschlecht|genre)\b/i.test(label || "") && !/\b(identity|identit|transgender|pronoun|orientation)/i.test(label || "") && typeof facts?.answers?.gender === "string" && facts.answers.gender.trim() ? facts.answers.gender.trim() : null
   globalThis.oddsApplicationHandoff = (url, ask, jobId) => {
     const A = globalThis.oddsApply
     let published = null
@@ -73,7 +80,7 @@
         if (!safe.length) return
         // 2) Broods in the background — fill loop must not sit silent for 30s+.
         void (async () => {
-          const suggested = await askTimed({ type: "suggest-answers", url, questions: safe }, 12000)
+          const suggested = await askTimed({ type: "suggest-answers", url, questions: safe, broods_only: globalThis.oddsBroodsOnly === true }, 35000)
           if (suggested?.status !== "ok" || !Array.isArray(suggested.accepted) || !suggested.accepted.length) return
           const refreshed = await askTimed({ type: "application-refresh-answers" }, 6000)
           if (!refreshed?.remembered || typeof refreshed.remembered !== "object") return
