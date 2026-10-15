@@ -1982,3 +1982,38 @@ test("one click on an employer's listing: the cookie banner is declined, Apply n
   await page.waitForTimeout(1500)
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
 })
+
+test("Apply with Odds pressed in the app itself (this build, on the odds address): one click opens the employer's form in a new tab and fills it; the button follows it; a second click returns to that tab", async ({ context, fake }) => {
+  await connect(context)
+  await context.addInitScript(() => localStorage.setItem("careersim.session", JSON.stringify({ access_token: "e2e-token", refresh_token: "e2e-refresh", expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: "00000000-0000-4000-8000-000000000001" } })))
+  await mockBackend(context, FLOW_POSTINGS, [], true)
+  await context.route(/^chrome-extension:/, (route) => route.continue())
+  // The site is this build, served on the odds address so the extension's own site script runs on it.
+  await context.route("https://odds.beeblast.co/**", async (route) => {
+    const u = new URL(route.request().url())
+    await route.fulfill({ response: await route.fetch({ url: `http://localhost:4319${u.pathname}${u.search}` }) })
+  })
+  await context.route("https://jobs.example.com/**", (route) => route.fulfill({ contentType: "text/html", body: '<!doctype html><h1>Application</h1><form><label>First name *<input name="first_name" required></label><label>Phone<input name="phone"></label><label>How many years of experience do you have with SQL? *<input name="sql" required></label><button type="submit">Send application</button></form>' }))
+  fake.kit = { facts: { name: "Example User", answers: { first_name: "Given Names", last_name: "Family", phone: "+31 6 12345678" }, remembered: {} } }
+  const app = await context.newPage()
+  await app.goto(`https://odds.beeblast.co/job/${FLOW_POSTINGS[0].id}`)
+  const button = app.getByRole("button", { name: "Apply with Odds", exact: true })
+  await expect(button).toBeVisible({ timeout: 15000 })
+  const opened = context.waitForEvent("page")
+  await button.click()
+  const application = await opened
+  await expect(application.getByRole("textbox", { name: "First name" })).toHaveValue("Given Names", { timeout: 10000 })
+  await expect(application.getByRole("textbox", { name: "Phone" })).toHaveValue("+31 6 12345678")
+  // The question odds cannot answer is outlined, and the button in the app says where things are.
+  await expect(app.getByRole("button", { name: /Continue application/ })).toBeVisible({ timeout: 15000 })
+  expect(app.url()).toContain("odds.beeblast.co/job/")
+  // A second click goes back to the same tab: no new page, the filled form untouched.
+  const pages = context.pages().length
+  await app.getByRole("button", { name: /Continue application/ }).click()
+  await app.waitForTimeout(800)
+  expect(context.pages()).toHaveLength(pages)
+  expect(application.isClosed()).toBe(false)
+  await expect(application.getByRole("textbox", { name: "First name" })).toHaveValue("Given Names")
+  expect(await application.evaluate(() => document.querySelectorAll("form").length)).toBe(1)
+  expect(fake.calls).toHaveLength(0)
+})

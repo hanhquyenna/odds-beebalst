@@ -17,6 +17,13 @@ window.addEventListener("message", (event) => {
       window.postMessage({ source: "odds-extension", type: "application-started", requestId: data.requestId, ok: !error && answer?.ok === true, message: error ? "Reload the Odds extension and try again." : answer?.message }, location.origin)
     })
   }
+  // The button on the site asking how a job's application is going, the same question the side panel asks.
+  if (data.type === "application-status" && typeof data.url === "string" && /^https:\/\//.test(data.url)) {
+    chrome.runtime.sendMessage({ type: "application-status", url: data.url }, answer => {
+      if (chrome.runtime.lastError) return
+      window.postMessage({ source: "odds-extension", type: "application-status", url: data.url, state: answer?.state || null }, location.origin)
+    })
+  }
   if (data.type === "key" && typeof data.key === "string" && KEY_FORMAT.test(data.key)) {
     chrome.runtime.sendMessage({ type: "set-key", key: data.key }, (answer) => announce(answer?.connected ? "connected" : "failed"))
   }

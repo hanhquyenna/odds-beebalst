@@ -69,6 +69,21 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
     const timer = window.setInterval(() => { setNow(Date.now()); ask() }, 2000)
     return () => { stop(); window.clearInterval(timer) }
   }, [watched, parent])
+  // On the site itself: the same state, asked of the installed extension through the page.
+  const onSite = !embedded && extensionPresent === "yes" ? main?.url : undefined
+  useEffect(() => {
+    if (!onSite) return
+    const ask = (): void => window.postMessage({ source: "odds-site", type: "application-status", url: onSite }, window.location.origin)
+    const on = (event: MessageEvent): void => {
+      const data = event.data as { source?: string; type?: string; url?: string; state?: ApplicationState | null } | null
+      if (event.source !== window || event.origin !== window.location.origin || data?.source !== "odds-extension" || data.type !== "application-status" || data.url !== onSite) return
+      setState(data.state ?? null)
+    }
+    window.addEventListener("message", on)
+    ask()
+    const timer = window.setInterval(() => { setNow(Date.now()); ask() }, 2000)
+    return () => { window.removeEventListener("message", on); window.clearInterval(timer) }
+  }, [onSite])
   if (!main?.url) return null
   const applicationUrl = main.url
   if (!embedded && extensionPresent !== "yes") {
