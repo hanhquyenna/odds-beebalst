@@ -1054,6 +1054,12 @@
       await sleep(80)
       return { ok: Boolean(f.el.files?.length), value: fieldValue(f) }
     }
+    if (cmd.tool === "open_job") {
+      if (!/^https:\/\//.test(driveJobUrl)) return { ok: false, error: "no job link known; use back" }
+      await sendResult({ ok: true, note: "opening the job's own link; read_page next" })
+      location.href = driveJobUrl
+      return null
+    }
     if (cmd.tool === "back") {
       await sendResult({ ok: true, note: "went back one page; read_page next" })
       history.back()
@@ -1076,7 +1082,10 @@
     return { error: `Unknown tool ${cmd.tool}` }
   }
   /** Broods drives: take its commands for this run until it finishes; the bar shows what it does and how it ended. */
+  /** The job's own link for this run (open_job brings the tab back to it). */
+  let driveJobUrl = ""
   async function driveLoop(intent) {
+    driveJobUrl = String(intent.job || "")
     say("Broods is applying in this tab…", "filling")
     const start = await ask({ type: "drive", op: "start", url: intent.job, page: location.href, run_id: intent.driveRun || null }, 30000).catch(() => null)
     const runId = start?.run_id

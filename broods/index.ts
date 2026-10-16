@@ -67,7 +67,7 @@ export const oddsBrowser = defineMcp({
   name: "odds-browser",
   url: "https://ukpmpyfcnbhngkgbnkxi.supabase.co/functions/v1/mcp/drive",
   // Listed explicitly: the agent gets exactly these browser tools.
-  allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "screenshot", "click_at", "type_text", "press_key", "scroll", "wait", "finish"],
+  allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "screenshot", "click_at", "type_text", "press_key", "scroll", "wait", "finish"],
 })
 
 const DRIVE_RULES = `DRIVE MODE (the message has run_id): you are applying to a job in the person's own browser tab through the odds-browser tools.
@@ -96,7 +96,7 @@ These are steps to get THROUGH, not reasons to stop. The employer's portal event
 - Prefer buttons that move toward the application: Apply / Apply now / Apply on employer's site / Solliciteren / Continue / Next / Volgende / Review.
 - A preferences / job-alert / email prompt that comes back after you saved it once: click its Skip / Not now / Close (it stays on
   the job) instead of saving it again — never loop on the same prompt.
-- Never click "Skip" or "Not now" when it navigates away from the job; if a click landed on an unrelated page (search results, home), use back (or click this job's link) and try another way.
+- Never click "Skip" or "Not now" when it navigates away from the job; if a click landed on an unrelated page (search results, home, a blank/warmup page), use back, or open_job to return to this job's own link, and try another way.
 - Consent and privacy checkboxes: tick them (yes). Cookie banners: Reject / Necessary only / Functional only.
 - A job page without a form: click its Apply. A list of vacancies: open THIS job (by title), never a different job.
 - Only finish stuck after at least 5 genuinely different attempts on the same blocker (different buttons, filling the pop-up, back + retry, sight). Two tries is never enough.

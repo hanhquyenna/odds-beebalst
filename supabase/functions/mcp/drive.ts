@@ -104,6 +104,11 @@ const BASE_TOOLS = [
     inputSchema: { type: "object", properties: { run_id: { type: "string" } }, required: ["run_id"] },
   },
   {
+    name: "open_job",
+    description: "Open this job's own link again in the tab (when the tab ended up somewhere unrelated — a search page, a blank or warmup page, another job — and back does not help). read_page next.",
+    inputSchema: { type: "object", properties: { run_id: { type: "string" } }, required: ["run_id"] },
+  },
+  {
     name: "wait",
     description: "Wait a few seconds (1-8) for a slow page, then read_page.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, seconds: { type: "number" } }, required: ["run_id"] },
@@ -147,7 +152,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     Object.assign(run, (await runOf(env, run.id)) ?? {})
   }
   if (personBusy(run)) return { text: "The person is filling in the form themselves right now. Call wait, then read_page, and keep everything they entered.", error: true }
-  if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
+  if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
   const { run_id: _r, say, ...rest } = args ?? {}
   const note = typeof say === "string" && say.trim() ? say.trim().slice(0, 300) : null
   const [cmd] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: name, args: rest, note }) })
