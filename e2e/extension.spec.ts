@@ -144,7 +144,8 @@ async function startRealBroods(runId: string, url: string, title: string, person
   const secret = [...env.matchAll(/^BROODS_USER_TOKEN_SECRET=["']?([^"'\n]+)/gm)].at(-1)![1]
   const enc = new TextEncoder()
   const b64 = (b: Uint8Array) => btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
-  const body = b64(enc.encode(JSON.stringify({ userId: REAL_USER, expiresAt: Date.now() + 3600000 })))
+  // Test runs act as their own Broods user, never as the person: they must not show up as the person's applications.
+  const body = b64(enc.encode(JSON.stringify({ userId: "odds-test", expiresAt: Date.now() + 3600000 })))
   const dig = await crypto.subtle.digest("SHA-256", enc.encode(`broods-user-token:${secret}`))
   const ck = await crypto.subtle.importKey("raw", dig, { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
   const token = `buat_${body}.${b64(new Uint8Array(await crypto.subtle.sign("HMAC", ck, enc.encode(body))))}`
