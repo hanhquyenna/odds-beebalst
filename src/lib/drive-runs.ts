@@ -3,17 +3,20 @@
 import type { DriveRun } from "@/lib/drive-run-state"
 import { supabase } from "@/lib/supabase"
 
-export { TAB_GONE_MS, tabGone, type DriveReason, type DriveRun, type DriveStatus } from "@/lib/drive-run-state"
+export { askIfSent, onScreen, TAB_GONE_MS, tabGone, type DriveReason, type DriveRun, type DriveStatus } from "@/lib/drive-run-state"
 
-/** A run ended this long ago no longer shows as live in the tracker. */
+/** Runs updated in this window are read (a live run checks in far more often). */
 const SHOW_MS = 2 * 60 * 60 * 1000
 
-/** The latest Broods run per job, from the last two hours. */
+/** Runs that ended at review stay asked about ("Did you send it?") for this long. */
+const ASK_MS = 14 * 24 * 60 * 60 * 1000
+
+/** The latest Broods run per job: from the last two hours, and any that ended at review in the last two weeks. */
 export async function liveDriveRuns(): Promise<DriveRun[]> {
   const { data, error } = await supabase
     .from("drive_runs")
-    .select("id,posting_id,url,status,reason,message,last_note,steps,last_seen_at,updated_at,created_at")
-    .gt("updated_at", new Date(Date.now() - SHOW_MS).toISOString())
+    .select("id,posting_id,url,status,reason,message,last_note,steps,last_seen_at,person_active_at,updated_at,created_at")
+    .or(`updated_at.gt.${new Date(Date.now() - SHOW_MS).toISOString()},and(status.eq.review,updated_at.gt.${new Date(Date.now() - ASK_MS).toISOString()})`)
     .order("created_at", { ascending: false })
     .limit(40)
   if (error || !data) return []

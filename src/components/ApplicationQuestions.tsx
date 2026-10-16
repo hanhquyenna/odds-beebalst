@@ -13,7 +13,7 @@ interface Prompt { posting_id: string; questions: Question[]; updated_at: string
  * The questions an application stopped at, answered here and filled in by the desktop, which then goes on. A choice is tapped, a typed answer is typed.
  * `inline` is for inside the apply card (no frame of its own); `aside` is the second button beside "Save and continue", the way back to the desktop.
  */
-export function ApplicationQuestions({ postingId, inline = false, aside, empty, onHasQuestions }: { postingId?: string; inline?: boolean; aside?: React.ReactNode; /** What to show while there is nothing to answer. */ empty?: React.ReactNode; /** Whether any question is still shown (false once agents cleared them). */ onHasQuestions?: (open: boolean) => void }): React.JSX.Element | null {
+export function ApplicationQuestions({ postingId, inline = false, aside, empty, onHasQuestions, onSaved }: { postingId?: string; inline?: boolean; aside?: React.ReactNode; /** What to show while there is nothing to answer. */ empty?: React.ReactNode; /** Whether any question is still shown (false once agents cleared them). */ onHasQuestions?: (open: boolean) => void; /** The answers for this job were saved (Broods carries on with them). */ onSaved?: (postingId: string) => void }): React.JSX.Element | null {
   const data = useData()
   const user = data.session?.user.id
   const [prompts, setPrompts] = useState<Prompt[]>([])
@@ -106,7 +106,7 @@ export function ApplicationQuestions({ postingId, inline = false, aside, empty, 
     const values = Object.fromEntries(prompt.questions.map(q => [q.key, answers[`${prompt.posting_id}:${q.key}`]?.trim() || ""]))
     void Promise.resolve(supabase.rpc("answer_application_questions", { p_posting_id: prompt.posting_id, p_answers: values })).then(({ error: problem }) => {
       if (problem) setError("Could not save. The form may have changed; check the questions and try again.")
-      else setSaved(true)
+      else { setSaved(true); onSaved?.(prompt.posting_id) }
     }).finally(() => setSaving(false))
   }}>
     {prompt.questions.map(q => {

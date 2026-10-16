@@ -20,16 +20,16 @@ type Pick = Step | "none" | typeof EDIT_COLORS | typeof LIVE | (typeof ACT)[keyo
 function liveActions(drive: DriveInfo | null): Array<[string, string]> {
   const out: Array<[string, string]> = [[ACT.open, "Open the application tab"]]
   if (!drive) return out
-  if (drive.status === "running" && !drive.tabGone) out.push([ACT.stop, "Stop Broods"])
-  else if (drive.reason !== "closed") out.push([ACT.cont, "Continue with Broods"])
+  if (drive.status === "running") out.push([ACT.stop, "Stop Broods"])
+  // Stuck (not waiting on the person): one more go, on request. Waiting on the person carries on by itself once they handled it.
+  if (drive.status === "stuck" && drive.reason !== "closed") out.push([ACT.cont, "Try again"])
   if (drive.reason === "questions") out.push([ACT.answer, "Answer the questions"])
   if (drive.reason === "letter") out.push([ACT.answer, "Add a cover letter"])
-  out.push([ACT.sent, "I sent it ✓"])
   return out
 }
 
 /**
- * One status control for a job, live or not: the live chip (Applying… / Captcha / Sign in / Your answers / Cover letter / Stopped / Review & send)
+ * One status control for a job, live or not: the live chip (Applying… / You're filling in / Captcha / Sign in / Your answers / Cover letter / Stuck / Review & send), only while its tab is open,
  * while Broods works, and always the person's own statuses underneath. Picking a status yourself always wins: it stops Broods on that job
  * and clears the live chip — a status is never locked behind a run.
  */
@@ -92,11 +92,9 @@ function useStatusControl(post: Posting, fit: string, onOpen?: (post: Posting) =
     }
     if (next === ACT.cont && drive) {
       void driveControl(drive.runId, "continue").then((ok) => {
-        if (!ok) toast.error("Could not continue. Try again.")
-        else toast.message("Broods carries on in your Chrome tab.")
+        if (!ok) toast.error("That did not go through. Try again.")
+        else toast.message("Broods tries again in your Chrome tab.")
       })
-      // The tab is gone: open it again so there is somewhere for Broods to carry on.
-      if (drive.tabGone) openTab()
       return
     }
     if (next === ACT.sent) {
@@ -110,7 +108,9 @@ function useStatusControl(post: Posting, fit: string, onOpen?: (post: Posting) =
       setAsking(true)
       return
     }
-    if (liveApply) letGo()
+    // Applied while Broods is on it: the run is done (sent), not stopped.
+    if (liveApply && next === "applied" && drive) { void driveControl(drive.runId, "sent"); dismissDriveRun(drive.runId); clearApplyActivity(post.id) }
+    else if (liveApply) letGo()
     if (next !== step) moveJob(data, post, next as Step, fit).catch(() => undefined)
   }
 

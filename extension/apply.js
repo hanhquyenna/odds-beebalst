@@ -624,7 +624,25 @@
     let lostSince = 0
     let fresh = true
     let endedAt = 0
-    for (let i = 0; i < 2000 && modal.isConnected && session?.modal === modal; i++) {
+    let resumedFor = 0
+    // The person's own typing and clicks in the Easy Apply window (Broods' are synthetic; the Odds bar is not the form).
+    const person = { at: 0 }
+    const mark = (e) => { if (e.isTrusted && !e.target?.closest?.(".odds-apply-bar")) person.at = Date.now() }
+    for (const type of ["keydown", "mousedown", "input", "paste"]) modal.addEventListener(type, mark, true)
+    for (let i = 0; i < 4000 && modal.isConnected && session?.modal === modal; i++) {
+      // The person is filling in: Broods waits, then carries on around what they entered.
+      if (!endedAt && Date.now() - person.at < 20000) {
+        say(modal, "You're filling in — Broods waits, then carries on around what you entered.", "filling")
+        await ask({ type: "drive", op: "next", run_id: runId, hold: true }, 15000).catch(() => null)
+        await sleep(3000)
+        continue
+      }
+      // Waiting for the person: once they acted here and went quiet, the same run carries on by itself.
+      if (endedAt && resumedFor !== endedAt && person.at > endedAt && Date.now() - person.at >= 20000) {
+        resumedFor = endedAt
+        const ok = await ask({ type: "drive", op: "continue", run_id: runId }, 15000).catch(() => null)
+        if (ok?.ok) { endedAt = 0; say(modal, "Broods is carrying on…", "filling") }
+      }
       const next = await ask({ type: "drive", op: "next", run_id: runId, fresh }, 35000).catch(() => null)
       // No answer at all is the connection, not Broods: say so and keep trying for 5 minutes.
       if (!next || next.status === "error") {
@@ -640,14 +658,15 @@
         // Ended for the person: keep an ear on the run for 30 minutes so Continue in the tracker carries on here.
         if (!endedAt) {
           endedAt = Date.now()
-          const why = { captcha: "Captcha on the page — tick it, then press Continue in Odds.", account: "Sign in to LinkedIn, then press Continue in Odds.", letter: "This step asks for a cover letter — add one for this job in Odds Documents, then press Continue.", quiet: "Broods went quiet. Press Continue in Odds, or finish it yourself." }[next.reason] || ""
+          const why = { captcha: "Captcha on the page — tick it and Broods carries on.", account: "Sign in to LinkedIn — Broods carries on after.", letter: "This step asks for a cover letter — add one for this job in Odds (Documents) and Broods carries on.", questions: "Fill in what is outlined here or answer in Odds, and Broods carries on." }[next.reason] || ""
           const text = [why, next.message || ""].filter(Boolean).join(" ")
           if (next.status === "review") say(modal, next.message || "Filled in by Broods. Check everything, then press Submit yourself.", "done")
           else if (next.status === "needs_you") say(modal, text || "Broods needs you for a step.", "ask")
           else say(modal, `Odds assist could not finish this Easy Apply step after assist: ${text || "Broods stopped."}`, "ask")
         }
-        if (["submitted", "review"].includes(next.status) || Date.now() - endedAt > 1800000) return
-        await sleep(5000)
+        // The tab stays watched while it is open (the tracker shows the run only then): 30 minutes waiting for the person, 3 hours at review.
+        if (["submitted", "stopped", "failed"].includes(next.status) || next.reason === "closed" || Date.now() - endedAt > (next.status === "review" ? 10800000 : 1800000)) return
+        await sleep(3000)
         continue
       }
       if (endedAt) { endedAt = 0; say(modal, "Broods is carrying on…", "filling") }

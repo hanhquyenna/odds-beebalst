@@ -1226,7 +1226,7 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
   const me = await extWho(env, keyOf(req)).catch(() => null)
   if (!me) return json(401, { error: "Connect the odds extension again." })
   if (route === "me" && req.method === "GET") return json(200, { ok: true })
-  if (/^drive-(start|next|result|stop)$/.test(route) && req.method === "POST") {
+  if (/^drive-(start|next|result|stop|continue)$/.test(route) && req.method === "POST") {
     return driveExt(route, req, env, me.id, {
       facts: () => agentFacts(env, me),
       job: async (url: string) => {
@@ -1700,6 +1700,8 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     const existing = await svc(env, `applications?user_id=eq.${me.id}&posting_id=eq.${encodeURIComponent(held.id)}&select=id`)
     if (existing?.[0]) await svc(env, `applications?id=eq.${existing[0].id}&user_id=eq.${me.id}`, { method: "PATCH", body: JSON.stringify({ stage: "applied" }) })
     else await svc(env, "applications", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ user_id: me.id, posting_id: held.id, fit_tier: "extension", stage: "applied" }) })
+    // The employer confirmed it: the Broods run for this job is done (the tracker drops its live layer and shows Applied).
+    await svc(env, `drive_runs?user_id=eq.${me.id}&posting_id=eq.${encodeURIComponent(held.id)}&status=in.(running,review,needs_you,stuck)`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ status: "submitted", message: "The employer confirmed your application.", updated_at: new Date().toISOString() }) }).catch(() => undefined)
 
     return json(200, { status: "applied", id: held.id })
   }

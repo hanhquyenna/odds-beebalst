@@ -40,6 +40,8 @@ interface Fake {
   drives: Map<string, DriveRun>
   /** REAL_BROODS=1 runs: the real agent on a real run (see driveReal). */
   realBroods?: { title: string; person: Record<string, string>; runId?: string; log: string[]; end?: { status: string; message: string }; shot?: (label: string) => Promise<void> }
+  /** What the extension told the server about a run: continue (handled by the person), stop <reason>, hold (the person is filling in). */
+  driveEvents: string[]
   /** The next N /ext/drive-next calls fail as if the connection dropped (503). */
   driveDown?: number
   /** A test's own Broods moves (instead of the stand-in agent): gets cmd(tool, args) and returns how the run ends. */
@@ -209,6 +211,9 @@ async function driveFake(fake: Fake, path: string, body: Record<string, unknown>
   }
   const run = fake.drives.get(String(body.run_id))
   if (!run) return { error: "No such run." }
+  if (path.endsWith("/drive-continue")) { fake.driveEvents.push("continue"); if (run.done && run.done.status !== "review") run.done = null; return { ok: true } }
+  if (path.endsWith("/drive-stop")) { fake.driveEvents.push(`stop ${String(body.reason ?? "")}`); run.done = { status: "stopped", message: String(body.message ?? "") }; return { ok: true } }
+  if (body.hold === true) { fake.driveEvents.push("hold"); return { idle: true, hold: true } }
   if (path.endsWith("/drive-result")) {
     run.resolvers.get(Number(body.id))?.(body.result)
     run.resolvers.delete(Number(body.id))
@@ -226,6 +231,7 @@ async function driveFake(fake: Fake, path: string, body: Record<string, unknown>
 async function fakeOdds(): Promise<Fake> {
   const fake = {
     calls: [],
+    driveEvents: [],
     reports: [],
     prompts: [],
     remembered: {},
@@ -285,7 +291,7 @@ async function fakeOdds(): Promise<Fake> {
         broods_only?: boolean
       }) : {}
       const path = String(req.url).split("?")[0]
-      if (/\/ext\/drive-(start|next|result)$/.test(path)) {
+      if (/\/ext\/drive-(start|next|result|continue|stop)$/.test(path)) {
         if (path.endsWith("/drive-next") && (fake.driveDown ?? 0) > 0) { fake.driveDown!--; res.writeHead(503, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ error: "unavailable" })); return }
         void driveFake(fake, path, body as Record<string, unknown>).then((out) => res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify(out)))
         return
@@ -4185,7 +4191,7 @@ test("the connection drops while Broods drives: Odds says so, keeps trying, and 
   expect(fake.driveDown).toBe(0)
 })
 
-test("Broods says what it does, stops at a captcha with the reason, and carries on in the same tab when the person presses Continue", async ({ context, fake }) => {
+test("Broods says what it does, stops at a captcha with the reason, and carries on by itself in the same tab once the captcha is gone", async ({ context, fake }) => {
   test.setTimeout(120_000)
   await connect(context)
   await context.route("https://boards.example-ats.com/acme/jobs/779**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
@@ -4205,15 +4211,43 @@ test("Broods says what it does, stops at a captcha with the reason, and carries 
   await applyFrom(context, page, "https://boards.example-ats.com/acme/jobs/779")
   await expect(page.locator(".odds-apply-bar")).toContainText("Broods: Filling your details from Autofill", { timeout: 30000 })
   released()
-  await expect(page.locator(".odds-apply-bar")).toContainText(/Captcha on the page.*Continue/, { timeout: 20000 })
-  // Continue in the tracker: the server hands the same run new steps; the tab, still listening, carries on and ends at review.
+  // No captcha left on the page (the person ticked it): the tab tells the server by itself and the same run carries on — no button.
+  await expect.poll(() => fake.driveEvents.includes("continue"), { timeout: 20000 }).toBe(true)
   const run = [...fake.drives.values()][0]
-  run.done = null
   run.outbox.push({ id: 9002, tool: "read_page", args: {} })
   setTimeout(() => { run.done = { status: "review", message: "Everything is filled in. Check it and press Submit yourself." } }, 8000)
   await expect(page.locator(".odds-apply-bar")).toContainText(/carrying on|Broods is reading/, { timeout: 20000 })
   await expect(page.locator(".odds-apply-bar")).toContainText("press Submit yourself", { timeout: 30000 })
   expect(fake.drives.size).toBe(1)
+})
+
+test("the person fills in the form themselves: Broods waits (You're filling in), then carries on; closing the tab stops the run at once", async ({ context, fake }) => {
+  test.setTimeout(120_000)
+  await connect(context)
+  await context.route("https://boards.example-ats.com/acme/jobs/780**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  fake.kit = { job_id: "pperson", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung" }, remembered: {} }, cv: null }
+  let steps = 0
+  fake.driveScript = async (cmd) => {
+    for (let i = 0; i < 40; i++) { await cmd("read_page"); steps++; await new Promise((r) => setTimeout(r, 700)) }
+    return { status: "review", message: "Everything is filled in." }
+  }
+  const page = await context.newPage()
+  await page.goto("https://boards.example-ats.com/acme/jobs/780")
+  await applyFrom(context, page, "https://boards.example-ats.com/acme/jobs/780")
+  await expect.poll(() => steps, { timeout: 30000 }).toBeGreaterThan(1)
+  // The person types in the form (a real keystroke): Broods is held, the bar says so.
+  await page.locator("#first_name").click()
+  await page.keyboard.type("K")
+  await expect(page.locator(".odds-apply-bar")).toContainText("You're filling in", { timeout: 10000 })
+  await expect.poll(() => fake.driveEvents.includes("hold"), { timeout: 10000 }).toBe(true)
+  const held = steps
+  await page.waitForTimeout(6000)
+  expect(steps).toBeLessThanOrEqual(held + 1)
+  // 20 s after their last keystroke Broods carries on.
+  await expect.poll(() => steps, { timeout: 40000 }).toBeGreaterThan(held + 1)
+  // Closing the application tab tells the server at once (the tracker drops the run's layer).
+  await page.close()
+  await expect.poll(() => fake.driveEvents.some((e) => e === "stop tab_closed"), { timeout: 10000 }).toBe(true)
 })
 
 test("Broods drives LinkedIn Easy Apply: each step read and filled from the person's facts, Next pressed by Broods, the unknown left to them, Submit never pressed", async ({ context, fake }) => {

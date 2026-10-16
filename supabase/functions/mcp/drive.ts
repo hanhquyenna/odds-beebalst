@@ -20,8 +20,8 @@ const CORS = {
 const TOOL_WAIT_MS = 25_000
 const NEXT_WAIT_MS = 20_000
 const MAX_STEPS = 120
-/** No step from Broods for this long while the run says running: it ended without finish. */
-const QUIET_MS = 240_000
+/** No step from Broods for this long while the run says running (a step takes seconds): its turn ended without finish. */
+const QUIET_MS = 100_000
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -36,6 +36,8 @@ async function svc(env: Env, path: string, init: RequestInit = {}): Promise<Json
 }
 
 const runOf = async (env: Env, id: string): Promise<Json | null> => (UUID.test(id) ? (await svc(env, `drive_runs?id=eq.${id}&select=*`))?.[0] ?? null : null)
+/** The person typed or clicked in the form in the last 20 s. */
+const personBusy = (run: Json): boolean => Boolean(run?.person_active_at) && Date.now() - Date.parse(run.person_active_at) < 20_000
 const live = (run: Json): boolean => run?.status === "running" && Date.parse(run.expires_at) > Date.now()
 
 // ---------------------------------------------------------------- MCP for Broods
@@ -126,6 +128,11 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     const message = `${String(args.message ?? "").slice(0, 600)}${questions.length ? ` Questions for you: ${questions.join("; ").slice(0, 380)}` : ""}`.trim()
     const reason = stage === "review" ? null : REASONS.includes(args.reason) ? args.reason : questions.length ? "questions" : "other"
     await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ status: stage, reason, message, last_note: String(args.message ?? "").slice(0, 300) || null, updated_at: new Date().toISOString() }) })
+    // Questions only the person can answer: they appear in Odds (the job's page) to answer there; saving them carries Broods on.
+    if (questions.length && run.posting_id) {
+      const slug = (q: string): string => `broods_${q.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 60)}`
+      await svc(env, "application_prompts?on_conflict=user_id,posting_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: run.user_id, posting_id: run.posting_id, questions: questions.slice(0, 30).map((q: string) => ({ key: slug(q), label: q.slice(0, 300), kind: "text" })), updated_at: new Date().toISOString() }) }).catch(() => undefined)
+    }
     return { text: "Finished." }
   }
   if (!live(run)) return { text: `This run is over (${run.status}). Stop.`, error: true }
@@ -134,6 +141,12 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     await sleep(Math.min(8, Math.max(1, Number(args.seconds) || 2)) * 1000)
     return { text: "Waited. read_page next." }
   }
+  // The person is filling in the form themselves: Broods waits for them to stop (20 s of quiet), then carries on around what they entered.
+  for (let waited = 0; personBusy(run) && waited < 20_000; waited += 1000) {
+    await sleep(1000)
+    Object.assign(run, (await runOf(env, run.id)) ?? {})
+  }
+  if (personBusy(run)) return { text: "The person is filling in the form themselves right now. Call wait, then read_page, and keep everything they entered.", error: true }
   if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
   const { run_id: _r, say, ...rest } = args ?? {}
   const note = typeof say === "string" && say.trim() ? say.trim().slice(0, 300) : null
@@ -215,8 +228,10 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
   const base = ((Deno.env.get("APPLY_AGENT_BROODS_BASE_URL") ?? "https://gateway.broods.app").trim() || "https://gateway.broods.app").replace(/\/$/, "")
   // Whether Odds holds this job's own cover / motivation letter (upload_letter), else the person is asked for one.
   const letter = run.posting_id ? (await svc(env, `job_documents?user_id=eq.${run.user_id}&posting_id=eq.${encodeURIComponent(run.posting_id)}&kind=eq.cover_letter&select=document_id&limit=1`).catch(() => null))?.[0] : null
+  // What the person answered in Odds since (Broods' own questions included): Broods fills those in when it carries on.
+  const answered = resume ? ((await svc(env, `application_questions?user_id=eq.${run.user_id}&updated_at=gt.${encodeURIComponent(new Date(Date.now() - 3 * 3_600_000).toISOString())}&select=question,answer&limit=40`).catch(() => null)) ?? []) : []
   const task = resume
-    ? { run_id: run.id, resume, has_cover_letter: Boolean(letter), goal: "Carry on with the same application in the same tab: read_page first, then go on until only Submit is left (finish review), or something only the person can do (finish needs_you)." }
+    ? { run_id: run.id, resume, has_cover_letter: Boolean(letter), person_answers: answered, goal: "Carry on with the same application in the same tab: read_page first, then go on until only Submit is left (finish review), or something only the person can do (finish needs_you)." }
     : {
         run_id: run.id,
         job: { title: job?.title ?? null, employer: job?.employer_display ?? job?.employer ?? null, url: run.url },
@@ -239,6 +254,11 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
 
 // ---------------------------------------------------------------- extension routes
 
+const MAX_RESUMES = 6
+/** A run that waits for the person (or got stuck) and may pick up again by itself: recent, and not resumed too often. */
+const resumeRun = (run: Json): boolean => ["needs_you", "stuck"].includes(run?.status) && Date.now() - Date.parse(run.updated_at) < 30 * 60_000 && (run.resumes ?? 0) < MAX_RESUMES
+const resumePatch = (run: Json): Json => ({ status: "running", reason: null, message: null, resume_pending: true, resumes: (run.resumes ?? 0) + 1, last_note: "Carrying on where it stopped…", expires_at: new Date(Date.now() + 30 * 60_000).toISOString(), updated_at: new Date().toISOString() })
+
 /** /ext/drive-start | drive-next | drive-result for the person's own extension. */
 export async function driveExt(route: string, req: Request, env: Env, userId: string, ctx: { facts: () => Promise<Record<string, string>>; job: (url: string) => Promise<Json | null> }): Promise<Response> {
   const json = (status: number, body: Json) => new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } })
@@ -248,6 +268,11 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
     if (typeof body?.run_id === "string") {
       const run = await runOf(env, body.run_id)
       if (run && run.user_id === userId && live(run)) return json(200, { run_id: run.id, resumed: true })
+      // The page moved on while Broods waited for the person (they signed in, solved the captcha): the same run carries on.
+      if (run && run.user_id === userId && resumeRun(run)) {
+        await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify(resumePatch(run)) })
+        return json(200, { run_id: run.id, resumed: true })
+      }
     }
     const url = String(body?.url || body?.page || "").slice(0, 2000)
     if (!/^https:\/\//.test(url)) return json(400, { error: "No application address." })
@@ -268,14 +293,29 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
   if (!run || run.user_id !== userId) return json(404, { error: "No such run." })
   if (route === "drive-stop") {
     // The person took the tab back (or stopped the run): Broods' next tool call sees the run is over and ends.
-    await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "stopped", message: String(body?.message ?? "Stopped by the person.").slice(0, 300), updated_at: new Date().toISOString() }) })
+    // The tab is gone either way. At review it stays review (did they send it? the app asks once); otherwise the run ends.
+    const gone = new Date(0).toISOString()
+    if (run.status === "review") await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ last_seen_at: gone }) })
+    else if (!["submitted", "stopped"].includes(run.status)) await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ status: "stopped", resume_pending: false, last_seen_at: gone, message: String(body?.message ?? "Stopped by the person.").slice(0, 300), updated_at: new Date().toISOString() }) })
+    return json(200, { ok: true })
+  }
+  if (route === "drive-continue") {
+    // The person handled what Broods waited for (in the tab): it picks the same run up again, a few times at most.
+    if (!resumeRun(run)) return json(200, { ok: false })
+    await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify(resumePatch(run)) })
     return json(200, { ok: true })
   }
   if (route === "drive-result") {
     const id = Number(body?.id)
     if (!Number.isInteger(id)) return json(400, { error: "Bad command." })
     await svc(env, `drive_commands?id=eq.${id}&run_id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ status: "done", result: body?.result ?? {}, done_at: new Date().toISOString() }) })
+    if (!run.last_seen_at || Date.now() - Date.parse(run.last_seen_at) > 15_000) void svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_seen_at: new Date().toISOString() }) }).catch(() => undefined)
     return json(200, { ok: true })
+  }
+  if (route === "drive-next" && body?.hold === true) {
+    // The person is filling in the form: no step is handed out, and Broods waits for them.
+    await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ person_active_at: new Date().toISOString(), last_seen_at: new Date().toISOString() }) })
+    return json(200, { idle: true, hold: true })
   }
   if (route === "drive-next") {
     // The tab is there: the tracker tells a live run from one whose tab or Chrome is gone.
@@ -284,7 +324,7 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
     if (run.resume_pending && live(run)) {
       const claimed = await svc(env, `drive_runs?id=eq.${run.id}&resume_pending=is.true`, { method: "PATCH", body: JSON.stringify({ resume_pending: false, updated_at: new Date().toISOString() }) }).catch(() => null)
       if (Array.isArray(claimed) && claimed.length) {
-        const problem = await startBroods(env, run, null, {}, "The person handled what you stopped for (or asked you to try again). The page may have moved on.")
+        const problem = await startBroods(env, run, null, {}, "Carry on with this application: the person may have handled what you stopped for (signed in, solved a captcha, answered, filled some fields themselves), or your last turn ended early. The page may have moved on; keep everything already filled.")
         if (problem) await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ status: "stuck", reason: "other", message: problem }) }).catch(() => undefined)
       }
     }
@@ -302,10 +342,13 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
       }
       const fresh = await runOf(env, run.id)
       if (!fresh || !live(fresh)) return json(200, { done: true, status: fresh?.status ?? "failed", reason: fresh?.reason ?? null, message: fresh?.message ?? "The run ended." })
-      // Broods has sent nothing for 4 minutes: it ended without saying so. Say it, never a silent Applying….
-      if (Date.now() - Date.parse(fresh.updated_at) > QUIET_MS) {
-        await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "stuck", reason: "quiet", message: "Broods went quiet on this application. Press Continue to have it pick up again, or finish it yourself.", updated_at: new Date().toISOString() }) }).catch(() => undefined)
-        continue
+      // Broods has sent nothing for 100 s (not waiting on the person): it ended without saying so. Retry once by itself; only then say it.
+      if (Date.now() - Date.parse(fresh.updated_at) > QUIET_MS && !personBusy(fresh)) {
+        const patch = (fresh.retries ?? 0) < 1
+          ? { retries: (fresh.retries ?? 0) + 1, resume_pending: true, last_note: "Picking up again…", updated_at: new Date().toISOString() }
+          : { status: "stuck", reason: "other", message: "Broods could not carry on with this application. Finish it in the tab, or press Apply with Odds to start again.", updated_at: new Date().toISOString() }
+        await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify(patch) }).catch(() => undefined)
+        return json(200, { idle: true, steps: run.steps })
       }
       await sleep(400)
     }

@@ -434,7 +434,10 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
         await chrome.tabs.update(tab.id, { active: true }).catch(() => undefined)
         await new Promise((r) => setTimeout(r, 400))
       }
-      const url = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 55 })
+      // A window that is minimised or covered cannot be read back at once: one retry, then say plainly what to do instead.
+      const grab = () => chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 55 })
+      const url = await grab().catch(async () => { await new Promise((r) => setTimeout(r, 700)); return grab() }).catch(() => null)
+      if (!url) return reply({ error: "This tab cannot be seen right now (its window is minimised or hidden). Work from read_page; do not retry screenshot." })
       const image = url.replace(/^data:image\/jpeg;base64,/, "")
       const size = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => ({ w: Math.round(innerWidth * devicePixelRatio), h: Math.round(innerHeight * devicePixelRatio) }) }).then((r) => r?.[0]?.result).catch(() => null)
       reply({ image, width: size?.w ?? null, height: size?.h ?? null })
@@ -442,7 +445,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return true
   }
   // Broods drives the application tab: start (or resume after a page change) a run, take its next command, send back the result.
-  if (message?.type === "drive" && sender.tab && typeof sender.tab.id === "number" && ["start", "next", "result"].includes(message.op)) {
+  if (message?.type === "drive" && sender.tab && typeof sender.tab.id === "number" && ["start", "next", "result", "continue"].includes(message.op)) {
     const tabId = sender.tab.id
     // One start per tab at a time: the page and an embedded ATS frame asking together join the same run (never two agents on one form).
     if (message.op === "start") {
@@ -451,7 +454,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     }
     const body = message.op === "start"
       ? { url: String(message.url || ""), page: String(message.page || ""), run_id: typeof message.run_id === "string" ? message.run_id : null }
-      : message.op === "next" ? { run_id: message.run_id, fresh: message.fresh === true } : { run_id: message.run_id, id: message.id, result: message.result ?? null }
+      : message.op === "next" ? { run_id: message.run_id, fresh: message.fresh === true, hold: message.hold === true } : message.op === "continue" ? { run_id: message.run_id } : { run_id: message.run_id, id: message.id, result: message.result ?? null }
     const call = (async () => {
       // A start asked while another page load of this tab already holds a run resumes that run.
       if (message.op === "start" && !body.run_id) {
@@ -1037,6 +1040,10 @@ chrome.tabs.onCreated.addListener((tab) => {
 })
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   followFrom.delete(tabId)
+  // The application tab closed: Broods stops there at once and the tracker goes back to the job's own status.
+  const { oddsApplyIntents = {} } = await chrome.storage.local.get("oddsApplyIntents")
+  const run = oddsApplyIntents[tabId]?.driveRun
+  if (typeof run === "string") ext("drive-stop", { method: "POST", body: JSON.stringify({ run_id: run, reason: "tab_closed", message: "You closed the application tab." }) }).catch(() => undefined)
   await changeIntents((all) => { delete all[tabId] })
 })
 

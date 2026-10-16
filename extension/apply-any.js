@@ -902,10 +902,16 @@
     }
     let b = 0
     const buttons = []
-    for (const el of document.querySelectorAll("a, button, input[type=button], input[type=submit], [role='button']")) {
-      if (!shown(el) || b >= 60 || el.closest(".odds-apply-bar") || !inScope(el)) continue
+    // Apply controls always count and come first: job boards put "Apply on the employer's website" in the job's own <header>, and
+    // a page full of links (Glassdoor's matches, ads) must never push them past the list's end.
+    const APPLYISH = /\b(apply|solliciteer|solliciteren|bewerben|postuler|candidat|easy apply|quick apply)/i
+    const controls = [...document.querySelectorAll("a, button, input[type=button], input[type=submit], [role='button']")]
+    const applyFirst = [...controls.filter((el) => APPLYISH.test(controlLabel(el))), ...controls.filter((el) => !APPLYISH.test(controlLabel(el)))]
+    for (const el of applyFirst) {
+      if (!shown(el) || b >= 60 || el.closest(".odds-apply-bar")) continue
       const text = controlLabel(el).slice(0, 100)
       if (text.length < 1) continue
+      if (!inScope(el) && !(APPLYISH.test(text) && !dialog)) continue
       const id = `b${b++}`
       driveButtons.set(id, el)
       const a = el.closest("a")
@@ -1080,10 +1086,29 @@
     }
     let lostSince = 0
     let fresh = true
-    // Ended for the person (captcha, sign-in, questions, a letter, stuck): Odds keeps an ear on the run for 30 minutes, so Continue in
-    // the tracker picks it up again in this tab. Broods going quiet is decided by the server (and said), never by a silent timer here.
+    // Ended for the person (captcha, sign-in, questions, a letter, stuck): Odds keeps watching the tab for 30 minutes and carries on by
+    // itself once they handled it. Broods going quiet is decided by the server (retried once, then said), never by a silent timer here.
     let endedAt = 0
-    for (let i = 0; i < 2000; i++) {
+    let endedReason = ""
+    let resumedFor = 0
+    const person = watchPerson()
+    for (let i = 0; i < 4000; i++) {
+      // The person is filling in the form themselves: Broods waits (no step handed out) and picks up 20 s after they stop.
+      if (!endedAt && Date.now() - person.at < PERSON_QUIET_MS) {
+        say("You're filling in — Broods waits, then carries on around what you entered.", "filling")
+        await ask({ type: "drive", op: "next", run_id: runId, hold: true }, 15000).catch(() => null)
+        await sleep(3000)
+        continue
+      }
+      // Waiting for the person: once they acted here and went quiet, or the captcha is gone, the same run carries on — no button needed.
+      if (endedAt && resumedFor !== endedAt) {
+        const handled = (person.at > endedAt && Date.now() - person.at >= PERSON_QUIET_MS) || (endedReason === "captcha" && !blockingCaptcha())
+        if (handled) {
+          resumedFor = endedAt
+          const ok = await ask({ type: "drive", op: "continue", run_id: runId }, 15000).catch(() => null)
+          if (ok?.ok) { endedAt = 0; say("Broods is carrying on…", "filling") }
+        }
+      }
       const next = await ask({ type: "drive", op: "next", run_id: runId, fresh }, 35000).catch(() => null)
       // No answer at all is the connection, not Broods: say so and keep trying for 5 minutes, then carry on where the run is.
       if (!next || next.status === "error") {
@@ -1101,11 +1126,13 @@
       if (next.done) {
         if (!endedAt) {
           endedAt = Date.now()
+          endedReason = next.reason || ""
           const [text, state] = driveEndText(next)
           say(text, state)
         }
-        if (["submitted", "review"].includes(next.status) || Date.now() - endedAt > 1800000) return
-        await sleep(5000)
+        // The tab stays watched while it is open (the tracker shows the run only then): 30 minutes waiting for the person, 3 hours at review.
+        if (["submitted", "stopped", "failed"].includes(next.status) || next.reason === "closed" || Date.now() - endedAt > (next.status === "review" ? 10800000 : 1800000)) return
+        await sleep(3000)
         continue
       }
       if (endedAt) { endedAt = 0; say("Broods is carrying on…", "filling") }
@@ -1130,6 +1157,19 @@
       }
     }
   }
+  /** The person's own typing and clicks on the page (never Broods', whose events are synthetic, never the Odds bar). */
+  const PERSON_QUIET_MS = 20000
+  function watchPerson() {
+    const state = { at: 0 }
+    const mark = (e) => {
+      if (!e.isTrusted) return
+      const t = e.target
+      if (t && t.closest && t.closest(".odds-apply-bar, [data-odds-bar]")) return
+      state.at = Date.now()
+    }
+    for (const type of ["keydown", "mousedown", "input", "paste"]) document.addEventListener(type, mark, true)
+    return state
+  }
   /** What the bar says when a Broods run ends, by why it ended. */
   function driveEndText(next) {
     const m = next.message || ""
@@ -1137,12 +1177,11 @@
     if (next.status === "submitted") return ["You sent it.", "done"]
     if (next.status === "stopped") return [m || "Broods stopped. Continue from the tracker, or finish it yourself.", "ask"]
     const why = {
-      captcha: "Captcha on the page — tick it, then press Continue in Odds.",
-      account: "Sign in on this page (Odds never types passwords), then press Continue in Odds.",
-      letter: "This application asks for a cover letter — add one for this job in Odds Documents, then press Continue.",
-      questions: "Broods needs your answers to carry on.",
+      captcha: "Captcha on the page — tick it and Broods carries on by itself.",
+      account: "Sign in on this page (Odds never types passwords) — Broods carries on by itself after.",
+      letter: "This application asks for a cover letter — add one for this job in Odds (Documents) and Broods carries on.",
+      questions: "Broods needs your answers: fill them in here or answer in Odds, and it carries on.",
       closed: "This job no longer takes applications.",
-      quiet: "Broods went quiet on this application. Press Continue in Odds, or finish it yourself.",
     }[next.reason] || ""
     const text = [why, m].filter(Boolean).join(" ")
     return [next.status === "needs_you" ? (text || "Broods needs you for a step — open the tab.") : `Odds assist could not move this application forward after assist: ${text || "Broods stopped."}`, "ask"]

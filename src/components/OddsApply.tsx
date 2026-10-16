@@ -10,7 +10,8 @@ import { embedded, extensionParent } from "@/lib/embedded"
 import { useData } from "@/lib/data"
 import { ensureSaved } from "@/lib/save"
 import { DriveLive } from "@/components/DriveLive"
-import { applyActivityOf, applyNeedsReveal, driveLabel, driveOf, clearApplyActivity, normalizeApplyStatus, recordApplyActivity, useApplyActivityTick } from "@/lib/apply-activity"
+import { driveControl } from "@/lib/drive-runs"
+import { applyActivityOf, applyNeedsReveal, driveLabel, driveOf, driveWhy, clearApplyActivity, normalizeApplyStatus, recordApplyActivity, useApplyActivityTick } from "@/lib/apply-activity"
 import { mergeApplyView } from "@/lib/apply-view"
 import { showLiveApplyInTracker } from "@/lib/apply-nav"
 import { isJobClosedMessage, settleClosedJob } from "@/lib/job-closed"
@@ -193,7 +194,7 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
         && !/^opening the application/i.test(prev.message),
       )
       if (!keepProgress) {
-        recordApplyActivity({ postingId: post.id, url: applicationUrl, status: "filling", message: "Opening the application…" + boardNote })
+        recordApplyActivity({ postingId: post.id, url: applicationUrl, status: "filling", message: "Opening the application…" + boardNote, local: true })
         setTabState({ status: "filling", message: "Opening the application…" + boardNote, at: Date.now() })
       }
     }
@@ -279,10 +280,15 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
 
   // A Broods run behind this Apply: its own title and line (what it does now), and its live panel under the progress.
   const drive = driveOf(post.id)
-  const driveTitles: Record<string, string> = { "Applying…": "Broods is applying", "Tab closed": "The application tab is closed", "Review & send": "Ready to review", Captcha: "Captcha on the page", "Sign in": "Sign in on the tab", "Your answers": "Needs your answer", "Cover letter": "Add a cover letter", Stopped: "Stopped", Stuck: "Stuck — open the tab", "Needs you": "Needs you", Closed: "Applications closed", "Apply stopped": "Stopped" }
+  const driveTitles: Record<string, string> = { "Applying…": "Broods is applying", "You're filling in": "You're filling in", "Review & send": "Ready to review", Captcha: "Captcha on the page", "Sign in": "Sign in on the tab", "Your answers": "Needs your answer", "Cover letter": "Add a cover letter", Stuck: "Stuck — open the tab", "Needs you": "Needs you", Closed: "Applications closed" }
   const progressTitle = drive ? driveTitles[driveLabel(drive)] : undefined
-  const progressLine = drive ? (drive.status === "running" && !drive.tabGone ? drive.note || "Broods is applying in your Chrome tab." : drive.status === "running" ? "" : drive.message) : view?.message
-  const driveLive = <DriveLive post={post} onOpenTab={() => void beginApply({ reveal: true })} />
+  const progressLine = drive ? (drive.status === "running" ? driveWhy(drive) : drive.message) : view?.message
+  const driveLive = <DriveLive post={post} />
+  // Broods asked these questions: answering them here carries it on by itself, with the answers.
+  const answered = (): void => {
+    const d = driveOf(post.id)
+    if (d && d.status === "needs_you" && d.reason === "questions") void driveControl(d.runId, "continue").then((ok) => { if (ok) toast.message("Broods carries on with your answers.") })
+  }
   const revealGate = view ? applyNeedsReveal(view.status, view.message || "") : false
   const stuck = revealGate && /after (odds )?assist|odds assist could not|broods could not|agent gave up|reconnect/i.test(view?.message || "")
   const msg = view?.message || ""
@@ -348,7 +354,7 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
           </button>
         ) : phase ? <ApplyProgress phase={phase} message={progressLine} title={progressTitle} /> : null}
         {driveLive}
-        {phase === "ready" ? <div className="flex flex-col gap-2 sm:flex-row">{primary}{cancel}</div> : <ApplicationQuestions inline postingId={post.id} onHasQuestions={setQuestionsOpen} aside={primary} empty={<div className="flex flex-col gap-2 sm:flex-row">{primary}{phase === "needs_input" ? null : cancel}</div>} />}
+        {phase === "ready" ? <div className="flex flex-col gap-2 sm:flex-row">{primary}{cancel}</div> : <ApplicationQuestions inline postingId={post.id} onHasQuestions={setQuestionsOpen} onSaved={answered} aside={primary} empty={<div className="flex flex-col gap-2 sm:flex-row">{primary}{phase === "needs_input" ? null : cancel}</div>} />}
         {phase === "needs_input" && cancel ? <div className="flex">{cancel}</div> : null}
         {phase === "failed" && view?.message ? <p role="alert" className="text-sm text-destructive">{view.message}</p> : null}
         {gateOnly ? <p className="text-sm text-muted-foreground">Install and Connect Odds for Chrome once — then Apply fills forms in this browser.</p> : null}
@@ -405,10 +411,10 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
         </button>
       ) : phase ? <ApplyProgress phase={phase} message={progressLine} title={progressTitle} /> : null}
       {driveLive}
-      {primary && (captcha || login || phase === "ready") ? <div className="flex gap-2">{primary}</div> : primary ? <ApplicationQuestions inline postingId={post.id} onHasQuestions={setQuestionsOpen} aside={primary} empty={<div className="flex gap-2">{primary}</div>} /> : null}
-      {stalled && !stuck ? <p className="text-sm text-muted-foreground">Still filling in the open tab. Odds retries if it stalls, then reports here if it cannot move on.</p> : null}
-      {captcha && !stuck ? <p className="text-sm text-muted-foreground">Complete the captcha in the tab. Odds continues after you solve it — it never solves captchas for you.</p> : null}
-      {login && !stuck ? <p className="text-sm text-muted-foreground">Sign in to the job board in that Chrome tab — Odds continues when the wall clears. Odds never types passwords. Chrome keeps the session for the next Apply.</p> : null}
+      {primary && (captcha || login || phase === "ready") ? <div className="flex gap-2">{primary}</div> : primary ? <ApplicationQuestions inline postingId={post.id} onHasQuestions={setQuestionsOpen} onSaved={answered} aside={primary} empty={<div className="flex gap-2">{primary}</div>} /> : null}
+      {stalled && !stuck && !drive ? <p className="text-sm text-muted-foreground">Still filling in the open tab. Odds retries if it stalls, then reports here if it cannot move on.</p> : null}
+      {captcha && !stuck && !drive ? <p className="text-sm text-muted-foreground">Complete the captcha in the tab. Odds continues after you solve it — it never solves captchas for you.</p> : null}
+      {login && !stuck && !drive ? <p className="text-sm text-muted-foreground">Sign in to the job board in that Chrome tab — Odds continues when the wall clears. Odds never types passwords. Chrome keeps the session for the next Apply.</p> : null}
       {boardNote && !view ? <p className="text-sm text-muted-foreground">This job’s only link is Glassdoor/Indeed — Apply opens that page (not LinkedIn).</p> : null}
       {view?.status === "failed" && view.message ? <p role="alert" className="text-sm text-destructive">{view.message}</p> : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
