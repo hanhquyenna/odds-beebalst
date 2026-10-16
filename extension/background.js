@@ -444,14 +444,27 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   // Broods drives the application tab: start (or resume after a page change) a run, take its next command, send back the result.
   if (message?.type === "drive" && sender.tab && typeof sender.tab.id === "number" && ["start", "next", "result"].includes(message.op)) {
     const tabId = sender.tab.id
+    // One start per tab at a time: the page and an embedded ATS frame asking together join the same run (never two agents on one form).
+    if (message.op === "start") {
+      const pending = driveStarts.get(tabId)
+      if (pending) { pending.then((res) => reply(res)).catch(() => reply(null)); return true }
+    }
     const body = message.op === "start"
       ? { url: String(message.url || ""), page: String(message.page || ""), run_id: typeof message.run_id === "string" ? message.run_id : null }
       : message.op === "next" ? { run_id: message.run_id } : { run_id: message.run_id, id: message.id, result: message.result ?? null }
-    ext(`drive-${message.op}`, { method: "POST", body: JSON.stringify(body) }).then(async (res) => {
+    const call = (async () => {
+      // A start asked while another page load of this tab already holds a run resumes that run.
+      if (message.op === "start" && !body.run_id) {
+        const held = (await intentOf(tabId))?.driveRun
+        if (typeof held === "string") body.run_id = held
+      }
+      const res = await ext(`drive-${message.op}`, { method: "POST", body: JSON.stringify(body) })
       // The run follows the tab across page loads: the next page resumes it instead of starting another.
       if (message.op === "start" && typeof res?.run_id === "string") await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], driveRun: res.run_id } })
-      reply(res)
-    }).catch(() => reply(null))
+      return res
+    })()
+    if (message.op === "start") { driveStarts.set(tabId, call); call.finally(() => setTimeout(() => driveStarts.delete(tabId), 3000)) }
+    call.then((res) => reply(res)).catch(() => reply(null))
     return true
   }
   // The person went back a step (Back, or the form's own Back/Previous): Odds pauses there and the app says so; their own Next/Apply resumes.
@@ -852,6 +865,8 @@ function oddsGo(tabId, url, extra = {}) {
   setTimeout(() => oddsNavigating.delete(tabId), 15000)
   return chrome.tabs.update(tabId, { url, ...extra })
 }
+/** Drive starts in flight per tab (see the drive handler). */
+const driveStarts = new Map()
 const PAUSED_MESSAGE = "You went back a step, so Odds paused here. Press Next or Apply yourself and Odds carries on, or press Apply with Odds again."
 /**
  * The Odds window: one separate Chrome window for applications, created unfocused at the side of the screen so it never covers what the

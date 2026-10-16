@@ -40,6 +40,8 @@ interface Fake {
   drives: Map<string, DriveRun>
   /** REAL_BROODS=1 runs: the real agent on a real run (see driveReal). */
   realBroods?: { title: string; person: Record<string, string>; runId?: string; log: string[]; end?: { status: string; message: string }; shot?: (label: string) => Promise<void> }
+  /** The next N /ext/drive-next calls fail as if the connection dropped (503). */
+  driveDown?: number
   /** A test's own Broods moves (instead of the stand-in agent): gets cmd(tool, args) and returns how the run ends. */
   driveScript?: (cmd: (tool: string, args?: Record<string, unknown>) => Promise<Record<string, unknown>>) => Promise<{ status: string; message: string }>
   prompts: Array<{ key: string; label: string; kind: string; options?: string[] }>
@@ -132,12 +134,6 @@ async function driveAgent(fake: Fake, run: DriveRun): Promise<void> {
 // ---- REAL_BROODS=1: the real Broods agent drives the real extension on real sites. The bridge stands in only for Odds' login: it starts
 // the run in the real database and carries commands between the database and the extension, exactly the path production uses.
 const REAL_USER = "a288b136-2a65-4dc5-9ab2-7ecad9afbb3d"
-const realDb = (sql: string): Array<Record<string, unknown>> => {
-  const out = execFileSync("bunx", ["supabase", "db", "query", "--linked", sql], { cwd: join(import.meta.dirname, ".."), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 150_000 })
-  const j = JSON.parse(out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1)) as { rows?: Array<Record<string, unknown>> }
-  return j.rows ?? []
-}
-const sqlText = (v: unknown): string => `'${JSON.stringify(v).replace(/'/g, "''")}'`
 async function startRealBroods(runId: string, url: string, title: string, person: Record<string, string>): Promise<void> {
   const env = readFileSync(join(import.meta.dirname, "..", ".env.local"), "utf8")
   const key = [...env.matchAll(/^BROODS_API_KEY=["']?([^"'\n]+)/gm)].at(-1)![1]
@@ -150,32 +146,46 @@ async function startRealBroods(runId: string, url: string, title: string, person
   const ck = await crypto.subtle.importKey("raw", dig, { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
   const token = `buat_${body}.${b64(new Uint8Array(await crypto.subtle.sign("HMAC", ck, enc.encode(body))))}`
   const task = { run_id: runId, job: { title, url }, person, goal: "Apply to this job in the person's browser tab with the odds-browser tools until only Submit is left (finish review), or something only the person can do (finish needs_you)." }
-  void fetch("https://gateway.broods.app/v1/runs", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "text/event-stream", "X-Broods-User-Token": token },
-    body: JSON.stringify({ agentId: "js76teefba050scj7h6wp8n04x8ga3ac", eventId: crypto.randomUUID(), conversationKey: `odds-test-${runId}`, events: [{ role: "user", content: [{ type: "text", text: JSON.stringify(task) }] }] }) }).then((r) => r.text()).catch(() => "")
+  // Started exactly as production does: a background run (202 accepted), nothing holds a stream open.
+  const res = await fetch("https://gateway.broods.app/v1/runs", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "application/json", "X-Broods-User-Token": token },
+    body: JSON.stringify({ agentId: "js76teefba050scj7h6wp8n04x8ga3ac", eventId: crypto.randomUUID(), conversationKey: `odds-test-${runId}`, background: true, events: [{ role: "user", content: [{ type: "text", text: JSON.stringify(task) }] }] }) })
+  console.log(`REAL start ${runId}: ${res.status}`)
+}
+// The bridge reads and writes the drive tables over PostgREST (fast); the key comes from a private file named in REAL_SR_KEY_FILE, never the repo.
+const REST = "https://ukpmpyfcnbhngkgbnkxi.supabase.co/rest/v1"
+const restKey = (): string => readFileSync(String(process.env.REAL_SR_KEY_FILE), "utf8").trim()
+async function rest(path: string, init: RequestInit = {}): Promise<Array<Record<string, unknown>>> {
+  const key = restKey()
+  const res = await fetch(`${REST}/${path}`, { ...init, headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=representation", ...(init.headers ?? {}) } })
+  const text = await res.text()
+  return text ? (JSON.parse(text) as Array<Record<string, unknown>>) : []
 }
 async function driveReal(fake: Fake, path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const real = fake.realBroods!
   if (path.endsWith("/drive-start")) {
-    if (typeof body.run_id === "string" && real.runId === body.run_id) return { run_id: body.run_id, resumed: true }
-    const [run] = realDb(`insert into public.drive_runs (user_id, url) values ('${REAL_USER}', ${sqlText(String(body.page || body.url)).replace(/^'"|"'$/g, "'")}) returning id`)
+    if (real.runId) return { run_id: real.runId, resumed: true }
+    const [run] = await rest("drive_runs", { method: "POST", body: JSON.stringify({ user_id: REAL_USER, url: String(body.page || body.url) }) })
     real.runId = String(run.id)
     await startRealBroods(real.runId, String(body.page || body.url), real.title, real.person)
     return { run_id: real.runId, resumed: false }
   }
   const runId = String(body.run_id)
   if (path.endsWith("/drive-result")) {
-    realDb(`update public.drive_commands set status='done', result=${sqlText(body.result ?? {})}::jsonb, done_at=now() where id=${Number(body.id)} and run_id='${runId}'`)
+    await rest(`drive_commands?id=eq.${Number(body.id)}&run_id=eq.${runId}`, { method: "PATCH", body: JSON.stringify({ status: "done", result: body.result ?? {}, done_at: new Date().toISOString() }) })
     real.log.push(`result ${JSON.stringify(body.result ?? {}).slice(0, 140)}`)
     // A picture of the real page after every step, to check by eye that each action did what it said.
     await real.shot?.(String(real.log.length)).catch(() => undefined)
     return { ok: true }
   }
-  for (let i = 0; i < 6; i++) {
-    const [c] = realDb(`update public.drive_commands set status='taken', taken_at=now() where id = (select id from public.drive_commands where run_id='${runId}' and status='queued' order by id limit 1) returning id, tool, args`)
-    if (c) { real.log.push(`${c.tool} ${JSON.stringify(c.args).slice(0, 160)}`); return { command: c } }
-    const [r] = realDb(`select status, message, steps from public.drive_runs where id='${runId}'`)
+  for (let i = 0; i < 40; i++) {
+    const [q] = await rest(`drive_commands?run_id=eq.${runId}&status=eq.queued&order=id.asc&limit=1&select=id,tool,args`)
+    if (q) {
+      const taken = await rest(`drive_commands?id=eq.${q.id}&status=eq.queued`, { method: "PATCH", body: JSON.stringify({ status: "taken", taken_at: new Date().toISOString() }) })
+      if (taken.length) { real.log.push(`${q.tool} ${JSON.stringify(q.args).slice(0, 160)}`); return { command: q } }
+    }
+    const [r] = await rest(`drive_runs?id=eq.${runId}&select=status,message`)
     if (r && r.status !== "running") { real.end = { status: String(r.status), message: String(r.message ?? "") }; return { done: true, status: r.status, message: r.message } }
-    await new Promise((res) => setTimeout(res, 700))
+    await new Promise((res) => setTimeout(res, 300))
   }
   return { idle: true }
 }
@@ -276,6 +286,7 @@ async function fakeOdds(): Promise<Fake> {
       }) : {}
       const path = String(req.url).split("?")[0]
       if (/\/ext\/drive-(start|next|result)$/.test(path)) {
+        if (path.endsWith("/drive-next") && (fake.driveDown ?? 0) > 0) { fake.driveDown!--; res.writeHead(503, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ error: "unavailable" })); return }
         void driveFake(fake, path, body as Record<string, unknown>).then((out) => res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify(out)))
         return
       }
@@ -4158,6 +4169,22 @@ test("Broods drives an employer's form in the person's tab: reads it, fills from
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
 })
 
+test("the connection drops while Broods drives: Odds says so, keeps trying, and finishes the run once it is back (never gives up in seconds)", async ({ context, fake }) => {
+  test.setTimeout(120_000)
+  await connect(context)
+  await context.route("https://boards.example-ats.com/acme/jobs/778**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  fake.kit = { job_id: "pdown", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung" }, remembered: {} }, cv: null }
+  // More failed calls in a row than the old loop allowed before it gave up (6).
+  fake.driveDown = 8
+  const page = await context.newPage()
+  await page.goto("https://boards.example-ats.com/acme/jobs/778")
+  await applyFrom(context, page, "https://boards.example-ats.com/acme/jobs/778")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Connection lost/, { timeout: 30000 })
+  await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 60000 })
+  await expect(page.locator(".odds-apply-bar")).not.toContainText(/stopped answering|lost its connection/)
+  expect(fake.driveDown).toBe(0)
+})
+
 test("Broods drives LinkedIn Easy Apply: each step read and filled from the person's facts, Next pressed by Broods, the unknown left to them, Submit never pressed", async ({ context, fake }) => {
   test.setTimeout(90_000)
   await connect(context)
@@ -4264,7 +4291,7 @@ const TEST_PERSON = { first_name: "Test", last_name: "Applicant", email: "test.a
 for (const job of REAL_JOBS) {
   test(`REAL: Broods drives ${job.name} (real site, real Broods, never submits)`, async ({ context, fake }) => {
     test.skip(process.env.REAL_BROODS !== "1", "real sites + real Broods: set REAL_BROODS=1")
-    test.setTimeout(420_000)
+    test.setTimeout(960_000)
     await connect(context)
     const page = await context.newPage()
     fake.realBroods = { title: job.title, person: TEST_PERSON, log: [] }
@@ -4277,7 +4304,7 @@ for (const job of REAL_JOBS) {
     await applyFrom(context, page, job.url)
     // Ends when Broods finishes — or, on a job board this test browser is not signed in to, when Odds stops at the sign-in wall and says so.
     const bar = async (): Promise<string> => (await Promise.all(context.pages().map((p) => p.locator(".odds-apply-bar").first().textContent({ timeout: 500 }).catch(() => "")))).join(" ")
-    await expect.poll(async () => (fake.realBroods?.end?.status ?? "") || (job.board && /sign in|log in|inloggen|account/i.test(await bar()) ? "signin" : ""), { timeout: 400_000, intervals: [3000] }).not.toBe("")
+    await expect.poll(async () => (fake.realBroods?.end?.status ?? "") || (job.board && /sign in|log in|inloggen|account/i.test(await bar()) ? "signin" : ""), { timeout: 900_000, intervals: [3000] }).not.toBe("")
     const last = context.pages().at(-1) ?? page
     await last.screenshot({ path: `test-results/real-${job.name}/zz-final.png` }).catch(() => undefined)
     const outcome = fake.realBroods?.end?.status ?? "signin"

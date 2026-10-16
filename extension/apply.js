@@ -607,8 +607,18 @@
     const runId = start?.run_id
     if (!runId) return say(modal, start?.error ? `Broods could not start: ${start.error}` : "Broods could not start. Press Apply with Odds again.", "ask")
     let idle = 0
-    for (let i = 0; i < 400 && modal.isConnected && session?.modal === modal; i++) {
-      const next = await ask({ type: "drive", op: "next", run_id: runId }, 35000)
+    let lostSince = 0
+    for (let i = 0; i < 600 && modal.isConnected && session?.modal === modal; i++) {
+      const next = await ask({ type: "drive", op: "next", run_id: runId }, 35000).catch(() => null)
+      // No answer at all is the connection, not Broods: say so and keep trying for 5 minutes.
+      if (!next || next.status === "error") {
+        lostSince ||= Date.now()
+        if (Date.now() - lostSince > 300000) return say(modal, "Odds lost its connection while Broods was applying. Press Apply with Odds again to carry on.", "ask")
+        say(modal, "Connection lost — Odds keeps going as soon as it is back…", "filling")
+        await sleep(Math.min(10000, 1500 + (Date.now() - lostSince) / 10))
+        continue
+      }
+      if (lostSince) { lostSince = 0; say(modal, "Broods is applying in this window…", "filling") }
       if (next?.done) {
         if (next.status === "review") say(modal, next.message || "Filled in by Broods. Check everything, then press Submit yourself.", "done")
         else if (next.status === "needs_you") say(modal, next.message || "Broods needs you for a step.", "ask")
@@ -620,13 +630,19 @@
         const cmd = next.command
         say(modal, cmd.tool === "read_page" ? "Broods is reading this step…" : cmd.tool === "fill" ? "Broods is filling in your answers…" : cmd.tool === "click" ? "Broods is moving to the next step…" : "Broods is working…", "filling")
         let sent = false
-        const sendResult = async (result) => { sent = true; await ask({ type: "drive", op: "result", run_id: runId, id: cmd.id, result }, 15000) }
+        const sendResult = async (result) => {
+          sent = true
+          for (let t = 0; t < 4; t++) {
+            const ok = await ask({ type: "drive", op: "result", run_id: runId, id: cmd.id, result }, 15000).catch(() => null)
+            if (ok && ok.status !== "error") return
+            await sleep(2000 * (t + 1))
+          }
+        }
         const result = await driveModalCommand(modal, cmd, sendResult).catch((e) => ({ error: String(e?.message || e).slice(0, 200) }))
         if (!sent) await sendResult(result)
         continue
       }
       idle++
-      if (!next) await sleep(1500)
       if (idle >= 6) return say(modal, "Odds assist could not finish this Easy Apply step after assist: Broods stopped answering. Finish it yourself.", "ask")
     }
   }

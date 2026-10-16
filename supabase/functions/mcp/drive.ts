@@ -147,15 +147,12 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
 export async function handleDriveMcp(req: Request, env: Env): Promise<Response> {
   const reply = (body: Json, status = 200) => new Response(body === null ? null : JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } })
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS })
-  // TEMP debug: what Broods sends (no secrets stored).
-  const debug = (method: string, authed: boolean) => svc(env, "drive_mcp_debug", { method: "POST", body: JSON.stringify({ method, http: req.method, authed, ua: (req.headers.get("user-agent") ?? "").slice(0, 120), accept: (req.headers.get("accept") ?? "").slice(0, 120) }) }).catch(() => undefined)
-  if (req.method !== "POST") { await debug("-", false); return reply({ error: "POST only." }, 405) }
+  if (req.method !== "POST") return reply({ error: "POST only." }, 405)
   const want = (Deno.env.get("ODDS_DRIVE_SECRET") ?? "").trim()
   const got = (req.headers.get("x-odds-drive-key") ?? req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "").trim()
   const authorized = Boolean(want) && got === want
   const msg = await req.json().catch(() => null)
   // Discovery (initialize, tools/list) is open: Broods lists the tools when it syncs, before any secret is attached. Every tool call needs the secret.
-  await debug((Array.isArray(msg) ? msg : [msg]).map((m: Json) => m?.method).join(","), Boolean(want) && ((req.headers.get("x-odds-drive-key") ?? req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "").trim() === want))
   const calls = (Array.isArray(msg) ? msg : [msg]).some((m: Json) => m?.method === "tools/call")
   if (calls && !authorized) return reply({ jsonrpc: "2.0", id: Array.isArray(msg) ? null : msg?.id ?? null, error: { code: -32001, message: "Unauthorized." } }, 401)
   // MCP 2026-07-28: every result names its kind; "complete" for all of ours (older clients ignore the extra key).
@@ -236,6 +233,10 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
     }
     const url = String(body?.url || body?.page || "").slice(0, 2000)
     if (!/^https:\/\//.test(url)) return json(400, { error: "No application address." })
+    // The same application asked to start twice (two frames, a quick reload): join the live run started moments ago — one agent per form.
+    const page = String(body?.page || url).slice(0, 2000)
+    const recent = (await svc(env, `drive_runs?user_id=eq.${userId}&status=eq.running&url=eq.${encodeURIComponent(page)}&created_at=gte.${encodeURIComponent(new Date(Date.now() - 120_000).toISOString())}&order=created_at.desc&limit=1&select=id`).catch(() => null))?.[0]
+    if (recent?.id) return json(200, { run_id: recent.id, resumed: true })
     const job = await ctx.job(url).catch(() => null)
     const [run] = await svc(env, "drive_runs", { method: "POST", body: JSON.stringify({ user_id: userId, posting_id: job?.id ?? null, url: String(body?.page || url).slice(0, 2000) }) })
     const problem = await startBroods(env, run, job, await ctx.facts().catch(() => ({})))

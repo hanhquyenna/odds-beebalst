@@ -1062,8 +1062,21 @@
       return
     }
     let idle = 0
-    for (let i = 0; i < 400; i++) {
+    let lostSince = 0
+    for (let i = 0; i < 600; i++) {
       const next = await ask({ type: "drive", op: "next", run_id: runId }, 35000).catch(() => null)
+      // No answer at all is the connection, not Broods: say so and keep trying for 5 minutes, then carry on where the run is.
+      if (!next || next.status === "error") {
+        lostSince ||= Date.now()
+        if (Date.now() - lostSince > 300000) {
+          say("Odds lost its connection while Broods was applying. Press Apply with Odds again to carry on from here.", "ask")
+          return
+        }
+        say("Connection lost — Odds keeps going as soon as it is back…", "filling")
+        await sleep(Math.min(10000, 1500 + (Date.now() - lostSince) / 10))
+        continue
+      }
+      if (lostSince) { lostSince = 0; say("Broods is applying in this tab…", "filling") }
       if (next?.done) {
         const state = next.status === "review" ? "done" : "ask"
         const text = next.status === "review"
@@ -1080,13 +1093,19 @@
         else if (cmd.tool === "fill") say("Broods is filling in your answers…", "filling")
         else if (cmd.tool === "click") say("Broods is moving to the next step…", "filling")
         let sent = false
-        const sendResult = async (result) => { sent = true; await ask({ type: "drive", op: "result", run_id: runId, id: cmd.id, result }, 15000).catch(() => null) }
+        const sendResult = async (result) => {
+          sent = true
+          for (let t = 0; t < 4; t++) {
+            const ok = await ask({ type: "drive", op: "result", run_id: runId, id: cmd.id, result }, 15000).catch(() => null)
+            if (ok && ok.status !== "error") return
+            await sleep(2000 * (t + 1))
+          }
+        }
         const result = await driveCommand(cmd, sendResult)
         if (!sent && result !== null) await sendResult(result)
         continue
       }
-      if (!next) { await sleep(1500); idle++ }
-      else idle++
+      idle++
       // No command for about 2 minutes: Broods went quiet — say so, never a silent Filling.
       if (idle >= 6) {
         say("Odds assist could not move this application forward after assist: Broods stopped answering. Open the tab to continue.", "ask")
