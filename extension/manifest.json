@@ -21,7 +21,8 @@
     "scripting",
     "declarativeNetRequest",
     "sidePanel",
-    "alarms"
+    "alarms",
+    "webNavigation"
   ],
   "host_permissions": [
     "https://ukpmpyfcnbhngkgbnkxi.supabase.co/*",

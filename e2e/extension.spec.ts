@@ -2935,7 +2935,8 @@ test("Apply background + Open tab edge cases always reach the working form", { t
   const applyA = await openedA
   await expect(applyA.locator("#fna")).toHaveValue("Chi", { timeout: 15000 })
   // Background: the apply tab itself must not be Chrome's active tab (no focus steal).
-  const applyActiveAfterStart = await worker.evaluate(`chrome.tabs.query({ url: "https://careers.example.org/jobs/job-a*" }).then(t => Boolean(t[0]?.active))`)
+  // (In the Odds window the apply tab is that window's visible tab; what must never happen is it taking over the person's window.)
+  const applyActiveAfterStart = await worker.evaluate(`chrome.tabs.query({ url: "https://careers.example.org/jobs/job-a*" }).then(async t => { const w = (await chrome.storage.session.get("oddsRunWindow")).oddsRunWindow; return Boolean(t[0]?.active) && t[0].windowId !== w })`)
   expect(applyActiveAfterStart).toBe(false)
 
   // Script reaches Account (password) — terminal needs_input, never false Ready.
@@ -3735,7 +3736,8 @@ test("Apply with Odds pressed in the app itself (this build, on the odds address
   // SQL is required and unanswered → terminal ask (not Ready). Form still opened and partially filled.
   await expect(application.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask", { timeout: 15000 })
   // First Apply fills in the background — must NOT steal focus from Odds.
-  const applyActive = await context.serviceWorkers()[0].evaluate(`chrome.tabs.query({ url: "https://jobs.example.com/*" }).then(t => Boolean(t[0]?.active))`)
+  // (In the Odds window the apply tab is that window's visible tab; what must never happen is it taking over the person's window.)
+  const applyActive = await context.serviceWorkers()[0].evaluate(`chrome.tabs.query({ url: "https://jobs.example.com/*" }).then(async t => { const w = (await chrome.storage.session.get("oddsRunWindow")).oddsRunWindow; return Boolean(t[0]?.active) && t[0].windowId !== w })`)
   expect(applyActive).toBe(false)
   // Tracker drawer shows Open application tab (Apply navigates there for the live chip).
   const openTab = app.getByRole("button", { name: /Open application tab|Open tab:/ })
@@ -4293,4 +4295,25 @@ test("a page Odds is not applying in shows nothing: no bar on an ordinary site o
   await li.goto("https://www.linkedin.com/jobs/view/4470009999/")
   await li.waitForTimeout(8000)
   await expect(li.locator(".odds-apply-bar")).toHaveCount(0)
+})
+
+test("the person takes the application tab for something else (types another address): Odds lets go of it and shows nothing there", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  await context.route("https://boards.example-ats.com/acme/jobs/556**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  await context.route("https://dashboard.example-tool.com/**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><html><body><h1>Some dashboard</h1><input id='q'><button>Refresh</button></body></html>" }))
+  fake.kit = { job_id: "ptake", facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung" }, remembered: {} }, cv: null }
+  const worker = context.serviceWorkers()[0]
+  const opened = context.waitForEvent("page")
+  await worker.evaluate("openApplication('https://boards.example-ats.com/acme/jobs/556', null, { postingId: 'ptake' })")
+  const app = await opened
+  await expect(app.locator("#first_name")).toHaveValue("Kien", { timeout: 15000 })
+  // The person uses that tab for something else, from the address bar (Chrome reports a "typed" navigation; the test browser's own
+  // navigation is not typed, so the same handler is called the way Chrome would call it).
+  const tabId = await worker.evaluate(`chrome.tabs.query({ url: "https://boards.example-ats.com/acme/jobs/556*" }).then(t => t[0].id)`)
+  await worker.evaluate(`personTookTab(${tabId})`)
+  await app.goto("https://dashboard.example-tool.com/runs")
+  await app.waitForTimeout(8000)
+  await expect(app.locator(".odds-apply-bar")).toHaveCount(0)
+  await expect(app.locator("#q")).toHaveValue("")
 })

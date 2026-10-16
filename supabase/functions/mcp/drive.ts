@@ -266,6 +266,11 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
   }
   const run = await runOf(env, String(body?.run_id ?? ""))
   if (!run || run.user_id !== userId) return json(404, { error: "No such run." })
+  if (route === "drive-stop") {
+    // The person took the tab back (or stopped the run): Broods' next tool call sees the run is over and ends.
+    await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "failed", message: String(body?.message ?? "Stopped by the person.").slice(0, 300), updated_at: new Date().toISOString() }) })
+    return json(200, { ok: true })
+  }
   if (route === "drive-result") {
     const id = Number(body?.id)
     if (!Number.isInteger(id)) return json(400, { error: "Bad command." })

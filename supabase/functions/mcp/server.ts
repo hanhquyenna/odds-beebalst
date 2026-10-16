@@ -1226,7 +1226,7 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
   const me = await extWho(env, keyOf(req)).catch(() => null)
   if (!me) return json(401, { error: "Connect the odds extension again." })
   if (route === "me" && req.method === "GET") return json(200, { ok: true })
-  if (/^drive-(start|next|result)$/.test(route) && req.method === "POST") {
+  if (/^drive-(start|next|result|stop)$/.test(route) && req.method === "POST") {
     return driveExt(route, req, env, me.id, {
       facts: () => agentFacts(env, me),
       job: async (url: string) => {

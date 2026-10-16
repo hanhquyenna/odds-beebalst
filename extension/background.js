@@ -426,7 +426,14 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message?.type === "drive-shot" && sender.tab && typeof sender.tab.id === "number") {
     const tab = sender.tab
     ;(async () => {
-      if (!tab.active) { await chrome.tabs.update(tab.id, { active: true }).catch(() => undefined); await new Promise((r) => setTimeout(r, 400)) }
+      // Look only when it disturbs no one: the tab is already showing, or it sits in a window the person is not using (the Odds window).
+      // Never switch tabs in the window the person is working in; Broods then works from read_page.
+      if (!tab.active) {
+        const win = await chrome.windows.get(tab.windowId).catch(() => null)
+        if (win?.focused) return reply({ error: "The application tab is in the window you are using; Odds does not switch your tabs to look. Use read_page." })
+        await chrome.tabs.update(tab.id, { active: true }).catch(() => undefined)
+        await new Promise((r) => setTimeout(r, 400))
+      }
       const url = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 55 })
       const image = url.replace(/^data:image\/jpeg;base64,/, "")
       const size = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => ({ w: Math.round(innerWidth * devicePixelRatio), h: Math.round(innerHeight * devicePixelRatio) }) }).then((r) => r?.[0]?.result).catch(() => null)
@@ -503,7 +510,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
         }
       } catch { /* navigate */ }
       await setIntent(tabId, { ...intent, at: Date.now(), followed: true })
-      await chrome.tabs.update(tabId, { url: next })
+      await oddsGo(tabId, next)
       reply({ ok: true })
     })
     return true
@@ -679,6 +686,34 @@ function changeIntents(change) {
 function setIntent(tabId, intent) { return changeIntents((all) => { all[tabId] = intent }) }
 // Tab ids are reused once the browser restarts: an application is only remembered across a reload of the extension.
 chrome.runtime.onStartup.addListener(() => chrome.storage.local.remove("oddsApplyIntents"))
+// Reloaded or updated: every application record from before is dropped, so no tab the person is using stays attached to an old run.
+chrome.runtime.onInstalled.addListener(() => { void chrome.storage.local.remove("oddsApplyIntents") })
+// The person takes an application tab for themselves (types an address, a bookmark, the address bar): Odds lets go of that tab and pauses
+// the run, so it never works on a page they opened. Odds' own clicks and the site's redirects keep the application.
+chrome.webNavigation?.onCommitted.addListener((d) => {
+  if (d.frameId !== 0) return
+  const q = d.transitionQualifiers || []
+  // Back/Forward is handled by the pause (the person went back a step), not here.
+  if (q.includes("forward_back")) return
+  const theirs = ["typed", "auto_bookmark", "generated", "keyword", "keyword_generated"].includes(d.transitionType) || q.includes("from_address_bar")
+  if (!theirs) return
+  // Odds opens and moves its own tabs (tabs.update / tabs.create): those navigations are the application's, never "the person took the tab".
+  if (oddsNavigating.has(d.tabId)) return
+  personTookTab(d.tabId)
+})
+/** The person took this application tab for themselves: Odds lets go of it, tells Broods to stop, keeps a paused record for the app. */
+function personTookTab(tabId) {
+  void changeIntents((all) => {
+    const it = all[tabId]
+    if (!it) return
+    delete all[tabId]
+    // Broods stops too: its run is over, nothing more is sent to this tab.
+    if (typeof it.driveRun === "string") void ext("drive-stop", { method: "POST", body: JSON.stringify({ run_id: it.driveRun, message: "The person opened something else in the application tab." }) }).catch(() => undefined)
+    // Kept as a paused run under another key, so Odds still shows what happened (no tab is attached to it any more).
+    all[`left-${tabId}-${Date.now()}`] = { ...it, at: Date.now(), status: "needs_input", paused: true, message: "You opened something else in the application tab, so Odds stopped there. Press Apply with Odds to start again." }
+  }).catch(() => undefined)
+}
+globalThis.personTookTab = personTookTab
 async function intentOf(tabId) {
   const { oddsApplyIntents = {} } = await chrome.storage.local.get("oddsApplyIntents")
   const intent = oddsApplyIntents[tabId]
@@ -810,6 +845,13 @@ async function learnedApplyUrl(postingId, job) {
   const url = (postingId && oddsLearnedApply[postingId]?.url) || (job && oddsLearnedApply[`job:${jobKeyOf(job, null)}`]?.url)
   return typeof url === "string" && /^https:\/\//.test(url) ? url : null
 }
+/** Tabs Odds itself is sending somewhere right now (opening the job, apply-go): their next navigation is the application's own. */
+const oddsNavigating = new Set()
+function oddsGo(tabId, url, extra = {}) {
+  oddsNavigating.add(tabId)
+  setTimeout(() => oddsNavigating.delete(tabId), 15000)
+  return chrome.tabs.update(tabId, { url, ...extra })
+}
 const PAUSED_MESSAGE = "You went back a step, so Odds paused here. Press Next or Apply yourself and Odds carries on, or press Apply with Odds again."
 /**
  * The Odds window: one separate Chrome window for applications, created unfocused at the side of the screen so it never covers what the
@@ -935,15 +977,17 @@ function openApplication(url, from, opts = {}) {
     // glance at it) while their own window is never touched. Its tab is the visible one in that window, which is what lets Broods see it.
     // Intent MUST be stored before the job URL loads — otherwise apply.js asks apply-intent too early and never watches Closed.
     const windowId = await oddsWindow(reveal)
+    // Visible only inside the Odds window; if Odds had to fall back to the person's own window, the tab opens behind (never takes it over).
+    const { oddsRunWindow: ownWindow } = await chrome.storage.session.get("oddsRunWindow").catch(() => ({}))
     const tab = typeof windowId === "number"
-      ? await chrome.tabs.create({ windowId, url: "about:blank", active: true })
+      ? await chrome.tabs.create({ windowId, url: "about:blank", active: windowId === ownWindow || reveal })
       : (await chrome.windows.create({ url: "about:blank", focused: reveal, type: "normal" })).tabs?.[0]
     const tabId = tab?.id
     if (typeof tabId !== "number") return { ok: false, message: "Could not open an application tab." }
     await setIntent(tabId, { job: applyUrl, postingId, at: Date.now(), status: "filling", message: "Opening the application…" })
     // Where this application was found last time (the employer's real form), straight away; the job's own link otherwise.
     const learned = await learnedApplyUrl(postingId, applyUrl)
-    await chrome.tabs.update(tabId, { url: learned || applyUrl, active: reveal }).catch(() => undefined)
+    await oddsGo(tabId, learned || applyUrl, { active: reveal }).catch(() => undefined)
     // Person asked to look: bring the new tab's window forward too.
     if (reveal) await revealApplicationTab(tabId, true)
     // Applying keeps the job in the person's tracker, in the same click.
@@ -1075,7 +1119,7 @@ async function pollApplications() {
     const run = { id: task.id, tabId: tab.id, postingId: task.posting_id || null }
     await updateApplicationRuns(current => { current[run.id] = run })
     await setIntent(tab.id, { job: applyUrl, at: Date.now(), runId: task.id, postingId: task.posting_id || null })
-    await chrome.tabs.update(tab.id, { url: applyUrl, active: false })
+    await oddsGo(tab.id, applyUrl, { active: false })
   } catch {
     if (claimed) await reportApplication(claimed, "failed", "Could not open the application. Please start again on your desktop.").catch(() => undefined)
   } finally { pollingApplications = false }
