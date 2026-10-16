@@ -9,7 +9,8 @@ import { onApplicationSignal, type ApplicationState } from "@/lib/embed"
 import { embedded, extensionParent } from "@/lib/embedded"
 import { useData } from "@/lib/data"
 import { ensureSaved } from "@/lib/save"
-import { applyActivityOf, applyNeedsReveal, clearApplyActivity, normalizeApplyStatus, recordApplyActivity, useApplyActivityTick } from "@/lib/apply-activity"
+import { DriveLive } from "@/components/DriveLive"
+import { applyActivityOf, applyNeedsReveal, driveLabel, driveOf, clearApplyActivity, normalizeApplyStatus, recordApplyActivity, useApplyActivityTick } from "@/lib/apply-activity"
 import { mergeApplyView } from "@/lib/apply-view"
 import { showLiveApplyInTracker } from "@/lib/apply-nav"
 import { isJobClosedMessage, settleClosedJob } from "@/lib/job-closed"
@@ -276,6 +277,12 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
     }
   }
 
+  // A Broods run behind this Apply: its own title and line (what it does now), and its live panel under the progress.
+  const drive = driveOf(post.id)
+  const driveTitles: Record<string, string> = { "Applying…": "Broods is applying", "Tab closed": "The application tab is closed", "Review & send": "Ready to review", Captcha: "Captcha on the page", "Sign in": "Sign in on the tab", "Your answers": "Needs your answer", "Cover letter": "Add a cover letter", Stopped: "Stopped", Stuck: "Stuck — open the tab", "Needs you": "Needs you", Closed: "Applications closed", "Apply stopped": "Stopped" }
+  const progressTitle = drive ? driveTitles[driveLabel(drive)] : undefined
+  const progressLine = drive ? (drive.status === "running" && !drive.tabGone ? drive.note || "Broods is applying in your Chrome tab." : drive.status === "running" ? "" : drive.message) : view?.message
+  const driveLive = <DriveLive post={post} onOpenTab={() => void beginApply({ reveal: true })} />
   const revealGate = view ? applyNeedsReveal(view.status, view.message || "") : false
   const stuck = revealGate && /after (odds )?assist|odds assist could not|broods could not|agent gave up|reconnect/i.test(view?.message || "")
   const msg = view?.message || ""
@@ -337,9 +344,10 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
       <div className={`flex w-full flex-col gap-4 transition-shadow duration-300 ${phase ? (phase === "needs_input" ? "rounded-xl border-2 border-brand bg-card p-4 ring-4 ring-brand/30 shadow-lg" : "rounded-xl border-2 border-brand/70 bg-card p-4 ring-4 ring-brand/10 shadow-md") : ""}`}>
         {phase && (view || activeRun) ? (
           <button type="button" disabled={pending || unavailable} onClick={press} className="w-full cursor-pointer rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-default disabled:opacity-70">
-            <ApplyProgress phase={phase} message={view?.message} />
+            <ApplyProgress phase={phase} message={progressLine} title={progressTitle} />
           </button>
-        ) : phase ? <ApplyProgress phase={phase} message={view?.message} /> : null}
+        ) : phase ? <ApplyProgress phase={phase} message={progressLine} title={progressTitle} /> : null}
+        {driveLive}
         {phase === "ready" ? <div className="flex flex-col gap-2 sm:flex-row">{primary}{cancel}</div> : <ApplicationQuestions inline postingId={post.id} onHasQuestions={setQuestionsOpen} aside={primary} empty={<div className="flex flex-col gap-2 sm:flex-row">{primary}{phase === "needs_input" ? null : cancel}</div>} />}
         {phase === "needs_input" && cancel ? <div className="flex">{cancel}</div> : null}
         {phase === "failed" && view?.message ? <p role="alert" className="text-sm text-destructive">{view.message}</p> : null}
@@ -393,9 +401,10 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
     <div className={`flex w-full flex-col gap-4 transition-shadow duration-300 ${phase ? (phase === "needs_input" ? "rounded-xl border-2 border-brand bg-card p-4 ring-4 ring-brand/30 shadow-lg" : "rounded-xl border-2 border-brand/70 bg-card p-4 ring-4 ring-brand/10 shadow-md") : ""}`}>
       {phase && liveApply ? (
         <button type="button" onClick={press} className="w-full cursor-pointer rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
-          <ApplyProgress phase={phase} message={view?.message} />
+          <ApplyProgress phase={phase} message={progressLine} title={progressTitle} />
         </button>
-      ) : phase ? <ApplyProgress phase={phase} message={view?.message} /> : null}
+      ) : phase ? <ApplyProgress phase={phase} message={progressLine} title={progressTitle} /> : null}
+      {driveLive}
       {primary && (captcha || login || phase === "ready") ? <div className="flex gap-2">{primary}</div> : primary ? <ApplicationQuestions inline postingId={post.id} onHasQuestions={setQuestionsOpen} aside={primary} empty={<div className="flex gap-2">{primary}</div>} /> : null}
       {stalled && !stuck ? <p className="text-sm text-muted-foreground">Still filling in the open tab. Odds retries if it stalls, then reports here if it cannot move on.</p> : null}
       {captcha && !stuck ? <p className="text-sm text-muted-foreground">Complete the captcha in the tab. Odds continues after you solve it — it never solves captchas for you.</p> : null}

@@ -228,7 +228,7 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, lead }: { posts
     }
     switch (key) {
       case "status":
-        return <RowStatus post={post} />
+        return <RowStatus post={post} onOpen={onOpen} />
       case "chance":
         return <ChanceTd post={post} />
       default:
@@ -284,7 +284,7 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, lead }: { posts
                       </button>
                     </td>
                     <td className="border-b-[1.5px] border-line px-1 py-3 align-middle [&>span]:w-full [&>span]:pl-2.5 [&>span]:text-[0.8125rem]">
-                      <RowStatus post={post} />
+                      <RowStatus post={post} onOpen={onOpen} />
                     </td>
                     <td className="border-b-[1.5px] border-line py-3 pr-4 text-right align-middle text-[0.8125rem] font-semibold tabular-nums">
                       <ChanceTd post={post} />

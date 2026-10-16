@@ -4185,6 +4185,37 @@ test("the connection drops while Broods drives: Odds says so, keeps trying, and 
   expect(fake.driveDown).toBe(0)
 })
 
+test("Broods says what it does, stops at a captcha with the reason, and carries on in the same tab when the person presses Continue", async ({ context, fake }) => {
+  test.setTimeout(120_000)
+  await connect(context)
+  await context.route("https://boards.example-ats.com/acme/jobs/779**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  fake.kit = { job_id: "presume", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung" }, remembered: {} }, cv: null }
+  let released: () => void = () => undefined
+  const held = new Promise<void>((r) => { released = r })
+  fake.driveScript = async (cmd) => {
+    await cmd("read_page")
+    // The line Broods writes for the person rides along with the step.
+    const run = [...fake.drives.values()][0]
+    run.outbox.push({ id: 9001, tool: "scroll", args: { dy: 10 }, note: "Filling your details from Autofill" } as unknown as { id: number; tool: string; args: Record<string, unknown> })
+    await held
+    return { status: "needs_you", reason: "captcha", message: "Please complete the captcha." } as { status: string; message: string }
+  }
+  const page = await context.newPage()
+  await page.goto("https://boards.example-ats.com/acme/jobs/779")
+  await applyFrom(context, page, "https://boards.example-ats.com/acme/jobs/779")
+  await expect(page.locator(".odds-apply-bar")).toContainText("Broods: Filling your details from Autofill", { timeout: 30000 })
+  released()
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Captcha on the page.*Continue/, { timeout: 20000 })
+  // Continue in the tracker: the server hands the same run new steps; the tab, still listening, carries on and ends at review.
+  const run = [...fake.drives.values()][0]
+  run.done = null
+  run.outbox.push({ id: 9002, tool: "read_page", args: {} })
+  setTimeout(() => { run.done = { status: "review", message: "Everything is filled in. Check it and press Submit yourself." } }, 8000)
+  await expect(page.locator(".odds-apply-bar")).toContainText(/carrying on|Broods is reading/, { timeout: 20000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText("press Submit yourself", { timeout: 30000 })
+  expect(fake.drives.size).toBe(1)
+})
+
 test("Broods drives LinkedIn Easy Apply: each step read and filled from the person's facts, Next pressed by Broods, the unknown left to them, Submit never pressed", async ({ context, fake }) => {
   test.setTimeout(90_000)
   await connect(context)

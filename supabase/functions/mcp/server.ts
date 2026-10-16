@@ -1598,6 +1598,9 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     const attached = held ? (await svc(env, `job_documents?user_id=eq.${me.id}&posting_id=eq.${encodeURIComponent(held.id)}&kind=eq.cv&select=document_id`))?.[0] : null
     const cvRow = attached ? (await svc(env, `documents?user_id=eq.${me.id}&id=eq.${attached.document_id}&select=id,name,file_name`))?.[0] : null
     const cv = cvRow ?? mainCv?.[0] ?? null
+    // The job's own cover / motivation letter, when the person made one for it (never a letter written for another job).
+    const letterLink = held ? (await svc(env, `job_documents?user_id=eq.${me.id}&posting_id=eq.${encodeURIComponent(held.id)}&kind=eq.cover_letter&select=document_id`))?.[0] : null
+    const letter = letterLink ? (await svc(env, `documents?user_id=eq.${me.id}&id=eq.${letterLink.document_id}&select=id,name,file_name`))?.[0] ?? null : null
     notifyApplyAgent(env, {
       type: "apply.started",
       posting_id: held?.id ?? null,
@@ -1632,6 +1635,7 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
         remembered: Object.fromEntries((remembered ?? []).map((r: Json) => [r.question_key, r.answer])),
       },
       cv: cv ? { id: cv.id, name: cv.name, file_name: cv.file_name, for_this_job: Boolean(cvRow) } : null,
+      letter: letter ? { id: letter.id, name: letter.name, file_name: letter.file_name } : null,
     })
   }
   // What the person answered themselves in a form, kept for the next form that asks the same.

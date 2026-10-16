@@ -451,7 +451,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     }
     const body = message.op === "start"
       ? { url: String(message.url || ""), page: String(message.page || ""), run_id: typeof message.run_id === "string" ? message.run_id : null }
-      : message.op === "next" ? { run_id: message.run_id } : { run_id: message.run_id, id: message.id, result: message.result ?? null }
+      : message.op === "next" ? { run_id: message.run_id, fresh: message.fresh === true } : { run_id: message.run_id, id: message.id, result: message.result ?? null }
     const call = (async () => {
       // A start asked while another page load of this tab already holds a run resumes that run.
       if (message.op === "start" && !body.run_id) {
@@ -752,6 +752,8 @@ async function liveApplicationStatuses() {
       message: String(intent.message || "").slice(0, 500),
       at: intent.at,
       url: typeof intent.job === "string" ? intent.job : null,
+      // The Broods run in this tab: the app reads the run itself (the truth) over this tab's last line.
+      runId: typeof intent.driveRun === "string" ? intent.driveRun : null,
     })
   }
   return [...byPost.values()]

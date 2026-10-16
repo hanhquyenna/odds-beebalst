@@ -564,6 +564,21 @@
     if (["screenshot", "click_at", "type_text", "press_key", "scroll"].includes(cmd.tool)) return driveVision(cmd, sendResult, DRIVE_DENY)
     if (cmd.tool === "options") { const q = driveQs.get(args.id); return { id: args.id, options: q?.options || [] } }
     if (cmd.tool === "upload_cv") return { ok: await chooseCv(modal, session.kit) !== false, value: documentRadios(modal).find((r) => r.checked)?.getAttribute("aria-label") || "uploaded" }
+    if (cmd.tool === "upload_letter") {
+      // LinkedIn's own "Upload cover letter" input on this step.
+      const letter = session.kit.letter
+      if (!letter) return { ok: false, error: "no cover letter for this job in Odds: finish needs_you with reason 'letter'" }
+      const input = [...modal.querySelectorAll("input[type=file]")].find((i) => /cover|letter|motivat/i.test(`${i.id} ${i.name} ${i.getAttribute("aria-label") || ""} ${i.closest("div")?.innerText || ""}`))
+      if (!input) return { ok: false, error: "no cover letter upload on this step" }
+      const file = await ask({ type: "cv-file", doc: letter.id }, 15000)
+      if (file?.status !== "ok") return { ok: false, error: "the letter could not be loaded from Odds" }
+      const transfer = new DataTransfer()
+      transfer.items.add(new File([Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))], file.name, { type: file.type }))
+      try { input.files = transfer.files } catch { /* wrapped input */ }
+      input.dispatchEvent(new Event("change", { bubbles: true }))
+      await sleep(600)
+      return { ok: Boolean(input.files?.length), value: file.name }
+    }
     if (cmd.tool === "fill") {
       const facts = session.kit.facts
       const besideCountry = [...driveQs.values()].some((q) => /country code|landcode/i.test(q.label))
@@ -606,10 +621,11 @@
     const start = await ask({ type: "drive", op: "start", url, page: url, run_id: null }, 30000)
     const runId = start?.run_id
     if (!runId) return say(modal, start?.error ? `Broods could not start: ${start.error}` : "Broods could not start. Press Apply with Odds again.", "ask")
-    let idle = 0
     let lostSince = 0
-    for (let i = 0; i < 600 && modal.isConnected && session?.modal === modal; i++) {
-      const next = await ask({ type: "drive", op: "next", run_id: runId }, 35000).catch(() => null)
+    let fresh = true
+    let endedAt = 0
+    for (let i = 0; i < 2000 && modal.isConnected && session?.modal === modal; i++) {
+      const next = await ask({ type: "drive", op: "next", run_id: runId, fresh }, 35000).catch(() => null)
       // No answer at all is the connection, not Broods: say so and keep trying for 5 minutes.
       if (!next || next.status === "error") {
         lostSince ||= Date.now()
@@ -618,17 +634,27 @@
         await sleep(Math.min(10000, 1500 + (Date.now() - lostSince) / 10))
         continue
       }
+      fresh = false
       if (lostSince) { lostSince = 0; say(modal, "Broods is applying in this window…", "filling") }
-      if (next?.done) {
-        if (next.status === "review") say(modal, next.message || "Filled in by Broods. Check everything, then press Submit yourself.", "done")
-        else if (next.status === "needs_you") say(modal, next.message || "Broods needs you for a step.", "ask")
-        else say(modal, `Odds assist could not finish this Easy Apply step after assist: ${next.message || "Broods stopped."}`, "ask")
-        return
+      if (next.done) {
+        // Ended for the person: keep an ear on the run for 30 minutes so Continue in the tracker carries on here.
+        if (!endedAt) {
+          endedAt = Date.now()
+          const why = { captcha: "Captcha on the page — tick it, then press Continue in Odds.", account: "Sign in to LinkedIn, then press Continue in Odds.", letter: "This step asks for a cover letter — add one for this job in Odds Documents, then press Continue.", quiet: "Broods went quiet. Press Continue in Odds, or finish it yourself." }[next.reason] || ""
+          const text = [why, next.message || ""].filter(Boolean).join(" ")
+          if (next.status === "review") say(modal, next.message || "Filled in by Broods. Check everything, then press Submit yourself.", "done")
+          else if (next.status === "needs_you") say(modal, text || "Broods needs you for a step.", "ask")
+          else say(modal, `Odds assist could not finish this Easy Apply step after assist: ${text || "Broods stopped."}`, "ask")
+        }
+        if (["submitted", "review"].includes(next.status) || Date.now() - endedAt > 1800000) return
+        await sleep(5000)
+        continue
       }
-      if (next?.command) {
-        idle = 0
+      if (endedAt) { endedAt = 0; say(modal, "Broods is carrying on…", "filling") }
+      if (next.command) {
         const cmd = next.command
-        say(modal, cmd.tool === "read_page" ? "Broods is reading this step…" : cmd.tool === "fill" ? "Broods is filling in your answers…" : cmd.tool === "click" ? "Broods is moving to the next step…" : "Broods is working…", "filling")
+        const note = typeof cmd.note === "string" ? cmd.note.trim() : ""
+        say(modal, note ? `Broods: ${note}` : cmd.tool === "read_page" ? "Broods is reading this step…" : cmd.tool === "fill" ? "Broods is filling in your answers…" : cmd.tool === "click" ? "Broods is moving to the next step…" : "Broods is working…", "filling")
         let sent = false
         const sendResult = async (result) => {
           sent = true
@@ -640,10 +666,7 @@
         }
         const result = await driveModalCommand(modal, cmd, sendResult).catch((e) => ({ error: String(e?.message || e).slice(0, 200) }))
         if (!sent) await sendResult(result)
-        continue
       }
-      idle++
-      if (idle >= 6) return say(modal, "Odds assist could not finish this Easy Apply step after assist: Broods stopped answering. Finish it yourself.", "ask")
     }
   }
   async function run(modal) {

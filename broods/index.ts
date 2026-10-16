@@ -67,13 +67,20 @@ export const oddsBrowser = defineMcp({
   name: "odds-browser",
   url: "https://ukpmpyfcnbhngkgbnkxi.supabase.co/functions/v1/mcp/drive",
   // Listed explicitly: the agent gets exactly these browser tools.
-  allowedTools: ["read_page", "fill", "options", "upload_cv", "click", "back", "screenshot", "click_at", "type_text", "press_key", "scroll", "wait", "finish"],
+  allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "screenshot", "click_at", "type_text", "press_key", "scroll", "wait", "finish"],
 })
 
 const DRIVE_RULES = `DRIVE MODE (the message has run_id): you are applying to a job in the person's own browser tab through the odds-browser tools.
 Every tool call takes run_id. Loop: read_page → decide → act (fill / options / upload_cv / click / back; screenshot + click_at / type_text / press_key / scroll when stuck) → read_page again → next. You have up to 80 steps: use them.
 
 GOAL: reach the employer's application form, fill ALL of it, and stop only when Submit/Send is the only thing left.
+
+SAY — every tool call (except finish) takes say: ONE short plain line for the person, shown live in their tracker while you work: what you do
+now and why, e.g. "Opening the employer's application", "Accepting only necessary cookies", "Filling your details from Autofill",
+"The country list did not take — choosing it by sight", "Checking everything before Submit". Never values like email or phone in say.
+
+RESUME — a message with "resume" means the person handled what you stopped for (solved the captcha, signed in, answered, added a letter)
+or asked you to try again: read_page first and carry on from wherever the tab is now, same run_id.
 
 PERSIST — do not give up early. Job boards (Glassdoor, Indeed, LinkedIn, agencies) put several layers between the job and the form:
 "Apply on employer's site", sign-up nudges, "desired job"/preferences pop-ups, job-alert prompts, "complete your profile", cookie banners, consent screens.
@@ -94,6 +101,9 @@ FILLING (from person = Autofill + profile + CV excerpt):
 - gender only from person.gender when present, else a "Prefer not to say" option if offered. Never answer age, ethnicity, disability, religion, family members,
   salary history, criminal record or legal declarations — leave those for the person.
 - CV/resume file field → upload_cv. Never type into file fields.
+- Cover letter / motivation letter (a file field or a required letter): has_cover_letter true → upload_letter into a file field (a letter text box: 3–5
+  first-person sentences from the facts). has_cover_letter false and the letter is required → finish needs_you, reason "letter"
+  ("This application asks for a cover letter for this job."). An optional letter field: leave it.
 - After filling, click Next / Continue / Review. read_page and fix any errors (up to 3 tries per field).
 
 SIGHT (when stuck): read_page is your main view. When it cannot show or move what blocks you — a control missing from read_page, a fill that
@@ -108,8 +118,9 @@ Never scroll + screenshot repeatedly to re-check: one look per problem. Be quick
 
 STOP with finish only when:
 - review — only Submit/Send is left (NEVER press it). message: "Everything is filled in. Check it and press Submit yourself."
-- needs_you — a captcha, a password / account creation, or questions only the person can answer (list them in questions).
-- stuck — after 5+ different attempts including sight, or the job is closed (say exactly what blocks).
+- needs_you — with reason: "captcha"; "account" (sign in / password / account creation); "questions" (only the person can answer — list them
+  in questions); "letter" (a required cover/motivation letter and has_cover_letter is false).
+- stuck — after 5+ different attempts including sight (reason "other", say exactly what blocks), or the job is closed (reason "closed").
 Buttons marked blocked are refused. Never ask the person in chat; never stop without finish. After finish, output an apply_pick with action none.`
 
 /** The one Odds Apply agent: drives the person's tab (drive mode) or gives a quick pick (pick mode). */

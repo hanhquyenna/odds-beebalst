@@ -35,7 +35,7 @@ function titleFor(phase: ApplyPhase, message?: string): string {
  * Where an application is: a bar that sweeps while it works, the extension's own line when it has one (so the person sees what is happening), otherwise a
  * rotating line, and four steps (the one in progress pulses, the ones behind it are ticked). Nothing here asks for anything: the questions and buttons sit under it.
  */
-export function ApplyProgress({ phase, message }: { phase: ApplyPhase; message?: string }): React.JSX.Element {
+export function ApplyProgress({ phase, message, title }: { phase: ApplyPhase; message?: string; /** A Broods run's own title (from the run, not guessed from wording). */ title?: string }): React.JSX.Element {
   const at = AT[phase]
   const stopped = phase === "failed"
   const working = phase === "queued" || phase === "filling"
@@ -53,8 +53,8 @@ export function ApplyProgress({ phase, message }: { phase: ApplyPhase; message?:
   return (
     <div className="flex flex-col gap-4" role="status" aria-live="polite">
       <div className="flex flex-col gap-1">
-        <p className="font-heading text-xl font-semibold tracking-tight">{titleFor(phase, message)}</p>
-        <p key={live || `${phase}:${n}`} className="apply-line min-h-5 text-sm text-muted-foreground">{live || lines[n % lines.length]}</p>
+        <p className="font-heading text-xl font-semibold tracking-tight">{title ?? titleFor(phase, message)}</p>
+        <p key={live || `${phase}:${n}`} className="apply-line min-h-5 text-sm text-muted-foreground">{live || (title ? "" : lines[n % lines.length])}</p>
       </div>
       <div className={`relative h-2.5 w-full overflow-hidden rounded-full bg-secondary ${working ? "apply-sweep" : ""}`} aria-hidden="true">
         <div className={`h-full rounded-full transition-all duration-700 ${stopped ? "bg-destructive" : phase === "ready" ? "bg-good-foreground" : "bg-brand"} ${phase === "needs_input" ? "motion-safe:animate-pulse" : ""}`} style={{ width: `${stopped ? 35 : ((at + (working ? 0.5 : 1)) / STEPS.length) * 100}%` }} />

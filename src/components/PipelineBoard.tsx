@@ -281,7 +281,7 @@ function BoardCard({ post, onOpen }: { post: Posting; onOpen: () => void }): Rea
         </span>
       </button>
       <span className="pl-12 [&>span]:h-7 [&>span]:w-full [&>span]:text-[0.8125rem]">
-        <RowStatus post={post} />
+        <RowStatus post={post} onOpen={() => onOpen()} />
       </span>
     </li>
   )

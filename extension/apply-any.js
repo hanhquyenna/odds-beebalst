@@ -137,6 +137,8 @@
   let applicationJob = null
   let facts = null
   let cv = null
+  /** This job's own cover / motivation letter from Odds (upload_letter), if the person made one. */
+  let letter = null
   let uploaded = false
   const attempts = new WeakMap()
   const verifications = new WeakMap()
@@ -1031,6 +1033,21 @@
       const ok = await uploadCv(f)
       return { ok: Boolean(ok), value: fieldValue(f) }
     }
+    if (cmd.tool === "upload_letter") {
+      const f = driveFields.get(args.id)
+      if (!f || f.kind !== "file" || !elOf(f)?.isConnected) return { ok: false, error: "not a file field (read_page again)" }
+      if (!letter) return { ok: false, error: "no cover letter for this job in Odds: finish needs_you with reason 'letter'" }
+      const file = await ask({ type: "cv-file", doc: letter.id }, 15000)
+      if (file?.status !== "ok") return { ok: false, error: "the letter could not be loaded from Odds" }
+      const bytes = Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))
+      const transfer = new DataTransfer()
+      transfer.items.add(new File([bytes], file.name, { type: file.type }))
+      try { f.el.files = transfer.files } catch { /* some ATS wrap the input */ }
+      f.el.dispatchEvent(new Event("input", { bubbles: true }))
+      f.el.dispatchEvent(new Event("change", { bubbles: true }))
+      await sleep(80)
+      return { ok: Boolean(f.el.files?.length), value: fieldValue(f) }
+    }
     if (cmd.tool === "back") {
       await sendResult({ ok: true, note: "went back one page; read_page next" })
       history.back()
@@ -1061,10 +1078,13 @@
       say(start?.error ? `Broods could not start: ${start.error}` : "Broods could not start. Press Apply with Odds again.", "ask")
       return
     }
-    let idle = 0
     let lostSince = 0
-    for (let i = 0; i < 600; i++) {
-      const next = await ask({ type: "drive", op: "next", run_id: runId }, 35000).catch(() => null)
+    let fresh = true
+    // Ended for the person (captcha, sign-in, questions, a letter, stuck): Odds keeps an ear on the run for 30 minutes, so Continue in
+    // the tracker picks it up again in this tab. Broods going quiet is decided by the server (and said), never by a silent timer here.
+    let endedAt = 0
+    for (let i = 0; i < 2000; i++) {
+      const next = await ask({ type: "drive", op: "next", run_id: runId, fresh }, 35000).catch(() => null)
       // No answer at all is the connection, not Broods: say so and keep trying for 5 minutes, then carry on where the run is.
       if (!next || next.status === "error") {
         lostSince ||= Date.now()
@@ -1076,20 +1096,24 @@
         await sleep(Math.min(10000, 1500 + (Date.now() - lostSince) / 10))
         continue
       }
+      fresh = false
       if (lostSince) { lostSince = 0; say("Broods is applying in this tab…", "filling") }
-      if (next?.done) {
-        const state = next.status === "review" ? "done" : "ask"
-        const text = next.status === "review"
-          ? (next.message || "Filled in by Broods. Check everything, then send it yourself.")
-          : next.status === "needs_you" ? (next.message || "Broods needs you for a step — open the tab.")
-          : `Odds assist could not move this application forward after assist: ${next.message || "Broods stopped."}`
-        say(text, state)
-        return
+      if (next.done) {
+        if (!endedAt) {
+          endedAt = Date.now()
+          const [text, state] = driveEndText(next)
+          say(text, state)
+        }
+        if (["submitted", "review"].includes(next.status) || Date.now() - endedAt > 1800000) return
+        await sleep(5000)
+        continue
       }
-      if (next?.command) {
-        idle = 0
+      if (endedAt) { endedAt = 0; say("Broods is carrying on…", "filling") }
+      if (next.command) {
         const cmd = next.command
-        if (cmd.tool === "read_page") say(`Broods is reading the page (step ${next.steps ?? ""})…`, "filling")
+        const note = typeof cmd.note === "string" && cmd.note.trim() ? cmd.note.trim() : ""
+        if (note) say(`Broods: ${note}`, "filling")
+        else if (cmd.tool === "read_page") say(`Broods is reading the page (step ${next.steps ?? ""})…`, "filling")
         else if (cmd.tool === "fill") say("Broods is filling in your answers…", "filling")
         else if (cmd.tool === "click") say("Broods is moving to the next step…", "filling")
         let sent = false
@@ -1103,15 +1127,25 @@
         }
         const result = await driveCommand(cmd, sendResult)
         if (!sent && result !== null) await sendResult(result)
-        continue
-      }
-      idle++
-      // No command for about 2 minutes: Broods went quiet — say so, never a silent Filling.
-      if (idle >= 6) {
-        say("Odds assist could not move this application forward after assist: Broods stopped answering. Open the tab to continue.", "ask")
-        return
       }
     }
+  }
+  /** What the bar says when a Broods run ends, by why it ended. */
+  function driveEndText(next) {
+    const m = next.message || ""
+    if (next.status === "review") return [m || "Filled in by Broods. Check everything, then send it yourself.", "done"]
+    if (next.status === "submitted") return ["You sent it.", "done"]
+    if (next.status === "stopped") return [m || "Broods stopped. Continue from the tracker, or finish it yourself.", "ask"]
+    const why = {
+      captcha: "Captcha on the page — tick it, then press Continue in Odds.",
+      account: "Sign in on this page (Odds never types passwords), then press Continue in Odds.",
+      letter: "This application asks for a cover letter — add one for this job in Odds Documents, then press Continue.",
+      questions: "Broods needs your answers to carry on.",
+      closed: "This job no longer takes applications.",
+      quiet: "Broods went quiet on this application. Press Continue in Odds, or finish it yourself.",
+    }[next.reason] || ""
+    const text = [why, m].filter(Boolean).join(" ")
+    return [next.status === "needs_you" ? (text || "Broods needs you for a step — open the tab.") : `Odds assist could not move this application forward after assist: ${text || "Broods stopped."}`, "ask"]
   }
   /** The employer's own words saying the application went through (a thank-you page or message, with no form left). */
   const SENT = /thank you for (applying|your (application|interest in))|your application (has been|was|is) (successfully )?(submitted|received|sent)|(we have|we've) received your application|application (submitted|received|complete)|bedankt voor je sollicitatie|je sollicitatie is (verzonden|ontvangen)|vielen dank für ihre bewerbung/i
@@ -1246,6 +1280,7 @@
     if (jobId) facts.job_id = jobId
     const handoff = globalThis.oddsApplicationHandoff?.(intent.job, ask, jobId)
     cv = kit.cv
+    letter = kit.letter || null
     if (!listening) {
     listening = true
     document.addEventListener("click", (event) => {

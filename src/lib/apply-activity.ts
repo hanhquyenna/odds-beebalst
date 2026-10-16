@@ -1,6 +1,7 @@
 // Live Apply-with-Odds activity for the tracker: pin the job you're working on to the top
 // and show filling / needs you / review instead of a stale Saved chip.
 import { useEffect, useState } from "react"
+import { tabGone, type DriveReason, type DriveRun, type DriveStatus } from "@/lib/drive-run-state"
 
 export type ApplyActivityStatus = "filling" | "needs_input" | "ready" | "failed" | "submitted"
 
@@ -13,11 +14,35 @@ export interface ApplyActivity {
   at: number
   /** First time this Apply became live — stable pin order so rows don't thrash. */
   pinnedAt: number
+  /** The Broods run behind it, as the server last reported it (the truth over the tab's last line). */
+  drive?: DriveInfo
+  /** When the server last reported that run. */
+  driveAt?: number
 }
+
+export interface DriveInfo {
+  runId: string
+  status: DriveStatus
+  reason: DriveReason | null
+  /** Broods' own line about what it is doing now. */
+  note: string
+  steps: number
+  /** Running, but the tab stopped asking for steps: Chrome or the tab is gone. */
+  tabGone: boolean
+  /** Broods' own sentence when it stopped (what it needs, the questions). */
+  message: string
+}
+
+/** The server reported this run in the last poll or so. */
+const DRIVE_FRESH_MS = 20_000
+const driveFresh = (a: ApplyActivity | null | undefined, now = Date.now()): a is ApplyActivity & { drive: DriveInfo } =>
+  Boolean(a?.drive && typeof a.driveAt === "number" && now - a.driveAt < DRIVE_FRESH_MS)
 
 const KEY = "odds:apply-activity-v1"
 /** Keep an active Apply visible at the top of the tracker for this long. */
 const ACTIVE_MS = 2 * 60 * 60 * 1000
+/** A filling line that has not changed for this long, with no Broods run behind it, is a dead tab's leftover. */
+const FILLING_SILENT_MS = 10 * 60 * 1000
 const listeners = new Set<() => void>()
 let syncBatch: Record<string, ApplyActivity> | null = null
 let syncBatchChanged = false
@@ -55,6 +80,12 @@ export function onApplyActivity(listener: () => void): () => void {
   return () => { listeners.delete(listener) }
 }
 
+/** The Broods run behind a job's chip, while the server reports it. */
+export function driveOf(postingId: string): DriveInfo | null {
+  const a = read()[postingId]
+  return driveFresh(a) ? a.drive : null
+}
+
 export function applyActivityOf(postingId: string): ApplyActivity | null {
   const a = read()[postingId]
   return a && typeof a.at === "number" ? a : null
@@ -63,7 +94,11 @@ export function applyActivityOf(postingId: string): ApplyActivity | null {
 /** Filling / needs answer / ready to review — still in play. */
 export function isLiveApply(a: ApplyActivity | null | undefined): boolean {
   if (!a) return false
+  // A Broods run is live until it is sent, failed, or the person moved the job themselves.
+  if (driveFresh(a)) return !["submitted", "failed"].includes(a.drive.status)
   if (!["filling", "needs_input", "ready"].includes(a.status)) return false
+  // "Applying…" with no Broods run behind it and no new line for 10 minutes is not live: never a silent forever-Applying chip.
+  if (a.status === "filling" && Date.now() - a.at > FILLING_SILENT_MS) return false
   return Date.now() - a.at < ACTIVE_MS
 }
 
@@ -117,6 +152,7 @@ export function normalizeApplyStatus(status: ApplyActivityStatus, message: strin
 
 /** Tracker chip: Captcha / Account / Stuck / Your answers / Applying… / Review & send. */
 export function applyActivityLabel(a: ApplyActivity): string {
+  if (driveFresh(a)) return driveLabel(a.drive)
   const m = a.message || ""
   const status = normalizeApplyStatus(a.status, m)
   if (PAUSED_MSG.test(m)) return "Paused"
@@ -130,6 +166,83 @@ export function applyActivityLabel(a: ApplyActivity): string {
   if (ACCOUNT_MSG.test(m) && !CLOSED_MSG.test(m)) return "Account"
   if (ANSWERS_MSG.test(m) || status === "needs_input") return "Your answers"
   return "Applying…"
+}
+
+/** The chip for a Broods run: what it is doing, or exactly why it waits for the person. */
+export function driveLabel(d: DriveInfo): string {
+  if (d.status === "running") return d.tabGone ? "Tab closed" : "Applying…"
+  if (d.status === "review") return "Review & send"
+  if (d.status === "submitted") return "Applied"
+  if (d.status === "stopped") return "Stopped"
+  if (d.status === "failed") return "Apply stopped"
+  const byReason: Record<string, string> = { captcha: "Captcha", account: "Sign in", questions: "Your answers", letter: "Cover letter", closed: "Closed", quiet: "Stopped" }
+  return (d.reason && byReason[d.reason]) || (d.status === "needs_you" ? "Needs you" : "Stuck")
+}
+
+/** What the run waits for, in a sentence the person can act on (the run's own message follows it). */
+export function driveWhy(d: DriveInfo): string {
+  if (d.status === "running") return d.tabGone ? "The application tab is closed or Chrome is asleep, so Broods cannot go on. Open the tab or press Continue." : d.note || "Broods is applying in your Chrome tab."
+  if (d.status === "review") return "Everything is filled in. Check it in the tab and press Submit yourself."
+  if (d.status === "stopped") return "Broods is stopped on this application. Continue to carry on, or finish it yourself."
+  const byReason: Record<string, string> = {
+    captcha: "A captcha is on the page. Tick it in the tab, then press Continue.",
+    account: "The site wants you to sign in. Sign in in the tab (Odds never types passwords), then press Continue.",
+    questions: "Some questions only you can answer. Answer them here or in the tab, then press Continue.",
+    letter: "This application asks for a cover letter. Add one for this job in Documents, then press Continue.",
+    closed: "This job no longer takes applications.",
+    quiet: "Broods went quiet on this application. Press Continue to have it pick up again.",
+  }
+  return (d.reason && byReason[d.reason]) || "Broods could not move on by itself. Open the tab to see why, then press Continue."
+}
+
+const DISMISSED_KEY = "odds:drive-dismissed-v1"
+function dismissedRuns(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(DISMISSED_KEY) || "[]") as string[]) } catch { return new Set() }
+}
+/** The person set this job's status themselves: this run's chip is gone for good (a later run shows again). */
+export function dismissDriveRun(runId: string): void {
+  try {
+    const ids = dismissedRuns()
+    ids.add(runId)
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify([...ids].slice(-300)))
+  } catch { /* storage unavailable */ }
+}
+
+/** Runs the server reported in its last poll (null before the first poll). */
+let serverRuns: Set<string> | null = null
+
+/** Server poll: every Broods run becomes its job's chip, straight from the run (no guessing from the tab's wording). */
+export function syncDriveRuns(runs: ReadonlyArray<DriveRun>, now = Date.now()): void {
+  const dismissed = dismissedRuns()
+  serverRuns = new Set(runs.map((r) => r.id))
+  const all = read()
+  let changed = false
+  for (const run of runs) {
+    if (!run.posting_id || dismissed.has(run.id)) continue
+    const drive: DriveInfo = { runId: run.id, status: run.status, reason: run.reason, note: (run.last_note || "").slice(0, 300), steps: run.steps, tabGone: tabGone(run, now), message: (run.message || "").slice(0, 500) }
+    const status: ApplyActivityStatus = run.status === "running" ? (drive.tabGone ? "needs_input" : "filling")
+      : run.status === "review" ? "ready"
+      : run.status === "submitted" ? "submitted"
+      : run.status === "failed" ? "failed"
+      : "needs_input"
+    const message = [driveWhy(drive), run.status === "running" ? "" : run.message || ""].filter(Boolean).join(" ").slice(0, 500)
+    const prev = all[run.posting_id]
+    const same = prev?.drive && prev.drive.runId === drive.runId && prev.drive.status === drive.status && prev.drive.reason === drive.reason && prev.drive.note === drive.note && prev.drive.tabGone === drive.tabGone && prev.drive.steps === drive.steps && prev.drive.message === drive.message
+    all[run.posting_id] = {
+      postingId: run.posting_id,
+      url: prev?.url ?? run.url,
+      status,
+      message,
+      at: same && prev ? prev.at : now,
+      pinnedAt: prev?.pinnedAt ?? now,
+      drive,
+      driveAt: now,
+    }
+    if (!same) changed = true
+  }
+  // Fresh-stamped either way (driveAt); listeners only hear about real changes.
+  try { localStorage.setItem(KEY, JSON.stringify(all)) } catch { /* storage unavailable */ }
+  if (changed) for (const l of listeners) l()
 }
 
 /** Drop a posting's live chip (Cancel, or a finished run the person dismissed). */
@@ -181,13 +294,11 @@ export function recordApplyActivity(input: {
     if (!isLiveApply(a) && now - a.at > ACTIVE_MS) delete all[id]
   }
   const prev = all[input.postingId]
+  // A Broods run the server reports is the truth: the tab's last line (or an old poll) never overrides it.
+  if (driveFresh(prev, now)) return
   // Skip no-op writes so the row doesn't flicker while still "Applying…".
   if (prev && prev.status === status && prev.message === message && (!input.url || prev.url === input.url)) {
-    // Keep a genuinely active heartbeat fresh without notifying every React subscriber.
-    if (now - prev.at > 60_000) {
-      prev.at = now
-      try { localStorage.setItem(KEY, JSON.stringify(all)) } catch { /* storage unavailable */ }
-    }
+    // The same line again is not progress: `at` stays when it last changed, so a dead tab's line ages out.
     return
   }
   // Closed jobs: keep a Closed chip briefly, but never stay "live" pinned.
@@ -209,6 +320,7 @@ export function syncApplyActivities(runs: ReadonlyArray<{
   status?: string
   message?: string
   url?: string
+  runId?: string | null
 }>): void {
   syncBatch = read()
   syncBatchChanged = false
@@ -216,6 +328,13 @@ export function syncApplyActivities(runs: ReadonlyArray<{
   for (const r of runs) {
     const postingId = (typeof r.postingId === "string" && r.postingId) || (typeof r.posting_id === "string" && r.posting_id) || ""
     if (!postingId) continue
+    // The tab's line for a Broods run the server no longer has (ended long ago, or the person moved the job): a leftover, drop it.
+    const runId = typeof r.runId === "string" && r.runId ? r.runId : ""
+    if (runId && (dismissedRuns().has(runId) || (serverRuns && !serverRuns.has(runId)))) {
+      const kept = syncBatch?.[postingId]
+      if (kept && !kept.drive && syncBatch) { delete syncBatch[postingId]; syncBatchChanged = true }
+      continue
+    }
     const status = r.status
     if (!status || !["filling", "needs_input", "ready", "failed", "submitted", "queued"].includes(status)) continue
     recordApplyActivity({
@@ -272,6 +391,7 @@ export function useApplyActivityTick(): number {
  */
 export function applyActivityPhase(a: ApplyActivity | null | undefined): "filling" | "needs_input" | "ready" | "failed" | null {
   if (!a) return null
+  if (driveFresh(a)) return a.drive.status === "submitted" ? null : a.drive.status === "failed" ? "failed" : a.drive.status === "review" ? "ready" : a.drive.status === "running" && !a.drive.tabGone ? "filling" : "needs_input"
   if (a.status === "submitted") return null
   if (a.status === "failed") return "failed"
   const n = normalizeApplyStatus(a.status, a.message || "")

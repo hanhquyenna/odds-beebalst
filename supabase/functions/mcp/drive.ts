@@ -20,6 +20,8 @@ const CORS = {
 const TOOL_WAIT_MS = 25_000
 const NEXT_WAIT_MS = 20_000
 const MAX_STEPS = 120
+/** No step from Broods for this long while the run says running: it ended without finish. */
+const QUIET_MS = 240_000
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -38,7 +40,7 @@ const live = (run: Json): boolean => run?.status === "running" && Date.parse(run
 
 // ---------------------------------------------------------------- MCP for Broods
 
-const TOOLS = [
+const BASE_TOOLS = [
   {
     name: "read_page",
     description: "Read the application tab now: url, title, headings, errors, captcha/password flags, every question (id, label, kind, required, filled, value, known options, consent) and every button (id, text, href, blocked). Call it first and after every click.",
@@ -57,6 +59,11 @@ const TOOLS = [
   {
     name: "upload_cv",
     description: "Attach the person's CV from Odds to a file field (by field id). Only for CV/resume fields.",
+    inputSchema: { type: "object", properties: { run_id: { type: "string" }, id: { type: "string" } }, required: ["run_id", "id"] },
+  },
+  {
+    name: "upload_letter",
+    description: "Attach the person's cover letter / motivation letter for this job from Odds to a file field (by field id). Only when the task says has_cover_letter; otherwise finish needs_you with reason 'letter'.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, id: { type: "string" } }, required: ["run_id", "id"] },
   },
   {
@@ -101,10 +108,14 @@ const TOOLS = [
   },
   {
     name: "finish",
-    description: "End the run. stage: 'review' (everything filled, only Submit left for the person), 'needs_you' (a captcha, sign-in/account, or questions only the person can answer — list them in questions), 'stuck' (cannot move on). message: one plain sentence for the person.",
-    inputSchema: { type: "object", properties: { run_id: { type: "string" }, stage: { type: "string", enum: ["review", "needs_you", "stuck"] }, message: { type: "string" }, questions: { type: "array", items: { type: "string" } } }, required: ["run_id", "stage", "message"] },
+    description: "End the run. stage: 'review' (everything filled, only Submit left for the person), 'needs_you' (something only the person can do), 'stuck' (cannot move on). reason (for needs_you/stuck): 'captcha', 'account' (sign in / make an account), 'questions' (only the person can answer — list them in questions), 'letter' (a cover/motivation letter is asked and none is in Odds), 'closed' (the job no longer takes applications), 'other'. message: one plain sentence for the person.",
+    inputSchema: { type: "object", properties: { run_id: { type: "string" }, stage: { type: "string", enum: ["review", "needs_you", "stuck"] }, reason: { type: "string", enum: ["captcha", "account", "questions", "letter", "closed", "other"] }, message: { type: "string" }, questions: { type: "array", items: { type: "string" } } }, required: ["run_id", "stage", "message"] },
   },
 ]
+/** Every tool takes the line Broods writes for the person about this step: the tracker shows it live. */
+const SAY = { type: "string", description: "One short line for the person, in plain words: what you are doing now and why (shown live in their tracker), e.g. 'Filling your details from Autofill'." }
+const TOOLS = BASE_TOOLS.map((t) => (t.name === "finish" ? t : { ...t, inputSchema: { ...t.inputSchema, properties: { ...t.inputSchema.properties, say: SAY } } }))
+const REASONS = ["captcha", "account", "questions", "letter", "closed", "other"]
 
 async function callTool(env: Env, name: string, args: Json): Promise<{ text: string; error?: boolean; image?: string }> {
   const run = await runOf(env, String(args?.run_id ?? ""))
@@ -113,7 +124,8 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     const stage = ["review", "needs_you", "stuck"].includes(args.stage) ? args.stage : "stuck"
     const questions = Array.isArray(args.questions) ? args.questions.filter((q: unknown) => typeof q === "string").slice(0, 20) : []
     const message = `${String(args.message ?? "").slice(0, 600)}${questions.length ? ` Questions for you: ${questions.join("; ").slice(0, 380)}` : ""}`.trim()
-    await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ status: stage, message, updated_at: new Date().toISOString() }) })
+    const reason = stage === "review" ? null : REASONS.includes(args.reason) ? args.reason : questions.length ? "questions" : "other"
+    await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ status: stage, reason, message, last_note: String(args.message ?? "").slice(0, 300) || null, updated_at: new Date().toISOString() }) })
     return { text: "Finished." }
   }
   if (!live(run)) return { text: `This run is over (${run.status}). Stop.`, error: true }
@@ -122,10 +134,11 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     await sleep(Math.min(8, Math.max(1, Number(args.seconds) || 2)) * 1000)
     return { text: "Waited. read_page next." }
   }
-  if (!["read_page", "fill", "options", "upload_cv", "click", "back", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
-  const { run_id: _r, ...rest } = args ?? {}
-  const [cmd] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: name, args: rest }) })
-  await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ steps: run.steps + 1, updated_at: new Date().toISOString() }) })
+  if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
+  const { run_id: _r, say, ...rest } = args ?? {}
+  const note = typeof say === "string" && say.trim() ? say.trim().slice(0, 300) : null
+  const [cmd] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: name, args: rest, note }) })
+  await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ steps: run.steps + 1, ...(note ? { last_note: note } : {}), updated_at: new Date().toISOString() }) })
   for (let waited = 0; waited < TOOL_WAIT_MS; waited += 400) {
     await sleep(400)
     const row = (await svc(env, `drive_commands?id=eq.${cmd.id}&select=status,result`))?.[0]
@@ -194,18 +207,23 @@ async function signUserToken(userId: string, secret: string, ttlMs = 3_600_000):
 }
 
 /** Start the Broods agent on a run with the person's own context; it then drives through the tools. Reads the stream in the background. */
-async function startBroods(env: Env, run: Json, job: Json, facts: Record<string, string>): Promise<string | null> {
+async function startBroods(env: Env, run: Json, job: Json, facts: Record<string, string>, resume?: string): Promise<string | null> {
   const key = (Deno.env.get("APPLY_AGENT_BROODS_API_KEY") ?? "").trim()
   const agentId = (Deno.env.get("ODDS_DRIVE_AGENT_ID") ?? "").trim()
   const secret = (Deno.env.get("APPLY_AGENT_BROODS_USER_TOKEN_SECRET") ?? "").trim()
   if (!key || !agentId || !secret) return "Broods is not set up on the server."
   const base = ((Deno.env.get("APPLY_AGENT_BROODS_BASE_URL") ?? "https://gateway.broods.app").trim() || "https://gateway.broods.app").replace(/\/$/, "")
-  const task = {
-    run_id: run.id,
-    job: { title: job?.title ?? null, employer: job?.employer_display ?? job?.employer ?? null, url: run.url },
-    person: facts,
-    goal: "Apply to this job in the person's browser tab with the odds-browser tools until only Submit is left (finish review), or something only the person can do (finish needs_you).",
-  }
+  // Whether Odds holds this job's own cover / motivation letter (upload_letter), else the person is asked for one.
+  const letter = run.posting_id ? (await svc(env, `job_documents?user_id=eq.${run.user_id}&posting_id=eq.${encodeURIComponent(run.posting_id)}&kind=eq.cover_letter&select=document_id&limit=1`).catch(() => null))?.[0] : null
+  const task = resume
+    ? { run_id: run.id, resume, has_cover_letter: Boolean(letter), goal: "Carry on with the same application in the same tab: read_page first, then go on until only Submit is left (finish review), or something only the person can do (finish needs_you)." }
+    : {
+        run_id: run.id,
+        job: { title: job?.title ?? null, employer: job?.employer_display ?? job?.employer ?? null, url: run.url },
+        person: facts,
+        has_cover_letter: Boolean(letter),
+        goal: "Apply to this job in the person's browser tab with the odds-browser tools until only Submit is left (finish review), or something only the person can do (finish needs_you).",
+      }
   // A background run: Broods accepts it (202) and keeps working on its side for as long as the form takes. Holding the stream open
   // here capped every run at this function's ~150 s wall clock ("Caller stopped reading the stream" cancelled real applications).
   // The agent reports its end through the finish tool; the extension says so when Broods goes quiet.
@@ -250,7 +268,7 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
   if (!run || run.user_id !== userId) return json(404, { error: "No such run." })
   if (route === "drive-stop") {
     // The person took the tab back (or stopped the run): Broods' next tool call sees the run is over and ends.
-    await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "failed", message: String(body?.message ?? "Stopped by the person.").slice(0, 300), updated_at: new Date().toISOString() }) })
+    await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "stopped", message: String(body?.message ?? "Stopped by the person.").slice(0, 300), updated_at: new Date().toISOString() }) })
     return json(200, { ok: true })
   }
   if (route === "drive-result") {
@@ -260,15 +278,35 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
     return json(200, { ok: true })
   }
   if (route === "drive-next") {
+    // The tab is there: the tracker tells a live run from one whose tab or Chrome is gone.
+    if (!run.last_seen_at || Date.now() - Date.parse(run.last_seen_at) > 15_000) void svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_seen_at: new Date().toISOString() }) }).catch(() => undefined)
+    // The person pressed Continue in the tracker: Broods picks the same run up again, once.
+    if (run.resume_pending && live(run)) {
+      const claimed = await svc(env, `drive_runs?id=eq.${run.id}&resume_pending=is.true`, { method: "PATCH", body: JSON.stringify({ resume_pending: false, updated_at: new Date().toISOString() }) }).catch(() => null)
+      if (Array.isArray(claimed) && claimed.length) {
+        const problem = await startBroods(env, run, null, {}, "The person handled what you stopped for (or asked you to try again). The page may have moved on.")
+        if (problem) await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ status: "stuck", reason: "other", message: problem }) }).catch(() => undefined)
+      }
+    }
+    // A page that just loaded (body.fresh): a step its previous page took but never answered (the site reloaded under it) is handed again,
+    // instead of Broods waiting out its 25 s.
+    if (body?.fresh === true) {
+      await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.taken&taken_at=lt.${encodeURIComponent(new Date(Date.now() - 1500).toISOString())}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ status: "queued", taken_at: null }) }).catch(() => undefined)
+    }
     for (let waited = 0; waited < NEXT_WAIT_MS; waited += 400) {
-      const queued = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.queued&order=id.asc&limit=1&select=id,tool,args`))?.[0]
+      const queued = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.queued&order=id.asc&limit=1&select=id,tool,args,note`))?.[0]
       if (queued) {
         // Taken once: a reloaded page never runs the same command twice.
         const taken = await svc(env, `drive_commands?id=eq.${queued.id}&status=eq.queued`, { method: "PATCH", body: JSON.stringify({ status: "taken", taken_at: new Date().toISOString() }) })
         if (Array.isArray(taken) && taken.length) return json(200, { command: queued, steps: run.steps })
       }
       const fresh = await runOf(env, run.id)
-      if (!fresh || !live(fresh)) return json(200, { done: true, status: fresh?.status ?? "failed", message: fresh?.message ?? "The run ended." })
+      if (!fresh || !live(fresh)) return json(200, { done: true, status: fresh?.status ?? "failed", reason: fresh?.reason ?? null, message: fresh?.message ?? "The run ended." })
+      // Broods has sent nothing for 4 minutes: it ended without saying so. Say it, never a silent Applying….
+      if (Date.now() - Date.parse(fresh.updated_at) > QUIET_MS) {
+        await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "stuck", reason: "quiet", message: "Broods went quiet on this application. Press Continue to have it pick up again, or finish it yourself.", updated_at: new Date().toISOString() }) }).catch(() => undefined)
+        continue
+      }
       await sleep(400)
     }
     return json(200, { idle: true, steps: run.steps })

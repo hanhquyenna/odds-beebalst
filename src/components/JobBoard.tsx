@@ -183,13 +183,13 @@ export function JobRow({ post, onOpen, status, dismissible }: JobRowProps): Reac
         {/* On a narrow list the status sits under the job; from a medium width it moves to the side, in line on every row. */}
         {status ? (
           <div className="pt-1 pl-16 @lg:hidden">
-            <RowStatus post={post} />
+            <RowStatus post={post} onOpen={() => onOpen()} />
           </div>
         ) : null}
       </div>
       {status ? (
         <div className="absolute top-1/2 right-[4.25rem] z-10 hidden -translate-y-1/2 @lg:block">
-          <RowStatus post={post} />
+          <RowStatus post={post} onOpen={() => onOpen()} />
         </div>
       ) : null}
 
