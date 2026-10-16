@@ -49,8 +49,10 @@
   const TRAP_TEXT = /leave (this|the|it)\b[^.?]{0,24}\b(empty|blank)|if you.?re (a )?human|(do not|don.?t) (fill|complete|enter)\b[^.?]{0,20}\b(this|here)|honey ?pot|bot ?trap|ignore this (field|input)|for (spam|bots) (only|detection)|(^|[\s_-])(hp|gotcha)[\s_-]?(field|input|email|url)?($|[\s_-])/i
   const isTrap = (el, label) => {
     if (TRAP_TEXT.test(`${label} ${el.name} ${el.id} ${el.getAttribute("aria-label") || ""} ${el.getAttribute("placeholder") || ""}`)) return true
+    // Off the page itself, not merely scrolled out of view: a form above the fold after scrolling is still the form.
     const box = el.getBoundingClientRect()
-    return box.right < 0 || box.bottom < 0 || box.left > window.innerWidth + 2000 || (box.width <= 1 && box.height <= 1) || el.tabIndex === -1 && el.getAttribute("autocomplete") === "off" && Number(getComputedStyle(el).opacity) === 0
+    const right = box.right + window.scrollX, bottom = box.bottom + window.scrollY, left = box.left + window.scrollX
+    return right < 0 || bottom < 0 || left > Math.max(document.documentElement.scrollWidth, window.innerWidth) + 2000 || (box.width <= 1 && box.height <= 1) || el.tabIndex === -1 && el.getAttribute("autocomplete") === "off" && Number(getComputedStyle(el).opacity) === 0
   }
   const textOf = (el) => (el?.innerText || el?.textContent || "").replace(/\s+/g, " ").trim()
 
@@ -69,7 +71,9 @@
   /** The words a field is asked with: its <label>, aria-label(ledby), a sibling/parent question line — never a generic placeholder. */
   function labelOf(el) {
     if (el.id) {
-      const label = document.querySelector(`label[for="${CSS.escape(el.id)}"]`)
+      // Its own form's label first: some sites render the form twice (desktop + mobile) with the same ids.
+      const sel = `label[for="${CSS.escape(el.id)}"]`
+      const label = el.form?.querySelector(sel) || el.closest("[class*='field' i], [class*='form' i]")?.querySelector(sel) || document.querySelector(sel)
       if (label && realAsk(textOf(label), true)) return textOf(label)
     }
     const by = el.getAttribute("aria-labelledby")
@@ -942,7 +946,8 @@
     for (const box of document.querySelectorAll("input[type=checkbox], [role='checkbox']")) {
       if (out.length >= 70 || seenBoxes.has(box) || !inScope(box)) continue
       const input = box.matches("input") ? box : null
-      const face = input ? (input.closest("label") || document.querySelector(`label[for="${CSS.escape(input.id || "__none__")}"]`) || input.parentElement) : box
+      const forSel = `label[for="${CSS.escape(input?.id || "__none__")}"]`
+      const face = input ? (input.closest("label") || input.form?.querySelector(forSel) || document.querySelector(forSel) || input.parentElement) : box
       if (!face || !shown(face)) continue
       const label = (input ? labelOf(input) : "") || box.getAttribute("aria-label") || textOf(face) || textOf(box.closest("[class*='checkbox' i], fieldset, div"))
       if (!label || label.length > 500) continue
@@ -1312,7 +1317,11 @@
         }
         const result = await driveCommand(cmd, sendResult).catch(e => ({ok:false,error:String(e?.message || e).slice(0,200)}))
         if (stale) continue
+        // A step that can open another page: this page may be on its way out. Give it a moment before asking for the next step, so the
+        // read the server queued for the NEW page is taken there, not by this old page in its last instant (that read is then refused
+        // and Broods waits ~25 s for nothing).
         if (!sent && result !== null) await sendResult(result)
+        if (["click", "click_at", "back", "open_job"].includes(cmd.tool) && !(result && result.page)) await sleep(1500)
       }
     }
   }

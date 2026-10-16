@@ -596,6 +596,13 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
         body: JSON.stringify({ doc_gen: nextGen, ...(tabId != null ? { tab_id: tabId } : {}), updated_at: new Date().toISOString() }),
       }).catch(() => undefined)
       run.doc_gen = nextGen
+      // Steps queued for this run but not started yet (the read of the new page that a click/back/open_job asked for) belong to this
+      // new page: carry them over, or they wait out their timeout and Broods stalls ~25 s after every page change.
+      await svc(
+        env,
+        `drive_commands?run_id=eq.${run.id}&status=eq.queued&doc_gen=lt.${nextGen}`,
+        { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ doc_gen: nextGen }) },
+      ).catch(() => undefined)
       // Requeue only taken commands still on the previous gen that look abandoned (no result for >2s).
       await svc(
         env,

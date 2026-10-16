@@ -4442,6 +4442,33 @@ test("the person fills in the form themselves: Broods waits (You're filling in),
   await expect.poll(() => fake.driveEvents.some((e) => e === "stop tab_closed"), { timeout: 10000 }).toBe(true)
 })
 
+test("a form rendered twice with the same ids (one copy hidden), scrolled out of view: Broods still sees every field with its label", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const copy = (hidden: boolean) => `<div ${hidden ? 'style="display:none"' : ""}><form class="form">
+    <div class="form-field"><label class="label visually-hidden" for="first-name" style="position:absolute;clip:rect(0 0 0 0)">First name</label><input type="text" id="first-name" placeholder="First name"></div>
+    <div class="form-field"><label class="label visually-hidden" for="email-address" style="position:absolute;clip:rect(0 0 0 0)">Email address</label><input type="email" id="email-address" required></div>
+    <div class="form-field"><input type="checkbox" id="privacy" required style="opacity:0"><label for="privacy">I accept the Privacy statement</label></div>
+    <button type="submit">Submit</button></form></div>`
+  const html = `<!doctype html><html><body><h1>Internship Control</h1>${copy(true)}${copy(false)}<div style="height:3000px">About the job</div></body></html>`
+  await context.route("https://jobs.example-twice.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "ptwice", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", email: "kien@example.com" }, remembered: {} }, cv: null }
+  let labels: string[] = []
+  fake.driveScript = async (cmd) => {
+    await cmd("scroll", { dy: 2000 })
+    const r = await cmd("read_page")
+    labels = (r.fields as Array<{ label: string }>).map((f) => f.label)
+    return { status: "stuck", message: "checked" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://jobs.example-twice.com/apply")
+  await applyFrom(context, page, "https://jobs.example-twice.com/apply")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/checked/, { timeout: 60000 })
+  expect(labels.some((l) => /first name/i.test(l))).toBe(true)
+  expect(labels.some((l) => /email address/i.test(l))).toBe(true)
+  expect(labels.some((l) => /privacy statement/i.test(l))).toBe(true)
+})
+
 test("Broods drives LinkedIn Easy Apply: each step read and filled from the person's facts, Next pressed by Broods, the unknown left to them, Submit never pressed", async ({ context, fake }) => {
   test.setTimeout(90_000)
   await connect(context)
