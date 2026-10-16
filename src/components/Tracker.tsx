@@ -44,9 +44,10 @@ export function Tracker({ posts, onOpen, viewName, rowLimit, footer, dismissible
   const sorted = useMemo(() => {
     const key = view.config.sortKey
     const extra = (post: Posting): string | number | null => trackerSortValue(data, key, post)
+    const unique = [...new Map(posts.map(p=>[p.id,p])).values()]
     const ordered = key
-      ? sortJobs(posts, key, view.config.sortDir, { reference: data.reference, shares: data.shares, profile, referrals: data.referrals }, extra)
-      : [...posts]
+      ? sortJobs(unique, key, view.config.sortDir, { reference: data.reference, shares: data.shares, profile, referrals: data.referrals }, extra)
+      : unique
     // Jobs you're actively Applying with Odds jump to the top until review/submit/fail ages out.
     return pinLiveApplies(ordered)
     // eslint-disable-next-line react-hooks/exhaustive-deps

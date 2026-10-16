@@ -4,7 +4,7 @@
 // form. odds never sends the form: the person checks it and submits it. On a job board's page that is not the form yet, odds presses its Apply.
 ;(() => {
   const A = globalThis.oddsApply
-  const APPLY_BUILD = "2026-10-15-location-v4"
+  const APPLY_BUILD = "2026-10-16-drive-speed-v1"
   const portalHost = host => /(^|\.)(greenhouse\.io|lever\.co|ashbyhq\.com|myworkdayjobs\.com|smartrecruiters\.com|successfactors\.eu|successfactors\.com|icims\.com)$/.test(host)
   if (!A || /(^|\.)linkedin\.com$/.test(location.hostname) || location.hostname === "odds.beeblast.co" || (window.top !== window && !portalHost(location.hostname)) || globalThis.oddsGenericApplyLoaded === APPLY_BUILD) return
   globalThis.oddsGenericApplyLoaded = APPLY_BUILD
@@ -228,7 +228,10 @@
   const PLACEHOLDER = /^[\s—–-]*(select( one)?|choose|selecteer|selectionner|sélectionner|sélectionnez|wählen|make a selection|pick)|^$/i
   const pressed = (b) => b.getAttribute("aria-pressed") === "true" || b.getAttribute("aria-checked") === "true" || b.getAttribute("aria-selected") === "true" || [...b.classList].some((c) => /(^|[^a-z])(active|selected|checked|pressed)([^a-z]|$)/i.test(c))
   /** What a searchable dropdown shows as its choice (react-select and the like), empty while nothing is chosen. */
-  const comboValue = (input) => textOf(input.closest("[class*='control'], [class*='container'], [class*='select']")?.querySelector("[class*='single-value'], [class*='SingleValue'], [class*='selected-value']"))
+  const comboValue = (input) => {
+    const control=input.closest("[class*='control' i]") || input.parentElement?.closest("[class*='select' i], [class*='container' i]")
+    return textOf(control?.querySelector("[class*='single-value'], [class*='singlevalue' i], [class*='selected-value']"))
+  }
   /** The options a dropdown shows now: the list that belongs to it, else the visible one on the page. */
   function listed(input) {
     const listbox = document.getElementById(input.getAttribute("aria-controls") || "") || [...document.querySelectorAll("[role='listbox']")].filter((l) => shown(l) && l.querySelector("[role='option']")).pop() || input.closest("[class*='container'], div")?.querySelector("[role='listbox']")
@@ -264,7 +267,7 @@
     if (!dropdownChoices.has(f.el)) {
       let seen = []
       await pickOption(f.el, null, f.label, (list) => { seen = list; return -1 })
-      dropdownChoices.set(f.el, seen.filter((o) => o && !PLACEHOLDER.test(o)).slice(0, 60))
+      dropdownChoices.set(f.el, seen.filter((o) => o && !PLACEHOLDER.test(o)).slice(0, 300))
     }
     const options = dropdownChoices.get(f.el)
     if (options.length) f.options = options
@@ -436,7 +439,7 @@
         key: A.applicationQuestionKey(f.label, facts?.job_id),
         label: f.label.slice(0, 200),
         kind: f.kind === "choice" ? "radio" : (f.kind === "combobox" || f.kind === "listbox") && f.options?.length ? "select" : f.kind,
-        ...(f.options?.length ? { options: f.options.slice(0, 60).map((o) => String(o).slice(0, 120)) } : {}),
+        ...((f.options?.length || ["combobox", "listbox"].includes(f.kind)) ? { options: (f.options?.length ? f.options : listed(elOf(f)).texts).slice(0, 300).map((o) => String(o).slice(0, 120)) } : {}),
       })),
     }, 35000).catch(() => null)
     const answers = Array.isArray(res?.accepted) ? res.accepted : Array.isArray(res?.answers) ? res.answers : []
@@ -692,11 +695,12 @@
     return { text, href, hint: controlHint(b).slice(0, 200) }
   }).filter(Boolean).slice(0, 40)
   /** Never auto-click Submit / login / captcha / board signup. Cookie dismiss + Apply are allowed. */
-  const AGENT_CLICK_DENY = /\b(submit|send application|password|captcha|sign[\s-]?in|log[\s-]?in|sign[\s-]?up|register|create (an )?account|create profile|accept all|all cookies)\b/i
+  const AGENT_CLICK_DENY = /\b(submit|send application|password|captcha|sign[\s-]?in|log[\s-]?in|sign[\s-]?up|register|create (an )?account|create profile|accept all)\b/i
   function humanConsentButton(el) {
     const box = el.closest('[class*="consent" i], [id*="consent" i], fieldset')
     return Boolean(box && /consent|agree|privacy|terms/i.test(textOf(box)) && !/cookies?/i.test(textOf(box)))
   }
+
   let agentActionTries = 0
   let agentActionUrl = ""
   /** Labels already clicked with no page change — next ask forces LLM and skips these. */
@@ -852,7 +856,47 @@
   // ---- Broods drives this tab (MCP): the extension is the hands, Broods the brain. ----
   // Broods sends one command at a time (read_page, fill, options, click, upload_cv); the extension does it here in the person's own tab and
   // answers. Hard rules, whatever Broods asks: never Submit/Send, never a password or captcha, never a consent box, never another tab.
-  const DRIVE_DENY = /\b(submit|send application|send|verzend\w*|versturen|absenden|envoyer|soumettre|password|wachtwoord|captcha|sign[\s-]?up|register|create (an )?account|create profile|accept all|all cookies|delete|remove|logout|log out|sign out)\b/i
+  const DRIVE_DENY = /\b(submit|send application|send|verzend\w*|versturen|absenden|envoyer|soumettre|password|wachtwoord|captcha|sign[\s-]?up|register|create (an )?account|create profile|accept all|delete|remove|logout|log out|sign out)\b/i
+  function finalSubmitControl(el) {
+    const control=el.closest("button,input[type=submit]")
+    if(!control || !control.form || String(control.type).toLowerCase() !== "submit") return false
+    return !/^(next|continue|review|save and continue|volgende|verder|suivant|back|previous|reject all(?: cookies)?|deny all(?: cookies)?|necessary only|functional only)$/i.test(controlLabel(control).trim())
+  }
+  const prefilledFields = new WeakMap()
+  const PREFILL_CONTACT = /^(first name|given name|last name|family name|surname|full name|name|email|e-mail|email address|phone|phone number|mobile|mobile number|linkedin|linkedin url|linkedin profile|city|country|current location|location|voornaam|achternaam|telefoon)$/i
+  async function drivePrefill() {
+    if (openDialog() || blockingCaptcha()) return
+    await prefillContacts()
+    // The CV goes last: some sites (Lever) read an uploaded CV and clear or hide name/email while they do. Wait for that, then fill
+    // again whatever it emptied — Broods must never see a contact field missing or be told the form is done when it is not.
+    let uploadedNow = false
+    for (const f of fields()) {
+      if (f.kind !== "file" || answered(f)) continue
+      const label = (A.questionText ? A.questionText(f.label) : f.label).replace(/[*:✱★•]/g, "").trim()
+      if (cv && isResumeAsk(label) && await uploadCv(f)) { prefilledFields.set(elOf(f), fieldValue(f)); uploadedNow = true }
+    }
+    if (uploadedNow) {
+      await sleep(2500)
+      await prefillContacts()
+    }
+  }
+  async function prefillContacts() {
+    const country = fields().some(f => /country code|landcode/i.test(f.label))
+    for (const f of fields()) {
+      if (answered(f) || secretField(f) || f.kind === "checkbox" || f.kind === "file") continue
+      const label = (A.questionText ? A.questionText(f.label) : f.label).replace(/[*:✱★•]/g, "").trim()
+      if (!PREFILL_CONTACT.test(label)) continue
+      const answer = A.answerText(f.label, facts)
+      if (!answer) continue
+      const result = f.widget === "typeahead" ? await fillTypeahead(f, answer, country)
+        : ["combobox","listbox"].includes(f.kind) ? await fillCombobox(f,answer)
+        : ["select","radio","choice"].includes(f.kind) ? fillButtonChoice(f,answer)
+        : await fillPlainOrCard(f, answer, country)
+      if (result?.ok && answered(f)) prefilledFields.set(elOf(f), fieldValue(f))
+    }
+  }
+  const driveFieldIds = new WeakMap(), driveButtonIds = new WeakMap()
+  let driveFieldSeq=0,driveButtonSeq=0
   let driveFields = new Map()
   let driveButtons = new Map()
   const fieldValue = (f) => {
@@ -870,9 +914,15 @@
   const secretField = (f) => /password|wachtwoord|captcha|verification code|security code|social security|\bbsn\b|credit card/i.test(f.label) || elOf(f)?.type === "password"
   /** What Broods sees: the step's questions (id, label, kind, required, value, known choices), its buttons, errors, and any captcha/password wall. */
   /** An open pop-up (preferences, job alert, consent, sign-up prompt): when there is one, Broods sees only it — that is what blocks the page. */
-  const openDialog = () => [...document.querySelectorAll("[role='dialog'], [role='alertdialog'], [aria-modal='true'], dialog[open]")].filter((d) => shown(d) && !d.closest(".odds-apply-bar") && textOf(d).length > 0).pop() || null
+  /** A cookie banner (cookieconsent's cc-window and the like) is not the pop-up the form waits behind: the form stays in view; its buttons are still listed. */
+  const cookieBanner = (d) => /\bcc-window\b|cookie|consent-banner|onetrust|cookiebot|didomi|usercentrics/i.test(`${d.id} ${typeof d.className === "string" ? d.className : ""} ${d.getAttribute("aria-label") || ""}`) || (!d.querySelector("input:not([type=hidden]), textarea, select") && /\bcookies?\b/i.test(textOf(d).slice(0, 400)))
+  const openDialog = () => [...document.querySelectorAll("[role='dialog'], [role='alertdialog'], [aria-modal='true'], dialog[open]")].filter((d) => shown(d) && !d.closest(".odds-apply-bar") && textOf(d).length > 0 && !cookieBanner(d)).pop() || null
   /** Site chrome (header search, menus, footer) is never part of the application. Not named "chrome": that would hide the extension API. */
   const siteChrome = (el) => Boolean(el.closest("header, nav, footer, [role='navigation'], [role='banner'], [role='contentinfo'], [role='search'], [class*='navbar' i], [class*='globalnav' i], [id*='footer' i], [class*='footer' i]"))
+  function missingJobPage() {
+    const headings = [document.title, ...[...document.querySelectorAll("h1,h2")].filter(shown).map(textOf)]
+    return headings.some(text => /^(404(?:\b|\s)|page (?:was )?not found\b|pagina niet gevonden\b|we can.t find (?:this|that) page\b)/i.test(String(text || "").trim()))
+  }
   function drivePage() {
     driveFields = new Map()
     driveButtons = new Map()
@@ -880,10 +930,12 @@
     const inScope = (el) => (dialog ? dialog.contains(el) : !siteChrome(el))
     const list = fields().filter((f) => !secretField(f) && inScope(elOf(f))).slice(0, 60)
     const out = list.map((f, i) => {
-      const id = `f${i}`
+      const node=elOf(f)
+      if(!driveFieldIds.has(node)) driveFieldIds.set(node,`f${driveFieldSeq++}`)
+      const id=driveFieldIds.get(node)
       driveFields.set(id, f)
       const consent = f.kind === "checkbox" && Boolean(A.isConsentCheckbox?.(f.label))
-      return { id, label: A.questionText ? A.questionText(f.label).slice(0, 300) : f.label.slice(0, 300), kind: f.kind, required: f.kind === "file" || required(elOf(f), f.label), filled: answered(f), value: fieldValue(f), ...(f.options?.length ? { options: f.options.slice(0, 60).map((o) => String(o).slice(0, 120)) } : {}), ...(consent ? { consent: true } : {}) }
+      return { id, label: A.questionText ? A.questionText(f.label).slice(0, 300) : f.label.slice(0, 300), kind: f.kind, required: f.kind === "file" || required(elOf(f), f.label), filled: answered(f), ...(prefilledFields.has(elOf(f)) && prefilledFields.get(elOf(f)) === fieldValue(f) ? { by: "odds" } : {}), value: fieldValue(f), ...((f.options?.length || ["combobox", "listbox"].includes(f.kind)) ? { options: (f.options?.length ? f.options : listed(elOf(f)).texts).slice(0, 300).map((o) => String(o).slice(0, 120)) } : {}), ...(consent ? { consent: true } : {}) }
     })
     // Checkboxes drawn by the site (Oracle, Workday: the real input hidden, a styled box or role=checkbox shown) — fields() skips them.
     const seenBoxes = new Set(list.filter((f) => f.kind === "checkbox").map((f) => elOf(f)))
@@ -894,7 +946,8 @@
       if (!face || !shown(face)) continue
       const label = (input ? labelOf(input) : "") || box.getAttribute("aria-label") || textOf(face) || textOf(box.closest("[class*='checkbox' i], fieldset, div"))
       if (!label || label.length > 500) continue
-      const id = `f${out.length}`
+      if(!driveFieldIds.has(box)) driveFieldIds.set(box,`f${driveFieldSeq++}`)
+      const id=driveFieldIds.get(box)
       const f = { kind: "checkbox", el: input || box, face, label, custom: true }
       driveFields.set(id, f)
       const checked = input ? input.checked : box.getAttribute("aria-checked") === "true"
@@ -912,10 +965,12 @@
       const text = controlLabel(el).slice(0, 100)
       if (text.length < 1) continue
       if (!inScope(el) && !(APPLYISH.test(text) && !dialog)) continue
-      const id = `b${b++}`
+      b++
+      if(!driveButtonIds.has(el)) driveButtonIds.set(el,`b${driveButtonSeq++}`)
+      const id=driveButtonIds.get(el)
       driveButtons.set(id, el)
       const a = el.closest("a")
-      buttons.push({ id, text, ...(a?.href && /^https?:/.test(a.href) ? { href: a.href.slice(0, 200) } : {}), ...(DRIVE_DENY.test(text) ? { blocked: true } : {}) })
+      buttons.push({ id, text, ...(a?.href && /^https?:/.test(a.href) ? { href: a.href.slice(0, 200) } : {}), ...(DRIVE_DENY.test(text) || finalSubmitControl(el) ? { blocked: true } : {}) })
     }
     return {
       url: location.href.slice(0, 500),
@@ -924,6 +979,7 @@
       errors: [...document.querySelectorAll('[role="alert"], .error, [aria-invalid="true"]')].filter(shown).map(textOf).filter(Boolean).slice(0, 10).map((t) => t.slice(0, 200)),
       captcha: Boolean(blockingCaptcha()),
       password_field: [...document.querySelectorAll('input[type="password"]')].some(shown),
+      ...(missingJobPage() ? { closed: true, closed_reason: "The job page was not found (404)." } : {}),
       ...(dialog ? { dialog: { title: textOf(dialog.querySelector("h1, h2, h3, [class*='title' i]")).slice(0, 160) || textOf(dialog).slice(0, 160), note: "A pop-up is open: these fields and buttons are only the pop-up's. Complete it (fill + continue) to get past it." } } : {}),
       fields: out,
       buttons,
@@ -931,23 +987,26 @@
   }
 
   // ---- Sight: when the page tools cannot see or move something, Broods looks at a screenshot and acts at a point. ----
+  let driveImageSize = null
   async function driveVision(cmd, sendResult, denyText) {
     const args = cmd.args || {}
     if (cmd.tool === "screenshot") {
       const shot = await ask({ type: "drive-shot" }, 15000).catch(() => null)
       if (!shot?.image) return { error: shot?.error || "Could not take a screenshot of this tab." }
+      driveImageSize = { width: shot.width, height: shot.height, viewportWidth: shot.viewportWidth || innerWidth, viewportHeight: shot.viewportHeight || innerHeight }
       return { image: shot.image, mime: "image/jpeg", width: shot.width, height: shot.height, note: "Coordinates for click_at are pixels in this image." }
     }
-    const scale = (window.devicePixelRatio || 1)
+    const scaleX = driveImageSize ? driveImageSize.width / driveImageSize.viewportWidth : (window.devicePixelRatio || 1)
+    const scaleY = driveImageSize ? driveImageSize.height / driveImageSize.viewportHeight : (window.devicePixelRatio || 1)
     if (cmd.tool === "click_at") {
-      const x = Number(args.x) / scale
-      const y = Number(args.y) / scale
+      const x = Number(args.x) / scaleX
+      const y = Number(args.y) / scaleY
       if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: "x and y are needed" }
       const el = document.elementFromPoint(x, y)
       if (!el) return { ok: false, error: "nothing at that point" }
       const target = el.closest("a, button, input, select, textarea, label, [role='button'], [role='checkbox'], [role='option'], [role='radio'], [tabindex]") || el
       const words = `${target.innerText || ""} ${target.getAttribute("aria-label") || ""} ${target.value || ""}`.replace(/\s+/g, " ").trim().slice(0, 120)
-      if (denyText.test(words)) return { ok: false, error: "Odds never presses this; it is the person's" }
+      if (denyText.test(words) || finalSubmitControl(target)) return { ok: false, error: "Odds never presses this; it is the person's" }
       if (target.matches("input[type=password]")) return { ok: false, error: "passwords are the person's" }
       await sendResult({ ok: true, clicked: words || target.tagName.toLowerCase(), note: "screenshot or read_page next" })
       for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 }))
@@ -984,7 +1043,7 @@
     return null
   }
   /** One Broods command, done in this tab. Answers what happened; a click that leaves the page answers before it clicks. */
-  async function driveCommand(cmd, sendResult) {
+  async function driveCommandRaw(cmd, sendResult) {
     const args = cmd.args || {}
     if (cmd.tool === "read_page") return drivePage()
     if (["screenshot", "click_at", "type_text", "press_key", "scroll"].includes(cmd.tool)) return driveVision(cmd, sendResult, DRIVE_DENY)
@@ -996,6 +1055,7 @@
     if (cmd.tool === "fill") {
       const items = Array.isArray(args.fields) ? args.fields.slice(0, 40) : []
       const results = []
+      const sigBefore = `${location.href}|${[...driveFields.values()].map((f) => `${f.label}:${fieldValue(f)}`).join("|")}`
       const besideCountry = [...driveFields.values()].some((f) => /country code|landcode|code du pays|indicatif|country/i.test(f.label) && (f.kind === "select" || f.kind === "combobox" || f.kind === "listbox"))
       for (const it of items) {
         const f = driveFields.get(it?.id)
@@ -1004,7 +1064,7 @@
         if (secretField(f)) { results.push({ id: it.id, ok: false, error: "the person fills this one" }); continue }
         if (f.kind === "file") { results.push({ id: it.id, ok: false, error: "use upload_cv" }); continue }
         if (f.kind === "checkbox") {
-          // Consent and preference boxes are ticked when Broods says yes (the person's choice in Odds: consent yes).
+          // Consent and terms boxes are ticked when Broods says yes (the person's choice in Odds: consent yes).
           const want = /^(yes|true|check|checked|on|1)$/i.test(value.trim())
           const el = elOf(f)
           const isOn = () => (el.matches("input") ? el.checked : el.getAttribute("aria-checked") === "true")
@@ -1029,15 +1089,29 @@
           result = await Promise.race([work, sleep(8000).then(() => ({ ok: false, error: "the site did not take it within 8 s" }))])
         } catch (e) { result = { ok: false, error: String(e?.message || e).slice(0, 120) } }
         await sleep(80)
-        results.push({ id: it.id, ok: Boolean(result.ok) && answered(f), value: fieldValue(f), ...(result.ok ? {} : { error: result.error || "no matching option or the site did not take it" }) })
+        // DOM verification: selected value / typed text must stick before we report ok.
+        const stuck = fieldValue(f)
+        const okDom = Boolean(result.ok) && answered(f) && (stuck.length > 0 || f.kind === "checkbox")
+        results.push({ id: it.id, ok: okDom, value: stuck, ...(okDom ? {} : { error: result.error || "no matching option or the site did not keep the value" }) })
       }
-      return { results }
+      const sigAfter = `${location.href}|${[...driveFields.values()].map((f) => `${f.label}:${fieldValue(f)}`).join("|")}`
+      const unfilled = [...driveFields.entries()]
+        .filter(([, f]) => required(elOf(f), f.label) && !answered(f))
+        .map(([id, f]) => ({ id, label: f.label.slice(0, 120) }))
+        .slice(0, 20)
+      return {
+        results,
+        verified: results.length > 0 && results.every((r) => r.ok),
+        unfilled,
+        ...(sigBefore === sigAfter && results.some((r) => !r.ok) ? { unchanged: true, error: "page/fields unchanged after fill — try options or another strategy once" } : {}),
+      }
     }
     if (cmd.tool === "upload_cv") {
       const f = driveFields.get(args.id)
       if (!f || f.kind !== "file" || !elOf(f)?.isConnected) return { ok: false, error: "not a file field (read_page again)" }
       const ok = await uploadCv(f)
-      return { ok: Boolean(ok), value: fieldValue(f) }
+      const name = fieldValue(f)
+      return { ok: Boolean(ok) && Boolean(name), value: name, file_name: name }
     }
     if (cmd.tool === "upload_letter") {
       const f = driveFields.get(args.id)
@@ -1069,7 +1143,13 @@
       const el = driveButtons.get(args.id)
       if (!el || !el.isConnected) return { ok: false, error: "button gone, read_page again" }
       const text = controlLabel(el)
-      if (DRIVE_DENY.test(text)) return { ok: false, error: "Odds never presses this; it is the person's" }
+      if (DRIVE_DENY.test(text) || finalSubmitControl(el)) return { ok: false, error: "Odds never presses this; it is the person's" }
+      // Next/Review with empty required fields must not advance — leave Broods on needs_you instead of false Review.
+      if (/^(next|continue|review|review your application|continue to next step)$/i.test(text.trim())) {
+        const snap = drivePage()
+        const empty = (snap.fields || []).filter((f) => f.required && !f.filled && !f.consent)
+        if (empty.length) return { ok: false, error: `required fields still empty: ${empty.map((f) => f.label).join("; ").slice(0, 300)}`, unfilled: empty.map((f) => f.label).slice(0, 12), page: snap }
+      }
       const before = location.href
       // Answer first: a click that loads another page ends this script, and the new page picks up the next command.
       await sendResult({ ok: true, clicked: text.slice(0, 100), note: "page may change; read_page next" })
@@ -1081,13 +1161,75 @@
     }
     return { error: `Unknown tool ${cmd.tool}` }
   }
+  async function driveCommand(cmd, sendResult) {
+    const result = await driveCommandRaw(cmd, sendResult)
+    if (result && cmd.tool !== "read_page" && cmd.tool !== "screenshot") {
+      await sleep(180)
+      return { ...result, page: drivePage() }
+    }
+    return result
+  }
   /** Broods drives: take its commands for this run until it finishes; the bar shows what it does and how it ended. */
   /** The job's own link for this run (open_job brings the tab back to it). */
   let driveJobUrl = ""
+  /** Only promoted, structure-only click recipes run without a model. No fields or values are stored here. */
+  async function driveRecipes(intent) {
+    const attempts = []
+    if (intent.recipePending) {
+      const pending = intent.recipePending
+      attempts.push({ lesson: pending.lesson, ok: location.href !== pending.url && fields().length > 0 })
+      await ask({ type: "drive-recipe", pending: null })
+    }
+    const reply = await ask({ type: "drive", op: "playbook", page: location.href }, 5000)
+    for (const recipe of (reply?.playbook?.recipes || []).slice(0, 3)) {
+      const lesson = recipe.lesson
+      if (recipe.confidence < 0.6 || recipe.successes < 5 || !["opener", "skip_dialog"].includes(lesson?.kind)) continue
+      const dialog = openDialog()
+      if ((lesson.kind === "skip_dialog" && !dialog) || (lesson.kind === "opener" && fields().some(f => /name|email|resume|cv/i.test(f.label)))) continue
+      if (!/^(apply( now| on (company website|employer's website|the employer's website))?|easy apply|solliciteren|skip|not now|close|reject all|necessary only|functional only)$/i.test(lesson.button || "") || DRIVE_DENY.test(lesson.button)) continue
+      const matches = [...(dialog || document).querySelectorAll("a,button,[role='button']")].filter(el => shown(el) && !el.disabled && !el.closest(".odds-apply-bar") && controlLabel(el) === lesson.button)
+      if (matches.length !== 1) { attempts.push({ lesson, ok: false }); continue }
+      const before = location.href, beforeFields = fields().length
+      await ask({ type: "drive-recipe", pending: { lesson, url: before, at: Date.now() } })
+      await ask({ type: "apply-follow" })
+      matches[0].click()
+      await sleep(600)
+      if (location.href !== before) return { navigating: true, attempts }
+      await ask({ type: "drive-recipe", pending: null })
+      const ok = lesson.kind === "skip_dialog" ? !dialog?.isConnected || !shown(dialog) : fields().length > beforeFields
+      attempts.push({ lesson, ok })
+      if (!ok) break // mismatch immediately falls back to the agent
+    }
+    return { navigating: false, attempts }
+  }
+  /** Wrong-job guard before personal data: different non-ATS employer host than the intended link. */
+  function wrongJobPage(intended) {
+    try {
+      const want = new URL(intended)
+      const page = new URL(location.href)
+      const hostOf = (h) => h.replace(/^www\./i, "").toLowerCase()
+      const ih = hostOf(want.hostname), ph = hostOf(page.hostname)
+      if (!ih || !ph || ih === ph || ph.endsWith(`.${ih}`) || ih.endsWith(`.${ph}`)) return null
+      const boards = /(greenhouse|lever\.co|ashbyhq|myworkdayjobs|workday|smartrecruiters|recruitee|teamtailor|personio|indeed|glassdoor|linkedin)\./i
+      if (boards.test(ih) || boards.test(ph)) return null
+      return `The link opens a different job (${ph} instead of ${ih}). Not filling personal details.`
+    } catch { return null }
+  }
   async function driveLoop(intent) {
     driveJobUrl = String(intent.job || "")
+    const wrong = wrongJobPage(driveJobUrl || location.href)
+    if (wrong) {
+      // Wrong employer/job after redirect — needs_you with reason other, never Closed.
+      say(wrong, "ask")
+      return
+    }
+    say("Filling your details from Autofill…", "filling")
+    await drivePrefill()
+    const recipes = await driveRecipes(intent)
+    if (recipes.navigating) return
+    await drivePrefill()
     say("Broods is applying in this tab…", "filling")
-    const start = await ask({ type: "drive", op: "start", url: intent.job, page: location.href, run_id: intent.driveRun || null }, 30000).catch(() => null)
+    const start = await ask({ type: "drive", op: "start", url: intent.job, page: location.href, run_id: intent.driveRun || null, recipe_attempts: recipes.attempts }, 30000).catch(() => null)
     const runId = start?.run_id
     if (!runId) {
       say(start?.error ? `Broods could not start: ${start.error}` : "Broods could not start. Press Apply with Odds again.", "ask")
@@ -1136,6 +1278,7 @@
         if (!endedAt) {
           endedAt = Date.now()
           endedReason = next.reason || ""
+          if (next.reason === "closed") await ask({ type: "job-closed", url: driveJobUrl || location.href })
           const [text, state] = driveEndText(next)
           say(text, state)
         }
@@ -1153,15 +1296,22 @@
         else if (cmd.tool === "fill") say("Broods is filling in your answers…", "filling")
         else if (cmd.tool === "click") say("Broods is moving to the next step…", "filling")
         let sent = false
+        let stale = false
         const sendResult = async (result) => {
+          if (stale) return
+          if (result && !result.page && ["click", "click_at", "back", "open_job"].includes(cmd.tool)) result = { ...result, page_pending: true }
           sent = true
           for (let t = 0; t < 4; t++) {
-            const ok = await ask({ type: "drive", op: "result", run_id: runId, id: cmd.id, result }, 15000).catch(() => null)
-            if (ok && ok.status !== "error") return
+            const ok = await ask({ type: "drive", op: "result", run_id: runId, id: cmd.id, result, doc_gen: next.doc_gen }, 15000).catch(() => null)
+            // Server rejected stale (run ended / wrong document): stop mutating and posting.
+            // (The run's own end — and why it ended — comes from the next drive-next, never from here.)
+            if (ok?.stale === true || (ok && ok.ok === false && ok.stale)) { stale = true; return }
+            if (ok && ok.status !== "error" && ok.ok !== false) return
             await sleep(2000 * (t + 1))
           }
         }
-        const result = await driveCommand(cmd, sendResult)
+        const result = await driveCommand(cmd, sendResult).catch(e => ({ok:false,error:String(e?.message || e).slice(0,200)}))
+        if (stale) continue
         if (!sent && result !== null) await sendResult(result)
       }
     }
@@ -1351,6 +1501,11 @@
     }, true)
     // A page brought back from the browser's memory (Back) runs no new script: pause the same way.
     window.addEventListener("pageshow", (event) => { if (event.persisted && applicationJob) pauseForPerson() })
+    }
+    if (missingJobPage()) {
+      say("This job page is no longer available. No application was submitted.", "problem")
+      await ask({type:"job-closed",url:intent.job || location.href})
+      return
     }
     // Indeed / Glassdoor guest: tell the person to sign in — do not hang on Filling / Looking for Apply.
     if (!(await ensureBoardSignedIn())) return
@@ -1576,6 +1731,11 @@
         }
       }
       if (confirmed()) return
+      // Wrong employer host after redirect: stop without marking the intended job Closed.
+      if (wrongJobPage(intent.job || "")) {
+        say(wrongJobPage(intent.job || ""), "ask")
+        return
+      }
       if (listingGone()) {
         say("This job is no longer available. No application was submitted.", "problem")
         document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")

@@ -287,7 +287,7 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
     }
     for (const [from, to] of alias) {
       const kept = map.get(to)
-      if (kept && !map.has(from)) {
+      if (kept) {
         map.set(from, kept)
       }
     }

@@ -3,7 +3,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { JobDocuments } from "@/components/JobDocuments"
 import { moveJob } from "@/components/job-steps"
-import { clearApplyActivity, dismissDriveRun, driveOf, driveWhy, sentAskOf, useApplyActivityTick } from "@/lib/apply-activity"
+import { clearApplyActivity, dismissDriveRun, driveOf, sentAskOf, useApplyActivityTick } from "@/lib/apply-activity"
 import { useData } from "@/lib/data"
 import { driveControl, driveSteps, type DriveStep } from "@/lib/drive-runs"
 import type { Posting } from "@/lib/types"
@@ -43,7 +43,7 @@ export function DriveLive({ post }: { post: Posting }): React.JSX.Element | null
     setBusy(true)
     void driveControl(drive.runId, action).then((ok) => {
       if (!ok) return void toast.error("That did not go through. Try again.")
-      if (action === "continue") toast.message("Broods carries on in your Chrome tab.")
+      if (action === "continue") toast.message("Continuing in Chrome.")
       if (action === "sent") {
         dismissDriveRun(drive.runId)
         clearApplyActivity(post.id)
@@ -51,22 +51,17 @@ export function DriveLive({ post }: { post: Posting }): React.JSX.Element | null
       }
     }).finally(() => setBusy(false))
   }
-  const waiting = !running
 
   return (
     <div className="flex flex-col gap-3">
-      <p className={`text-sm ${waiting ? "font-medium text-foreground" : "text-muted-foreground"}`}>{driveWhy(drive)}</p>
       {drive.reason === "letter" ? <JobDocuments post={post} /> : null}
       {steps.length ? (
-        <ol aria-label="What Broods is doing" className="flex flex-col gap-1.5 rounded-lg bg-secondary/60 p-3 text-sm">
-          {steps.map((s, i) => (
-            <li key={s.id} className={`flex items-start gap-2 ${i === 0 ? "text-foreground" : "text-muted-foreground"}`}>
-              <span aria-hidden="true" className={`mt-1.5 size-1.5 shrink-0 rounded-full ${i === 0 && running && !drive.filling ? "bg-brand motion-safe:animate-pulse" : "bg-border"}`} />
-              <span className="min-w-0 flex-1">{s.note}</span>
-              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{ago(s.created_at, now)}</span>
-            </li>
-          ))}
-        </ol>
+        <details className="group text-sm">
+          <summary className="cursor-pointer font-medium text-foreground">Activity</summary>
+          <ol aria-label="Application activity" className="mt-3 flex flex-col gap-2 border-l border-line pl-3">
+            {steps.slice(0,5).map(s=><li key={s.id} className="flex items-start justify-between gap-3"><span className="min-w-0 text-foreground">{s.note}</span><time className="shrink-0 text-xs tabular-nums text-muted-foreground">{ago(s.created_at,now)}</time></li>)}
+          </ol>
+        </details>
       ) : null}
       <div className="flex flex-wrap gap-2">
         {drive.reason === "letter" && drive.status === "needs_you" ? (
@@ -75,7 +70,7 @@ export function DriveLive({ post }: { post: Posting }): React.JSX.Element | null
         {drive.status === "stuck" && drive.reason !== "closed" ? (
           <Button type="button" disabled={busy} onClick={() => act("continue")} className="h-10 cursor-pointer rounded-lg bg-brand-ink px-4 text-white hover:bg-brand-ink/90">Try again</Button>
         ) : null}
-        {running ? <Button type="button" variant="outline" disabled={busy} onClick={() => act("stop")} className="h-10 cursor-pointer rounded-lg px-4">Stop Broods</Button> : null}
+        {running ? <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => act("stop")}>Stop</Button> : null}
       </div>
     </div>
   )

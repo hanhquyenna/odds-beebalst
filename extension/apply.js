@@ -461,6 +461,17 @@
   // ---- Broods drives the Easy Apply window (MCP): same commands as on employer sites, done inside LinkedIn's dialog. ----
   // Hard rules here too, whatever Broods asks: never Submit/Send, never a password, nothing outside the dialog.
   const DRIVE_DENY = /\b(submit|send application|send|password|captcha|sign[\s-]?up|register|create (an )?account|delete|remove|discard)\b/i
+  const drivePrefilled = new WeakMap()
+  async function drivePrefillModal(modal) {
+    const qs = questionsOf(modal)
+    const country = qs.some(q => /country code|landcode/i.test(q.label))
+    for (const q of qs) {
+      if (answered(q) || q.kind === "checkbox" || !/^(first name|given name|last name|family name|surname|full name|name|email|email address|phone|phone number|mobile|mobile number|linkedin|linkedin url|city|current location|location)\s*[*:]?$/i.test(q.label.trim())) continue
+      if (!A.answerText(q.label, session.kit.facts)) continue
+      if (await fill(q, session.kit.facts, country)) drivePrefilled.set(Array.isArray(q.el) ? q.el[0] : q.el, qValue(q))
+    }
+    await chooseCv(modal, session.kit)
+  }
   let driveQs = new Map()
   let driveBtns = new Map()
   const qValue = (q) => {
@@ -476,7 +487,7 @@
       const id = `f${i}`
       driveQs.set(id, q)
       const consent = q.kind === "checkbox" && Boolean(A.isConsentCheckbox?.(q.label))
-      return { id, label: q.label.slice(0, 300), kind: q.kind === "text" && q.typeahead ? "typeahead" : q.kind, filled: answered(q), value: qValue(q), ...(q.options?.length ? { options: q.options.slice(0, 60) } : {}), ...(consent ? { consent: true } : {}) }
+      return { id, label: q.label.slice(0, 300), kind: q.kind === "text" && q.typeahead ? "typeahead" : q.kind, filled: answered(q), ...(drivePrefilled.get(Array.isArray(q.el) ? q.el[0] : q.el) === qValue(q) && answered(q) ? { by: "odds" } : {}), value: qValue(q), ...(q.options?.length ? { options: q.options.slice(0, 60) } : {}), ...(consent ? { consent: true } : {}) }
     })
     const cvCards = documentRadios(modal)
     const cvUpload = modal.querySelector('input[type="file"]') || [...modal.querySelectorAll("button")].some((b) => /^upload (resume|cv)$/i.test(labelOfButton(b)))
@@ -505,17 +516,20 @@
   }
 
   // ---- Sight: when the page tools cannot see or move something, Broods looks at a screenshot and acts at a point. ----
+  let driveImageSize = null
   async function driveVision(cmd, sendResult, denyText) {
     const args = cmd.args || {}
     if (cmd.tool === "screenshot") {
       const shot = await ask({ type: "drive-shot" }, 15000).catch(() => null)
       if (!shot?.image) return { error: shot?.error || "Could not take a screenshot of this tab." }
+      driveImageSize = { width: shot.width, height: shot.height, viewportWidth: shot.viewportWidth || innerWidth, viewportHeight: shot.viewportHeight || innerHeight }
       return { image: shot.image, mime: "image/jpeg", width: shot.width, height: shot.height, note: "Coordinates for click_at are pixels in this image." }
     }
-    const scale = (window.devicePixelRatio || 1)
+    const scaleX = driveImageSize ? driveImageSize.width / driveImageSize.viewportWidth : (window.devicePixelRatio || 1)
+    const scaleY = driveImageSize ? driveImageSize.height / driveImageSize.viewportHeight : (window.devicePixelRatio || 1)
     if (cmd.tool === "click_at") {
-      const x = Number(args.x) / scale
-      const y = Number(args.y) / scale
+      const x = Number(args.x) / scaleX
+      const y = Number(args.y) / scaleY
       if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: "x and y are needed" }
       const el = document.elementFromPoint(x, y)
       if (!el) return { ok: false, error: "nothing at that point" }
@@ -558,7 +572,7 @@
     return null
   }
 
-  async function driveModalCommand(modal, cmd, sendResult) {
+  async function driveModalCommandRaw(modal, cmd, sendResult) {
     const args = cmd.args || {}
     if (cmd.tool === "read_page") return driveModalPage(modal)
     if (["screenshot", "click_at", "type_text", "press_key", "scroll"].includes(cmd.tool)) return driveVision(cmd, sendResult, DRIVE_DENY)
@@ -607,6 +621,11 @@
       if (!b || !b.isConnected) return { ok: false, error: "button gone, read_page again" }
       const text = labelOfButton(b)
       if (isSubmit(b) || DRIVE_DENY.test(text)) return { ok: false, error: "Odds never presses this; it is the person's" }
+      if (/^(next|continue|review|review your application)$/i.test(text.trim())) {
+        const snap = driveModalPage(modal)
+        const empty = (snap.fields || []).filter((f) => f.required && !f.filled && !f.consent)
+        if (empty.length) return { ok: false, error: `required fields still empty: ${empty.map((f) => f.label).join("; ").slice(0, 300)}`, unfilled: empty.map((f) => f.label).slice(0, 12), page: snap }
+      }
       const before = signature(modal)
       b.click()
       await changed(modal, before, 4000)
@@ -614,8 +633,18 @@
     }
     return { error: `Unknown tool ${cmd.tool}` }
   }
+  async function driveModalCommand(modal, cmd, sendResult) {
+    const result = await driveModalCommandRaw(modal, cmd, sendResult)
+    const current = session?.modal?.isConnected ? session.modal : modal
+    if (result && cmd.tool !== "read_page" && cmd.tool !== "screenshot") {
+      await sleep(180)
+      return { ...result, page: current.isConnected ? driveModalPage(current) : { url: location.href, fields: [], buttons: [], changed: true } }
+    }
+    return result
+  }
   /** Broods drives this Easy Apply window until only Submit is left (or it needs the person); the bar says each step and the end. */
   async function driveModal(modal) {
+    await drivePrefillModal(modal)
     say(modal, "Broods is applying in this window…", "filling")
     const url = session.job?.url || location.href
     const start = await ask({ type: "drive", op: "start", url, page: url, run_id: null }, 30000)
@@ -675,15 +704,21 @@
         const note = typeof cmd.note === "string" ? cmd.note.trim() : ""
         say(modal, note ? `Broods: ${note}` : cmd.tool === "read_page" ? "Broods is reading this step…" : cmd.tool === "fill" ? "Broods is filling in your answers…" : cmd.tool === "click" ? "Broods is moving to the next step…" : "Broods is working…", "filling")
         let sent = false
+        let stale = false
         const sendResult = async (result) => {
+          if (stale) return
+          if (result && !result.page && cmd.tool === "click_at") result = { ...result, page_pending: true }
           sent = true
           for (let t = 0; t < 4; t++) {
-            const ok = await ask({ type: "drive", op: "result", run_id: runId, id: cmd.id, result }, 15000).catch(() => null)
-            if (ok && ok.status !== "error") return
+            const ok = await ask({ type: "drive", op: "result", run_id: runId, id: cmd.id, result, doc_gen: next.doc_gen }, 15000).catch(() => null)
+            // (The run's own end — and why it ended — comes from the next drive-next, never from here.)
+            if (ok?.stale === true || (ok && ok.ok === false && ok.stale)) { stale = true; return }
+            if (ok && ok.status !== "error" && ok.ok !== false) return
             await sleep(2000 * (t + 1))
           }
         }
         const result = await driveModalCommand(modal, cmd, sendResult).catch((e) => ({ error: String(e?.message || e).slice(0, 200) }))
+        if (stale) continue
         if (!sent) await sendResult(result)
       }
     }
@@ -854,9 +889,10 @@
     ))
   }
   function linkedInSignInWall() {
+    // LinkedIn's own sign-up / login / auth-wall pages are the wall, whatever else the page shows (a guest "Apply" lands on /signup).
+    if (/\/authwall|\/uas\/login|\/login\b|\/checkpoint\/|\/signup\//i.test(location.pathname)) return true
     // Once this Chrome has a LinkedIn session, leftover guest copy must not keep us on Sign-in.
     if (linkedInSignedIn()) return false
-    if (/\/authwall|\/uas\/login|\/checkpoint\/|\/signup\//i.test(location.pathname)) return true
     if (document.querySelector(".authwall-join-form, form.login__form, #username, input#session_key, input[name=session_key]")) return true
     const snip = ((document.body && (document.body.innerText || document.body.textContent)) || "").replace(/\s+/g, " ").slice(0, 2800)
     return /\b(sign in to view more|join to apply|sign in to apply|sign in to see (more|who)|join linkedin)\b/i.test(snip)
@@ -960,6 +996,8 @@
       return { text, href: href.slice(0, 200), hint: `${b.id || ""} ${b.className || ""}`.slice(0, 120) }
     }).filter(Boolean).slice(0, 40)
     if (!buttons.length) return false
+    // LinkedIn's guest Apply lands on its sign-up page (same document): that is the person's sign-in, never a question for Broods.
+    if (linkedInSignInWall()) { say(document.body, LINKEDIN_SIGNIN_MSG, "ask"); document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float"); return true }
     say(document.body, "Asking Odds how to open the application…", "filling")
     const clickWant = async (want) => {
       if (!want || /\b(submit|password|sign[\s-]?up|register|save|follow|share)\b/i.test(want)) return false
@@ -977,16 +1015,20 @@
       // Dead click (popup blocked / Verify wall): stay false so caller surfaces ask — never silent Filling.
       return await waitLeftLinkedInJob(wanted, 4000)
     }
-    const action = await ask({
+    // Either question gives way the moment LinkedIn shows its sign-in / sign-up page: that is the person's to do, said at once.
+    const wall = () => new Promise((resolve) => { const t = setInterval(() => { if (linkedInSignInWall()) { clearInterval(t); resolve("wall") } }, 800); setTimeout(() => clearInterval(t), 46000) })
+    const signIn = () => { say(document.body, LINKEDIN_SIGNIN_MSG, "ask"); document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float"); return true }
+    const action = await Promise.race([ask({
       type: "suggest-action",
       url: location.href,
       buttons,
       status: "linkedin_open_apply",
       force_llm: true,
-    }, 45000).catch(() => null)
+    }, 45000).catch(() => null), wall()])
+    if (action === "wall") return signIn()
     if (action?.action === "click" && typeof action.text === "string" && await clickWant(action.text.replace(/\s+/g, " ").trim())) return true
     say(document.body, "No progress — Broods is reading this page…", "filling")
-    const scan = await ask({
+    const scan = await Promise.race([wall(), ask({
       type: "suggest-scan",
       url: location.href,
       status: "linkedin_open_apply",
@@ -998,7 +1040,8 @@
         buttons: buttons.map((b) => b.text),
         facts: {},
       },
-    }, 45000).catch(() => null)
+    }, 45000).catch(() => null)])
+    if (scan === "wall" || linkedInSignInWall()) return signIn()
     if (scan?.action === "click" && typeof scan.text === "string" && await clickWant(scan.text.replace(/\s+/g, " ").trim())) return true
     return false
   }

@@ -280,9 +280,23 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
 
   // A Broods run behind this Apply: its own title and line (what it does now), and its live panel under the progress.
   const drive = driveOf(post.id)
-  const driveTitles: Record<string, string> = { "Applying…": "Broods is applying", "You're filling in": "You're filling in", "Review & send": "Ready to review", Captcha: "Captcha on the page", "Sign in": "Sign in on the tab", "Your answers": "Needs your answer", "Cover letter": "Add a cover letter", Stuck: "Stuck — open the tab", "Needs you": "Needs you", Closed: "Applications closed" }
+  const driveTitles: Record<string, string> = {
+    "Applying…": "Working on your application",
+    "You're filling in": "You're filling in",
+    "Review & send": "Ready to review",
+    Captcha: "Captcha on the page",
+    "Sign in": "Sign in on the tab",
+    "Your answers": "Needs your answer",
+    "Your consent": "Your consent is required",
+    "Cover letter": "Add a cover letter",
+    "Wrong job": "The link opens a different job",
+    Stuck: "Your turn",
+    "Needs you": "Needs you",
+    Closed: "Applications closed",
+    Reconnect: "Reconnect Odds",
+  }
   const progressTitle = drive ? driveTitles[driveLabel(drive)] : undefined
-  const progressLine = drive ? (drive.status === "running" ? driveWhy(drive) : drive.message) : view?.message
+  const progressLine = drive ? driveWhy(drive) : view?.message
   const driveLive = <DriveLive post={post} />
   // Broods asked these questions: answering them here carries it on by itself, with the answers.
   const answered = (): void => {
@@ -299,7 +313,8 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
     ? "needs_input"
     : mergedPhase
   const needsPerson = Boolean(revealGate || view?.status === "ready" || view?.status === "needs_input" || questionsOpen || phase === "needs_input" || phase === "ready")
-  const stalled = view?.status === "filling" && now - view.at > 15_000
+  const driveQuiet = Boolean(drive && drive.status === "running" && !drive.filling && now - drive.updatedAt >= 15_000)
+  const stalled = (view?.status === "filling" && now - view.at > 15_000) || driveQuiet
   const activeRun = run && activeApplication(run)
   const unavailable = run?.status === "failed" && /no longer accepting applications|not currently accepting applications|job is closed|applications are closed|no longer available/i.test(run.message || "")
 
@@ -320,9 +335,11 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
       void beginApply({ reveal, continueRun: Boolean(activeRun) }).finally(() => setPending(false))
     }
     const gateOnly = needsConnectGate && !view && !activeRun
+    const tabClosedGate = /application tab was closed|reopen application/i.test(view?.message || "")
     const label = unavailable ? "Applications closed"
       : pending ? "Opening tab…"
       : gateOnly ? "Connect Odds in Chrome"
+      : tabClosedGate ? "Reopen application tab"
       : phase === "ready" ? "Open tab: review and send"
       : phase === "filling" || activeRun ? (run?.status === "queued" ? "Waiting for Chrome…" : "Open application tab")
       : needsPerson ? (questionsOpen ? "Open tab: answer left" : "Open application tab")
@@ -347,7 +364,7 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
     ) : null
 
     return (
-      <div className={`flex w-full flex-col gap-4 transition-shadow duration-300 ${phase ? (phase === "needs_input" ? "rounded-xl border-2 border-brand bg-card p-4 ring-4 ring-brand/30 shadow-lg" : "rounded-xl border-2 border-brand/70 bg-card p-4 ring-4 ring-brand/10 shadow-md") : ""}`}>
+      <div className={`flex w-full flex-col gap-4 transition-colors duration-150 ${phase ? (phase === "needs_input" ? "rounded-xl border border-brand/40 bg-card p-4" : "rounded-xl border border-line bg-card p-4") : ""}`}>
         {phase && (view || activeRun) ? (
           <button type="button" disabled={pending || unavailable} onClick={press} className="w-full cursor-pointer rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-default disabled:opacity-70">
             <ApplyProgress phase={phase} message={progressLine} title={progressTitle} />
@@ -376,11 +393,13 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
   }
 
   const liveApply = Boolean(view && ["filling", "needs_input", "ready"].includes(phase || ""))
+  const tabClosed = /application tab was closed|reopen application/i.test(view?.message || "")
   const label = sent
     ? "Opening tab…"
     : !view ? "Apply with Odds"
     : view.status === "submitted" ? "Application sent"
     : view.status === "failed" ? "Try again"
+    : tabClosed ? "Reopen application tab"
     : captcha ? "Open tab: captcha"
     : login ? "Open tab: account or login"
     : phase === "ready" || normalizeApplyStatus(view.status, view.message || "") === "ready" ? "Open tab: review and send"
@@ -404,7 +423,7 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
   )
 
   return (
-    <div className={`flex w-full flex-col gap-4 transition-shadow duration-300 ${phase ? (phase === "needs_input" ? "rounded-xl border-2 border-brand bg-card p-4 ring-4 ring-brand/30 shadow-lg" : "rounded-xl border-2 border-brand/70 bg-card p-4 ring-4 ring-brand/10 shadow-md") : ""}`}>
+    <div className={`flex w-full flex-col gap-4 transition-colors duration-150 ${phase ? (phase === "needs_input" ? "rounded-xl border border-brand/40 bg-card p-4" : "rounded-xl border border-line bg-card p-4") : ""}`}>
       {phase && liveApply ? (
         <button type="button" onClick={press} className="w-full cursor-pointer rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
           <ApplyProgress phase={phase} message={progressLine} title={progressTitle} />
@@ -412,7 +431,13 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
       ) : phase ? <ApplyProgress phase={phase} message={progressLine} title={progressTitle} /> : null}
       {driveLive}
       {primary && (captcha || login || phase === "ready") ? <div className="flex gap-2">{primary}</div> : primary ? <ApplicationQuestions inline postingId={post.id} onHasQuestions={setQuestionsOpen} onSaved={answered} aside={primary} empty={<div className="flex gap-2">{primary}</div>} /> : null}
-      {stalled && !stuck && !drive ? <p className="text-sm text-muted-foreground">Still filling in the open tab. Odds retries if it stalls, then reports here if it cannot move on.</p> : null}
+      {stalled && !stuck ? (
+        <p className="text-sm text-muted-foreground">
+          {driveQuiet
+            ? "Waiting for the form or Broods — no new step yet. Open the tab if you want to check, or Stop if you want Odds to pause."
+            : "Still filling in the open tab. Odds retries if it stalls, then reports here if it cannot move on."}
+        </p>
+      ) : null}
       {captcha && !stuck && !drive ? <p className="text-sm text-muted-foreground">Complete the captcha in the tab. Odds continues after you solve it — it never solves captchas for you.</p> : null}
       {login && !stuck && !drive ? <p className="text-sm text-muted-foreground">Sign in to the job board in that Chrome tab — Odds continues when the wall clears. Odds never types passwords. Chrome keeps the session for the next Apply.</p> : null}
       {boardNote && !view ? <p className="text-sm text-muted-foreground">This job’s only link is Glassdoor/Indeed — Apply opens that page (not LinkedIn).</p> : null}

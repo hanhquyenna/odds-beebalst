@@ -1,7 +1,7 @@
 // Live Apply-with-Odds activity for the tracker: pin the job you're working on to the top
 // and show filling / needs you / review instead of a stale Saved chip.
 import { useEffect, useState } from "react"
-import { askIfSent, onScreen, PERSON_MS, type DriveReason, type DriveRun, type DriveStatus } from "@/lib/drive-run-state"
+import { askIfSent, onScreen, PERSON_MS, tabGone, type DriveReason, type DriveRun, type DriveStatus } from "@/lib/drive-run-state"
 
 export type ApplyActivityStatus = "filling" | "needs_input" | "ready" | "failed" | "submitted"
 
@@ -31,7 +31,14 @@ export interface DriveInfo {
   filling: boolean
   /** Broods' own sentence when it stopped (what it needs, the questions). */
   message: string
+  /** Server `updated_at` as ms — used for the 15 s quiet waiting line (never pretend activity). */
+  updatedAt: number
 }
+
+/** No new Broods/server step for this long while still Applying… → truthful waiting copy. */
+export const DRIVE_QUIET_MS = 15_000
+const WRONG_JOB_MSG = /different (site|job)|link opens a different job|not filling personal/i
+const CONSENT_MSG = /\b(consent|privacy (policy|statement)|terms (and|&) conditions|data retention)\b/i
 
 /** The server reported this run in the last poll or so. */
 const DRIVE_FRESH_MS = 20_000
@@ -173,22 +180,35 @@ export function driveLabel(d: DriveInfo): string {
   if (d.status === "running") return d.filling ? "You're filling in" : "Applying…"
   if (d.status === "review") return "Review & send"
   if (d.status === "submitted") return "Applied"
+  if (WRONG_JOB_MSG.test(d.message || "")) return "Wrong job"
+  if (CONSENT_MSG.test(d.message || "") && (d.reason === "other" || !d.reason)) return "Your consent"
   const byReason: Record<string, string> = { captcha: "Captcha", account: "Sign in", questions: "Your answers", letter: "Cover letter", closed: "Closed" }
   return (d.reason && byReason[d.reason]) || (d.status === "needs_you" ? "Needs you" : "Stuck")
 }
 
 /** What the run is doing or waits for, in a sentence the person can act on (the run's own message follows it). */
-export function driveWhy(d: DriveInfo): string {
-  if (d.status === "running") return d.filling ? "You're filling in. Broods waits, then carries on around what you entered." : d.note || "Broods is applying in your Chrome tab."
-  if (d.status === "review") return "Everything is filled in. Check it in the tab and press Submit yourself."
+export function driveWhy(d: DriveInfo, now = Date.now()): string {
+  if (d.status === "running") {
+    if (d.filling) return "I'll wait while you edit."
+    // Contract: at 15 s with no observable progress, show truthful waiting — never pretend activity.
+    if (now - d.updatedAt >= DRIVE_QUIET_MS) {
+      return d.note
+        ? `Waiting — last step: ${d.note}`
+        : "Waiting for the form or Broods. No new step yet."
+    }
+    return d.note || "Opening the application."
+  }
+  if (d.status === "review") return "Check your answers, then send it in the tab. Odds does not submit for you."
+  if (WRONG_JOB_MSG.test(d.message || "")) return d.message || "The link opens a different job. Not filling personal details."
+  if (CONSENT_MSG.test(d.message || "")) return "Accept or decline terms in the application tab — Odds never ticks consent for you."
   const byReason: Record<string, string> = {
-    captcha: "A captcha is on the page. Tick it in the tab and Broods carries on by itself.",
-    account: "The site wants you to sign in. Sign in in the tab (Odds never types passwords) and Broods carries on by itself.",
-    questions: "Some questions only you can answer. Answer them here or in the tab and Broods carries on.",
-    letter: "This application asks for a cover letter. Add one for this job and Broods carries on.",
+    captcha: "Complete the security check in the application tab.",
+    account: "Sign in in the application tab to continue.",
+    questions: "Answer the questions below to continue.",
+    letter: "Choose a cover letter for this job.",
     closed: "This job no longer takes applications.",
   }
-  return (d.reason && byReason[d.reason]) || "Broods could not move on by itself. Finish it in the tab, or try again."
+  return (d.reason && byReason[d.reason]) || d.message || "Open the tab to see what needs a hand."
 }
 
 const DISMISSED_KEY = "odds:drive-dismissed-v1"
@@ -226,11 +246,44 @@ export function syncDriveRuns(runs: ReadonlyArray<DriveRun>, now = Date.now()): 
   let changed = false
   const shown = new Set<string>()
   const asks = new Map<string, string>()
-  for (const run of runs) {
-    if (!run.posting_id || dismissed.has(run.id)) continue
+  const latest = [...runs].sort((a,b)=>b.created_at.localeCompare(a.created_at))
+  const seenJobs = new Set<string>()
+  for (const run of latest) {
+    if (!run.posting_id || seenJobs.has(run.posting_id)) continue
+    seenJobs.add(run.posting_id)
+    if (dismissed.has(run.id)) continue
     if (askIfSent(run, now)) asks.set(run.posting_id, run.id)
     const prev = all[run.posting_id]
     if (!onScreen(run, now)) {
+      // Tab closed while Broods still waits on the person: keep a recovery chip (never a dead Open button).
+      // Review+closed stays SentAsk only; running+gone drops (never a silent forever-Applying…).
+      if (["needs_you", "stuck"].includes(run.status) && tabGone(run, now)) {
+        shown.add(run.id)
+        const drive: DriveInfo = {
+          runId: run.id,
+          status: run.status,
+          reason: run.reason,
+          note: (run.last_note || "").slice(0, 300),
+          steps: run.steps,
+          filling: false,
+          message: (run.message || "").slice(0, 500),
+          updatedAt: Date.parse(run.updated_at) || now,
+        }
+        const message = `Application tab was closed. Reopen application to continue. ${driveWhy(drive, now)}`.slice(0, 500)
+        const same = prev?.drive?.runId === drive.runId && prev?.drive?.status === drive.status && prev?.drive?.reason === drive.reason && /tab was closed/i.test(prev?.message || "")
+        all[run.posting_id] = {
+          postingId: run.posting_id,
+          url: prev?.url ?? run.url,
+          status: "needs_input",
+          message,
+          at: same && prev ? prev.at : now,
+          pinnedAt: prev?.pinnedAt ?? now,
+          drive,
+          driveAt: now,
+        }
+        if (!same) changed = true
+        continue
+      }
       // Off screen: drop this run's layer (and a leftover tab line for the same job).
       // (A line newer than this run — Apply with Odds just pressed again — stays until its own run shows up.)
       if (prev && (prev.drive ? prev.drive.runId === run.id : prev.at < Date.parse(run.updated_at))) { delete all[run.posting_id]; changed = true }
@@ -238,10 +291,19 @@ export function syncDriveRuns(runs: ReadonlyArray<DriveRun>, now = Date.now()): 
     }
     shown.add(run.id)
     const filling = Boolean(run.person_active_at) && now - Date.parse(run.person_active_at as string) < PERSON_MS
-    const drive: DriveInfo = { runId: run.id, status: run.status, reason: run.reason, note: (run.last_note || "").slice(0, 300), steps: run.steps, filling, message: (run.message || "").slice(0, 500) }
+    const drive: DriveInfo = {
+      runId: run.id,
+      status: run.status,
+      reason: run.reason,
+      note: (run.last_note || "").slice(0, 300),
+      steps: run.steps,
+      filling,
+      message: (run.message || "").slice(0, 500),
+      updatedAt: Date.parse(run.updated_at) || now,
+    }
     const status: ApplyActivityStatus = run.status === "running" ? "filling" : run.status === "review" ? "ready" : "needs_input"
-    const message = [driveWhy(drive), run.status === "running" ? "" : run.message || ""].filter(Boolean).join(" ").slice(0, 500)
-    const same = prev?.drive && prev.drive.runId === drive.runId && prev.drive.status === drive.status && prev.drive.reason === drive.reason && prev.drive.note === drive.note && prev.drive.filling === drive.filling && prev.drive.steps === drive.steps && prev.drive.message === drive.message
+    const message = [driveWhy(drive, now), run.status === "running" ? "" : run.message || ""].filter(Boolean).join(" ").slice(0, 500)
+    const same = prev?.drive && prev.drive.runId === drive.runId && prev.drive.status === drive.status && prev.drive.reason === drive.reason && prev.drive.note === drive.note && prev.drive.filling === drive.filling && prev.drive.steps === drive.steps && prev.drive.message === drive.message && prev.drive.updatedAt === drive.updatedAt
     all[run.posting_id] = { postingId: run.posting_id, url: prev?.url ?? run.url, status, message, at: same && prev ? prev.at : now, pinnedAt: prev?.pinnedAt ?? now, drive, driveAt: now }
     if (!same) changed = true
   }

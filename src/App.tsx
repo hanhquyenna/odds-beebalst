@@ -180,15 +180,15 @@ export default function App(): React.JSX.Element {
       const d = event.data as { source?: string; type?: string; runs?: unknown } | null
       if (!d || d.type !== "apply-activity-sync" || !Array.isArray(d.runs)) return
       if (d.source !== "odds-extension" && d.source !== "odds-panel") return
-      syncApplyActivities(d.runs as Array<{ postingId?: string; status?: string; message?: string; url?: string; runId?: string | null }>)
+      syncApplyActivities((d.runs as Array<{ postingId?: string; status?: string; message?: string; url?: string; runId?: string | null }>).map(r=>({...r,postingId:r.postingId ? data.byId.get(r.postingId)?.id ?? r.postingId : undefined})))
     }
     window.addEventListener("message", onMsg)
     const pullServer = (): void => {
       // Broods runs first: they are the truth for an Apply with Odds (what it does now, why it waits, whether the tab is there).
-      void liveDriveRuns().then((runs) => syncDriveRuns(runs)).catch(() => undefined)
+      void liveDriveRuns().then((runs) => syncDriveRuns(runs.map(r=>({...r,posting_id:r.posting_id ? data.byId.get(r.posting_id)?.id ?? r.posting_id : null})))).catch(() => undefined)
       void liveApplicationRuns().then((runs) => {
         syncApplyActivities(runs.map((r) => ({
-          postingId: r.posting_id,
+          postingId: data.byId.get(r.posting_id)?.id ?? r.posting_id,
           status: r.status === "queued" ? "filling" : r.status,
           message: r.message,
         })))
@@ -204,7 +204,7 @@ export default function App(): React.JSX.Element {
       return () => { window.removeEventListener("message", onMsg); window.clearInterval(timer); window.clearInterval(serverTimer) }
     }
     return () => { window.removeEventListener("message", onMsg); window.clearInterval(serverTimer) }
-  }, [data.session])
+  }, [data.session, data.byId])
 
   // Apply with Odds from Jobs: switch to Tracker (saved list) so live Applying… chips are in view.
   useEffect(() => {

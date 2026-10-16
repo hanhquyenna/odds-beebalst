@@ -438,14 +438,29 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       const grab = () => chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 55 })
       const url = await grab().catch(async () => { await new Promise((r) => setTimeout(r, 700)); return grab() }).catch(() => null)
       if (!url) return reply({ error: "This tab cannot be seen right now (its window is minimised or hidden). Work from read_page; do not retry screenshot." })
-      const image = url.replace(/^data:image\/jpeg;base64,/, "")
-      const size = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => ({ w: Math.round(innerWidth * devicePixelRatio), h: Math.round(innerHeight * devicePixelRatio) }) }).then((r) => r?.[0]?.result).catch(() => null)
-      reply({ image, width: size?.w ?? null, height: size?.h ?? null })
+      const size = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => ({ w: innerWidth, h: innerHeight }) }).then((r) => r?.[0]?.result).catch(() => null)
+      const bitmap = await createImageBitmap(await (await fetch(url)).blob())
+      const width = Math.min(1280, bitmap.width)
+      const height = Math.round(bitmap.height * width / bitmap.width)
+      const canvas = new OffscreenCanvas(width, height)
+      canvas.getContext("2d").drawImage(bitmap, 0, 0, width, height)
+      bitmap.close()
+      const bytes = new Uint8Array(await (await canvas.convertToBlob({ type: "image/jpeg", quality: 0.65 })).arrayBuffer())
+      let binary = ""
+      for (const byte of bytes) binary += String.fromCharCode(byte)
+      reply({ image: btoa(binary), width, height, viewportWidth: size?.w, viewportHeight: size?.h })
     })().catch((e) => reply({ error: String(e?.message || e).slice(0, 200) }))
     return true
   }
+  if (message?.type === "drive-recipe" && sender.tab?.id) {
+    changeIntents(all => {
+      const intent = all[sender.tab.id]
+      if (intent) intent.recipePending = message.pending && typeof message.pending === "object" ? message.pending : null
+    }).then(() => reply({ ok: true })).catch(() => reply({ ok: false }))
+    return true
+  }
   // Broods drives the application tab: start (or resume after a page change) a run, take its next command, send back the result.
-  if (message?.type === "drive" && sender.tab && typeof sender.tab.id === "number" && ["start", "next", "result", "continue"].includes(message.op)) {
+  if (message?.type === "drive" && sender.tab && typeof sender.tab.id === "number" && ["start", "next", "result", "continue", "playbook"].includes(message.op)) {
     const tabId = sender.tab.id
     // One start per tab at a time: the page and an embedded ATS frame asking together join the same run (never two agents on one form).
     if (message.op === "start") {
@@ -453,8 +468,11 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       if (pending) { pending.then((res) => reply(res)).catch(() => reply(null)); return true }
     }
     const body = message.op === "start"
-      ? { url: String(message.url || ""), page: String(message.page || ""), run_id: typeof message.run_id === "string" ? message.run_id : null }
-      : message.op === "next" ? { run_id: message.run_id, fresh: message.fresh === true, hold: message.hold === true } : message.op === "continue" ? { run_id: message.run_id } : { run_id: message.run_id, id: message.id, result: message.result ?? null }
+      ? { url: String(message.url || ""), page: String(message.page || ""), run_id: typeof message.run_id === "string" ? message.run_id : null, recipe_attempts: message.recipe_attempts || [], tab_id: tabId }
+      : message.op === "playbook" ? { page: String(message.page || "") }
+      : message.op === "next" ? { run_id: message.run_id, fresh: message.fresh === true, hold: message.hold === true, tab_id: tabId }
+      : message.op === "continue" ? { run_id: message.run_id }
+      : { run_id: message.run_id, id: message.id, result: message.result ?? null, tab_id: tabId, doc_gen: message.doc_gen }
     const call = (async () => {
       // A start asked while another page load of this tab already holds a run resumes that run.
       if (message.op === "start" && !body.run_id) {
@@ -464,7 +482,10 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       const res = await ext(`drive-${message.op}`, { method: "POST", body: JSON.stringify(body) })
       // The run follows the tab across page loads: the next page resumes it instead of starting another.
       if (message.op === "start" && typeof res?.run_id === "string") await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], driveRun: res.run_id } })
-      return res
+      // ext() separates transport status from the application stage. Restore the
+      // terminal stage for drive clients, which must distinguish Review from Stuck.
+      return res?.status === "ok" && res.done && typeof res.result === "string"
+        ? { ...res, status: res.result } : res
     })()
     if (message.op === "start") { driveStarts.set(tabId, call); call.finally(() => setTimeout(() => driveStarts.delete(tabId), 3000)) }
     call.then((res) => reply(res)).catch(() => reply(null))

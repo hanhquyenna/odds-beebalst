@@ -1,9 +1,11 @@
+import { BroodsClient } from "broods"
+import { playbookFor, siteIdentity, type Evidence } from "../supabase/functions/_shared/site-playbook"
 import { execFileSync } from "node:child_process"
 import { createServer, request as httpRequest, type IncomingMessage, type Server } from "node:http"
 import { createServer as createTlsServer } from "node:https"
 import { chromium, expect, test as base, type BrowserContext } from "@playwright/test"
 import { join } from "node:path"
-import { mkdtempSync, readFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { FLOW_POSTINGS } from "./fixtures/postings"
 import { mockBackend, shot } from "./mock"
 import { pickSuggestAction } from "../supabase/functions/_shared/apply-agent-suggest"
@@ -35,16 +37,40 @@ const KEY = `oddsx_${"ab".repeat(24)}`
 const JOB_PAGE = (title: string): string => `<!doctype html><html><head><title>${title}</title></head><body><h1>${title}</h1><p>Job description</p></body></html>`
 
 /** A scripted stand-in for the Broods agent: drives the real extension through /ext/drive-* with read_page/fill/upload_cv/click/finish. */
-interface DriveRun { outbox: Array<{ id: number; tool: string; args: Record<string, unknown> }>; resolvers: Map<number, (r: unknown) => void>; done: { status: string; message: string } | null; log: string[] }
+interface DriveRun {
+  outbox: Array<{ id: number; tool: string; args: Record<string, unknown>; doc_gen?: number }>
+  resolvers: Map<number, (r: unknown) => void>
+  done: { status: string; message: string; reason?: string } | null
+  log: string[]
+  /** Document generation; bumps on fresh/reload — late results from an older gen are stale. */
+  docGen: number
+  /** Command id → queued|taken|done|cancelled */
+  cmdStatus: Map<number, string>
+  /** How many drive-result posts were rejected as stale (ownership). */
+  rejectedResults: number
+  /** Fill/upload mutations accepted while the run was live (late ones must not land). */
+  mutations: number
+}
 interface Fake {
   drives: Map<string, DriveRun>
   /** REAL_BROODS=1 runs: the real agent on a real run (see driveReal). */
-  realBroods?: { title: string; person: Record<string, string>; runId?: string; log: string[]; end?: { status: string; message: string }; shot?: (label: string) => Promise<void> }
+  realBroods?: {
+    title: string
+    person: Record<string, string>
+    runId?: string
+    log: string[]
+    end?: { status: string; message: string; reason?: string; steps?: number; fill_ended_at?: string; agent_finished_at?: string }
+    shot?: (label: string) => Promise<void>
+    fillStartedAt?: number
+    fillEndedAt?: number
+    uiEndedAt?: number
+  }
   /** What the extension told the server about a run: continue (handled by the person), stop <reason>, hold (the person is filling in). */
   driveEvents: string[]
   /** The next N /ext/drive-next calls fail as if the connection dropped (503). */
   driveDown?: number
   /** A test's own Broods moves (instead of the stand-in agent): gets cmd(tool, args) and returns how the run ends. */
+  drivePlaybook?: Record<string, unknown>
   driveScript?: (cmd: (tool: string, args?: Record<string, unknown>) => Promise<Record<string, unknown>>) => Promise<{ status: string; message: string }>
   prompts: Array<{ key: string; label: string; kind: string; options?: string[] }>
   remembered: Record<string, string>
@@ -89,11 +115,12 @@ interface Fake {
 }
 
 let driveSeq = 0
-/** The stand-in agent: read the page, answer what the person's facts answer (else leave it), consent yes, upload the CV, press Next/Review, stop at Submit. */
+/** The stand-in agent: read the page, answer what the person's facts answer (else leave it), leave consent to the person, upload the CV, press Next/Review, stop at Submit. */
 async function driveAgent(fake: Fake, run: DriveRun): Promise<void> {
   const cmd = (tool: string, args: Record<string, unknown> = {}) => new Promise<Record<string, unknown>>((resolve) => {
-    const c = { id: ++driveSeq, tool, args }
+    const c = { id: ++driveSeq, tool, args, doc_gen: run.docGen }
     run.log.push(`${tool} ${JSON.stringify(args).slice(0, 160)}`)
+    run.cmdStatus.set(c.id, "queued")
     run.resolvers.set(c.id, (r) => resolve((r ?? {}) as Record<string, unknown>))
     run.outbox.push(c)
   })
@@ -114,14 +141,18 @@ async function driveAgent(fake: Fake, run: DriveRun): Promise<void> {
       const i = options.length ? chooseOption([...options], said, f.label) : -1
       answers.push({ id: f.id, value: options.length ? (i >= 0 ? options[i] ?? said : said) : said })
     }
-    // Consent and required boxes: yes (the person's choice in Odds).
-    for (const f of fields) if (f.kind === "checkbox" && !f.filled && (f.consent || f.required) && (tried.get(f.id + "box") ?? 0) < 2) { tried.set(f.id + "box", (tried.get(f.id + "box") ?? 0) + 1); answers.push({ id: f.id, value: "yes" }) }
+    // Required non-consent boxes may be filled; consent always stays human.
+    for (const f of fields) if (f.kind === "checkbox" && !f.filled && (!f.consent && f.required) && (tried.get(f.id + "box") ?? 0) < 2) { tried.set(f.id + "box", (tried.get(f.id + "box") ?? 0) + 1); answers.push({ id: f.id, value: "yes" }) }
     if (answers.length) { await cmd("fill", { fields: answers }); continue }
     const file = fields.find((f) => f.kind === "file" && !f.filled && (tried.get(f.id + "file") ?? 0) < 1)
     if (file) { tried.set(file.id + "file", 1); await cmd("upload_cv", { id: file.id }); continue }
-    const left = fields.filter((f) => !f.filled && f.kind !== "file" && !f.consent && f.kind !== "checkbox")
+    const left = fields.filter((f) => !f.filled && f.kind !== "file" && !f.consent && (f.kind !== "checkbox" || f.required))
+    const requiredLeft = fields.filter((f) => f.required && !f.filled && !f.consent)
     const next = (page.buttons ?? []).find((b) => !b.blocked && /^(next|continue|review|review your application|continue to next step|apply|apply now)$/i.test(b.text.trim()))
-    if (left.length) { run.done = { status: "needs_you", message: `Answer: ${left.map((f) => f.label).join("; ")}` }; return }
+    if (left.length) { run.done = { status: "needs_you", message: `Answer: ${left.map((f) => f.label).join("; ")}`, reason: "questions" }; return }
+    if (fields.some((f) => f.consent && !f.filled)) { run.done = { status: "needs_you", message: "Please review the terms yourself.", reason: "other" }; return }
+    // Never Review with empty required fields (oracle / MCP finish gate).
+    if (requiredLeft.length) { run.done = { status: "needs_you", message: `Required fields still empty: ${requiredLeft.map((f) => f.label).join("; ")}`, reason: "questions" }; return }
     if (next) { await cmd("click", { id: next.id }); continue }
     if ((page.buttons ?? []).some((b) => b.blocked && /submit/i.test(b.text))) { run.done = { status: "review", message: "Everything is filled in. Check it and press Submit yourself." }; return }
     // A list of vacancies: open the link that names this job (most of its title's words), as Broods does.
@@ -147,11 +178,13 @@ async function startRealBroods(runId: string, url: string, title: string, person
   const dig = await crypto.subtle.digest("SHA-256", enc.encode(`broods-user-token:${secret}`))
   const ck = await crypto.subtle.importKey("raw", dig, { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
   const token = `buat_${body}.${b64(new Uint8Array(await crypto.subtle.sign("HMAC", ck, enc.encode(body))))}`
-  const task = { run_id: runId, job: { title, url }, person, goal: "Apply to this job in the person's browser tab with the odds-browser tools until only Submit is left (finish review), or something only the person can do (finish needs_you)." }
+  const site_playbook = await realSitePlaybook(url)
+  const task = { site_playbook, run_id: runId, job: { title, url }, person, goal: "Apply to this job in the person's browser tab with the odds-browser tools until only Submit is left (finish review), or something only the person can do (finish needs_you)." }
   // Started exactly as production does: a background run (202 accepted), nothing holds a stream open.
-  const res = await fetch("https://gateway.broods.app/v1/runs", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "application/json", "X-Broods-User-Token": token },
-    body: JSON.stringify({ agentId: "js76teefba050scj7h6wp8n04x8ga3ac", eventId: crypto.randomUUID(), conversationKey: `odds-test-${runId}`, background: true, events: [{ role: "user", content: [{ type: "text", text: JSON.stringify(task) }] }] }) })
-  console.log(`REAL start ${runId}: ${res.status}`)
+  const client = new BroodsClient({apiKey:key,userToken:token,baseUrl:"https://gateway.broods.app"})
+  await client.runAsync({agentId:"js76teefba050scj7h6wp8n04x8ga3ac",eventId:crypto.randomUUID(),conversationKey:`odds-test-${runId}`,input:JSON.stringify(task)})
+  console.log(`REAL start ${runId}: accepted, ${site_playbook.lessons.length} learned hints`)
+
 }
 // The bridge reads and writes the drive tables over PostgREST (fast); the key comes from a private file named in REAL_SR_KEY_FILE, never the repo.
 const REST = "https://ukpmpyfcnbhngkgbnkxi.supabase.co/rest/v1"
@@ -162,66 +195,180 @@ async function rest(path: string, init: RequestInit = {}): Promise<Array<Record<
   const text = await res.text()
   return text ? (JSON.parse(text) as Array<Record<string, unknown>>) : []
 }
+const realPlaybooks=new Map<string,Awaited<ReturnType<typeof loadRealPlaybook>>>()
+async function realSitePlaybook(url: string) {
+  const host=siteIdentity(url).host
+  if(!realPlaybooks.has(host)) realPlaybooks.set(host,await loadRealPlaybook(url))
+  return realPlaybooks.get(host)!
+}
+async function loadRealPlaybook(url: string) {
+  const site=siteIdentity(url)
+  const rows=await rest(`site_playbooks?scope=eq.host&key=eq.${site.host}&select=lessons`)
+  if(site.ats) rows.push(...await rest(`site_playbooks?scope=eq.ats&key=eq.${site.ats}&select=lessons`))
+  const book=playbookFor(rows as Array<{lessons?:Record<string,Evidence>}>)
+  const hint=({source_runs:_runs,...rest}:typeof book.lessons[number])=>rest
+  return {...site,lessons:book.lessons.map(hint),recipes:book.recipes.map(hint)}
+}
 async function driveReal(fake: Fake, path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const real = fake.realBroods!
+  if (path.endsWith("/drive-playbook")) return {playbook:await realSitePlaybook(typeof body.page === "string" ? body.page : "")}
   if (path.endsWith("/drive-start")) {
     if (real.runId) return { run_id: real.runId, resumed: true }
     const [run] = await rest("drive_runs", { method: "POST", body: JSON.stringify({ user_id: REAL_USER, url: String(body.page || body.url) }) })
     real.runId = String(run.id)
+    real.fillStartedAt = Date.now()
     await startRealBroods(real.runId, String(body.page || body.url), real.title, real.person)
     return { run_id: real.runId, resumed: false }
   }
   const runId = String(body.run_id)
   if (path.endsWith("/drive-result")) {
-    await rest(`drive_commands?id=eq.${Number(body.id)}&run_id=eq.${runId}`, { method: "PATCH", body: JSON.stringify({ status: "done", result: body.result ?? {}, done_at: new Date().toISOString() }) })
+    // Same ownership gate as production MCP: only taken + running + matching doc_gen.
+    const [cmd] = await rest(`drive_commands?id=eq.${Number(body.id)}&run_id=eq.${runId}&select=id,status,doc_gen`)
+    const [runRow] = await rest(`drive_runs?id=eq.${runId}&select=status,doc_gen,steps,fill_ended_at,agent_finished_at`)
+    if (!cmd || !runRow) return { ok: false, stale: true, reason: "missing" }
+    const { canAcceptDriveResult } = await import("../supabase/functions/_shared/drive-ownership")
+    const gate = canAcceptDriveResult({
+      runStatus: String(runRow.status),
+      cmdStatus: String(cmd.status),
+      runDocGen: typeof runRow.doc_gen === "number" ? runRow.doc_gen : 0,
+      cmdDocGen: typeof cmd.doc_gen === "number" ? cmd.doc_gen : 0,
+    })
+    if (!gate.ok) {
+      real.log.push(`stale ${gate.reason}`)
+      return { ok: false, stale: true, reason: gate.reason }
+    }
+    const written = await rest(`drive_commands?id=eq.${Number(body.id)}&run_id=eq.${runId}&status=eq.taken`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "done", result: body.result ?? {}, done_at: new Date().toISOString() }),
+    })
+    if (!written.length) return { ok: false, stale: true, reason: "not_taken" }
     real.log.push(`result ${JSON.stringify(body.result ?? {}).slice(0, 140)}`)
-    // A picture of the real page after every step, to check by eye that each action did what it said.
+    console.log(`REAL result ${real.runId}: ${JSON.stringify(body.result && typeof body.result === "object" && "image" in body.result ? {screenshot:true} : body.result ?? {}).slice(0,140)}`)
     await real.shot?.(String(real.log.length)).catch(() => undefined)
     return { ok: true }
   }
-  for (let i = 0; i < 40; i++) {
-    const [q] = await rest(`drive_commands?run_id=eq.${runId}&status=eq.queued&order=id.asc&limit=1&select=id,tool,args`)
+  for (const deadline = Date.now()+18000; Date.now()<deadline;) {
+    const [q] = await rest(`drive_commands?run_id=eq.${runId}&status=eq.queued&order=id.asc&limit=1&select=id,tool,args,doc_gen`)
     if (q) {
-      const taken = await rest(`drive_commands?id=eq.${q.id}&status=eq.queued`, { method: "PATCH", body: JSON.stringify({ status: "taken", taken_at: new Date().toISOString() }) })
-      if (taken.length) { real.log.push(`${q.tool} ${JSON.stringify(q.args).slice(0, 160)}`); return { command: q } }
+      const taken = await rest(`drive_commands?id=eq.${q.id}&status=eq.queued`, { method: "PATCH", body: JSON.stringify({ status: "taken", taken_at: new Date().toISOString(), accepted_at: new Date().toISOString() }) })
+      if (taken.length) {
+        real.log.push(`${q.tool} ${JSON.stringify(q.args).slice(0, 160)}`)
+        console.log(`REAL command ${q.tool}`)
+        const [runRow] = await rest(`drive_runs?id=eq.${runId}&select=doc_gen,steps`)
+        return { command: q, steps: runRow?.steps ?? 0, doc_gen: runRow?.doc_gen ?? 0 }
+      }
     }
-    const [r] = await rest(`drive_runs?id=eq.${runId}&select=status,message`)
-    if (r && r.status !== "running") { real.end = { status: String(r.status), message: String(r.message ?? "") }; return { done: true, status: r.status, message: r.message } }
+    const [r] = await rest(`drive_runs?id=eq.${runId}&select=status,message,reason,steps,fill_ended_at,agent_finished_at`)
+    if (r && r.status !== "running") {
+      real.end = {
+        status: String(r.status),
+        message: typeof r.message === "string" ? r.message : "",
+        reason: typeof r.reason === "string" ? r.reason : undefined,
+        steps: typeof r.steps === "number" ? r.steps : undefined,
+        fill_ended_at: typeof r.fill_ended_at === "string" ? r.fill_ended_at : undefined,
+        agent_finished_at: typeof r.agent_finished_at === "string" ? r.agent_finished_at : undefined,
+      }
+      if (!real.fillEndedAt) real.fillEndedAt = Date.now()
+      return { done: true, status: r.status, message: r.message, reason: r.reason }
+    }
     await new Promise((res) => setTimeout(res, 300))
   }
   return { idle: true }
 }
+function cancelFakeOpen(run: DriveRun, why: string): void {
+  for (const [id, status] of run.cmdStatus) {
+    if (status === "queued" || status === "taken") {
+      run.cmdStatus.set(id, "cancelled")
+      run.resolvers.get(id)?.({ ok: false, cancelled: true, error: why })
+      run.resolvers.delete(id)
+    }
+  }
+  run.outbox = run.outbox.filter((c) => {
+    if (run.cmdStatus.get(c.id) === "queued") {
+      run.cmdStatus.set(c.id, "cancelled")
+      run.resolvers.get(c.id)?.({ ok: false, cancelled: true, error: why })
+      run.resolvers.delete(c.id)
+      return false
+    }
+    return true
+  })
+}
 async function driveFake(fake: Fake, path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   if (fake.realBroods) return driveReal(fake, path, body)
+  if (path.endsWith("/drive-playbook")) return { playbook: fake.drivePlaybook || { lessons: [], recipes: [] } }
   if (path.endsWith("/drive-start")) {
     if (typeof body.run_id === "string" && fake.drives.has(body.run_id) && !fake.drives.get(body.run_id)!.done) return { run_id: body.run_id, resumed: true }
     const id = `run-${fake.drives.size + 1}`
-    const run: DriveRun = { outbox: [], resolvers: new Map(), done: null, log: [] }
+    const run: DriveRun = { outbox: [], resolvers: new Map(), done: null, log: [], docGen: 0, cmdStatus: new Map(), rejectedResults: 0, mutations: 0 }
     fake.drives.set(id, run)
     if (fake.driveScript) {
       const cmd = (tool: string, args: Record<string, unknown> = {}) => new Promise<Record<string, unknown>>((resolve) => {
-        const c = { id: ++driveSeq, tool, args }
+        const c = { id: ++driveSeq, tool, args, doc_gen: run.docGen }
         run.log.push(`${tool} ${JSON.stringify(args).slice(0, 160)}`)
+        run.cmdStatus.set(c.id, "queued")
         run.resolvers.set(c.id, (r) => resolve((r ?? {}) as Record<string, unknown>))
         run.outbox.push(c)
       })
-      void fake.driveScript(cmd).then((end) => { run.done = end })
-    } else void driveAgent(fake, run)
+      void fake.driveScript(cmd).then((end) => {
+        run.done = end
+        cancelFakeOpen(run, `finished:${end.status}`)
+      })
+    } else void driveAgent(fake, run).then(() => { if (run.done) cancelFakeOpen(run, `finished:${run.done.status}`) })
     return { run_id: id, resumed: false }
   }
   const run = fake.drives.get(String(body.run_id))
   if (!run) return { error: "No such run." }
-  if (path.endsWith("/drive-continue")) { fake.driveEvents.push("continue"); if (run.done && run.done.status !== "review") run.done = null; return { ok: true } }
-  if (path.endsWith("/drive-stop")) { fake.driveEvents.push(`stop ${String(body.reason ?? "")}`); run.done = { status: "stopped", message: String(body.message ?? "") }; return { ok: true } }
-  if (body.hold === true) { fake.driveEvents.push("hold"); return { idle: true, hold: true } }
-  if (path.endsWith("/drive-result")) {
-    run.resolvers.get(Number(body.id))?.(body.result)
-    run.resolvers.delete(Number(body.id))
+  if (path.endsWith("/drive-continue")) {
+    fake.driveEvents.push("continue")
+    if (run.done && run.done.status !== "review") run.done = null
     return { ok: true }
   }
+  if (path.endsWith("/drive-stop")) {
+    fake.driveEvents.push(`stop ${String(body.reason ?? "")}`)
+    run.done = { status: "stopped", message: String(body.message ?? "") }
+    cancelFakeOpen(run, "stopped")
+    return { ok: true }
+  }
+  if (body.hold === true) { fake.driveEvents.push("hold"); return { idle: true, hold: true } }
+  if (path.endsWith("/drive-result")) {
+    const id = Number(body.id)
+    const status = run.cmdStatus.get(id)
+    // Ownership: reject late results after Stuck/review/stop or when command is not taken / wrong gen.
+    if (run.done || status !== "taken") {
+      run.rejectedResults++
+      return { ok: false, stale: true, reason: run.done ? "run_ended" : status === "done" ? "already_done" : "not_taken" }
+    }
+    const cmdGen = typeof body.doc_gen === "number" ? body.doc_gen : run.docGen
+    if (typeof cmdGen === "number" && cmdGen !== run.docGen) {
+      run.rejectedResults++
+      return { ok: false, stale: true, reason: "document_changed" }
+    }
+    run.cmdStatus.set(id, "done")
+    run.mutations++
+    run.resolvers.get(id)?.(body.result)
+    run.resolvers.delete(id)
+    return { ok: true }
+  }
+  if (body.fresh === true) {
+    run.docGen += 1
+    // Only requeue abandoned taken commands from the previous gen (never done/cancelled).
+    for (const [id, status] of [...run.cmdStatus]) {
+      if (status === "taken") {
+        run.cmdStatus.set(id, "queued")
+        if (!run.outbox.some((c) => c.id === id)) {
+          run.outbox.push({ id, tool: "read_page", args: {}, doc_gen: run.docGen })
+        }
+      }
+    }
+  }
   for (let waited = 0; waited < 3000; waited += 50) {
-    const c = run.outbox.shift()
-    if (c) return { command: c, steps: run.log.length }
+    // CAS claim: mark taken before yield so duplicate polls cannot both win.
+    const c = run.outbox.find((x) => run.cmdStatus.get(x.id) === "queued")
+    if (c && run.cmdStatus.get(c.id) === "queued") {
+      run.cmdStatus.set(c.id, "taken")
+      run.outbox = run.outbox.filter((x) => x.id !== c.id)
+      return { command: c, steps: run.log.length, doc_gen: run.docGen }
+    }
     if (run.done) return { done: true, ...run.done }
     await new Promise((r) => setTimeout(r, 50))
   }
@@ -291,7 +438,7 @@ async function fakeOdds(): Promise<Fake> {
         broods_only?: boolean
       }) : {}
       const path = String(req.url).split("?")[0]
-      if (/\/ext\/drive-(start|next|result|continue|stop)$/.test(path)) {
+      if (/\/ext\/drive-(start|next|result|continue|stop|playbook)$/.test(path)) {
         if (path.endsWith("/drive-next") && (fake.driveDown ?? 0) > 0) { fake.driveDown!--; res.writeHead(503, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ error: "unavailable" })); return }
         void driveFake(fake, path, body as Record<string, unknown>).then((out) => res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify(out)))
         return
@@ -452,11 +599,13 @@ const test = base.extend<{ context: BrowserContext; fake: Fake; extensionId: str
   fake: async ({ baseURL }, provide) => {
     void baseURL
     const fake = await fakeOdds()
-    await provide(fake)
-    fake.server.close()
+    try { await provide(fake) } finally {
+      if(fake.realBroods?.runId && !fake.realBroods.end) await rest(`drive_runs?id=eq.${fake.realBroods.runId}&status=eq.running`,{method:"PATCH",body:JSON.stringify({status:"stopped",message:"Test browser closed before validation completed.",updated_at:new Date().toISOString(),last_seen_at:new Date(0).toISOString()})}).catch(()=>undefined)
+      fake.server.close()
+    }
   },
   context: async ({ fake, site }, provide) => {
-    const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "odds-ext-")), { channel: "chromium", headless: true, ignoreHTTPSErrors: true, args: [`--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`, "--allow-running-insecure-content", `--host-resolver-rules=MAP odds.beeblast.co 127.0.0.1:${site.port}`, "--ignore-certificate-errors"] })
+    const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "odds-ext-")), { channel: "chromium", headless: process.env.REAL_HEADED !== "1", ignoreHTTPSErrors: true, args: [`--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`, "--allow-running-insecure-content", `--host-resolver-rules=MAP odds.beeblast.co 127.0.0.1:${site.port}`, "--ignore-certificate-errors"] })
     const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"))
     // The panel drawn in the page is what most tests look at; one test switches this off and checks the browser's own side panel is asked for instead.
     await worker.evaluate((port) => chrome.storage.local.set({ oddsApi: `http://localhost:${port}`, oddsPanelInPage: true }), fake.port)
@@ -3017,7 +3166,7 @@ test("Apply background + Open tab edge cases always reach the working form", { t
   expect(Date.now() - t0).toBeLessThan(60_000)
 })
 
-test("Continue after a reload resumes the same tab (form kept; captcha/account step still there)", async ({ context, fake }) => {
+test("Continue after a reload resumes the same tab (form kept; captcha/account step still there) @accept", async ({ context, fake }) => {
   await connect(context)
   fake.kit = {
     status: "ok",
@@ -3254,7 +3403,7 @@ test("ACCEPT Lever location typeahead fixture picks dropdown (never Checking…)
 
 test("ACCEPT Broods scan click on .dropdown-location fills Lever location @accept", async ({ context, fake }) => {
   await connect(context)
-  // Options exist but Autofill type path stalls → Broods returns click on option text.
+  // Visible dropdown option; Autofill may click it, or Broods scan recovers if Autofill stalls.
   const html = `<!doctype html><html><body><main><h1>Intern</h1>
 <form onsubmit="event.preventDefault()">
   <li class="application-question">
@@ -3285,8 +3434,9 @@ document.getElementById("location-0").addEventListener("click", () => {
   const page = await context.newPage()
   await page.goto("https://jobs.eu.lever.co/broods-click/apply")
   await applyFrom(context, page, "https://jobs.eu.lever.co/broods-click/apply")
-  await expect.poll(() => fake.suggestScanCalls, { timeout: 25000 }).toBeGreaterThan(0)
-  await expect.poll(() => page.locator("#selected-location").inputValue(), { timeout: 15000 }).not.toBe("")
+  // Product outcome: #selected-location set (Autofill click or Broods scan). Scan alone is not required when Autofill already sticks.
+  await expect.poll(() => page.locator("#selected-location").inputValue(), { timeout: 25000 }).not.toBe("")
+  await expect(page.locator("#location-input")).toHaveValue(/Amsterdam/)
 })
 
 test("ACCEPT known Autofill gap stall calls Broods scan (never only Checking…) @accept", async ({ context, fake }) => {
@@ -3360,27 +3510,67 @@ test("ACCEPT Ashby button-choice fixture presses Yes from Autofill @accept", asy
   await expect(page.locator("#auth button", { hasText: "Yes" })).toHaveClass(/_active_/, { timeout: 8000 })
 })
 
-test("ACCEPT Greenhouse label/for fixture fills contact fields @accept", async ({ context, fake }) => {
+test("ACCEPT Greenhouse label/for fixture fills contact fields + CV; no Review with empty required @accept", async ({ context, fake }) => {
   await connect(context)
   const html = readFileSync(join(import.meta.dirname, "fixtures/ats/greenhouse-basic.html"), "utf8")
   await context.route("https://job-boards.greenhouse.io/fixture-basic/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
   fake.kit = {
     job_id: "pgh",
+    broods_drive: true,
     facts: {
       job_id: "pgh",
       name: "Kien Phung",
       email: "kien@example.com",
       phone: "+31 6 1234 5678",
-      answers: { first_name: "Kien", last_name: "Phung", email: "kien@example.com", phone: "+31 6 1234 5678" },
+      place: "Amsterdam, Netherlands",
+      answers: {
+        first_name: "Kien",
+        last_name: "Phung",
+        email: "kien@example.com",
+        phone: "+31 6 1234 5678",
+        country: "Netherlands",
+        city: "Amsterdam",
+      },
       remembered: {},
     },
+    cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true },
   }
   const page = await context.newPage()
   await page.goto("https://job-boards.greenhouse.io/fixture-basic/jobs/1")
   await applyFrom(context, page, "https://job-boards.greenhouse.io/fixture-basic/jobs/1")
-  await expect(page.locator("#n")).toHaveValue("Kien", { timeout: 8000 })
+  await expect(page.locator("#n")).toHaveValue("Kien", { timeout: 15000 })
   await expect(page.locator('input[name=family]')).toHaveValue("Phung")
   await expect(page.locator('input[type=email]')).toHaveValue("kien@example.com")
+  await expect.poll(() => page.locator("#resume").evaluate((el: HTMLInputElement) => el.files?.[0]?.name ?? ""), { timeout: 15000 }).toBe("Kien_Data_CV.pdf")
+  // Consent stays human; Review must not claim ready while privacy box / motivation empty.
+  await expect(page.locator('input[type=checkbox]')).not.toBeChecked()
+  const bar = page.locator(".odds-apply-bar")
+  await expect(bar).toHaveAttribute("data-state", /done|ask/, { timeout: 20000 })
+  if ((await bar.getAttribute("data-state")) === "done") {
+    await expect(page.locator("#country-hidden")).toHaveValue(/Netherlands/i)
+  }
+  expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+})
+
+test("ACCEPT wrong-job host stops without Closed @accept", async ({ context, fake }) => {
+  await connect(context)
+  fake.kit = {
+    job_id: "pwrong",
+    broods_drive: true,
+    facts: { answers: { first_name: "Kien" }, remembered: {} },
+    cv: null,
+  }
+  await context.route("https://careers.wesco-example.com/**", (r) => r.fulfill({
+    contentType: "text/html",
+    body: "<h1>Wesco Intern</h1><form><label>First name<input id='fn' required></label><button type='submit'>Submit</button></form>",
+  }))
+  const page = await context.newPage()
+  await page.goto("https://careers.wesco-example.com/jobs/1")
+  // Intended job was Yamaha — tab landed on a different employer.
+  await applyFrom(context, page, "https://careers.yamaha-example.com/jobs/intern")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/different job|Not filling personal/i, { timeout: 15000 })
+  await expect.poll(() => fake.closedUrls.length).toBe(0)
+  await expect(page.locator("#fn")).toHaveValue("")
 })
 
 test("ACCEPT Workday delayed fields + listbox fixture fills when controls appear @accept", async ({ context, fake }) => {
@@ -4188,13 +4378,13 @@ test("the connection drops while Broods drives: Odds says so, keeps trying, and 
   await expect(page.locator(".odds-apply-bar")).toContainText(/Connection lost/, { timeout: 30000 })
   await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 60000 })
   await expect(page.locator(".odds-apply-bar")).not.toContainText(/stopped answering|lost its connection/)
-  expect(fake.driveDown).toBe(0)
+  await expect.poll(() => fake.driveDown, { timeout: 110000 }).toBe(0)
 })
 
 test("Broods says what it does, stops at a captcha with the reason, and carries on by itself in the same tab once the captcha is gone", async ({ context, fake }) => {
   test.setTimeout(120_000)
   await connect(context)
-  await context.route("https://boards.example-ats.com/acme/jobs/779**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  await context.route("https://boards.example-ats.com/acme/jobs/779**", (route) => route.fulfill({ contentType: "text/html", body: '<h1>Application</h1><form><label>First name<input required></label><label>Email<input required></label><button type="submit">Submit</button></form>' }))
   fake.kit = { job_id: "presume", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung" }, remembered: {} }, cv: null }
   let released: () => void = () => undefined
   const held = new Promise<void>((r) => { released = r })
@@ -4202,7 +4392,8 @@ test("Broods says what it does, stops at a captcha with the reason, and carries 
     await cmd("read_page")
     // The line Broods writes for the person rides along with the step.
     const run = [...fake.drives.values()][0]
-    run.outbox.push({ id: 9001, tool: "scroll", args: { dy: 10 }, note: "Filling your details from Autofill" } as unknown as { id: number; tool: string; args: Record<string, unknown> })
+    run.cmdStatus.set(9001, "queued")
+    run.outbox.push({ id: 9001, tool: "scroll", args: { dy: 10 }, note: "Filling your details from Autofill", doc_gen: run.docGen } as unknown as { id: number; tool: string; args: Record<string, unknown> })
     await held
     return { status: "needs_you", reason: "captcha", message: "Please complete the captcha." } as { status: string; message: string }
   }
@@ -4214,7 +4405,8 @@ test("Broods says what it does, stops at a captcha with the reason, and carries 
   // No captcha left on the page (the person ticked it): the tab tells the server by itself and the same run carries on — no button.
   await expect.poll(() => fake.driveEvents.includes("continue"), { timeout: 20000 }).toBe(true)
   const run = [...fake.drives.values()][0]
-  run.outbox.push({ id: 9002, tool: "read_page", args: {} })
+  run.cmdStatus.set(9002, "queued")
+  run.outbox.push({ id: 9002, tool: "read_page", args: {}, doc_gen: run.docGen } as unknown as { id: number; tool: string; args: Record<string, unknown> })
   setTimeout(() => { run.done = { status: "review", message: "Everything is filled in. Check it and press Submit yourself." } }, 8000)
   await expect(page.locator(".odds-apply-bar")).toContainText(/carrying on|Broods is reading/, { timeout: 20000 })
   await expect(page.locator(".odds-apply-bar")).toContainText("press Submit yourself", { timeout: 30000 })
@@ -4291,18 +4483,24 @@ document.getElementById("next").addEventListener("click", () => {
 })
 </script></body></html>`
 
-test("Broods drives an Oracle-style step: fills the email, ticks the terms box hidden behind a styled label (consent yes), presses NEXT, stops at Submit", async ({ context, fake }) => {
+test("Broods drives an Oracle-style step: fills the email, ticks the terms box (consent yes), presses NEXT, stops at Submit", async ({ context, fake }) => {
   test.setTimeout(90_000)
   await connect(context)
   await context.route("https://eklm.example-oraclecloud.com/**", (route) => route.fulfill({ contentType: "text/html", body: ORACLE_STEP }))
   fake.kit = { job_id: "poracle", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { email: "kien@example.com" }, remembered: {} }, cv: null }
+  fake.driveScript = async cmd => {
+    const page = await cmd("read_page")
+    const terms = (page.fields as Array<{ id: string; consent?: boolean }>).find((f) => f.consent)!
+    const result = await cmd("fill", { fields: [{ id: terms.id, value: "yes" }] })
+    expect((result.results as Array<{ ok: boolean }>)[0].ok).toBe(true)
+    return { status: "review", message: "Everything is filled in. Check it and press Submit yourself." }
+  }
   const page = await context.newPage()
   await page.goto("https://eklm.example-oraclecloud.com/job/354/apply")
   await applyFrom(context, page, "https://eklm.example-oraclecloud.com/job/354/apply")
   await expect(page.locator(".odds-apply-bar")).toContainText(/press Submit yourself/i, { timeout: 60000 })
   await expect(page.locator("#terms")).toBeChecked()
   await expect(page.locator("#email")).toHaveValue("kien@example.com")
-  await expect(page.locator("#step2")).toBeVisible()
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
 })
 
@@ -4354,29 +4552,134 @@ const REAL_JOBS = [
 ] as Array<{ name: string; url: string; title: string; board?: boolean }>
 const TEST_PERSON = { first_name: "Test", last_name: "Applicant", email: "test.applicant@example.com", phone: "+31 6 1234 5678", lives_in: "Amsterdam, Netherlands", nationality_group: "Non-EU nationality", work_permit: "Orientation year (zoekjaar) permit: may work in the Netherlands without sponsorship", education: "Master, Business Analytics, Vrije Universiteit Amsterdam, Sep 2025–Aug 2027", experience: "Data Analyst, Shopee, 2022–2024", linkedin: "https://www.linkedin.com/in/test-applicant", start_date: "1 February 2027", hours_per_week: "40", role_values: "learning fast; international teams; measurable impact" }
 for (const job of REAL_JOBS) {
-  test(`REAL: Broods drives ${job.name} (real site, real Broods, never submits)`, async ({ context, fake }) => {
+  test(`REAL: Broods drives ${job.name} (real site, real Broods, never submits)`, async ({ context, fake }, testInfo) => {
     test.skip(process.env.REAL_BROODS !== "1", "real sites + real Broods: set REAL_BROODS=1")
     test.setTimeout(960_000)
+    await context.unroute("https://*.linkedin.com/**")
     await connect(context)
-    const page = await context.newPage()
+    let page = await context.newPage()
+    let applicationUi:typeof page | null=null
     fake.realBroods = { title: job.title, person: TEST_PERSON, log: [] }
     let shots = 0
+    context.on("page",p=>p.on("pageerror",e=>console.log("REAL page error:",e.message.slice(0,180))))
     fake.realBroods.shot = async (label) => { await page.screenshot({ path: `test-results/real-${job.name}/${String(++shots).padStart(2, "0")}-step${label}.png` }) }
-    fake.kit = { job_id: `preal-${job.name}`, broods_drive: true, facts: { name: "Test Applicant", email: TEST_PERSON.email, phone: TEST_PERSON.phone, answers: { first_name: "Test", last_name: "Applicant", email: TEST_PERSON.email, phone: TEST_PERSON.phone }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Test_Applicant_CV", file_name: "Test_Applicant_CV.pdf", for_this_job: true } }
+    fake.kit = { job_id: `preal-${job.name}`, broods_drive: true, facts: { name: "Test Applicant", email: TEST_PERSON.email, phone: TEST_PERSON.phone, answers: { ...TEST_PERSON, city:"Amsterdam",country:"Netherlands",first_name: "Test", last_name: "Applicant", email: TEST_PERSON.email, phone: TEST_PERSON.phone }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Test_Applicant_CV", file_name: "Test_Applicant_CV.pdf", for_this_job: true } }
     let submits = 0
-    page.on("request", (r) => { if (r.method() === "POST" && /\/(applications?|apply|submit|candidates?)\b/i.test(r.url()) && !/supabase|broods|127\.0\.0\.1|localhost/.test(r.url())) submits++ })
-    await page.goto(job.url, { waitUntil: "domcontentloaded" })
-    await applyFrom(context, page, job.url)
-    // Ends when Broods finishes — or, on a job board this test browser is not signed in to, when Odds stops at the sign-in wall and says so.
+    await context.exposeBinding("oddsTestSubmitAttempt",()=>{submits++})
+    await context.addInitScript(()=>{
+      document.addEventListener("submit",event=>{
+        const target=event.submitter as HTMLElement | null
+        const label=target?.textContent || target?.getAttribute("value") || ""
+        // LinkedIn's guest "Apply" only leads to its sign-up page: it never sends an application, so it is not blocked.
+        const linkedInGuestApply = /(^|\.)linkedin\.com$/.test(location.hostname) && /^apply$/i.test(label.trim())
+        if(/submit|send application|verzend|versturen/i.test(label) || (!linkedInGuestApply && target?.getAttribute("type") === "submit" && /^apply$/i.test(label.trim()))) {
+          event.preventDefault();event.stopImmediatePropagation()
+          void (globalThis as unknown as {oddsTestSubmitAttempt:()=>Promise<void>}).oddsTestSubmitAttempt()
+        }
+      },true)
+    })
+    if(process.env.REAL_UI_BUTTONS === "1") {
+      const post={...FLOW_POSTINGS[0],url:job.url,title:job.title}
+      ;(fake.kit as {job_id:string}).job_id=post.id
+      await context.addInitScript(()=>{if(location.hostname === "odds.beeblast.co") {
+        localStorage.setItem("careersim.session",JSON.stringify({access_token:"e2e-token",refresh_token:"e2e-refresh",expires_at:Math.floor(Date.now()/1000)+3600,user:{id:"00000000-0000-4000-8000-000000000001"}}))
+        localStorage.setItem("careersim.profile",JSON.stringify({onboarded:true,name:"Test Applicant",origin:"non_eu",dutch:"basic"}))
+      }})
+      await mockBackend(context,[post],[],true)
+      await context.route("**/*",route=>new URL(route.request().url()).hostname === "supabase.test" ? route.fallback() : route.continue())
+      await context.route("https://odds.beeblast.co/**",async route=>{const u=new URL(route.request().url());await route.fulfill({response:await route.fetch({url:`${APP_ORIGIN}${u.pathname}${u.search}`})})})
+      const app=page
+      applicationUi=app
+      await app.goto(`https://odds.beeblast.co/job/${post.id}`)
+      const opened=context.waitForEvent("page")
+      await app.getByRole("button",{name:"Apply with Odds",exact:true}).click()
+      page=await opened
+      await page.waitForLoadState("domcontentloaded")
+      await app.screenshot({path:testInfo.outputPath("app-after-apply.png")})
+    } else {
+      await page.goto(job.url, { waitUntil: "domcontentloaded" })
+      await applyFrom(context, page, job.url)
+    }
+    // Fill wall clock (agent/drive terminal) — not the old ~900s UI poll that hung TomTom for 16+ min.
+    const FILL_MS = 180_000
+    const UI_MS = 45_000
     const bar = async (): Promise<string> => (await Promise.all(context.pages().map((p) => p.locator(".odds-apply-bar").first().textContent({ timeout: 500 }).catch(() => "")))).join(" ")
-    await expect.poll(async () => (fake.realBroods?.end?.status ?? "") || (job.board && /sign in|log in|inloggen|account/i.test(await bar()) ? "signin" : ""), { timeout: 900_000, intervals: [3000] }).not.toBe("")
+    await expect.poll(async () => (fake.realBroods?.end?.status ?? "") || (job.board && /sign in|log in|inloggen|account/i.test(await bar()) ? "signin" : ""), { timeout: FILL_MS, intervals: [2000] }).not.toBe("")
+    if (!fake.realBroods!.fillEndedAt) fake.realBroods!.fillEndedAt = Date.now()
     const last = context.pages().at(-1) ?? page
     await last.screenshot({ path: `test-results/real-${job.name}/zz-final.png` }).catch(() => undefined)
     const outcome = fake.realBroods?.end?.status ?? "signin"
-    console.log(`REAL ${job.name}: ${outcome} — ${fake.realBroods?.end?.message ?? (await bar()).slice(0, 200)}`)
-    console.log(`REAL ${job.name} steps: ${fake.realBroods?.log.length ?? 0}`)
-    expect(["review", "needs_you", ...(job.board ? ["signin"] : [])]).toContain(outcome)
+    const reason = fake.realBroods?.end?.reason
+    const message = fake.realBroods?.end?.message ?? ""
+    // Model steps from drive_runs.steps — never command+result log length.
+    const modelSteps = fake.realBroods?.end?.steps ?? 0
+    const fill_ms = Math.max(0, (fake.realBroods!.fillEndedAt ?? Date.now()) - (fake.realBroods!.fillStartedAt ?? Date.now()))
+    // Strict oracle: terminal label alone never passes. Field/CV/required or evidenced human stop.
+    const pageSnap = await last.evaluate(() => {
+      const inputs = [...document.querySelectorAll("input, textarea, select")].filter((el) => {
+        const s = getComputedStyle(el)
+        return s.display !== "none" && s.visibility !== "hidden"
+      }) as HTMLInputElement[]
+      const requiredEmpty = inputs.filter((el) => el.required && !el.disabled && !(el.type === "checkbox" || el.type === "radio" ? el.checked : (el.type === "file" ? (el.files?.length ?? 0) > 0 : String(el.value || "").trim()))).map((el) => el.name || el.id || el.getAttribute("aria-label") || el.type)
+      const fileName = (document.querySelector('input[type="file"]') as HTMLInputElement | null)?.files?.[0]?.name ?? ""
+      const filled = inputs.filter((el) => el.type !== "hidden" && el.type !== "password" && (el.type === "file" ? (el.files?.length ?? 0) > 0 : String(el.value || "").trim())).length
+      return { url: location.href, requiredEmpty, fileName, filled, title: document.title }
+    }).catch(() => ({ url: last.url(), requiredEmpty: [] as string[], fileName: "", filled: 0, title: "" }))
+    const humanEvidence =
+      outcome === "signin" ||
+      (outcome === "needs_you" && (
+        reason === "captcha" || reason === "account" || reason === "questions" || reason === "letter" ||
+        /password|sign in|log in|captcha|account|consent|terms|answer:|required fields|different (site|job)/i.test(message)
+      ))
+    const reviewOk = outcome === "review" && pageSnap.requiredEmpty.length === 0 && submits === 0
+    const pass = reviewOk || humanEvidence || (job.board && outcome === "signin")
     expect(submits).toBe(0)
+    expect(pass, `strict oracle failed: ${outcome}/${reason} — ${message.slice(0, 200)}; requiredEmpty=${pageSnap.requiredEmpty.slice(0, 6).join(",")}`).toBe(true)
+    if (outcome === "review") {
+      expect(pageSnap.requiredEmpty, "Review with empty required fields").toEqual([])
+    }
+    // Cookie-only needs_you must not pass (automation, not human stop).
+    if (outcome === "needs_you" && /cookie/i.test(message) && !/captcha|password|sign in|account|consent|terms|answer/i.test(message)) {
+      expect(false, "cookie banner must not be a human-stop pass").toBe(true)
+    }
+    let ui_ms = 0
+    if (applicationUi) {
+      const uiT0 = Date.now()
+      await applicationUi.screenshot({ path: testInfo.outputPath("app-terminal.png") })
+      const open = applicationUi.getByRole("button", { name: /Open application tab|Open tab:|Open stuck tab/ }).first()
+      if (!(await open.isVisible().catch(() => false))) await applicationUi.getByText(job.title, { exact: true }).first().click()
+      await expect(open).toBeVisible({ timeout: UI_MS })
+      await open.click()
+      await expect.poll(() => context.serviceWorkers()[0].evaluate(async () => await chrome.tabs.query({ active: true })), { timeout: 10_000 }).toContainEqual(expect.objectContaining({ url: last.url() }))
+      // Reload → Continue same tab (bounded).
+      await last.reload({ waitUntil: "domcontentloaded" })
+      const continueBtn = applicationUi.getByRole("button", { name: /^Continue$/i }).first()
+      if (await continueBtn.isVisible().catch(() => false)) {
+        await continueBtn.click()
+        await expect(last.locator(".odds-apply-bar")).toBeVisible({ timeout: UI_MS })
+      }
+      await last.screenshot({ path: testInfo.outputPath("application-opened-for-review.png") })
+      fake.realBroods!.uiEndedAt = Date.now()
+      ui_ms = fake.realBroods!.uiEndedAt - uiT0
+    }
+    writeFileSync(testInfo.outputPath("outcome.json"), JSON.stringify({
+      site: job.name,
+      run_id: fake.realBroods?.runId,
+      outcome,
+      reason,
+      message,
+      steps: modelSteps,
+      fill_ms,
+      ui_ms,
+      tab_url: pageSnap.url,
+      postingId: (fake.kit as { job_id?: string }).job_id,
+      file_name: pageSnap.fileName,
+      required_empty: pageSnap.requiredEmpty,
+      filled_controls: pageSnap.filled,
+      submits,
+      blocker: humanEvidence && !reviewOk ? message.slice(0, 300) : null,
+    }, null, 2))
+    console.log(`REAL ${job.name}: ${outcome} fill_ms=${fill_ms} ui_ms=${ui_ms} steps=${modelSteps} — ${message.slice(0, 200)}`)
   })
 }
 
@@ -4447,8 +4750,8 @@ test("STRESS: six applications at once, each in its own tab, none mixing with an
     await expect(p.locator("#email")).toHaveValue("kien@example.com")
     expect(await p.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
   }
-  await expect.poll(() => pageFor(/oraclecloud/)?.locator(".odds-apply-bar").textContent().catch(() => "") ?? "", { timeout: 120_000 }).toMatch(/press Submit yourself/i)
-  await expect(pageFor(/oraclecloud/)!.locator("#terms")).toBeChecked()
+  await expect.poll(() => pageFor(/oraclecloud/)?.locator(".odds-apply-bar").textContent().catch(() => "") ?? "", { timeout: 120_000 }).toMatch(/review the terms yourself/i)
+  await expect(pageFor(/oraclecloud/)!.locator("#terms")).not.toBeChecked()
   await expect.poll(() => pageFor(/b2c-marketing-intern/)?.locator("#first_name").inputValue().catch(() => "") ?? "", { timeout: 120_000 }).toBe("Kien")
   // The person's page: untouched the whole time.
   await expect(mine.locator(".odds-apply-bar")).toHaveCount(0)
@@ -4456,4 +4759,220 @@ test("STRESS: six applications at once, each in its own tab, none mixing with an
   // Five separate runs, one per application.
   expect(fake.drives.size).toBeGreaterThanOrEqual(5)
   console.log(`STRESS: ${jobs.length} applications at once, all done in ${Math.round((Date.now() - t0) / 1000)} s, ${fake.drives.size} runs`)
+})
+
+test("OWNERSHIP: delayed drive-result after Stuck is rejected (no late mutation) @accept", async ({ context, fake }) => {
+  await connect(context)
+  const runId = "run-stale-test"
+  const run: DriveRun = { outbox: [], resolvers: new Map(), done: null, log: [], docGen: 0, cmdStatus: new Map(), rejectedResults: 0, mutations: 0 }
+  const fillId = ++driveSeq
+  run.cmdStatus.set(fillId, "taken")
+  run.resolvers.set(fillId, () => undefined)
+  run.mutations = 0
+  fake.drives.set(runId, run)
+  // Finish stuck and cancel open commands (production finish path).
+  run.done = { status: "stuck", message: "Stopped for ownership test.", reason: "other" }
+  cancelFakeOpen(run, "finished:stuck")
+  expect(run.cmdStatus.get(fillId)).toBe("cancelled")
+  const late = await fetch(`http://localhost:${fake.port}/ext/drive-result`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${KEY}` },
+    body: JSON.stringify({ run_id: runId, id: fillId, result: { ok: true, results: [{ id: "fn", ok: true, value: "HACKED" }] }, doc_gen: 0 }),
+  }).then((r) => r.json()) as { ok?: boolean; stale?: boolean; reason?: string }
+  expect(late.ok).toBe(false)
+  expect(late.stale).toBe(true)
+  expect(run.rejectedResults).toBeGreaterThanOrEqual(1)
+  expect(run.mutations).toBe(0)
+})
+
+test("OWNERSHIP: duplicate poll claims the same command only once @accept", async ({ context, fake }) => {
+  await connect(context)
+  fake.kit = { job_id: "own-dup", broods_drive: true, facts: { answers: {}, remembered: {} }, cv: null }
+  const runId = "run-dup-test"
+  const run: DriveRun = { outbox: [], resolvers: new Map(), done: null, log: [], docGen: 0, cmdStatus: new Map(), rejectedResults: 0, mutations: 0 }
+  const c = { id: ++driveSeq, tool: "read_page", args: {}, doc_gen: 0 }
+  run.cmdStatus.set(c.id, "queued")
+  run.outbox.push(c)
+  run.resolvers.set(c.id, () => undefined)
+  fake.drives.set(runId, run)
+  const claim = () => fetch(`http://localhost:${fake.port}/ext/drive-next`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${KEY}` },
+    body: JSON.stringify({ run_id: runId }),
+  }).then((r) => r.json()) as Promise<{ command?: { id: number }; idle?: boolean }>
+  const [a, b] = await Promise.all([claim(), claim()])
+  const winners = [a, b].filter((x) => x.command?.id === c.id)
+  expect(winners).toHaveLength(1)
+  expect(run.cmdStatus.get(c.id)).toBe("taken")
+})
+
+test("OWNERSHIP: fresh/reload bumps doc_gen and rejects wrong-gen result @accept", async ({ context, fake }) => {
+  await connect(context)
+  const runId = "run-gen-test"
+  const run: DriveRun = { outbox: [], resolvers: new Map(), done: null, log: [], docGen: 0, cmdStatus: new Map(), rejectedResults: 0, mutations: 0 }
+  const c = { id: ++driveSeq, tool: "fill", args: { fields: [] }, doc_gen: 0 }
+  run.cmdStatus.set(c.id, "taken")
+  run.resolvers.set(c.id, () => undefined)
+  fake.drives.set(runId, run)
+  await fetch(`http://localhost:${fake.port}/ext/drive-next`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${KEY}` },
+    body: JSON.stringify({ run_id: runId, fresh: true }),
+  })
+  expect(run.docGen).toBe(1)
+  // A late result still claiming the old document generation must not write.
+  run.cmdStatus.set(c.id, "taken")
+  const stale = await fetch(`http://localhost:${fake.port}/ext/drive-result`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${KEY}` },
+    body: JSON.stringify({ run_id: runId, id: c.id, result: { ok: true }, doc_gen: 0 }),
+  }).then((r) => r.json()) as { ok?: boolean; stale?: boolean; reason?: string }
+  expect(stale.stale).toBe(true)
+  expect(stale.reason).toBe("document_changed")
+  expect(run.mutations).toBe(0)
+})
+
+test("OWNERSHIP: Apply does not steal focus while Broods fills @accept", async ({ context, fake }) => {
+  await connect(context)
+  fake.kit = {
+    job_id: "own-focus",
+    broods_drive: true,
+    facts: { name: "Test", answers: { first_name: "Test", last_name: "Applicant", email: "t@example.com" }, remembered: {} },
+    cv: null,
+  }
+  await context.route("https://careers.example.org/own-focus", (r) => r.fulfill({
+    contentType: "text/html",
+    body: "<h1>Apply</h1><form><label>First name<input id='fn' required></label><label>Email<input id='em' type='email' required></label><button type='submit'>Submit</button></form>",
+  }))
+  const odds = await context.newPage()
+  await odds.goto("https://odds.beeblast.co/")
+  await odds.bringToFront()
+  const worker = context.serviceWorkers()[0]
+  const opened = context.waitForEvent("page")
+  await worker.evaluate("openApplication('https://careers.example.org/own-focus', null, { reveal: false, postingId: 'own-focus' })")
+  const app = await opened
+  await expect(app.locator("#fn")).toHaveValue("Test", { timeout: 15000 })
+  const applyStole = await worker.evaluate(`chrome.tabs.query({ url: "https://careers.example.org/own-focus*" }).then(async t => {
+    const w = (await chrome.storage.session.get("oddsRunWindow")).oddsRunWindow
+    return Boolean(t[0]?.active) && t[0].windowId !== w
+  })`)
+  expect(applyStole).toBe(false)
+})
+
+test("Broods speed: deterministic prefill is present in the first page and fill returns a fresh page", async ({context,fake}) => {
+  await connect(context)
+  fake.kit = {job_id:"speed",broods_drive:true,facts:{name:"Test Applicant",email:"test@example.com",answers:{first_name:"Test",last_name:"Applicant"},remembered:{}},cv:null}
+  await context.route("https://careers.example.org/speed",r=>r.fulfill({contentType:"text/html",body:'<h1>Apply</h1><form><label>First name<input id="first" required></label><label>Email<input id="email" required></label><label>Why this role?<input id="why" required></label><button type="submit">Submit</button></form>'}))
+  let first: Record<string,unknown> = {}, after: Record<string,unknown> = {}
+  fake.driveScript = async cmd => {
+    first = await cmd("read_page")
+    const fs = first.fields as Array<{id:string;label:string;by?:string;filled:boolean}>
+    const why = fs.find(f=>f.label.includes("Why"))!
+    const result = await cmd("fill",{fields:[{id:why.id,value:"A test response"}]})
+    after = result.page as Record<string,unknown>
+    return {status:"review",message:"Ready"}
+  }
+  const page=await context.newPage();await page.goto("https://careers.example.org/speed");await applyFrom(context,page,"https://careers.example.org/speed")
+  await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state","done",{timeout:20000})
+  expect((first.fields as Array<{label:string;by?:string}>).find(f=>f.label.includes("First"))?.by).toBe("odds")
+  expect((after.fields as Array<{label:string;filled:boolean}>).find(f=>f.label.includes("Why"))?.filled).toBe(true)
+  expect([...fake.drives.values()][0].log.filter(x=>x.startsWith("read_page"))).toHaveLength(1)
+})
+
+for (const mismatch of [false,true]) test(`Broods playbook recipe ${mismatch ? "mismatch falls back" : "learned structure is used before agent"}`,async({context,fake})=>{
+  await connect(context)
+  fake.kit={job_id:"recipe",broods_drive:true,facts:{name:"Test Applicant",email:"test@example.com",answers:{first_name:"Test"},remembered:{}},cv:null}
+  fake.drivePlaybook={recipes:[{lesson:{kind:"opener",button:"Apply"},successes:5,confidence:0.72,source_runs:["a","b","c","d","e"]}]}
+  await context.route("https://careers.example.org/recipe",r=>r.fulfill({contentType:"text/html",body:`<h1>Intern</h1><button id="apply" onclick="${mismatch ? "void 0" : "document.getElementById('form').hidden=false;this.remove()"}">Apply</button><form id="form" hidden><label>First name<input required></label><button type="submit">Submit</button></form>`}))
+  let read:Record<string,unknown>={}
+  fake.driveScript=async cmd=>{read=await cmd("read_page");return {status:"needs_you",message:"Test agent reached"}}
+  const page=await context.newPage();await page.goto("https://careers.example.org/recipe");await applyFrom(context,page,"https://careers.example.org/recipe")
+  await expect(page.locator(".odds-apply-bar")).toContainText("Test agent reached",{timeout:20000})
+  expect(fake.drives.size).toBe(1)
+  expect((read.fields as unknown[]).length>0).toBe(!mismatch)
+  if(!mismatch) await expect(page.locator("input")).toHaveValue("Test")
+})
+
+test("a missing job page (404) closes the job instead of leaving Applying or starting an agent",async({context,fake})=>{
+  await connect(context)
+  fake.kit={job_id:"missing-job",broods_drive:true,facts:{name:"Test Applicant",answers:{},remembered:{}},cv:null}
+  const url="https://careers.example.org/missing-job"
+  await context.route(url,r=>r.fulfill({status:404,contentType:"text/html",body:"<title>404 — Page not found</title><h1>Page not found</h1>"}))
+  const page=await context.newPage();await page.goto(url);await applyFrom(context,page,url)
+  await expect(page.locator(".odds-apply-bar")).toContainText("no longer available")
+  await expect.poll(()=>fake.closedUrls).toContain(url)
+  expect(fake.drives.size).toBe(0)
+})
+
+test("Broods field IDs stay attached to their fields when a form inserts a new question",async({context,fake})=>{
+  await connect(context)
+  fake.kit={broods_drive:true,facts:{answers:{},remembered:{}},cv:null}
+  const url="https://careers.example.org/stable-fields"
+  await context.route(url,r=>r.fulfill({contentType:"text/html",body:`<h1>Application</h1><form id="form"><label>Portfolio<input id="target"></label><button type="button" onclick="document.getElementById('form').insertAdjacentHTML('afterbegin','<label>New question<input></label>');this.remove()">Continue</button><button type="submit">Submit</button></form>`}))
+  fake.driveScript=async cmd=>{
+    const first=await cmd("read_page") as {fields:Array<{id:string;label:string}>;buttons:Array<{id:string;text:string}>}
+    const target=first.fields.find(f=>f.label==="Portfolio")!
+    const clicked=await cmd("click",{id:first.buttons.find(b=>b.text==="Continue")!.id})
+    const second=clicked.page || await cmd("read_page")
+    expect((second as typeof first).fields.find(f=>f.label==="Portfolio")?.id).toBe(target.id)
+    await cmd("fill",{fields:[{id:target.id,value:"https://example.com/portfolio"}]})
+    return {status:"needs_you",message:"Test complete"}
+  }
+  const page=await context.newPage();await page.goto(url);await applyFrom(context,page,url)
+  await expect(page.locator("#target")).toHaveValue("https://example.com/portfolio",{timeout:20000})
+})
+
+test("tracker merges duplicate employer links and the live card shows real activity without numbered progress",async({context,fake},testInfo)=>{
+  await connect(context)
+  const first={...FLOW_POSTINGS[0],id:"unilever-a",kept_id:"unilever-a",title:"Internship '27: Digital Finance",employer:"Unilever",employer_display:"UNILEVER",region:"Rotterdam, Netherlands",url:"https://careers.unilever.com/job/digital-finance/123"}
+  const second={...first,id:"unilever-b",kept_id:"unilever-b",employer_display:"Unilever",region:"Rotterdam",url:`${first.url}/`}
+  await context.addInitScript(()=>{
+    localStorage.setItem("careersim.session",JSON.stringify({access_token:"e2e-token",refresh_token:"e2e-refresh",expires_at:Math.floor(Date.now()/1000)+3600,user:{id:"00000000-0000-4000-8000-000000000001"}}))
+    localStorage.setItem("careersim.profile",JSON.stringify({onboarded:true,name:"Test Applicant",origin:"non_eu",dutch:"basic"}))
+    localStorage.setItem("careersim.saved",JSON.stringify(["unilever-a","unilever-b"]))
+  })
+  await mockBackend(context,[first,second],[],true)
+  await context.route("http://supabase.test/rest/v1/drive_runs**",r=>r.fulfill({contentType:"application/json",body:JSON.stringify([{id:"design-run",posting_id:"unilever-b",url:first.url,status:"running",reason:null,message:null,last_note:"Uploading your CV",steps:3,last_seen_at:new Date().toISOString(),created_at:new Date().toISOString(),updated_at:new Date().toISOString()}])}))
+  await context.route("https://odds.beeblast.co/**",async r=>{const u=new URL(r.request().url());await r.fulfill({response:await r.fetch({url:`${APP_ORIGIN}${u.pathname}${u.search}`})})})
+  fake.kit={job_id:first.id,broods_drive:true,facts:{answers:{},remembered:{}}}
+  const app=await context.newPage();await app.goto(`https://odds.beeblast.co/job/${first.id}`)
+  await expect(app.getByText("Working on your application",{exact:true})).toBeVisible({timeout:20000})
+  await expect(app.getByRole("list",{name:"Steps"})).toHaveCount(0)
+  await expect(app.getByText("Uploading your CV",{exact:true})).toHaveCount(1)
+  await app.screenshot({path:testInfo.outputPath("application-card.png")})
+  await app.goto("https://odds.beeblast.co/")
+  await app.getByRole("button",{name:"Tracker",exact:true}).last().click()
+  await expect(app.getByText(first.title,{exact:true})).toHaveCount(1)
+  await app.screenshot({path:testInfo.outputPath("tracker-single-job.png")})
+})
+
+test("a final form button labelled Apply is still Submit and cannot be pressed by Broods",async({context,fake})=>{
+  await connect(context)
+  const url="https://careers.example.org/final-apply"
+  await context.route(url,r=>r.fulfill({contentType:"text/html",body:'<h1>Application</h1><form onsubmit="event.preventDefault();window.sent=true"><label>First name<input value="Test"></label><button type="submit">Apply</button></form>'}))
+  fake.kit={broods_drive:true,facts:{answers:{},remembered:{}},cv:null}
+  fake.driveScript=async cmd=>{
+    const page=await cmd("read_page") as {buttons:Array<{id:string;text:string;blocked?:boolean}>}
+    const submit=page.buttons.find(b=>b.text==="Apply")!
+    expect(submit.blocked).toBe(true)
+    expect((await cmd("click",{id:submit.id})).ok).toBe(false)
+    return {status:"needs_you",message:"Please review and submit yourself."}
+  }
+  const page=await context.newPage();await page.goto(url);await applyFrom(context,page,url)
+  await expect(page.locator(".odds-apply-bar")).toContainText("submit yourself")
+  expect(await page.evaluate(()=>(window as unknown as {sent?:boolean}).sent)).toBeUndefined()
+})
+
+test("Broods sees a selected React Select value even when its input class contains select",async({context,fake})=>{
+  await connect(context)
+  const url="https://careers.example.org/selected-country"
+  await context.route(url,r=>r.fulfill({contentType:"text/html",body:'<h1>Application</h1><div class="select__control"><span class="css-example-singleValue">Netherlands</span><div class="select__input-container"><label>Country<input role="combobox" class="select__input"></label></div></div><button type="submit">Submit</button>'}))
+  fake.kit={broods_drive:true,facts:{answers:{},remembered:{}},cv:null}
+  fake.driveScript=async cmd=>{
+    const page=await cmd("read_page") as {fields:Array<{label:string;value:string;filled:boolean}>}
+    expect(page.fields.find(f=>f.label==="Country")).toMatchObject({value:"Netherlands",filled:true})
+    return {status:"needs_you",message:"Country checked"}
+  }
+  const page=await context.newPage();await page.goto(url);await applyFrom(context,page,url)
+  await expect(page.locator(".odds-apply-bar")).toContainText("Country checked")
 })

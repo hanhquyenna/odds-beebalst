@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test"
-import { applyActivityLabel, applyActivityOf, dismissDriveRun, driveOf, isLiveApply, recordApplyActivity, sentAskOf, syncApplyActivities, syncDriveRuns } from "./apply-activity"
+import { applyActivityLabel, applyActivityOf, dismissDriveRun, driveOf, driveWhy, isLiveApply, recordApplyActivity, sentAskOf, syncApplyActivities, syncDriveRuns } from "./apply-activity"
 import type { DriveRun } from "./drive-run-state"
 
 const store = new Map<string, string>()
@@ -16,7 +16,7 @@ beforeEach(() => {
   })
 })
 
-const NOW = Date.parse("2026-10-16T12:00:00Z")
+const NOW = Date.now()
 const run = (over: Partial<DriveRun> = {}): DriveRun => ({
   id: "r1", posting_id: "p1", url: "https://jobs.example.com/apply", status: "running", reason: null, message: null,
   last_note: "Filling your details from Autofill", steps: 7, last_seen_at: new Date(NOW - 5_000).toISOString(),
@@ -55,14 +55,17 @@ describe("a Broods run is a temporary layer over the job's own status", () => {
     }
   })
 
-  test("the tab closes: the layer goes at once and the job shows its own status again", () => {
+  test("the tab closes on Captcha: recovery chip + Reopen, not a dead Open or silent drop", () => {
     syncDriveRuns([run({ status: "needs_you", reason: "captcha" })], NOW)
     expect(label()).toBe("Captcha")
+    syncDriveRuns([run({ status: "needs_you", reason: "captcha", last_seen_at: new Date(0).toISOString() })], NOW)
+    expect(label()).toBe("Captcha")
+    expect(applyActivityOf("p1")!.message).toMatch(/tab was closed|Reopen application/i)
     syncDriveRuns([run({ status: "stopped", last_seen_at: new Date(0).toISOString() })], NOW)
     expect(applyActivityOf("p1")).toBeNull()
   })
 
-  test("Chrome gone or asleep (no check-in for 90 s): no layer, never a dead Applying…", () => {
+  test("Chrome gone or asleep while still Applying… (no check-in for 90 s): no layer, never a dead Applying…", () => {
     syncDriveRuns([run({ last_seen_at: new Date(NOW - 120_000).toISOString() })], NOW)
     expect(applyActivityOf("p1")).toBeNull()
   })
@@ -104,4 +107,37 @@ describe("a Broods run is a temporary layer over the job's own status", () => {
     a.at = Date.now() - 11 * 60_000
     expect(isLiveApply(a)).toBe(false)
   })
+})
+
+
+test("the newest run wins when duplicate source IDs resolve to one job",()=>{
+  syncDriveRuns([run({id:"new",created_at:new Date(NOW-1000).toISOString()}),run({id:"old",status:"stuck",created_at:new Date(NOW-60000).toISOString()})],NOW)
+  expect(driveOf("p1")?.runId).toBe("new")
+  expect(label()).toBe("Applying…")
+})
+
+test("UX: quiet Applying… after 15s names waiting, not fake activity", () => {
+  syncDriveRuns([run({ last_note: "Reading the page", updated_at: new Date(NOW - 20_000).toISOString() })], NOW)
+  const d = driveOf("p1")!
+  expect(label()).toBe("Applying…")
+  expect(driveWhy(d, NOW)).toMatch(/Waiting/)
+})
+
+test("UX: wrong-job message is Wrong job chip, not Closed", () => {
+  syncDriveRuns([run({
+    status: "needs_you",
+    reason: "other",
+    message: "The link opens a different job (wesco.com instead of yamaha.com). Not filling personal details.",
+  })], NOW)
+  expect(label()).toBe("Wrong job")
+  expect(label()).not.toBe("Closed")
+})
+
+test("UX: consent needs_you is Your consent", () => {
+  syncDriveRuns([run({
+    status: "needs_you",
+    reason: "other",
+    message: "Please review the privacy statement and consent yourself.",
+  })], NOW)
+  expect(label()).toBe("Your consent")
 })

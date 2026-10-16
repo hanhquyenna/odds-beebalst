@@ -1,16 +1,24 @@
 import { useEffect, useState } from "react"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
-import { ChevronDownIcon } from "@/components/icons"
+import { CheckIcon, ExternalLinkIcon, ChevronDownIcon, TriangleAlertIcon } from "@/components/icons"
 import { STEPS, moveJob, stepOf, type Step } from "@/components/job-steps"
 import { useFit } from "@/components/FitCells"
 import { toast } from "sonner"
 import { applyActivityLabel, applyActivityOf, clearApplyActivity, dismissDriveRun, driveOf, isLiveApply, useApplyActivityTick, type DriveInfo } from "@/lib/apply-activity"
+import { Spinner } from "@/components/ui/spinner"
 import { driveControl } from "@/lib/drive-runs"
 import { prepareInExtension } from "@/lib/extension-connect"
 import { useData } from "@/lib/data"
 import { removeFromList } from "@/lib/save"
 import { lookOf, statusColors } from "@/lib/status-colors"
 import type { Posting } from "@/lib/types"
+
+function LiveMark({label}:{label:string}):React.JSX.Element {
+  if(label === "Applying…") return <Spinner aria-hidden="true" className="size-3.5 shrink-0 text-brand"/>
+  if(label === "Review & send") return <CheckIcon aria-hidden="true" weight="bold" className="size-3.5 shrink-0 text-good-foreground"/>
+  if(label === "Wrong job" || label === "Reconnect") return <TriangleAlertIcon aria-hidden="true" weight="bold" className="size-3.5 shrink-0 text-amber-700"/>
+  return <ExternalLinkIcon aria-hidden="true" className="size-3.5 shrink-0 text-foreground"/>
+}
 
 const LIVE = "__live__"
 const ACT = { open: "__open__", cont: "__continue__", stop: "__stop__", sent: "__sent__", answer: "__answer__" } as const
@@ -154,11 +162,11 @@ export function StatusPicker({ post, fit, onLocked }: { post: Posting; fit: stri
     <span
       title={c.title}
       style={c.liveApply ? undefined : c.look.style}
-      className={`relative inline-flex h-8 min-w-[7.5rem] items-center gap-2 rounded-lg border-[1.5px] pr-7 pl-3 text-sm font-medium transition-colors duration-150 hover:brightness-95 ${c.liveApply ? "border-brand bg-brand/10 text-brand" : c.look.style ? "" : "bg-card text-foreground"}`}
+      className={`relative inline-flex h-8 min-w-[7rem] items-center gap-2 rounded-full border pr-7 pl-3 text-sm font-semibold transition-colors duration-150 hover:brightness-95 ${c.liveApply ? "border-line bg-card text-foreground" : c.look.style ? "" : "bg-card text-foreground"}`}
     >
-      {c.liveApply ? <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-brand motion-safe:animate-pulse" /> : null}
+      {c.liveApply ? <LiveMark label={c.label}/> : null}
       <span className="truncate">{c.label}</span>
-      <ChevronDownIcon className="pointer-events-none absolute right-2.5 size-3.5 opacity-80" style={{ color: c.liveApply ? "var(--brand)" : c.look.ink }} aria-hidden="true" />
+      <ChevronDownIcon className="pointer-events-none absolute right-2.5 size-3.5 opacity-80" style={{ color: c.liveApply ? "var(--foreground)" : c.look.ink }} aria-hidden="true" />
       <select
         aria-label="Status"
         value={c.value}
@@ -184,8 +192,8 @@ export function RowStatus({ post, onOpen }: { post: Posting; onOpen?: (post: Pos
   const c = useStatusControl(post, fit, onOpen)
 
   return (
-    <span title={c.title} style={c.liveApply ? undefined : c.look.style} className={`relative z-10 inline-flex h-8 w-32 items-center gap-2 rounded-lg border-[1.5px] pr-7 pl-3 text-sm font-medium transition-colors duration-150 focus-within:ring-3 focus-within:ring-ring/50 hover:brightness-95 ${c.liveApply ? "border-brand bg-brand/10 text-brand" : c.look.style ? "" : "bg-card text-foreground"}`}>
-      <span aria-hidden="true" style={{ backgroundColor: c.liveApply ? "var(--brand)" : (c.look.ink ?? "var(--border)") }} className={`size-2 shrink-0 rounded-full ${c.liveApply && c.label === "Applying…" ? "motion-safe:animate-pulse" : ""}`} />
+    <span title={c.title} style={c.liveApply ? undefined : c.look.style} className={`relative z-10 inline-flex h-8 min-w-28 max-w-40 items-center gap-2 rounded-full border pr-7 pl-3 text-sm font-semibold transition-colors duration-150 focus-within:ring-3 focus-within:ring-ring/50 hover:brightness-95 ${c.liveApply ? "border-line bg-card text-foreground" : c.look.style ? "" : "bg-card text-foreground"}`}>
+      {c.liveApply ? <LiveMark label={c.label}/> : <span aria-hidden="true" style={{backgroundColor:c.look.ink ?? "var(--border)"}} className="size-2 shrink-0 rounded-full"/>}
       <span className="truncate">{c.label}</span>
       <ChevronDownIcon className="pointer-events-none absolute right-2.5 size-3.5 opacity-80" aria-hidden="true" />
       <select aria-label={`Status of ${post.title}`} value={c.value} onChange={(e) => c.pick(e.target.value as Pick)} className="absolute inset-0 size-full cursor-pointer opacity-0">

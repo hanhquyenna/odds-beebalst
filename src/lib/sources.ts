@@ -177,5 +177,21 @@ export function mergeByView<T extends Posting>(posts: ReadonlyArray<T>): { jobs:
 
 /** One entry per job, from the database's own merge where the rows come from the view, else worked out here. */
 export function mergePool<T extends Posting>(posts: ReadonlyArray<T>): { jobs: T[]; alias: Map<string, string> } {
-  return mergeByView(posts) ?? dedupe(posts)
+  const merged = mergeByView(posts) ?? dedupe(posts)
+  const urls = new Map<string,string>(), jobs:T[]=[]
+  for(const post of merged.jobs) {
+    let key=""
+    try { const u=new URL(post.url || "");u.hash="";u.pathname=u.pathname.replace(/\/+$/,
+      "") || "/";key=`${u.toString()}|${norm(post.employer_display)}|${cleanTitle(post)}` } catch { /* Missing links do not establish identity. */ }
+    const kept=key ? urls.get(key) : undefined
+    if(kept) merged.alias.set(post.id,kept)
+    else {jobs.push(post);if(key)urls.set(key,post.id)}
+  }
+  for(const [from,to] of merged.alias) {
+    let target=to
+    const seen=new Set([from])
+    while(merged.alias.has(target) && !seen.has(target)) {seen.add(target);target=merged.alias.get(target)!}
+    merged.alias.set(from,target)
+  }
+  return {jobs,alias:merged.alias}
 }

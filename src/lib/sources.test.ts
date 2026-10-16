@@ -78,3 +78,11 @@ describe("the database's own merge", () => {
     expect(mergePool([post({ id: "a" }), post({ id: "b", employer_display: "Philips" })]).jobs).toHaveLength(2)
   })
 })
+
+test("identical employer URLs with a trailing slash merge even when database kept IDs differ",()=>{
+  const a=post({id:"unilever-a",title:"Internship '27: Digital Finance",employer_display:"UNILEVER",region:"Rotterdam, Netherlands",url:"https://careers.unilever.com/job/digital-finance/123",kept_id:"unilever-a"})
+  const b=post({...a,id:"unilever-b",employer_display:"Unilever",region:"Rotterdam",url:`${a.url}/`,kept_id:"unilever-b"})
+  const result=mergePool([a,b])
+  expect(result.jobs).toHaveLength(1)
+  expect(result.alias.get("unilever-b")).toBe("unilever-a")
+})
