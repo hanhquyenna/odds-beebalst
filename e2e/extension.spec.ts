@@ -120,6 +120,10 @@ async function driveAgent(fake: Fake, run: DriveRun): Promise<void> {
     if (left.length) { run.done = { status: "needs_you", message: `Answer: ${left.map((f) => f.label).join("; ")}` }; return }
     if (next) { await cmd("click", { id: next.id }); continue }
     if ((page.buttons ?? []).some((b) => b.blocked && /submit/i.test(b.text))) { run.done = { status: "review", message: "Everything is filled in. Check it and press Submit yourself." }; return }
+    // A list of vacancies: open the link that names this job (most of its title's words), as Broods does.
+    const title = String((fake.kit as { job_title?: string }).job_title ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3)
+    const named = title.length >= 2 ? (page.buttons ?? []).find((b) => !b.blocked && title.filter((w) => b.text.toLowerCase().includes(w)).length / title.length >= 0.6 && (tried.get(b.id + "link") ?? 0) < 1) : undefined
+    if (named) { tried.set(named.id + "link", 1); await cmd("click", { id: named.id }); continue }
     run.done = { status: "stuck", message: "No way forward on this page." }
     return
   }
@@ -146,7 +150,7 @@ async function startRealBroods(runId: string, url: string, title: string, person
   const token = `buat_${body}.${b64(new Uint8Array(await crypto.subtle.sign("HMAC", ck, enc.encode(body))))}`
   const task = { run_id: runId, job: { title, url }, person, goal: "Apply to this job in the person's browser tab with the odds-browser tools until only Submit is left (finish review), or something only the person can do (finish needs_you)." }
   void fetch("https://gateway.broods.app/v1/runs", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "text/event-stream", "X-Broods-User-Token": token },
-    body: JSON.stringify({ agentId: "js76teefba050scj7h6wp8n04x8ga3ac", eventId: crypto.randomUUID(), conversationKey: `odds-drive-${runId}`, events: [{ role: "user", content: [{ type: "text", text: JSON.stringify(task) }] }] }) }).then((r) => r.text()).catch(() => "")
+    body: JSON.stringify({ agentId: "js76teefba050scj7h6wp8n04x8ga3ac", eventId: crypto.randomUUID(), conversationKey: `odds-test-${runId}`, events: [{ role: "user", content: [{ type: "text", text: JSON.stringify(task) }] }] }) }).then((r) => r.text()).catch(() => "")
 }
 async function driveReal(fake: Fake, path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const real = fake.realBroods!
@@ -4316,4 +4320,47 @@ test("the person takes the application tab for something else (types another add
   await app.waitForTimeout(8000)
   await expect(app.locator(".odds-apply-bar")).toHaveCount(0)
   await expect(app.locator("#q")).toHaveValue("")
+})
+
+test("STRESS: six applications at once, each in its own tab, none mixing with another, and the person's own page left alone", async ({ context, fake }) => {
+  test.setTimeout(240_000)
+  await connect(context)
+  const form = (n: number) => EMPLOYER_FORM.replace("<h1>Data Intern</h1>", `<h1>Data Intern ${n}</h1>`)
+  await context.route("https://boards.example-ats.com/stress/jobs/**", (route) => { const n = Number(/jobs\/(\d+)/.exec(route.request().url())?.[1] ?? 0); return route.fulfill({ contentType: "text/html", body: form(n) }) })
+  await context.route("https://eklm.example-oraclecloud.com/**", (route) => route.fulfill({ contentType: "text/html", body: ORACLE_STEP }))
+  await context.route("https://career.example-brands.eu/**", (route) => route.fulfill({ contentType: "text/html", body: /b2c-marketing-intern/.test(route.request().url()) ? VACANCY_FORM : VACANCY_LIST(true) }))
+  await context.route("https://dashboard.example-tool.com/**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><html><body><h1>My dashboard</h1><input id='q'><button>Refresh</button></body></html>" }))
+  fake.kit = { job_id: "pstress", job_title: "B2C MARKETING INTERN (CONTENT & RETAIL)", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", linkedin: "https://www.linkedin.com/in/kien", answers: { first_name: "Kien", last_name: "Phung", email: "kien@example.com", phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true } }
+  // The person's own page, open the whole time.
+  const mine = await context.newPage()
+  await mine.goto("https://dashboard.example-tool.com/runs")
+  const worker = context.serviceWorkers()[0]
+  const jobs = [
+    "https://boards.example-ats.com/stress/jobs/1",
+    "https://boards.example-ats.com/stress/jobs/2",
+    "https://boards.example-ats.com/stress/jobs/3",
+    "https://eklm.example-oraclecloud.com/job/777/apply",
+    "https://career.example-brands.eu/nl/retail/jobs",
+  ]
+  const t0 = Date.now()
+  await Promise.all(jobs.map((url, i) => worker.evaluate(`openApplication(${JSON.stringify(url)}, null, { postingId: "pstress-${i}" })`)))
+  // Every application reaches its own end: the forms leave SQL to the person, Oracle and the job list reach Submit.
+  const pageFor = (re: RegExp) => context.pages().find((p) => re.test(p.url()))
+  for (const n of [1, 2, 3]) {
+    await expect.poll(() => pageFor(new RegExp(`stress/jobs/${n}$`))?.locator(".odds-apply-bar").textContent().catch(() => "") ?? "", { timeout: 120_000 }).toMatch(/Answer: .*SQL/)
+    const p = pageFor(new RegExp(`stress/jobs/${n}$`))!
+    await expect(p.locator("h1")).toHaveText(`Data Intern ${n}`)
+    await expect(p.locator("#first_name")).toHaveValue("Kien")
+    await expect(p.locator("#email")).toHaveValue("kien@example.com")
+    expect(await p.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+  }
+  await expect.poll(() => pageFor(/oraclecloud/)?.locator(".odds-apply-bar").textContent().catch(() => "") ?? "", { timeout: 120_000 }).toMatch(/press Submit yourself/i)
+  await expect(pageFor(/oraclecloud/)!.locator("#terms")).toBeChecked()
+  await expect.poll(() => pageFor(/b2c-marketing-intern/)?.locator("#first_name").inputValue().catch(() => "") ?? "", { timeout: 120_000 }).toBe("Kien")
+  // The person's page: untouched the whole time.
+  await expect(mine.locator(".odds-apply-bar")).toHaveCount(0)
+  await expect(mine.locator("#q")).toHaveValue("")
+  // Five separate runs, one per application.
+  expect(fake.drives.size).toBeGreaterThanOrEqual(5)
+  console.log(`STRESS: ${jobs.length} applications at once, all done in ${Math.round((Date.now() - t0) / 1000)} s, ${fake.drives.size} runs`)
 })

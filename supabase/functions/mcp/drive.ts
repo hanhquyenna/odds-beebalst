@@ -209,35 +209,16 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
     person: facts,
     goal: "Apply to this job in the person's browser tab with the odds-browser tools until only Submit is left (finish review), or something only the person can do (finish needs_you).",
   }
+  // A background run: Broods accepts it (202) and keeps working on its side for as long as the form takes. Holding the stream open
+  // here capped every run at this function's ~150 s wall clock ("Caller stopped reading the stream" cancelled real applications).
+  // The agent reports its end through the finish tool; the extension says so when Broods goes quiet.
   const res = await fetch(`${base}/v1/runs`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "text/event-stream", "X-Broods-User-Token": await signUserToken(run.user_id, secret) },
-    body: JSON.stringify({ agentId, eventId: crypto.randomUUID(), conversationKey: `odds-drive-${run.id}`, events: [{ role: "user", content: [{ type: "text", text: JSON.stringify(task).slice(0, 20_000) }] }] }),
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "application/json", "X-Broods-User-Token": await signUserToken(run.user_id, secret) },
+    body: JSON.stringify({ agentId, eventId: crypto.randomUUID(), conversationKey: `odds-drive-${run.id}`, background: true, events: [{ role: "user", content: [{ type: "text", text: JSON.stringify(task).slice(0, 20_000) }] }] }),
   }).catch(() => null)
-  if (!res?.ok || !res.body) return `Broods did not start (${res?.status ?? "no answer"}).`
-  // Keep reading so the run is not dropped; the agent reports its end through the finish tool, not this stream.
-  const reader = res.body.getReader()
-  const drain = (async () => {
-    const dec = new TextDecoder()
-    let tail = ""
-    const until = Date.now() + 380_000
-    try {
-      while (Date.now() < until) {
-        const { done, value } = await reader.read()
-        if (done) break
-        tail = (tail + dec.decode(value, { stream: true })).slice(-4000)
-      }
-    } catch { /* stream closed */ }
-    const fresh = await runOf(env, run.id).catch(() => null)
-    // The agent ended without calling finish: say so, never a silent run.
-    if (fresh?.status === "running") {
-      const err = /"type":"error","error":"([^"]{0,200})/.exec(tail)?.[1]
-      await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ status: "stuck", message: err ? `Broods stopped: ${err}` : "Broods stopped before the end of the form.", updated_at: new Date().toISOString() }) }).catch(() => undefined)
-    }
-  })()
-  // deno-lint-ignore no-explicit-any
-  const rt = (globalThis as any).EdgeRuntime
-  if (rt?.waitUntil) rt.waitUntil(drain)
+  if (!res || (res.status !== 202 && !res.ok)) return `Broods did not start (${res?.status ?? "no answer"}${res ? `: ${(await res.text().catch(() => "")).slice(0, 160)}` : ""}).`
+  await res.body?.cancel().catch(() => undefined)
   return null
 }
 

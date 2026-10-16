@@ -151,7 +151,10 @@
       q.el[i].click()
       // The newer form listens on the choice around the radio.
       if (!q.el[i].checked) q.el[i].closest('[role="radio"]')?.click()
-      return true
+      // Some steps hide the input behind its label: the label is what takes the click.
+      if (!q.el[i].checked) (q.group.querySelector(`label[for="${CSS.escape(q.el[i].id || "__none__")}"]`) || q.el[i].closest("label"))?.click()
+      if (!q.el[i].checked) { q.el[i].checked = true; for (const name of ["input", "change", "click"]) q.el[i].dispatchEvent(new Event(name, { bubbles: true })) }
+      return q.el[i].checked
     }
     type(q.el, A.valueFor(q.kind, q.label, answer, besideCountry))
     if (q.typeahead) {
