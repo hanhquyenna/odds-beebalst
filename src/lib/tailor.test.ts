@@ -85,14 +85,22 @@ describe("jobs tailored to you", () => {
     const rows = tailor({ candidates: [gone, lastDay, open], fitting: new Set(["gone", "last", "open"]), saved: [], chanceOf: () => 0.1, profiles: {}, liftOf: () => null, today })
     expect(rows.map((r) => r.post.id).sort()).toEqual(["last", "open"])
   })
-  test("only the last seven days: an older job stays out, even when its closing date is still ahead", () => {
+  test("a full week of jobs needs no older ones; undated and over-a-month jobs never come in", () => {
     const today = new Date("2026-10-07T12:00:00")
-    const week = job({ title: "Financial Analyst", employer: "A", id: "week", days_open: 7 })
-    const older = job({ title: "Financial Analyst", employer: "B", id: "older", days_open: 8 })
-    const openEnded = job({ title: "Financial Analyst", employer: "C", id: "ahead", days_open: 17, valid_through: "2026-11-30" })
-    const undated = job({ title: "Financial Analyst", employer: "D", id: "undated", days_open: null })
-    const rows = tailor({ candidates: [week, older, openEnded, undated], fitting: new Set(["week", "older", "ahead", "undated"]), saved: [], chanceOf: () => 0.1, profiles: {}, liftOf: () => null, today })
-    expect(rows.map((r) => r.post.id)).toEqual(["week"])
+    const mkAt = (i: number, d: number | null) => job({ title: `Financial Analyst ${i}`, employer: `E${i}`, id: `j${i}`, days_open: d })
+    const fresh = Array.from({ length: 20 }, (_, i) => mkAt(i, 3))
+    const old = [mkAt(30, 10), mkAt(31, 40), mkAt(32, null)]
+    const cands = [...fresh, ...old]
+    const rows = tailor({ candidates: cands, fitting: new Set(cands.map((p) => p.id)), saved: [], chanceOf: () => 0.1, profiles: {}, liftOf: () => null, today })
+    expect(rows).toHaveLength(20)
+    expect(rows.every((r) => r.post.days_open === 3)).toBe(true)
+  })
+  test("a short week is topped up with older jobs, newest first, up to a month", () => {
+    const today = new Date("2026-10-07T12:00:00")
+    const mkAt = (i: number, d: number | null) => job({ title: `Financial Analyst ${i}`, employer: `E${i}`, id: `j${i}`, days_open: d })
+    const cands = [mkAt(0, 2), mkAt(1, 20), mkAt(2, 10), mkAt(3, 40), mkAt(4, null)]
+    const rows = tailor({ candidates: cands, fitting: new Set(cands.map((p) => p.id)), saved: [], chanceOf: () => 0.1, profiles: {}, liftOf: () => null, today })
+    expect(rows.map((r) => r.post.id)).toEqual(["j0", "j2", "j1"])
   })
   test("nothing saved and nothing fitting gives an empty list, not an error", () => {
     expect(tailor({ candidates: [], fitting: new Set(), saved: [], chanceOf: () => 0, profiles: {}, liftOf: () => null })).toEqual([])
@@ -296,7 +304,7 @@ describe("the two suggestion lists only show what is probably still open: two we
   })
 
   test("both lists leave out the old and the undated", () => {
-    const old = job({ id: "old", title: "Finance Analyst Intern", employer: "Old", family: "Finance & accounting", days_open: 30 })
+    const old = job({ id: "old", title: "Finance Analyst Intern", employer: "Old", family: "Finance & accounting", days_open: 45 })
     const undated = job({ id: "undated", title: "Finance Analyst Intern Two", employer: "Und", family: "Finance & accounting", days_open: null })
     const newer = job({ id: "new", title: "Finance Analyst Intern Three", employer: "New", family: "Finance & accounting", days_open: 4 })
     const saved = job({ id: "s", title: "Finance Analyst Intern", employer: "S", family: "Finance & accounting" })

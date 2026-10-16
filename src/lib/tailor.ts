@@ -151,12 +151,26 @@ export function freshForLists(post: Pick<Posting, "days_open" | "valid_through">
   return post.days_open !== null && post.days_open !== undefined && post.days_open <= LIST_MAX_AGE_DAYS
 }
 
-/** "Jobs tailored to you" shows only the last week, whatever the closing date says: a week-old list is one that is still worth opening. */
+/** "Jobs tailored to you" leads with the last week, whatever the closing date says: a week-old list is one that is still worth opening. */
 export const TAILORED_MAX_AGE_DAYS = 7
+
+/** Older jobs only top the list up to this many (after the ones from the last week), and none older than a month. */
+export const TAILORED_MIN_ROWS = 20
+const TAILORED_TOP_UP_DAYS = [14, 30]
 
 /** Posted in the last week. A posting with no date cannot be shown to be that new, so it is left out of the tailored list (it stays in "All jobs"). */
 export function freshForTailored(post: Pick<Posting, "days_open">): boolean {
   return post.days_open !== null && post.days_open !== undefined && post.days_open <= TAILORED_MAX_AGE_DAYS
+}
+
+/** 0 for the last week, 1 for the week or so before, 2 up to a month; null when too old or undated. */
+function ageTier(post: Pick<Posting, "days_open">): number | null {
+  const d = post.days_open
+  if (d === null || d === undefined) return null
+  if (d <= TAILORED_MAX_AGE_DAYS) return 0
+  const i = TAILORED_TOP_UP_DAYS.findIndex((m) => d <= m)
+
+  return i < 0 ? null : i + 1
 }
 
 /** A closing date before today: the employer stopped taking applications, whatever the board still shows. */
@@ -182,9 +196,10 @@ function ownMatch(post: Posting, own: ReadonlyArray<Set<string>>): { share: numb
 
 export function tailor({ candidates, fitting, saved, chanceOf, profiles, liftOf, own = [], fieldOrder = [], fitOf, today = new Date() }: TailorInput): Tailored[] {
   const ownSets = own.map(titleWords)
-  const scored: Array<Tailored & { interest: Interest; fresh: number; rank: number; fit: number }> = []
+  const scored: Array<Tailored & { interest: Interest; fresh: number; rank: number; fit: number; tier: number }> = []
   for (const post of candidates) {
-    if (pastDeadline(post, today) || !freshForTailored(post)) continue
+    const tier = ageTier(post)
+    if (pastDeadline(post, today) || tier === null) continue
     const pf = fitOf?.(post)
     // Closed to this person (it asks for a student and they graduated, for a language they do not list): not worth a place in the list.
     if (pf?.blocked) continue
@@ -208,15 +223,21 @@ export function tailor({ candidates, fitting, saved, chanceOf, profiles, liftOf,
     // What else the profile says about it, in one more phrase: "...: finance · in Amsterdam, where you live".
     const why = !best && mine.share === 0 && pf && pf.reasons.length > 0 ? `Matches your profile: ${pf.reasons.slice(0, 2).join("; ")}` : pf && pf.reasons.length > 0 && !/visa sponsor/.test(pf.reasons[0]) ? `${note} · ${pf.reasons[0]}` : note
     const at = fieldOrder.length > 0 ? fieldOrder.indexOf(fieldOf(post) ?? "") : -1
-    scored.push({ post, chance: chanceOf(post), note: why, interest, fresh: freshness(post), rank: at < 0 ? fieldOrder.length : at, fit: pf?.score == null ? 3 : Math.floor(pf.score * 10) })
+    scored.push({ post, chance: chanceOf(post), note: why, interest, fresh: freshness(post), tier, rank: at < 0 ? fieldOrder.length : at, fit: pf?.score == null ? 3 : Math.floor(pf.score * 10) })
   }
 
   // Your ranked lines of work first, then what you are into, then how well your profile fits, then the newest, then your chance.
-  const sorted = scored
-    .sort((x, y) => x.rank - y.rank || y.interest - x.interest || y.fit - x.fit || x.fresh - y.fresh || y.chance - x.chance || (x.post.days_open ?? 1e9) - (y.post.days_open ?? 1e9))
-    .map(({ post, chance, note }) => ({ post, chance, note }))
+  const order = (x: (typeof scored)[number], y: (typeof scored)[number]): number =>
+    x.rank - y.rank || y.interest - x.interest || y.fit - x.fit || x.fresh - y.fresh || y.chance - x.chance || (x.post.days_open ?? 1e9) - (y.post.days_open ?? 1e9)
+  // The last week first; older jobs (up to a month) join, newest tier first, only while the list is short.
+  let out: Tailored[] = []
+  for (let tier = 0; tier <= TAILORED_TOP_UP_DAYS.length; tier++) {
+    const rows = scored.filter((r) => r.tier === tier).sort(order).map(({ post, chance, note }) => ({ post, chance, note }))
+    out = dedupe([...out, ...rows])
+    if (out.length >= TAILORED_MIN_ROWS) break
+  }
 
-  return spread(dedupe(sorted))
+  return spread(out)
 }
 
 const same = (p: Posting): string => `${p.employer}|${[...titleWords(p.title)].sort().join(" ")}|${city(p)}`
