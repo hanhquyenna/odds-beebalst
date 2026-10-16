@@ -143,6 +143,22 @@ async function afterNavigation(env: Env, runId: string, result: Json, budgetMs =
   return { ...result, page_pending: false, page: null, error: "The next page has not answered yet. Read the page again.", timeout: "document_changed" }
 }
 
+/** The page right now, read for the server's own checks (no model turn): its fields, or null if it cannot tell. */
+async function freshFields(env: Env, run: Json): Promise<Json[] | null> {
+  const docGen = typeof run?.doc_gen === "number" ? run.doc_gen : 0
+  const [read] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "read_page", args: { review_check: true }, note: "Checking the page before stopping", doc_gen: docGen }) }).catch(() => [null])
+  if (!read) return null
+  for (const until = Date.now() + 12_000; Date.now() < until;) {
+    await sleep(400)
+    const row = (await svc(env, `drive_commands?id=eq.${read.id}&select=status,result`).catch(() => null))?.[0]
+    if (row?.status === "done") return Array.isArray(row.result?.fields) ? row.result.fields : []
+    if (row?.status === "cancelled" || row?.status === "expired") break
+  }
+  await abandonCommand(env, read.id, "result_lost").catch(() => undefined)
+  return null
+}
+const LETTER_FIELD = /cover\s*letter|motivation(al)?\s*letter|letter of motivation|motivatiebrief|sollicitatiebrief|lettre de motivation|anschreiben|begeleidende brief/i
+
 /** The page right now, read for the server's own check (no model turn): its required fields that are still empty. [] if it cannot tell. */
 async function requiredEmpty(env: Env, run: Json): Promise<string[]> {
   const docGen = typeof run?.doc_gen === "number" ? run.doc_gen : 0
@@ -277,6 +293,13 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         stage = "stuck"
         reason = "other"
         message = message || `Cannot stop for the person without clear evidence (${gate.reason}).`
+      }
+    }
+    // A cover letter is only asked for when the page has a field for one: never invented (Oracle's Personal Info page has none).
+    if (reason === "letter" || /cover letter|motivation letter/i.test(message)) {
+      const fields = await freshFields(env, run)
+      if (fields && !fields.some((f: Json) => LETTER_FIELD.test(String(f?.label ?? "")))) {
+        return { text: "There is no cover or motivation letter field on this page: do not ask the person for one. Finish again with only what the page really needs (reason 'questions' for missing details like an address), or carry on filling.", error: true }
       }
     }
     // Review is only true when the page says so: read it fresh, and refuse while a required field is still empty (a site that cleared

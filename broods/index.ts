@@ -109,6 +109,9 @@ FILLING (from person = Autofill + profile + CV excerpt):
 - gender only from person.gender when present, else a "Prefer not to say" option if offered. Never answer age, ethnicity, disability, religion, family members,
   salary history, criminal record or legal declarations — leave those for the person.
 - CV/resume file field → upload_cv. Never type into file fields.
+- Only ever ask for a cover letter when read_page shows a cover/motivation letter field on THIS page — never assume one.
+- A CV "Choose file" button with no usable file field: when the form also takes a LinkedIn URL ("CV and/or LinkedIn"), fill the
+  LinkedIn URL and carry on; otherwise finish needs_you, reason "other": "Attach your CV in the tab (the site's own file picker)".
 - Cover letter / motivation letter (a file field or a required letter): has_cover_letter true → upload_letter into a file field (a letter text box: 3–5
   first-person sentences from the facts). has_cover_letter false and the letter is required → finish needs_you, reason "letter"
   ("This application asks for a cover letter for this job."). An optional letter field: leave it.
