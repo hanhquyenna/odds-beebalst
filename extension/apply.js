@@ -19,7 +19,14 @@
   const modalOnPage = () => [...document.querySelectorAll(MODAL)].find((m) => m.matches("[data-test-modal-id]") || (m.open && /^apply to\b/i.test(m.querySelector("h2, h1")?.innerText.trim() || ""))) || null
   const NEXT = /continue to next step|review your application|^next$|^review$/i
   const SUBMIT = /submit/i
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+  // A hidden tab's own timers are slowed by Chrome (to about once a minute after a while): there the wait comes from the extension's
+  // background, whose timers run on time, and its reply wakes the page.
+  const sleep = (ms) => new Promise((resolve) => {
+    let done = false
+    const finish = () => { if (!done) { done = true; resolve() } }
+    setTimeout(finish, ms)
+    if (document.hidden && ms >= 50) chrome.runtime.sendMessage({ type: "odds-sleep", ms }).then(finish, () => undefined)
+  })
   /** Never hang forever if the service worker never calls back (that froze Easy Apply in silence). */
   const ask = (message, ms = 20000) => new Promise((resolve) => {
     let done = false

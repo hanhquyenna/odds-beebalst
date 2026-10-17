@@ -179,7 +179,9 @@ async function startRealBroods(runId: string, url: string, title: string, person
   const ck = await crypto.subtle.importKey("raw", dig, { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
   const token = `buat_${body}.${b64(new Uint8Array(await crypto.subtle.sign("HMAC", ck, enc.encode(body))))}`
   const site_playbook = await realSitePlaybook(url)
-  const task = { site_playbook, run_id: runId, job: { title, url }, person, goal: "Apply to this job in the person's browser tab with the odds-browser tools until only Submit is left (finish review), or something only the person can do (finish needs_you)." }
+  // The facts production adds per job (mcp/drive.ts jobFacts) and the made-up person's Dutch level, so the run is the one people get.
+  const source = /linkedin\./.test(url) ? "LinkedIn" : /indeed\./.test(url) ? "Indeed" : /glassdoor\./.test(url) ? "Glassdoor" : /magnet\.me/.test(url) ? "Magnet.me" : "Company website"
+  const task = { site_playbook, run_id: runId, job: { title, url }, person: { dutch_level: "basic", languages: "English (fluent)", job_source: source, worked_at_this_employer_before: "No", ...person }, person_answers: [], has_cover_letter: false, goal: "Apply to this job in the person's browser tab with the odds-browser tools until only Submit is left (finish review), or something only the person can do (finish needs_you)." }
   // Started exactly as production does: a background run (202 accepted), nothing holds a stream open.
   const client = new BroodsClient({apiKey:key,userToken:token,baseUrl:"https://gateway.broods.app"})
   await client.runAsync({agentId:"js76teefba050scj7h6wp8n04x8ga3ac",eventId:crypto.randomUUID(),conversationKey:`odds-test-${runId}`,input:JSON.stringify(task)})
@@ -188,7 +190,7 @@ async function startRealBroods(runId: string, url: string, title: string, person
 }
 // The bridge reads and writes the drive tables over PostgREST (fast); the key comes from a private file named in REAL_SR_KEY_FILE, never the repo.
 const REST = "https://ukpmpyfcnbhngkgbnkxi.supabase.co/rest/v1"
-const restKey = (): string => readFileSync(String(process.env.REAL_SR_KEY_FILE), "utf8").trim()
+const restKey = (): string => (process.env.REAL_SR_KEY || readFileSync(String(process.env.REAL_SR_KEY_FILE), "utf8")).trim()
 async function rest(path: string, init: RequestInit = {}): Promise<Array<Record<string, unknown>>> {
   const key = restKey()
   const res = await fetch(`${REST}/${path}`, { ...init, headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=representation", ...(init.headers ?? {}) } })
@@ -605,7 +607,10 @@ const test = base.extend<{ context: BrowserContext; fake: Fake; extensionId: str
     }
   },
   context: async ({ fake, site }, provide) => {
-    const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "odds-ext-")), { channel: "chromium", headless: process.env.REAL_HEADED !== "1", ignoreHTTPSErrors: true, args: [`--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`, "--allow-running-insecure-content", `--host-resolver-rules=MAP odds.beeblast.co 127.0.0.1:${site.port}`, "--ignore-certificate-errors"] })
+    const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "odds-ext-")), { channel: "chromium", headless: process.env.REAL_HEADED !== "1", ignoreHTTPSErrors: true,
+      // REAL_THROTTLE=1: Chrome slows hidden tabs as it does for the person (Playwright switches that off by default).
+      ...(process.env.REAL_THROTTLE === "1" ? { ignoreDefaultArgs: ["--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding"] } : {}),
+      args: [`--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`, "--allow-running-insecure-content", `--host-resolver-rules=MAP odds.beeblast.co 127.0.0.1:${site.port}`, "--ignore-certificate-errors"] })
     const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"))
     // The panel drawn in the page is what most tests look at; one test switches this off and checks the browser's own side panel is asked for instead.
     await worker.evaluate((port) => chrome.storage.local.set({ oddsApi: `http://localhost:${port}`, oddsPanelInPage: true }), fake.port)
@@ -4371,6 +4376,30 @@ test("Broods drives an employer's form in the person's tab: reads it, fills from
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
 })
 
+test("a job queued from the phone is driven by Broods in the Odds window, not stalled in a hidden tab of the person's own window", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  // QUEUE_URL=<a real application page>: the same run on a live form (made-up details, never sent).
+  const real = process.env.QUEUE_URL
+  if (!real) await context.route("https://boards.example-ats.com/acme/jobs/779**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  fake.kit = { job_id: "pqueue", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung", phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true } }
+  // The person is busy on another page of their own window.
+  const own = await context.newPage()
+  await own.goto(real ? "https://example.com/" : "https://boards.example-ats.com/acme/jobs/779?own")
+  await own.bringToFront()
+  fake.remoteTask = { id: "c1111111-1111-4111-8111-111111111111", url: real || "https://boards.example-ats.com/acme/jobs/779", status: "filling" }
+  const worker = context.serviceWorkers()[0]
+  const opened = context.waitForEvent("page", { predicate: (p) => p.url() !== own.url() })
+  await worker.evaluate(() => chrome.storage.local.set({ oddsPhoneControl: true }))
+  await worker.evaluate("pollApplications()")
+  const application = await opened
+  await expect.poll(() => fake.drives.size, { timeout: 30_000 }).toBeGreaterThan(0)
+  if (real) return
+  await expect(application.locator(".odds-apply-bar")).toContainText(/Answer: .*SQL/, { timeout: 60_000 })
+  await expect(application.locator("#first_name")).toHaveValue("Kien")
+  expect(await application.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+})
+
 test("the connection drops while Broods drives: Odds says so, keeps trying, and finishes the run once it is back (never gives up in seconds)", async ({ context, fake }) => {
   test.setTimeout(120_000)
   await connect(context)
@@ -4681,7 +4710,7 @@ test("Broods acts by sight when the page tools cannot: screenshot of the tab, a 
 
 
 // ---- Real sites, real Broods (REAL_BROODS=1 only: costs model calls and needs network). A made-up person; nothing is ever submitted. ----
-const REAL_JOBS = [
+const REAL_JOBS: Array<{ name: string; url: string; title: string; board?: boolean }> = [
   { name: "greenhouse-dept", url: "https://job-boards.greenhouse.io/dept/jobs/8105170", title: "Junior Paid Search (SEA) Consultant" },
   { name: "lever-tomtom", url: "https://jobs.eu.lever.co/tomtom/669fa744-174e-4682-81b3-fa85322cafc5", title: "Senior Applied Scientist - Graph Optimization" },
   { name: "ashby-prosus", url: "https://jobs.ashbyhq.com/prosus/eeb0e0d9-9d3f-4321-8acd-11558dde7c7d", title: "ML Engineering Intern - LLM Research & Development" },
@@ -4695,6 +4724,11 @@ const REAL_JOBS = [
   { name: "hunkemoller-business-control", url: "https://jobs.hunkemoller.nl/en/vacancies/internship-business-control-hilversum-jr78429", title: "Internship Business Control" },
   { name: "linkedin-marketing", url: "https://www.linkedin.com/jobs/view/4479270692", title: "Marketing & Communications Intern", board: true },
 ] as Array<{ name: string; url: string; title: string; board?: boolean }>
+// REAL_JOBS_FILE=<set.json> ([{id, title, ats, url}]): run these jobs instead (the loop test's job set).
+if (process.env.REAL_JOBS_FILE) {
+  const set = JSON.parse(readFileSync(process.env.REAL_JOBS_FILE, "utf8")) as Array<{ id: string; title: string; ats?: string; url: string }>
+  REAL_JOBS.splice(0, REAL_JOBS.length, ...set.map((j) => ({ name: `${(j.ats || "site").toLowerCase().replace(/\W+/g, "")}-${j.id}`, url: j.url, title: j.title, board: /linkedin\.|glassdoor\.|indeed\.|magnet\.me/.test(j.url) })))
+}
 const TEST_PERSON = { first_name: "Test", last_name: "Applicant", email: "test.applicant@example.com", phone: "+31 6 1234 5678", lives_in: "Amsterdam, Netherlands", nationality_group: "Non-EU nationality", work_permit: "Orientation year (zoekjaar) permit: may work in the Netherlands without sponsorship", education: "Master, Business Analytics, Vrije Universiteit Amsterdam, Sep 2025–Aug 2027", experience: "Data Analyst, Shopee, 2022–2024", linkedin: "https://www.linkedin.com/in/test-applicant", start_date: "1 February 2027", hours_per_week: "40", role_values: "learning fast; international teams; measurable impact" }
 for (const job of REAL_JOBS) {
   test(`REAL: Broods drives ${job.name} (real site, real Broods, never submits)`, async ({ context, fake }, testInfo) => {

@@ -1,4 +1,5 @@
 import { BroodsClient } from "broods"
+import { renderLetterPdf } from "../_shared/cv-template.ts"
 import { canAcceptDriveResult, humanStopAllowed, jobIdentityMismatch } from "../_shared/drive-ownership.ts"
 import { fieldPattern, playbookFor, sanitizeLesson, siteIdentity, structuralField } from "../_shared/site-playbook.ts"
 
@@ -256,6 +257,11 @@ const BASE_TOOLS = [
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, id: { type: "string" } }, required: ["run_id", "id"] },
   },
   {
+    name: "write_letter",
+    description: "Only when the form REQUIRES a cover/motivation letter file and has_cover_letter is false: write the letter (3-5 short first-person paragraphs, English, from the person's facts, naming the employer and job; no placeholders, nothing the facts do not support). Odds saves it as a PDF on this job in the person's Documents; then call upload_letter with the file field id.",
+    inputSchema: { type: "object", properties: { run_id: { type: "string" }, text: { type: "string" } }, required: ["run_id", "text"] },
+  },
+  {
     name: "click",
     description: "Press a button or link (by button id): Apply, Next, Continue, Review, a cookie 'reject/necessary only', a job link. Never Submit/Send (refused). Returns the fresh resulting page, including across navigation; use that page directly.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, id: { type: "string" } }, required: ["run_id", "id"] },
@@ -431,6 +437,36 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     Object.assign(run, (await runOf(env, run.id)) ?? {})
   }
   if (personBusy(run)) return { text: "The person is filling in the form themselves right now. Call wait, then read_page, and keep everything they entered.", error: true }
+  if (name === "write_letter") {
+    const body = String(args.text ?? "").trim()
+    if (body.length < 200 || body.length > 4000) return { text: "Write 3-5 paragraphs (200-4000 characters).", error: true }
+    if (/\[[^\]]*\]|\{[^}]*\}/.test(body)) return { text: "No placeholders like [Company]: write the real words.", error: true }
+    if (!run.posting_id) return { text: "This run has no Odds job to keep the letter on: finish needs_you with reason 'letter'.", error: true }
+    const prof = (await svc(env, `profiles?user_id=eq.${run.user_id}&select=data`).catch(() => null))?.[0]?.data ?? {}
+    const who = String(prof.name || [prof.firstName, prof.lastName].filter(Boolean).join(" ") || "")
+    // Lazy: bun unit tests import this module; Deno's npm: specifier is only resolved when the tool runs.
+    const PDFLib = await import("npm:pdf-lib@1.17.1")
+    const bytes = await renderLetterPdf(PDFLib as never, who, body)
+    const id = crypto.randomUUID()
+    const path = `${run.user_id}/${id}`
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("")
+    const title = `Cover letter ${String(run.posting_id)}`
+    try {
+      await svc(env, "documents", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ id, user_id: run.user_id, kind: "cover_letter", name: title, file_name: "Cover letter.pdf", mime: "application/pdf", size_bytes: bytes.length, content_hash: hash, body, path, is_main: false }) })
+    } catch { return { text: "Odds could not keep the letter (their Documents may be full): finish needs_you with reason 'letter'.", error: true } }
+    const up = await fetch(`${env.url}/storage/v1/object/documents/${path}`, { method: "POST", headers: { apikey: env.serviceKey!, Authorization: `Bearer ${env.serviceKey}`, "Content-Type": "application/pdf" }, body: bytes })
+    if (!up.ok) {
+      await svc(env, `documents?id=eq.${id}`, { method: "DELETE" }).catch(() => undefined)
+      return { text: "Odds could not keep the letter: finish needs_you with reason 'letter'.", error: true }
+    }
+    await svc(env, "job_documents?on_conflict=user_id,posting_id,kind", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: run.user_id, posting_id: run.posting_id, kind: "cover_letter", document_id: id }) }).catch(() => undefined)
+    return { text: JSON.stringify({ ok: true, saved: "Cover letter.pdf", next: "call upload_letter with the letter's file field id" }) }
+  }
+  // The job's letter (written by Broods or made by the person) goes with the command, so the tab does not depend on what it loaded at the start.
+  if (name === "upload_letter" && run.posting_id) {
+    const link = (await svc(env, `job_documents?user_id=eq.${run.user_id}&posting_id=eq.${encodeURIComponent(run.posting_id)}&kind=eq.cover_letter&select=document_id&limit=1`).catch(() => null))?.[0]
+    if (link?.document_id) args = { ...args, doc: link.document_id }
+  }
   if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
   // Looking costs time: a screenshot is for something that did not take. Two looks in the last few steps with nothing failing → refused.
   if (name === "screenshot") {
@@ -465,6 +501,8 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       }
       // Wrong-job / redirect to another employer: stop before further personal fills.
       const page = res.page || (name === "read_page" ? res : null)
+      // Through a job board to the employer's own form: remembered for this job, so the next run opens the form directly.
+      if (run.posting_id && typeof page?.url === "string" && Array.isArray(page.fields) && page.fields.length >= 2) void learnApplyLink(env, run.posting_id, page.url)
       if (page?.url && typeof page.url === "string") {
         const idCheck = jobIdentityMismatch({ intendedUrl: run.url, pageUrl: page.url, pageTitle: page.title })
         if (!idCheck.ok) {
@@ -565,6 +603,32 @@ async function signUserToken(userId: string, secret: string, ttlMs = 3_600_000):
   return `buat_${body}.${b64url(new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(body))))}`
 }
 
+const BOARD = /(^|\.)(linkedin|indeed|glassdoor)\.|(^|\.)magnet\.me$/i
+/** The employer's form reached from a board listing: kept as the job's apply link (only for a listing that is on a board). */
+async function learnApplyLink(env: Env, postingId: string, pageUrl: string): Promise<void> {
+  let host = ""
+  try { host = new URL(pageUrl).hostname } catch { return }
+  if (!host || BOARD.test(host) || /(^|\.)(broods\.app|beeblast\.co|google\.com)$/i.test(host)) return
+  const listing = (await svc(env, `postings?id=eq.${encodeURIComponent(postingId)}&select=url`).catch(() => null))?.[0]?.url
+  try { if (!listing || !BOARD.test(new URL(String(listing)).hostname)) return } catch { return }
+  await svc(env, "posting_apply_links?on_conflict=posting_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ posting_id: postingId, apply_url: pageUrl.split("#")[0]!.slice(0, 2000), source: "run", updated_at: new Date().toISOString() }) }).catch(() => undefined)
+}
+
+const SOURCE: Array<[RegExp, string]> = [[/linkedin\./, "LinkedIn"], [/indeed\./, "Indeed"], [/glassdoor\./, "Glassdoor"], [/magnet\.me/, "Magnet.me"], [/academictransfer\./, "AcademicTransfer"]]
+
+/** What Odds knows about this person and this job, so Broods never asks it: where the job was found, and whether they worked at or applied to this employer. */
+function jobFacts(job: Json, url: string, facts: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {}
+  const posted = String(job?.url ?? url ?? "")
+  out.job_source = SOURCE.find(([re]) => re.test(posted))?.[1] ?? "Company website"
+  const employer = String(job?.employer_display ?? job?.employer ?? "").trim().toLowerCase()
+  if (employer) {
+    const history = `${facts.experience ?? ""} ${facts.current_company ?? ""} ${facts.cv_excerpt ?? ""}`.toLowerCase()
+    out.worked_at_this_employer_before = history.includes(employer.split(/\s+/)[0]!) ? "maybe (check experience)" : "No"
+  }
+  return out
+}
+
 /** Start the Broods agent on a run with the person's own context; it then drives through the tools. Reads the stream in the background. */
 async function startBroods(env: Env, run: Json, job: Json, facts: Record<string, string>, resume?: string): Promise<string | null> {
   const key = (Deno.env.get("APPLY_AGENT_BROODS_API_KEY") ?? "").trim()
@@ -583,7 +647,7 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
     : {
         run_id: run.id,
         job: { title: job?.title ?? null, employer: job?.employer_display ?? job?.employer ?? null, url: run.url },
-        person: facts,
+        person: { ...facts, ...jobFacts(job, run.url, facts) },
         person_answers: answered,
         has_cover_letter: Boolean(letter),
         goal: "Apply to this job in the person's browser tab with the odds-browser tools until only Submit is left (finish review), or something only the person can do (finish needs_you).",
@@ -632,6 +696,7 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
     }
     const url = String(body?.url || body?.page || "").slice(0, 2000)
     if (!/^https:\/\//.test(url)) return json(400, { error: "No application address." })
+    if (/^https:\/\/([^/]+\.)?(broods\.app|beeblast\.co|claude\.ai)(\/|$)/i.test(url)) return json(400, { error: "That tab is not a job application." })
     // A run whose tab has not checked in for 10 minutes is over (Chrome closed, the tab gone without a word): never left "running".
     const gone = encodeURIComponent(new Date(Date.now() - 600_000).toISOString())
     void svc(env, `drive_runs?user_id=eq.${userId}&status=eq.running&or=(last_seen_at.lt.${gone},and(last_seen_at.is.null,created_at.lt.${gone}))`, {

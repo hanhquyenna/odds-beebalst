@@ -404,7 +404,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
             stop = `Odds could not open the application form after assist: it kept landing on ${where.slice(0, 120)} without an application form. Open the job yourself and Odds fills it in.`
             all[tabId] = { ...intent, hunt: { ...hunt, visits: keep, loads }, status: "needs_input", message: stop, stopped: true, at: Date.now() }
           } else all[tabId] = { ...intent, hunt: { ...hunt, visits: keep, loads } }
-        } else if (message.op === "form" && /^https:\/\//.test(tabUrl)) {
+        } else if (message.op === "form" && applicationPage(tabUrl)) {
           // A real form: the search and the loop count start over (forms that reload the same address on every step are fine).
           all[tabId] = { ...intent, formSeen: true, stopped: false, hunt: { ...hunt, tries: 0, visits: {}, loads: 0 } }
           learn = intent.postingId || (intent.job ? `job:${jobKeyOf(intent.job, null)}` : "")
@@ -905,11 +905,22 @@ function namesJob(jobTitle, text) {
   return want.filter((w) => have.has(w)).length / want.length >= 0.6
 }
 /** Where the person's application for a job really is, once found (the employer's form, not their list of vacancies): the next run opens it directly. */
+/** Odds' own pages and the tools around it (Broods' dashboard, Claude, sign-in) are never an application, whatever tab they open in. */
+const NOT_APPLICATION = /(^|\.)(broods\.app|beeblast\.co|claude\.ai|anthropic\.com|accounts\.google\.com)$/i
+function applicationPage(url) {
+  try { const u = new URL(url); return u.protocol === "https:" && !NOT_APPLICATION.test(u.hostname) } catch { return false }
+}
+/** The employer's own form for a job listed on a board, from the server (Promise of a URL or null; never waits more than 4 s). */
+async function directApplyUrl(url) {
+  const kit = await Promise.race([kitFor(url).catch(() => null), new Promise((r) => setTimeout(() => r(null), 4000))])
+  const direct = kit?.apply_url
+  return typeof direct === "string" && applicationPage(direct) ? direct : null
+}
 async function learnedApplyUrl(postingId, job) {
   if (!postingId && !job) return null
   const { oddsLearnedApply = {} } = await chrome.storage.local.get("oddsLearnedApply")
   const url = (postingId && oddsLearnedApply[postingId]?.url) || (job && oddsLearnedApply[`job:${jobKeyOf(job, null)}`]?.url)
-  return typeof url === "string" && /^https:\/\//.test(url) ? url : null
+  return typeof url === "string" && applicationPage(url) ? url : null
 }
 /** Tabs Odds itself is sending somewhere right now (opening the job, apply-go): their next navigation is the application's own. */
 const oddsNavigating = new Set()
@@ -1054,7 +1065,8 @@ function openApplication(url, from, opts = {}) {
     if (typeof tabId !== "number") return { ok: false, message: "Could not open an application tab." }
     await setIntent(tabId, { job: applyUrl, postingId, at: Date.now(), status: "filling", message: "Opening the application…" })
     // Where this application was found last time (the employer's real form), straight away; the job's own link otherwise.
-    const learned = await learnedApplyUrl(postingId, applyUrl)
+    // Where this application was found before, here or by anyone (the server's apply link): past the board's captcha and sign-in walls.
+    const learned = await learnedApplyUrl(postingId, applyUrl) || await directApplyUrl(applyUrl)
     await oddsGo(tabId, learned || applyUrl, { active: reveal }).catch(() => undefined)
     // Person asked to look: bring the new tab's window forward too.
     if (reveal) await revealApplicationTab(tabId, true)
@@ -1187,11 +1199,16 @@ async function pollApplications() {
     if (task.status !== "filling" || !/^https:\/\//.test(task.url)) return
     // Phone/desktop queue: fill in the background; surface the tab only at needs_input/ready.
     const applyUrl = preferEnglishApplyUrl(task.url)
-    const tab = await chrome.tabs.create({ url: "about:blank", active: false })
+    // In the Odds window, as its showing tab: a hidden tab in the person's own window has its timers slowed by Chrome to about once a
+    // minute, and the fill and Broods' steps stall there.
+    const windowId = await oddsWindow(false)
+    const tab = typeof windowId === "number"
+      ? await chrome.tabs.create({ windowId, url: "about:blank", active: true })
+      : await chrome.tabs.create({ url: "about:blank", active: false })
     const run = { id: task.id, tabId: tab.id, postingId: task.posting_id || null }
     await updateApplicationRuns(current => { current[run.id] = run })
     await setIntent(tab.id, { job: applyUrl, at: Date.now(), runId: task.id, postingId: task.posting_id || null })
-    await oddsGo(tab.id, applyUrl, { active: false })
+    await oddsGo(tab.id, (await learnedApplyUrl(task.posting_id, applyUrl)) || (await directApplyUrl(applyUrl)) || applyUrl, { active: false })
   } catch {
     if (claimed) await reportApplication(claimed, "failed", "Could not open the application. Please start again on your desktop.").catch(() => undefined)
   } finally { pollingApplications = false }
@@ -1204,6 +1221,11 @@ chrome.alarms.onAlarm.addListener(alarm => {
   if (alarm.name === "odds-applications") pollApplications().catch(() => undefined)
 })
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
+  // A wait for a hidden application tab (see sleep in apply-any.js): answered on time from here.
+  if (message?.type === "odds-sleep") {
+    setTimeout(() => reply({ ok: true }), Math.min(30_000, Math.max(0, Number(message.ms) || 0)))
+    return true
+  }
   if (message?.type === "application-poll") {
     pollApplications().then(() => reply({ ok: true })).catch(() => reply({ ok: false }))
     return true

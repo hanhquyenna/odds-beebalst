@@ -9,7 +9,14 @@
   if (!A || /(^|\.)linkedin\.com$/.test(location.hostname) || location.hostname === "odds.beeblast.co" || (window.top !== window && !portalHost(location.hostname)) || globalThis.oddsGenericApplyLoaded === APPLY_BUILD) return
   globalThis.oddsGenericApplyLoaded = APPLY_BUILD
 
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+  // A hidden tab's own timers are slowed by Chrome (to about once a minute after a while): there the wait comes from the extension's
+  // background, whose timers run on time, and its reply wakes the page.
+  const sleep = (ms) => new Promise((resolve) => {
+    let done = false
+    const finish = () => { if (!done) { done = true; resolve() } }
+    setTimeout(finish, ms)
+    if (document.hidden && ms >= 50) chrome.runtime.sendMessage({ type: "odds-sleep", ms }).then(finish, () => undefined)
+  })
   /** Timed: a hung service worker must not freeze Apply in silence. */
   const ask = (message, ms = 20000) => new Promise((resolve) => {
     let done = false
@@ -1314,8 +1321,10 @@
     if (cmd.tool === "upload_letter") {
       const f = driveFields.get(args.id)
       if (!f || f.kind !== "file" || !elOf(f)?.isConnected) return { ok: false, error: "not a file field (read_page again)" }
-      if (!letter) return { ok: false, error: "no cover letter for this job in Odds: finish needs_you with reason 'letter'" }
-      const file = await ask({ type: "cv-file", doc: letter.id }, 15000)
+      // A letter Broods just wrote (write_letter) comes with the command; else the job's own letter from the kit.
+      const doc = (typeof args.doc === "string" && args.doc) || letter?.id
+      if (!doc) return { ok: false, error: "no cover letter for this job in Odds: call write_letter first" }
+      const file = await ask({ type: "cv-file", doc }, 15000)
       if (file?.status !== "ok") return { ok: false, error: "the letter could not be loaded from Odds" }
       const bytes = Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))
       const transfer = new DataTransfer()
@@ -1412,6 +1421,8 @@
       const page = new URL(location.href)
       const hostOf = (h) => h.replace(/^www\./i, "").toLowerCase()
       const ih = hostOf(want.hostname), ph = hostOf(page.hostname)
+      // Intended "link" that is not a job at all (Odds' own pages, Broods' dashboard): nothing to compare against.
+      if (/(^|\.)(broods\.app|beeblast\.co|claude\.ai)$/i.test(ih)) return null
       if (!ih || !ph || ih === ph || ph.endsWith(`.${ih}`) || ih.endsWith(`.${ph}`)) return null
       const boards = /(greenhouse|lever\.co|ashbyhq|myworkdayjobs|workday|smartrecruiters|recruitee|teamtailor|personio|indeed|glassdoor|linkedin)\./i
       if (boards.test(ih) || boards.test(ph)) return null

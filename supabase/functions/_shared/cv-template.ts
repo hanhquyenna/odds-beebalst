@@ -317,3 +317,35 @@ export async function renderCvPdf(lib: PdfLib, cv: Cv): Promise<Uint8Array> {
 
   return doc.save()
 }
+
+/** A cover letter as a PDF: A4, Helvetica 11, the sender's name on top, paragraphs as given (blank line between them). One page or more. */
+export async function renderLetterPdf(lib: PdfLib, name: string, letter: string): Promise<Uint8Array> {
+  const doc = await lib.PDFDocument.create()
+  const regular = await doc.embedFont(lib.StandardFonts.Helvetica)
+  const bold = await doc.embedFont(lib.StandardFonts.HelveticaBold)
+  const ink = lib.rgb(0.1, 0.1, 0.1)
+  const size = 11
+  const width = A4[0] - MARGIN * 2
+  let page = doc.addPage(A4)
+  let y = A4[1] - MARGIN
+  const line = (text: string, font: PdfFont, s: number): void => {
+    if (y - s * 1.4 < MARGIN) {
+      page = doc.addPage(A4)
+      y = A4[1] - MARGIN
+    }
+    y -= s * 1.4
+    page.drawText(text, { x: MARGIN, y, size: s, font, color: ink })
+  }
+  if (name.trim()) {
+    line(printable(name.trim()), bold, 14)
+    y -= size
+  }
+  for (const para of letter.replace(/\r/g, "").split(/\n\s*\n|\n/)) {
+    for (const l of wrap(printable(para.trim()), width, size, regular)) line(l, regular, size)
+    y -= size * 0.8
+  }
+  doc.setTitle(`Cover letter${name ? ` - ${printable(name)}` : ""}`)
+  if (name) doc.setAuthor(printable(name))
+
+  return doc.save()
+}

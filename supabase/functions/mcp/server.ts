@@ -730,6 +730,8 @@ function profileForAgent(profile: Json): Record<string, string> {
   if (str(profile.headline)) out.headline = str(profile.headline)
   const langs = (Array.isArray(profile.languages) ? profile.languages : []).map((l: unknown) => (typeof l === "string" ? l : str((l as Json)?.name) + (str((l as Json)?.level) ? ` (${str((l as Json).level)})` : ""))).filter(Boolean)
   if (langs.length) out.languages = langs.slice(0, 6).join("; ")
+  // Their own Dutch level from the Odds profile (none, basic, conversational, fluent, native): answers every "Dutch proficiency" question.
+  if (str(profile.dutch)) out.dutch_level = str(profile.dutch)
   const skills = (Array.isArray(profile.skills) ? profile.skills : []).map((x: unknown) => (typeof x === "string" ? x : str((x as Json)?.Name ?? (x as Json)?.name))).filter(Boolean)
   if (skills.length) out.skills = skills.slice(0, 15).join(", ")
   const edu = (Array.isArray(profile.education) ? profile.education : []).slice(0, 3).map((e: Json) => [str(e["Degree Name"]), str(e["Field Of Study"]), str(e["School Name"]), [str(e["Start Date"]), str(e["End Date"]) || "now"].filter(Boolean).join("–")].filter(Boolean).join(", ")).filter(Boolean)
@@ -1611,8 +1613,12 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     })
     void logApplyAgentEvent(env, me.id, "apply.started", held?.id ?? null, { host: hostOf(String(body?.url ?? "")) })
 
+    // Where this job's form really is, when its listing sits on a job board (learned from earlier runs or the board's own data).
+    const direct = held && link && ["linkedin", "indeed", "glassdoor", "magnet.me"].includes(link.site) ? (await svc(env, `posting_apply_links?posting_id=eq.${encodeURIComponent(held.id)}&select=apply_url`).catch(() => null))?.[0]?.apply_url ?? null : null
+
     return json(200, {
       job_id: held?.id ?? null,
+      apply_url: typeof direct === "string" && /^https:\/\//.test(direct) ? direct : null,
       // The job's own title: the extension checks the employer's page is this job, not their list of vacancies.
       job_title: held?.title ?? null,
       // Broods drives the application in the person's tab (switch on Connect; on unless they turned it off).

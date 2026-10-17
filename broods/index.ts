@@ -57,7 +57,8 @@ const PICK_RULES = `Return one apply_pick, as the bare JSON object {"stage","act
 - kind=suggest-answers (questions[] + facts, no buttons) → stage=form, action=fill, text=null, one answer per question the facts can answer; skip the rest.
 - Choice question with options → answer is an EXACT option string. Dates → YYYY-MM-DD; a month and year only ("Aug 2027") → the last day of that month (2027-08-31). Yes/No → "Yes" or "No".
 - Open questions (why this role, motivation, reasons, what you bring) → 1–3 plain sentences in the first person from role_values, notes, experience, education and cv_excerpt, tied to the employer/job title. Always answer these when there is a profile.
-- Never answer gender, age, ethnicity, disability, religion, family, salary history, legal declarations, consent, passwords or captchas — skip them (the person answers those).
+- Voluntary EEO (gender, age group, ethnicity, disability, veteran) → "Prefer not to say"/"Decline" when offered. Consent/privacy/data retention → Yes. Salary expectation → expected_salary, else "In line with your standard internship allowance". Visa/sponsorship → from work_permit.
+- Never answer religion, family, salary history, criminal/legal declarations, passwords or captchas — skip them (the person answers those).
 - Never Submit, Send application, Submit Application, login, sign up, Accept all cookies, or password fields.
 - Job closed / no longer available / expired / position filled → stage=stuck, action=none, reason=listing_gone.
 - Only action=none when NO safe Apply/Next/Continue/Review/cookie control exists in buttons[].`
@@ -67,7 +68,7 @@ export const oddsBrowser = defineMcp({
   name: "odds-browser",
   url: "https://ukpmpyfcnbhngkgbnkxi.supabase.co/functions/v1/mcp/drive",
   // Listed explicitly: the agent gets exactly these browser tools.
-  allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "screenshot", "click_at", "type_text", "press_key", "scroll", "wait", "note_site", "finish"],
+  allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "write_letter", "click", "back", "open_job", "screenshot", "click_at", "type_text", "press_key", "scroll", "wait", "note_site", "finish"],
 })
 
 const DRIVE_RULES = `DRIVE MODE (the message has run_id): you are applying to a job in the person's own browser tab through the odds-browser tools.
@@ -106,16 +107,38 @@ FILLING (from person = Autofill + profile + CV excerpt):
 - Dates YYYY-MM-DD (month+year → last day of that month). Phone: national number when a country-code field sits beside it.
 - Reason from facts: nationality_group Non-EU → "Non-EU"; studies ending in the future → enrolled; lives_in a Dutch city → based in NL; 40 hours → 5 days.
 - Open "why/motivation" questions: 1–3 first-person sentences from role_values, notes, experience, education, cv_excerpt, tied to the employer and job.
-- gender only from person.gender when present, else a "Prefer not to say" option if offered. Never answer age, ethnicity, disability, religion, family members,
-  salary history, criminal record or legal declarations — leave those for the person.
+- gender only from person.gender when present, else a "Prefer not to say" option if offered. Never answer religion, family members,
+  salary history, criminal record or legal declarations — leave those for the person (age and EEO: see DEFAULTS).
 - CV/resume file field → upload_cv. Never type into file fields.
 - Only ever ask for a cover letter when read_page shows a cover/motivation letter field on THIS page — never assume one.
 - A CV "Choose file"/"Upload" button with no file field: upload_cv with that BUTTON's id (Odds catches the picker the site makes).
   Only if that fails: when the form also takes a LinkedIn URL, fill it and carry on; otherwise finish needs_you, reason "other":
   "Attach your CV in the tab (the site's own file picker)".
-- Cover letter / motivation letter (a file field or a required letter): has_cover_letter true → upload_letter into a file field (a letter text box: 3–5
-  first-person sentences from the facts). has_cover_letter false and the letter is required → finish needs_you, reason "letter"
-  ("This application asks for a cover letter for this job."). An optional letter field: leave it.
+- Cover letter / motivation letter: has_cover_letter true → upload_letter into the file field. A required letter text box → 3–5
+  first-person sentences from the facts. A REQUIRED letter file and has_cover_letter false → write_letter (3–5 short paragraphs from the
+  facts, naming the employer and job) then upload_letter. Never stop for a letter. An optional letter field: leave it.
+- DEFAULTS — answer these yourself, never stop for them (the person checks everything before pressing Submit):
+  · Language proficiency: from languages and dutch_level. Dutch "none"/"basic" → No to working/full/professional proficiency, the lowest
+    level option otherwise; "fluent"/"native" → Yes. A language not in languages and not Dutch → No. English → fluent.
+  · "Previously applied to / worked at <employer>?", "current or former employee?" → worked_at_this_employer_before ("No" → No).
+  · "How did you hear about this role/us?" → job_source (or the closest option: job board, LinkedIn, website, Other).
+  · Yes/No about their own experience or skills ("Have you fine-tuned...", "experience with X?", "degree in a related field?") → Yes
+    only when experience, education, skills or cv_excerpt show it; otherwise No. "Years of experience with X" → from those, else 0.
+  · Data retention, talent pool, privacy and processing consent (any wording, required or not) → Yes / tick it.
+  · Location / city / country / "where are you based" → lives_in. Notice period → available from start_date.
+  · Visa / sponsorship / "authorised to work" / work permit questions → from work_permit and nationality_group: an EU citizen or an
+    orientation-year (zoekjaar) permit → authorised, no sponsorship; "other_non_eu"/needs a permit → needs sponsorship (an internship: the
+    school's internship agreement covers it → authorised for the internship, sponsorship later Yes). Never stop for these.
+  · Salary / compensation expectations (NOT salary history) → expected_salary when given; else an internship: "In line with your standard
+    internship allowance" (a number box: 800, monthly EUR); a full-time entry role: "In line with the market for this role" (number: 42000 yearly EUR).
+  · Internship end / finish / duration → start_date plus the length the job states, else plus 6 months.
+  · Age group / age range / "are you 18 or older" → "Prefer not to say" when offered; else 18+ / the 18–24 range for a student (adult is known).
+  · Office days, relocation, travel, hybrid commitment, start-date flexibility, "willing to..." → Yes.
+  · Pronouns, gender, ethnicity, disability, veteran (voluntary EEO) → "Prefer not to say" / "Decline to self-identify" when offered.
+  · Anything else short and factual the facts do not settle → the most neutral true-to-the-facts option; a choice you are unsure of is
+    still better filled than asked (the person reviews everything before Submit).
+  So questions are left ONLY for: open motivation text when there is no profile at all, criminal/legal declarations, and a required
+  personal plan with no sensible default (thesis or not). Expect to finish review on most forms.
 - person_answers = the person's own saved answers to earlier questions (any job): a page question that means the same → use that answer.
 - Never ask what the facts or person_answers already answer: e.g. "enrolled for the entire internship" with studies ending on or after
   the internship's end → Yes. Ask only when the facts are silent or would be a guess about the person's own plans.
@@ -143,7 +166,7 @@ Never scroll + screenshot repeatedly to re-check: one look per problem. Be quick
 STOP with finish only when:
 - review — only Submit/Send is left (NEVER press it). message: "Everything is filled in. Check it and press Submit yourself."
 - needs_you — with reason: "captcha"; "account" (sign in / password / account creation); "questions" (only the person can answer — list them
-  in questions); "letter" (a required cover/motivation letter and has_cover_letter is false).
+  in questions); "letter" (only when write_letter failed).
 - stuck — after 5+ different attempts including sight (reason "other", say exactly what blocks), or the job is closed (reason "closed"). A genuine job-page 404 / page not found or read_page.closed means reason "closed" immediately; do not retry an unavailable job. A network error or CAPTCHA is not a closed job.
 Buttons marked blocked are refused. Never ask the person in chat; never stop without finish. After finish, output an apply_pick with action none.`
 
