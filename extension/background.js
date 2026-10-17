@@ -468,7 +468,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       if (pending) { pending.then((res) => reply(res)).catch(() => reply(null)); return true }
     }
     const body = message.op === "start"
-      ? { url: String(message.url || ""), page: String(message.page || ""), run_id: typeof message.run_id === "string" ? message.run_id : null, recipe_attempts: message.recipe_attempts || [], tab_id: tabId }
+      ? { url: String(message.url || ""), page: String(message.page || ""), run_id: typeof message.run_id === "string" ? message.run_id : null, recipe_attempts: message.recipe_attempts || [], tab_id: tabId, ...(message.ready === true ? { ready: true } : {}) }
       : message.op === "playbook" ? { page: String(message.page || "") }
       : message.op === "next" ? { run_id: message.run_id, fresh: message.fresh === true, hold: message.hold === true, tab_id: tabId }
       : message.op === "continue" ? { run_id: message.run_id }
@@ -504,6 +504,12 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   // Keep offsite handoffs inside the application's background tab. A short-lived
   // A CV button with no file field behind it (Hunkemöller): the site makes its file picker only when the button is clicked. For the next
   // 5 s, a file picker the page opens is kept on the page (hidden) instead of opening the system dialog, so Odds can put the CV in it.
+  // Real mouse and keyboard for a field that refused Odds' own events (masked dates, toggles, search lists): Chrome's debugger sends
+  // input the site cannot tell from a person's. Attached only for this one action, then detached at once.
+  if (message?.type === "real-input" && sender.tab && typeof sender.tab.id === "number") {
+    realInput(sender.tab.id, message).then(reply, (e) => reply({ ok: false, error: String(e?.message || e).slice(0, 160) }))
+    return true
+  }
   if (message?.type === "catch-file-picker" && sender.tab && typeof sender.tab.id === "number") {
     chrome.scripting.executeScript({ target: { tabId: sender.tab.id, frameIds: [sender.frameId ?? 0] }, world: "MAIN", func: () => {
       const proto = HTMLInputElement.prototype
@@ -1221,6 +1227,13 @@ chrome.alarms.onAlarm.addListener(alarm => {
   if (alarm.name === "odds-applications") pollApplications().catch(() => undefined)
 })
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
+  // The application form sits in a blank frame (HubSpot and similar embeds): Odds' form script goes into the page's frames, where it
+  // drives only a blank frame that holds the form (apply-any.js checks).
+  if (message?.type === "apply-frames" && sender.tab && typeof sender.tab.id === "number") {
+    chrome.scripting.executeScript({ target: { tabId: sender.tab.id, allFrames: true }, files: ["job-sites.js", "application-handoff.js", "apply-any.js"], injectImmediately: true })
+      .then(() => reply({ ok: true }), (e) => reply({ ok: false, error: String(e?.message || e) }))
+    return true
+  }
   // A wait for a hidden application tab (see sleep in apply-any.js): answered on time from here.
   if (message?.type === "odds-sleep") {
     setTimeout(() => reply({ ok: true }), Math.min(30_000, Math.max(0, Number(message.ms) || 0)))
@@ -1287,3 +1300,53 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 // Recover queued phone requests immediately when Chrome wakes the worker.
 pollApplications().catch(() => undefined)
+
+
+/** One real input action in a tab through Chrome's debugger (one at a time per tab). click {x,y} | type {text, clear} | key {key}. */
+const realInputQueue = new Map()
+function realInput(tabId, action) {
+  const prior = realInputQueue.get(tabId) || Promise.resolve()
+  const next = prior.catch(() => undefined).then(() => realInputNow(tabId, action))
+  realInputQueue.set(tabId, next.catch(() => undefined))
+  return next
+}
+async function realInputNow(tabId, action) {
+  const target = { tabId }
+  const send = (method, params) => chrome.debugger.sendCommand(target, method, params)
+  const KEYS = { Enter: [13, "\r"], Tab: [9, ""], Escape: [27, ""], Backspace: [8, ""], Delete: [46, ""], ArrowDown: [40, ""], ArrowUp: [38, ""], ArrowLeft: [37, ""], ArrowRight: [39, ""], Space: [32, " "] }
+  const key = async (name, modifiers = 0) => {
+    const [code, text] = KEYS[name] || [0, ""]
+    await send("Input.dispatchKeyEvent", { type: text ? "keyDown" : "rawKeyDown", key: name === "Space" ? " " : name, code: name, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code, modifiers, ...(text ? { text } : {}) })
+    await send("Input.dispatchKeyEvent", { type: "keyUp", key: name === "Space" ? " " : name, code: name, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code, modifiers })
+  }
+  try { await chrome.debugger.attach(target, "1.3") } catch (e) { return { ok: false, error: `real input unavailable: ${String(e?.message || e).slice(0, 120)}` } }
+  try {
+    if (action.op === "click" || action.op === "type") {
+      if (Number.isFinite(action.x) && Number.isFinite(action.y)) {
+        const at = { x: Math.round(action.x), y: Math.round(action.y), button: "left", clickCount: 1 }
+        await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y })
+        await send("Input.dispatchMouseEvent", { type: "mousePressed", ...at })
+        await send("Input.dispatchMouseEvent", { type: "mouseReleased", ...at })
+      }
+    }
+    if (action.op === "type") {
+      if (action.clear) {
+        // Select everything in the box (Ctrl/Cmd+A) and delete it, as a person would.
+        const mod = /Mac/i.test(navigator.platform || navigator.userAgent) ? 4 : 2
+        await send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers: mod, commands: ["selectAll"] })
+        await send("Input.dispatchKeyEvent", { type: "keyUp", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers: mod })
+        await key("Backspace")
+      }
+      for (const ch of String(action.text || "").slice(0, 2000)) {
+        await send("Input.dispatchKeyEvent", { type: "keyDown", key: ch, text: ch, unmodifiedText: ch })
+        await send("Input.dispatchKeyEvent", { type: "keyUp", key: ch })
+      }
+    }
+    if (action.op === "key") await key(String(action.key || "Enter"))
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 160) }
+  } finally {
+    await chrome.debugger.detach(target).catch(() => undefined)
+  }
+}

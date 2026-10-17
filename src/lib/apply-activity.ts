@@ -182,7 +182,7 @@ export function driveLabel(d: DriveInfo): string {
   if (d.status === "submitted") return "Applied"
   if (WRONG_JOB_MSG.test(d.message || "")) return "Wrong job"
   if (CONSENT_MSG.test(d.message || "") && (d.reason === "other" || !d.reason)) return "Your consent"
-  const byReason: Record<string, string> = { captcha: "Captcha", account: "Sign in", questions: "Your answers", letter: "Cover letter", closed: "Closed" }
+  const byReason: Record<string, string> = { captcha: "Captcha", account: "Sign in", questions: "Your answers", letter: "Cover letter", closed: "Closed", email: "Apply by email" }
   return (d.reason && byReason[d.reason]) || (d.status === "needs_you" ? "Needs you" : "Stuck")
 }
 
@@ -207,6 +207,7 @@ export function driveWhy(d: DriveInfo, now = Date.now()): string {
     questions: "Answer the questions below to continue.",
     letter: "Choose a cover letter for this job.",
     closed: "This job no longer takes applications.",
+    email: "This employer takes applications by email: send your CV (and letter) to the address below.",
   }
   return (d.reason && byReason[d.reason]) || d.message || "Open the tab to see what needs a hand."
 }

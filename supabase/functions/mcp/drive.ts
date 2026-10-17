@@ -1,5 +1,6 @@
 import { BroodsClient } from "broods"
 import { renderLetterPdf } from "../_shared/cv-template.ts"
+import { compressRoute, routeHint, routeKey, routeStoreKey, usable } from "../_shared/site-routes.ts"
 import { canAcceptDriveResult, humanStopAllowed, jobIdentityMismatch } from "../_shared/drive-ownership.ts"
 import { fieldPattern, playbookFor, sanitizeLesson, siteIdentity, structuralField } from "../_shared/site-playbook.ts"
 
@@ -26,7 +27,7 @@ const TOOL_WAIT_MS = 25_000
 const NEXT_WAIT_MS = 20_000
 const MAX_STEPS = 120
 /** No step from Broods for this long while the run says running (a step takes seconds): its turn ended without finish. */
-const QUIET_MS = 100_000
+const QUIET_MS = 30_000
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -97,6 +98,35 @@ function placedMapping(page: Json, field: Json, key: string, value: unknown): Js
   const method = key === "cv" ? "upload" : CHOOSING.includes(field.kind) ? "choosing" : "typing"
   return sanitizeLesson({ kind: "mapping", field: key, autofill_key: key, method, label, nth })
 }
+/** The guide for this page: a route that already reached review on its platform or site (from the first success), else the template. */
+export async function siteRoute(env: Env, url: string): Promise<Json> {
+  const key = routeStoreKey(url)
+  if (!key) return null
+  const rows = (await svc(env, `site_routes?platform=eq.${encodeURIComponent(key)}&successes=gte.1&order=successes.desc&limit=10&select=route,successes,failures,steps_total`).catch(() => null)) ?? []
+  // The best learned route: most reached review per failure, then fewest steps.
+  const best = rows.map((r: Json) => ({ route: r.route as string[], successes: Number(r.successes), failures: Number(r.failures), avgSteps: Number(r.steps_total) / Math.max(1, Number(r.successes) + Number(r.failures)) }))
+    .filter(usable)
+    .sort((a: Json, b: Json) => b.successes / (b.successes + b.failures + 1) - a.successes / (a.successes + a.failures + 1) || a.avgSteps - b.avgSteps)[0] ?? null
+  return routeHint(key, best, routeKey(url))
+}
+
+/** A finished run's route, kept for its platform (structure only) so routes that work become the guide. */
+async function recordRoute(env: Env, run: Json, stage: string): Promise<void> {
+  const commands = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&order=id.asc&select=tool,args,result`).catch(() => null)) ?? []
+  if (!commands.length) return
+  // The platform is the one the form was on (the last page), not the board the run started from.
+  let page: Json = null
+  const pages: Json[] = []
+  for (const c of commands) { pages.push(page); const p = c.result?.page ?? (c.tool === "read_page" ? c.result : null); if (p?.url) page = p }
+  const key = routeStoreKey(String(page?.url ?? run.url))
+  if (!key) return
+  const route = compressRoute(commands, (id, i) => pages[i]?.buttons?.find((b: Json) => b.id === id)?.text ?? null)
+  if (!route?.length) return
+  const ok = stage === "review"
+  const [row] = (await svc(env, `site_routes?platform=eq.${encodeURIComponent(key)}&route=eq.${encodeURIComponent(`{${route.map((s) => `"${s.replace(/"/g, "")}"`).join(",")}}`)}&select=successes,failures,steps_total`).catch(() => null)) ?? []
+  await svc(env, "site_routes?on_conflict=platform,route", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ platform: key, route, successes: (row?.successes ?? 0) + (ok ? 1 : 0), failures: (row?.failures ?? 0) + (ok ? 0 : 1), steps_total: (row?.steps_total ?? 0) + Number(run.steps ?? commands.length), ...(ok ? { last_success: new Date().toISOString() } : {}), updated_at: new Date().toISOString() }) }).catch(() => undefined)
+}
+
 async function learnRun(env: Env, run: Json, stage: string): Promise<void> {
   const commands = await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&order=id.asc&select=tool,args,result`).catch(() => [])
   let page: Json = null
@@ -238,7 +268,7 @@ const BASE_TOOLS = [
   },
   {
     name: "fill",
-    description: "Answer questions on the page: fields [{id, value}] from the last read_page. Text is typed; for select/radio/choice/combobox/listbox the value must be one of its options (call options first when none are listed); a non-consent checkbox takes 'yes' or 'no'. Returns per-field ok/value/error and the fresh page snapshot.",
+    description: "Answer questions on the page: fields [{id, value}] from the last read_page. Text is typed; for select/radio/choice/combobox/listbox the value must be one of its options (call options first when none are listed; a long list shows only its start with options_total — just give the choice you want, e.g. Netherlands, and Odds finds it); a non-consent checkbox takes 'yes' or 'no'. Returns per-field ok/value/error and the fresh page snapshot.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, fields: { type: "array", items: { type: "object", properties: { id: { type: "string" }, value: { type: "string" } }, required: ["id", "value"] } } }, required: ["run_id", "fields"] },
   },
   {
@@ -314,7 +344,7 @@ const BASE_TOOLS = [
   {
     name: "finish",
     description: "End the run. stage: 'review' (everything filled, only Submit left for the person), 'needs_you' (something only the person can do), 'stuck' (cannot move on). reason (for needs_you/stuck): 'captcha', 'account' (sign in / make an account), 'questions' (only the person can answer — list them in questions), 'letter' (a cover/motivation letter is asked and none is in Odds), 'closed' (the job no longer takes applications), 'other'. message: one plain sentence for the person.",
-    inputSchema: { type: "object", properties: { run_id: { type: "string" }, stage: { type: "string", enum: ["review", "needs_you", "stuck"] }, reason: { type: "string", enum: ["captcha", "account", "questions", "letter", "closed", "other"] }, message: { type: "string" }, questions: { type: "array", items: { type: "string" } } }, required: ["run_id", "stage", "message"] },
+    inputSchema: { type: "object", properties: { run_id: { type: "string" }, stage: { type: "string", enum: ["review", "needs_you", "stuck"] }, reason: { type: "string", enum: ["captcha", "account", "questions", "letter", "closed", "email", "other"] }, message: { type: "string" }, questions: { type: "array", items: { type: "string" } } }, required: ["run_id", "stage", "message"] },
   },
 ]
 const questionSlug = (q: string): string => `broods_${q.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 60)}`
@@ -342,10 +372,73 @@ async function personQuestions(env: Env, run: Json, questions: string[]): Promis
   for (const f of fields) if (f.required && !f.filled && !out.has(questionSlug(clean(f.label)))) add(f.label, f)
   return [...out.values()].slice(0, 30)
 }
+/** The platform a page belongs to for learning: the ATS (greenhouse, workday…) when known, else its host. */
+function tacticPlatform(url: string): string {
+  const id = siteIdentity(url)
+  return id.ats || id.host.replace(/^www\./, "")
+}
+/** Every fill result teaches its platform which way each kind of field takes a value (structure only: kind + tactic + ok). */
+async function learnTactics(env: Env, run: Json, result: Json): Promise<void> {
+  const results = Array.isArray(result?.results) ? result.results : []
+  const fields = Array.isArray(result?.page?.fields) ? result.page.fields : []
+  if (!results.length || !fields.length) return
+  const kindOf = new Map(fields.map((f: Json) => [f?.id, String(f?.kind ?? "")]))
+  const platform = tacticPlatform(String(result?.page?.url || run.url || ""))
+  if (!platform) return
+  for (const r of results.slice(0, 40)) {
+    const kind = kindOf.get(r?.id)
+    if (!kind || kind === "file") continue
+    const tactic = ["own_format", "real_input"].includes(r?.via) ? r.via : "plain"
+    await svc(env, "rpc/record_site_tactic", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ p_platform: platform, p_kind: kind, p_tactic: tactic, p_ok: r?.ok === true }) }).catch(() => undefined)
+  }
+}
+/** A platform's winning tactic per field kind: real_input first where it has worked twice or more and plain has failed more than worked. */
+async function siteTactics(env: Env, url: string): Promise<Record<string, string>> {
+  const platform = tacticPlatform(url)
+  if (!platform) return {}
+  const rows = (await svc(env, `site_tactics?platform=eq.${encodeURIComponent(platform)}&select=field_kind,tactic,successes,failures`).catch(() => null)) ?? []
+  const out: Record<string, string> = {}
+  const byKind = new Map<string, Json[]>()
+  for (const r of rows) byKind.set(r.field_kind, [...(byKind.get(r.field_kind) ?? []), r])
+  for (const [kind, list] of byKind) {
+    const plain = list.find((r: Json) => r.tactic === "plain")
+    const best = list.filter((r: Json) => r.tactic !== "plain" && r.successes >= 2).sort((a: Json, b: Json) => b.successes - a.successes)[0]
+    if (best && (!plain || plain.failures > plain.successes)) out[kind] = best.tactic
+  }
+  return out
+}
+/**
+ * Learned from the runs themselves: a site whose last runs all ended at a sign-in / create-account page (Workday's tenants, Unilever's
+ * Eightfold) needs an account for every application. The next run stops at its first page instead of clicking 4–6 pages to find out.
+ * Only with 3+ recent runs, all ending at an account, and only while the page has no application questions of its own.
+ */
+async function accountSite(env: Env, run: Json, page: Json): Promise<boolean> {
+  let host = ""
+  try { host = new URL(String(page.url || run.url)).hostname.replace(/^www\./, "") } catch { return false }
+  if (!host || /(^|\.)(linkedin|indeed|glassdoor)\./i.test(host)) return false
+  // One platform, many employers (nxp.wd3.myworkdayjobs.com, shell.wd3…): learned for the platform as a whole.
+  if (/\.myworkdayjobs\.com$/i.test(host)) host = "myworkdayjobs.com"
+  const asks = (page.fields ?? []).filter((f: Json) => f?.kind !== "checkbox" && !/e-?mail|password|wachtwoord|search|zoek/i.test(String(f?.label ?? "")))
+  if (asks.length >= 2) return false
+  const since = encodeURIComponent(new Date(Date.now() - 30 * 86_400_000).toISOString())
+  const recent = (await svc(env, `drive_runs?url=ilike.*${encodeURIComponent(host)}*&id=neq.${run.id}&status=neq.running&created_at=gte.${since}&order=created_at.desc&limit=5&select=status,reason`).catch(() => null)) ?? []
+  // A closed job or a stopped run says nothing about accounts.
+  const ended = recent.filter((r: Json) => !["stopped", "failed"].includes(String(r.status)) && r.reason !== "closed")
+  return ended.length >= 3 && ended.every((r: Json) => r.status === "needs_you" && r.reason === "account")
+}
+/** The page is a sign-in wall: it says so ("log in to apply"), or it is a sign-in form with no application questions on it. */
+function signInWall(page: Json): boolean {
+  const texts = [...(page.headings ?? []), ...(page.buttons ?? []).map((b: Json) => b?.text ?? "")].map((t: unknown) => String(t ?? ""))
+  if (texts.some((t) => /save (your )?(progress|application)|save for later|continue as (a )?guest|apply without (an )?account/i.test(t))) return false
+  const asks = (page.fields ?? []).filter((f: Json) => f?.kind !== "checkbox" && !/e-?mail|user ?name|password|wachtwoord|login|log in|sign in/i.test(String(f?.label ?? "")))
+  if (asks.length >= 2) return false
+  const says = texts.some((t) => /(please )?(log ?in|sign ?in|inloggen)( first)? to (apply|continue|solliciteren)|login required|sign in with your|log in with your|create an account to (apply|continue)|eu login/i.test(t))
+  return says || (page.password_field === true && asks.length === 0)
+}
 /** Every tool takes the line Broods writes for the person about this step: the tracker shows it live. */
 const SAY = { type: "string", description: "One short line for the person, in plain words: what you are doing now and why (shown live in their tracker), e.g. 'Filling your details from Autofill'." }
 const TOOLS = BASE_TOOLS.map((t) => (t.name === "finish" ? t : { ...t, inputSchema: { ...t.inputSchema, properties: { ...t.inputSchema.properties, say: SAY } } }))
-const REASONS = ["captcha", "account", "questions", "letter", "closed", "other"]
+const REASONS = ["captcha", "account", "questions", "letter", "closed", "email", "other"]
 
 async function callTool(env: Env, name: string, args: Json): Promise<{ text: string; error?: boolean; image?: string }> {
   const run = await runOf(env, String(args?.run_id ?? ""))
@@ -371,6 +464,10 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         message = message || `Cannot stop for the person without clear evidence (${gate.reason}).`
       }
     }
+    // "Log in to save your progress" is optional: carry on as a guest; never stop the person for it.
+    if (reason === "account" && /save (your )?(progress|application)|save for later|to save/i.test(message)) {
+      return { text: "Logging in only to save progress is optional: carry on as a guest (fill the form) and finish review when only Submit is left. Stop for an account only when the form itself cannot be reached without one.", error: true }
+    }
     // A cover letter is only asked for when the page has a field for one: never invented (Oracle's Personal Info page has none).
     if (reason === "letter" || /cover letter|motivation letter/i.test(message)) {
       const fields = await freshFields(env, run)
@@ -387,6 +484,34 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     if (stage === "review") {
       const empty = await requiredEmpty(env, run)
       if (empty.length) return { text: `Not done yet: these required fields are still empty on the page: ${empty.slice(0, 10).join("; ")}. Fill them (read_page shows them), or finish needs_you if only the person can answer them.`, error: true }
+    }
+    // "Apply by email to jobs@…": no online form. That is a correct stop of its own (reason email), whatever reason the model gave.
+    if (stage !== "review" && /\b(apply|applications?|send (your )?(cv|resume|application))\b[^.]{0,60}\be-?mail\b|[\w.+-]+@[\w-]+\.[\w.]+/i.test(message) && /no (online )?(application )?form|(did not|could not|couldn.t|cannot|can.t) (open|find)|by e-?mail|email (your|to)|lists? [^.]{0,40}@/i.test(message)) { stage = "needs_you"; reason = "email" }
+    // Questions the rules say Broods answers itself (its own experience yes/no, how it heard, located/authorised, consent, availability):
+    // sent back once, so a small model that stops for them carries on instead.
+    const OWN = /^(do|did|are|have|can|will|would|is)\b.*\b(experience|experienced|familiar|proficient|knowledge|worked with|used|skills?|located|based|authori[sz]ed|right to work|sponsor\w*|relocat\w*|available|commit|willing|hear about|heard about|consent|agree|worked (at|for)|employed (at|by)|been employed|work(ed)? here)\b/i
+    // Open questions are Broods' to write too (motivation, "what do you think of…", "a recent market development"): a few first-person
+    // sentences from the facts and general knowledge. Only the person's own plans, numbers and history stay theirs.
+    const OPEN = /^(why|what|how|describe|tell us|explain|share|give|please (describe|explain|share|tell|write)|in (a few|max|up to)|using (a )?maximum)\b(?!.*\b(salary|expected (pay|salary)|notice period|current (pay|salary)|grade list|transcript|pronoun|gender)\b)/i
+    const PERSONAL = /\b(pronoun|gender|salary|notice period|requirements from your university|thesis|start date you|your (own )?(availability|address|postcode|street))\b/i
+    const ownable = questions.filter((q: string) => !PERSONAL.test(String(q)) && (OWN.test(String(q)) || OPEN.test(String(q))))
+    if (stage === "needs_you" && reason === "questions" && ownable.length) {
+      const sent = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&select=id&limit=1`).catch(() => null))?.[0]
+      if (!sent) {
+        await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "own_questions", n: ownable.length }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+        return { text: `Not done: these are yours to answer, not the person's: ${ownable.slice(0, 8).join(" | ")}. Experience/skill yes-no → Yes only when experience, skills, education or cv_excerpt show it, else No; how did you hear → job_source (or the closest option: Website / Company website / LinkedIn / Other); located/authorised/sponsorship → work_permit and lives_in; consent/availability → Yes; open questions → 2–4 first-person sentences from the facts and general knowledge, within max_chars. Fill them, then finish with only what is left for the person (or review).`, error: true }
+      }
+    }
+    // A verification check is a captcha, whatever the model called it (Indeed's "additional verification", Cloudflare, DataDome).
+    if (stage !== "review" && reason !== "captcha" && /\b(captcha|cloudflare|datadome|verify (that )?you are (a )?human|human verification|additional verification|security check|are you a robot|ik ben geen robot)\b/i.test(message)) { stage = "needs_you"; reason = "captcha" }
+    // "The toggle did not register", "the date field is not accepting", "no Next button": a widget problem, not the person's. Sent back
+    // once: fill retries through real input already; Broods tries by sight (screenshot → click_at / type_text / press_key) before stopping.
+    if (stage !== "review" && ["other", "questions"].includes(String(reason)) && /\b(did ?n.t|did not|not|never|won.t|will not|cannot|can.t) (register|accept\w*|take|stick|keep|respond\w*|work)\b|toggle|autocomplete|not exposing|no (visible )?(next|continue|review|submit) (button|control)|(next|continue) (button )?did not advance/i.test(message)) {
+      const sentWidget = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.widget&select=id&limit=1`).catch(() => null))?.[0]
+      if (!sentWidget) {
+        await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "widget" }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+        return { text: "Not done: a field or button that does not respond is yours to work through, not the person's. read_page again (scroll to the bottom for a step's Next), fill the field once more (Odds now retries with real mouse and keyboard), and if it still refuses take one screenshot and use click_at / type_text / press_key on it. Only then finish.", error: true }
+      }
     }
     // Review with empty required fields is refused — Broods must leave needs_you/stuck instead.
     if (stage === "review" && Array.isArray(args.unfilled) && args.unfilled.length) {
@@ -417,6 +542,8 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       if (asked.length) await svc(env, "application_prompts?on_conflict=user_id,posting_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: run.user_id, posting_id: run.posting_id, questions: asked, updated_at: new Date().toISOString() }) }).catch(() => undefined)
     }
     await learnRun(env, run, stage).catch(() => console.warn("Site playbook learning unavailable"))
+    // Only runs that ended on the form itself teach a route (a captcha or a closed job says nothing about the platform's route).
+    if (stage === "review" || reason === "questions") await recordRoute(env, { ...run, steps: run.steps }, stage).catch(() => undefined)
     return { text: "Finished." }
   }
   if (!live(run)) return { text: `This run is over (${run.status}). Stop.`, error: true }
@@ -499,8 +626,27 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...res, image: "(sent)" } }) }).catch(() => undefined)
         return { text: JSON.stringify({ width: res.width, height: res.height, note: res.note }), image: res.image }
       }
+      // Every fill teaches the platform which way each kind of field takes a value (here, where every result passes, test or real).
+      if (name === "fill") void learnTactics(env, run, res).catch(() => undefined)
       // Wrong-job / redirect to another employer: stop before further personal fills.
       const page = res.page || (name === "read_page" ? res : null)
+      // A captcha wall and nothing to fill: that is the person's, and it is clear at once. The run ends here without more model turns.
+      if (page?.captcha === true && Array.isArray(page.fields) && page.fields.filter((f: Json) => f?.kind !== "checkbox").length === 0) {
+        const now = new Date().toISOString()
+        const message = "A human-verification check is in the way. Tick it in the tab and Odds carries on by itself."
+        await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "captcha", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
+        await cancelOpenCommands(env, run.id, "captcha")
+        return { text: JSON.stringify({ ok: false, run_ended: true, captcha: true, error: "Captcha: Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
+      }
+      // A sign-in wall with nothing to apply to: the page says "log in to apply" (EU JRC), or it is a sign-in form and nothing else
+      // (EU Login, Workday's account page). That is the person's, at once. "Log in to save your progress" (Cornerstone) is optional: no wall.
+      if (page && Array.isArray(page.fields) && (signInWall(page) || (run.steps <= 2 && name === "read_page" && page.closed !== true && await accountSite(env, run, page)))) {
+        const now = new Date().toISOString()
+        const message = "This application asks you to sign in or create an account first. Do that in the tab and press Apply with Odds again."
+        await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "account", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
+        await cancelOpenCommands(env, run.id, "account")
+        return { text: JSON.stringify({ ok: false, run_ended: true, account: true, error: "Sign-in wall: Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
+      }
       // Through a job board to the employer's own form: remembered for this job, so the next run opens the form directly.
       if (run.posting_id && typeof page?.url === "string" && Array.isArray(page.fields) && page.fields.length >= 2) void learnApplyLink(env, run.posting_id, page.url)
       if (page?.url && typeof page.url === "string") {
@@ -626,11 +772,24 @@ function jobFacts(job: Json, url: string, facts: Record<string, string>): Record
     const history = `${facts.experience ?? ""} ${facts.current_company ?? ""} ${facts.cv_excerpt ?? ""}`.toLowerCase()
     out.worked_at_this_employer_before = history.includes(employer.split(/\s+/)[0]!) ? "maybe (check experience)" : "No"
   }
+  // Year of study from the person's own education dates ("Master, …, Sep 2025–Aug 2027"): asked often, never worth a stop.
+  const study = String(facts.education ?? "").match(/\b(bachelor|master|msc|bsc|ba|ma|phd|mba)\b[^]*?\b([A-Z][a-z]{2,8})?\s*(20\d\d)\s*[–-]\s*(?:[A-Z][a-z]{2,8}\s*)?(20\d\d)/i)
+  if (study) {
+    const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+    const startMonth = Math.max(0, MONTHS.indexOf(String(study[2] ?? "sep").slice(0, 3).toLowerCase()))
+    const start = new Date(Number(study[3]), startMonth, 1), end = Number(study[4])
+    const now = new Date()
+    if (now >= start && now.getFullYear() <= end) {
+      const year = Math.floor((now.getTime() - start.getTime()) / (365.25 * 86_400_000)) + 1
+      const level = /master|msc|ma\b|mba/i.test(study[1]!) ? "Master's" : /phd/i.test(study[1]!) ? "PhD" : "Bachelor's"
+      out.current_study_year = `${year === 1 ? "1st" : year === 2 ? "2nd" : year === 3 ? "3rd" : `${year}th`} year (${level}), graduating ${end}`
+    }
+  }
   return out
 }
 
 /** Start the Broods agent on a run with the person's own context; it then drives through the tools. Reads the stream in the background. */
-async function startBroods(env: Env, run: Json, job: Json, facts: Record<string, string>, resume?: string): Promise<string | null> {
+async function startBroods(env: Env, run: Json, job: Json, facts: Record<string, string>, resume?: string, oddsFilled?: Json): Promise<string | null> {
   const key = (Deno.env.get("APPLY_AGENT_BROODS_API_KEY") ?? "").trim()
   const agentId = (Deno.env.get("ODDS_DRIVE_AGENT_ID") ?? "").trim()
   const secret = (Deno.env.get("APPLY_AGENT_BROODS_USER_TOKEN_SECRET") ?? "").trim()
@@ -655,8 +814,8 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
   // A background run: Broods accepts it (202) and keeps working on its side for as long as the form takes. Holding the stream open
   // here capped every run at this function's ~150 s wall clock ("Caller stopped reading the stream" cancelled real applications).
   // The agent reports its end through the finish tool; the extension says so when Broods goes quiet.
-  const playbook = await sitePlaybook(env, run.url)
-  Object.assign(task, { site_playbook: playbook })
+  const [playbook, route] = await Promise.all([sitePlaybook(env, run.url), siteRoute(env, run.url)])
+  Object.assign(task, { site_playbook: playbook, ...(route ? { route } : {}), ...(oddsFilled && typeof oddsFilled === "object" ? { odds_filled: { filled: Number(oddsFilled.filled) || 0, left: Number(oddsFilled.left) || 0, only_submit_left: oddsFilled.only_submit_left === true } } : {}) })
   try {
     const client = new BroodsClient({ apiKey: key, baseUrl: base, userToken: await signUserToken(run.user_id, secret) })
     await client.runAsync({ agentId, eventId: crypto.randomUUID(), conversationKey: `odds-drive-${run.id}`, input: JSON.stringify(task) })
@@ -687,7 +846,7 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
     // A page load in the same application resumes its run (Broods is still driving), never a second agent.
     if (typeof body?.run_id === "string") {
       const run = await runOf(env, body.run_id)
-      if (run && run.user_id === userId && live(run)) { await recordAttempts(run); return json(200, { run_id: run.id, resumed: true }) }
+      if (run && run.user_id === userId && live(run)) { await recordAttempts(run); return json(200, { run_id: run.id, resumed: true, tactics: await siteTactics(env, String(body?.page || run.url)).catch(() => ({})) }) }
       // The page moved on while Broods waited for the person (they signed in, solved the captcha): the same run carries on.
       if (run && run.user_id === userId && resumeRun(run)) {
         await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify(resumePatch(run)) })
@@ -709,14 +868,22 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
     const recent = (await svc(env, `drive_runs?user_id=eq.${userId}&status=eq.running&url=eq.${encodeURIComponent(page)}&created_at=gte.${encodeURIComponent(new Date(Date.now() - 120_000).toISOString())}&order=created_at.desc&limit=1&select=id`).catch(() => null))?.[0]
     if (recent?.id) return json(200, { run_id: recent.id, resumed: true })
     const job = await ctx.job(url).catch(() => null)
+    // Odds' own fill already finished the form (every required field filled, only Submit left): the run is at review with no model call.
+    if (body?.ready === true) {
+      const now = new Date().toISOString()
+      const message = "Everything is filled in. Check it and press Submit yourself."
+      const [done] = await svc(env, "drive_runs", { method: "POST", body: JSON.stringify({ user_id: userId, posting_id: job?.id ?? null, url: String(body?.page || url).slice(0, 2000), status: "review", steps: 0, message, last_note: "Filled by Odds from your profile (no AI needed).", fill_ended_at: now, agent_finished_at: now }) })
+      await recordAttempts(done)
+      return json(200, { run_id: done.id, resumed: false, ready: true })
+    }
     const [run] = await svc(env, "drive_runs", { method: "POST", body: JSON.stringify({ user_id: userId, posting_id: job?.id ?? null, url: String(body?.page || url).slice(0, 2000) }) })
     await recordAttempts(run)
-    const problem = await startBroods(env, run, job, await ctx.facts().catch(() => ({})))
+    const problem = await startBroods(env, run, job, await ctx.facts().catch(() => ({})), undefined, body?.odds_filled)
     if (problem) {
       await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ status: "failed", message: problem }) }).catch(() => undefined)
       return json(200, { error: problem })
     }
-    return json(200, { run_id: run.id, resumed: false })
+    return json(200, { run_id: run.id, resumed: false, tactics: await siteTactics(env, run.url).catch(() => ({})) })
   }
   const run = await runOf(env, String(body?.run_id ?? ""))
   if (!run || run.user_id !== userId) return json(404, { error: "No such run." })
@@ -842,7 +1009,7 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
       if (!fresh || !live(fresh)) return json(200, { done: true, status: fresh?.status ?? "failed", reason: fresh?.reason ?? null, message: fresh?.message ?? "The run ended." })
       // Broods has sent nothing for 100 s (not waiting on the person): it ended without saying so. Retry once by itself; only then say it.
       if (Date.now() - Date.parse(fresh.updated_at) > QUIET_MS && !personBusy(fresh)) {
-        if ((fresh.retries ?? 0) < 1) {
+        if ((fresh.retries ?? 0) < 3) {
           await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, {
             method: "PATCH",
             body: JSON.stringify({ retries: (fresh.retries ?? 0) + 1, resume_pending: true, last_note: "Picking up again…", updated_at: new Date().toISOString() }),

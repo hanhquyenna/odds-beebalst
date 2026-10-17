@@ -35,8 +35,11 @@ export function jobIdentityMismatch(opts: {
   const ph = hostOf(page.hostname)
   if (ih && ph && ih !== ph && !ph.endsWith(`.${ih}`) && !ih.endsWith(`.${ph}`)) {
     // Aggregator → employer ATS is a legitimate handoff (linkedin → greenhouse).
-    const boards = /(greenhouse|lever\.co|ashbyhq|myworkdayjobs|workday|smartrecruiters|recruitee|teamtailor|personio|indeed|glassdoor|linkedin)\./i
-    if (!(boards.test(ih) || boards.test(ph))) {
+    const boards = /(greenhouse|lever\.co|ashbyhq|myworkdayjobs|workday|smartrecruiters|csod|cornerstoneondemand|eightfold|phenompeople|avature|pageuppeople|jobs\.sap|brassring|ukg|ultipro|recruitee|teamtailor|personio|indeed|glassdoor|linkedin|academictransfer|stepstone|monsterboard|nationalevacaturebank|werkzoeken|jobbird|workable|homerun|bamboohr|successfactors|oraclecloud|taleo|icims|jobvite|softgarden|join)\.|(^|\.)magnet\.me$/i
+    // The employer's own ATS carries its name on another domain (henkel.com → henkel.csod.com): the same employer's handoff.
+    const brand = ih.split(".").slice(-2, -1)[0] ?? ""
+    const sameEmployer = brand.length >= 4 && ph.split(".").some((label) => label === brand)
+    if (!(boards.test(ih) || boards.test(ph) || sameEmployer)) {
       return {
         ok: false,
         reason: "wrong_job",

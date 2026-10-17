@@ -1,7 +1,7 @@
 // What a Broods run is, and when its tab is gone: pure, so the tracker logic stays testable without the network.
 
 export type DriveStatus = "running" | "review" | "needs_you" | "stuck" | "failed" | "stopped" | "submitted"
-export type DriveReason = "captcha" | "account" | "questions" | "letter" | "closed" | "other"
+export type DriveReason = "captcha" | "account" | "questions" | "letter" | "closed" | "email" | "other"
 
 export interface DriveRun {
   id: string

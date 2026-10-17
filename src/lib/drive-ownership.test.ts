@@ -79,3 +79,9 @@ describe("jobIdentityMismatch closed vs wrong-job", () => {
     if (!r.ok) expect(r.reason).toBe("wrong_job")
   })
 })
+
+test("an employer's site handing over to its own ATS on another domain is the same job (Henkel → henkel.csod.com), a stranger's host is not", () => {
+  expect(jobIdentityMismatch({ intendedUrl: "https://www.henkel.com/careers/find-your-job-apply/2211146-2211146", pageUrl: "https://henkel.csod.com/ux/ats/careersite/1/requisition/86811/application?c=henkel", pageTitle: "Apply for Intern Capital Project Management Excellence" }).ok).toBe(true)
+  expect(jobIdentityMismatch({ intendedUrl: "https://www.henkel.com/careers/x", pageUrl: "https://pphe.csod.com/ux/ats/careersite/4/requisition/1/application" }).ok).toBe(true)
+  expect(jobIdentityMismatch({ intendedUrl: "https://www.henkel.com/careers/x", pageUrl: "https://www.wesco.com/careers/job/1" }).ok).toBe(false)
+})
