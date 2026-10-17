@@ -947,7 +947,7 @@
       const id=driveFieldIds.get(node)
       driveFields.set(id, f)
       const consent = f.kind === "checkbox" && Boolean(A.isConsentCheckbox?.(f.label))
-      return { id, label: A.questionText ? A.questionText(f.label).slice(0, 300) : f.label.slice(0, 300), kind: f.kind, required: f.kind === "file" || required(elOf(f), f.label), filled: answered(f), ...(prefilledFields.has(elOf(f)) && prefilledFields.get(elOf(f)) === fieldValue(f) ? { by: "odds" } : {}), value: fieldValue(f), ...((f.options?.length || ["combobox", "listbox"].includes(f.kind)) ? { options: (f.options?.length ? f.options : listed(elOf(f)).texts).slice(0, 300).map((o) => String(o).slice(0, 120)) } : {}), ...(consent ? { consent: true } : {}) }
+      return { id, label: A.questionText ? A.questionText(f.label).slice(0, 300) : f.label.slice(0, 300), kind: f.kind, required: required(elOf(f), f.label), filled: answered(f), ...(prefilledFields.has(elOf(f)) && prefilledFields.get(elOf(f)) === fieldValue(f) ? { by: "odds" } : {}), value: fieldValue(f), ...((f.options?.length || ["combobox", "listbox"].includes(f.kind)) ? { options: (f.options?.length ? f.options : listed(elOf(f)).texts).slice(0, 300).map((o) => String(o).slice(0, 120)) } : {}), ...(consent ? { consent: true } : {}) }
     })
     // Checkboxes drawn by the site (Oracle, Workday: the real input hidden, a styled box or role=checkbox shown) — fields() skips them.
     const seenBoxes = new Set(list.filter((f) => f.kind === "checkbox").map((f) => elOf(f)))
@@ -1072,8 +1072,14 @@
       const besideCountry = countryPickerSet([...driveFields.values()])
       for (const it of items) {
         const f = driveFields.get(it?.id)
-        const value = typeof it?.value === "string" ? it.value.slice(0, 2000) : ""
+        let value = typeof it?.value === "string" ? it.value.slice(0, 2000) : ""
         if (!f || !elOf(f)?.isConnected) { results.push({ id: it?.id, ok: false, error: "field gone, read_page again" }); continue }
+        // The person's own number written the local way (0612345678) into a phone box that reads numbers itself (no country picked):
+        // give it the full saved +31 number, or the box takes 06… / 61… as another country's.
+        const PHONE_LABEL = /\b(mobile|phone|telephone|telefoon\w*|mobiel\w*)\b/i
+        const saved = String(facts?.phone || facts?.answers?.phone || "")
+        if (PHONE_LABEL.test(f.label) && !besideCountry && !/^\s*(\+|00)/.test(value) && /^\s*\+/.test(saved) && A.nationalNumber
+          && A.nationalNumber(saved).replace(/\D/g, "") === A.nationalNumber(value).replace(/\D/g, "")) value = saved.replace(/\s+/g, "")
         if (secretField(f)) { results.push({ id: it.id, ok: false, error: "the person fills this one" }); continue }
         if (f.kind === "file") { results.push({ id: it.id, ok: false, error: "use upload_cv" }); continue }
         if (f.kind === "checkbox") {
@@ -1109,7 +1115,9 @@
         let phoneError = ""
         if (okDom && /\b(mobile|phone|telephone|telefoon\w*|mobiel\w*)\b/i.test(f.label)) {
           const want = A.nationalNumber ? A.nationalNumber(value).replace(/\D/g, "") : value.replace(/\D/g, "").slice(-8)
-          if (want && !stuck.replace(/\D/g, "").endsWith(want)) { okDom = false; phoneError = `the phone box changed it to "${stuck}": set the country code picker to the number's country first, then fill the number again` }
+          const full = /^\s*(\+|00)/.test(value) ? value.replace(/\D/g, "").replace(/^00/, "") : ""
+          const got = stuck.replace(/\D/g, "")
+          if ((want && !got.endsWith(want)) || (full && /^\s*\+/.test(stuck) && got !== full) || (!full && /^\s*\+/.test(stuck) && got === want)) { okDom = false; phoneError = `the phone box changed it to "${stuck}": set the country code picker to the number's country first, then fill the number again` }
         }
         results.push({ id: it.id, ok: okDom, value: stuck, ...(okDom ? {} : { error: phoneError || result.error || "no matching option or the site did not keep the value" }) })
       }

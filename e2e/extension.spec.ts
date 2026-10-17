@@ -4485,11 +4485,14 @@ test("a phone box behind a country-code picker still on International (Tony's Ch
   await context.route("https://jobs.example-phone.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
   fake.kit = { job_id: "pphone", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", phone: "+31 6 1234 5678", answers: {}, remembered: {} }, cv: null }
   let filled: Record<string, unknown> = {}
+  let local: Record<string, unknown> = {}
   fake.driveScript = async (cmd) => {
     const r = await cmd("read_page")
     const fields = r.fields as Array<{ id: string; label: string }>
     const phone = fields.find((f) => /phone number/i.test(f.label))!
     filled = await cmd("fill", { fields: [{ id: phone.id, value: "+31 6 1234 5678" }] })
+    // Broods writing the local way (06…): the box would read it as +61 (Australia); Odds gives it the saved +31 number.
+    local = await cmd("fill", { fields: [{ id: phone.id, value: "0612345678" }] })
     return { status: "stuck", message: "checked" }
   }
   const page = await context.newPage()
@@ -4498,6 +4501,8 @@ test("a phone box behind a country-code picker still on International (Tony's Ch
   await expect(page.locator(".odds-apply-bar")).toContainText(/checked/, { timeout: 60000 })
   expect(await page.locator("#phone").inputValue()).toBe("+31612345678")
   expect(JSON.stringify(filled)).toContain('"ok":true')
+  expect(JSON.stringify(local)).toContain('"value":"+31612345678"')
+  expect(JSON.stringify(local)).toContain('"ok":true')
 })
 
 test("Broods drives LinkedIn Easy Apply: each step read and filled from the person's facts, Next pressed by Broods, the unknown left to them, Submit never pressed", async ({ context, fake }) => {

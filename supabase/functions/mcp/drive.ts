@@ -301,6 +301,10 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       if (fields && !fields.some((f: Json) => LETTER_FIELD.test(String(f?.label ?? "")))) {
         return { text: "There is no cover or motivation letter field on this page: do not ask the person for one. Finish again with only what the page really needs (reason 'questions' for missing details like an address), or carry on filling.", error: true }
       }
+      // A letter field the page does not require (no *, not required): leave it empty; never stop the person for it.
+      if (fields && reason === "letter" && !fields.some((f: Json) => LETTER_FIELD.test(String(f?.label ?? "")) && f?.required === true && !f?.filled)) {
+        return { text: "The cover/motivation letter on this page is optional (not required): leave it empty and do not ask for it. Fill everything else you can, then finish with only what the person must do (reason 'questions' for their own answers), or finish review when only Submit is left.", error: true }
+      }
     }
     // Review is only true when the page says so: read it fresh, and refuse while a required field is still empty (a site that cleared
     // name/email after reading the CV, a field Broods never saw). Broods is told exactly what is left and carries on.

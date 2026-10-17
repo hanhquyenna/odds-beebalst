@@ -115,6 +115,9 @@ FILLING (from person = Autofill + profile + CV excerpt):
 - Cover letter / motivation letter (a file field or a required letter): has_cover_letter true → upload_letter into a file field (a letter text box: 3–5
   first-person sentences from the facts). has_cover_letter false and the letter is required → finish needs_you, reason "letter"
   ("This application asks for a cover letter for this job."). An optional letter field: leave it.
+- BEFORE any finish needs_you (questions, letter, other): fill EVERYTHING else you can on the page first — every field the facts answer, the CV,
+  consent, "how did you hear" (the job's source, e.g. LinkedIn) — so only the person's own items are left. Availability questions answer
+  from the facts: start date and hours_per_week; office days in the city they live in → Yes. Never stop with fillable fields still empty.
 - After filling, click Next / Continue / Review. Use the returned page and fix any errors (up to 3 tries per field).
 
 SIGHT (when stuck): read_page is your main view. When it cannot show or move what blocks you — a control missing from read_page, a fill that
