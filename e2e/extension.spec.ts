@@ -4469,6 +4469,37 @@ test("a form rendered twice with the same ids (one copy hidden), scrolled out of
   expect(labels.some((l) => /privacy statement/i.test(l))).toBe(true)
 })
 
+test("a phone box behind a country-code picker still on International (Tony's Chocolonely): the full +31 number goes in, never 612345678 read as Australia", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  // Like react-phone-number-input: with the picker on International the box reads the number itself and puts a + in front.
+  const html = `<!doctype html><html><body><h1>Employer Branding Intern</h1><form>
+    <label for="name">Full name</label><input id="name" required>
+    <div class="PhoneInput"><select id="cc" aria-label="Select country calling code: International"><option value="">International</option><option value="NL">Netherlands</option><option value="AU">Australia</option></select>
+    <label for="phone">Phone number</label><input id="phone" type="tel" required></div>
+    <button type="button">Submit</button></form>
+    <script>
+      const ph = document.getElementById("phone"), cc = document.getElementById("cc")
+      ph.addEventListener("input", () => { if (!cc.value) { const d = ph.value.replace(/[^0-9]/g, ""); ph.value = d ? "+" + d : "" } })
+    </script></body></html>`
+  await context.route("https://jobs.example-phone.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pphone", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", phone: "+31 6 1234 5678", answers: {}, remembered: {} }, cv: null }
+  let filled: Record<string, unknown> = {}
+  fake.driveScript = async (cmd) => {
+    const r = await cmd("read_page")
+    const fields = r.fields as Array<{ id: string; label: string }>
+    const phone = fields.find((f) => /phone number/i.test(f.label))!
+    filled = await cmd("fill", { fields: [{ id: phone.id, value: "+31 6 1234 5678" }] })
+    return { status: "stuck", message: "checked" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://jobs.example-phone.com/apply")
+  await applyFrom(context, page, "https://jobs.example-phone.com/apply")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/checked/, { timeout: 60000 })
+  expect(await page.locator("#phone").inputValue()).toBe("+31612345678")
+  expect(JSON.stringify(filled)).toContain('"ok":true')
+})
+
 test("Broods drives LinkedIn Easy Apply: each step read and filled from the person's facts, Next pressed by Broods, the unknown left to them, Submit never pressed", async ({ context, fake }) => {
   test.setTimeout(90_000)
   await connect(context)
@@ -4575,6 +4606,7 @@ const REAL_JOBS = [
   { name: "oracle-yamaha", url: "https://eklm.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX/job/35404", title: "Intern Corporate Communications" },
   { name: "glassdoor-rosewood", url: "https://www.glassdoor.nl/job-listing/talent-and-culture-intern-rosewood-hotel-group-JV_IC3064478_KO0,25_KE26,46.htm?jl=1010295738909", title: "Talent and Culture Intern", board: true },
   { name: "indeed-fb-intern", url: "https://nl.indeed.com/viewjob?jk=3420fff5df333289", title: "Food & Beverage Management Intern", board: true },
+  { name: "tonys-branding-intern", url: "https://jobs.tonyschocolonely.com/o/talent-acquisition-employer-branding-intern/c/new?source=LinkedIn", title: "Talent Acquisition & Employer Branding Intern" },
   { name: "linkedin-marketing", url: "https://www.linkedin.com/jobs/view/4479270692", title: "Marketing & Communications Intern", board: true },
 ] as Array<{ name: string; url: string; title: string; board?: boolean }>
 const TEST_PERSON = { first_name: "Test", last_name: "Applicant", email: "test.applicant@example.com", phone: "+31 6 1234 5678", lives_in: "Amsterdam, Netherlands", nationality_group: "Non-EU nationality", work_permit: "Orientation year (zoekjaar) permit: may work in the Netherlands without sponsorship", education: "Master, Business Analytics, Vrije Universiteit Amsterdam, Sep 2025–Aug 2027", experience: "Data Analyst, Shopee, 2022–2024", linkedin: "https://www.linkedin.com/in/test-applicant", start_date: "1 February 2027", hours_per_week: "40", role_values: "learning fast; international teams; measurable impact" }

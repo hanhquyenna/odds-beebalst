@@ -407,6 +407,14 @@
     } else f.el[i].click()
     return { ok: true, expected: null, expectedOption: i, expectedText: null }
   }
+  /**
+   * A phone box next to a country-code picker takes only the national number once the picker names a country. While the picker still
+   * says "International" (or nothing), the box reads the number itself: it needs the full +31…, or 612345678 turns into +61 2 3456 78.
+   */
+  function countryPickerSet(list) {
+    const pickers = list.filter((f) => /country code|calling code|landcode|code du pays|indicatif|country/i.test(f.label) && (f.kind === "select" || f.kind === "combobox" || f.kind === "listbox"))
+    return pickers.some((f) => { const v = String(fieldValue(f) || "").trim(); return v && !/^(international|select|choose|kies|--|\+?$)/i.test(v) && !PLACEHOLDER.test(v) })
+  }
   function fillPlainOrCard(f, answer, besideCountry) {
     const expected = A.valueFor(f.kind, f.label, answer, besideCountry)
     type(f.el, expected)
@@ -466,7 +474,7 @@
     let left = 0
     done += tickConsents()
     const all = fields()
-    const besideCountry = all.some((f) => /country code|landcode|code du pays|indicatif|country/i.test(f.label) && (f.kind === "select" || f.kind === "combobox" || f.kind === "listbox"))
+    const besideCountry = countryPickerSet(all)
     for (const f of all) {
       const box = boxOf(f)
       const control = elOf(f)
@@ -1061,7 +1069,7 @@
       const items = Array.isArray(args.fields) ? args.fields.slice(0, 40) : []
       const results = []
       const sigBefore = `${location.href}|${[...driveFields.values()].map((f) => `${f.label}:${fieldValue(f)}`).join("|")}`
-      const besideCountry = [...driveFields.values()].some((f) => /country code|landcode|code du pays|indicatif|country/i.test(f.label) && (f.kind === "select" || f.kind === "combobox" || f.kind === "listbox"))
+      const besideCountry = countryPickerSet([...driveFields.values()])
       for (const it of items) {
         const f = driveFields.get(it?.id)
         const value = typeof it?.value === "string" ? it.value.slice(0, 2000) : ""
@@ -1096,8 +1104,14 @@
         await sleep(80)
         // DOM verification: selected value / typed text must stick before we report ok.
         const stuck = fieldValue(f)
-        const okDom = Boolean(result.ok) && answered(f) && (stuck.length > 0 || f.kind === "checkbox")
-        results.push({ id: it.id, ok: okDom, value: stuck, ...(okDom ? {} : { error: result.error || "no matching option or the site did not keep the value" }) })
+        let okDom = Boolean(result.ok) && answered(f) && (stuck.length > 0 || f.kind === "checkbox")
+        // A phone box that reformats what it gets (a country picker in front): the digits Broods meant must still be there.
+        let phoneError = ""
+        if (okDom && /\b(mobile|phone|telephone|telefoon\w*|mobiel\w*)\b/i.test(f.label)) {
+          const want = A.nationalNumber ? A.nationalNumber(value).replace(/\D/g, "") : value.replace(/\D/g, "").slice(-8)
+          if (want && !stuck.replace(/\D/g, "").endsWith(want)) { okDom = false; phoneError = `the phone box changed it to "${stuck}": set the country code picker to the number's country first, then fill the number again` }
+        }
+        results.push({ id: it.id, ok: okDom, value: stuck, ...(okDom ? {} : { error: phoneError || result.error || "no matching option or the site did not keep the value" }) })
       }
       const sigAfter = `${location.href}|${[...driveFields.values()].map((f) => `${f.label}:${fieldValue(f)}`).join("|")}`
       const unfilled = [...driveFields.entries()]
