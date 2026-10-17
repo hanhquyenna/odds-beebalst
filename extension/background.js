@@ -502,6 +502,29 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return true
   }
   // Keep offsite handoffs inside the application's background tab. A short-lived
+  // A CV button with no file field behind it (Hunkemöller): the site makes its file picker only when the button is clicked. For the next
+  // 5 s, a file picker the page opens is kept on the page (hidden) instead of opening the system dialog, so Odds can put the CV in it.
+  if (message?.type === "catch-file-picker" && sender.tab && typeof sender.tab.id === "number") {
+    chrome.scripting.executeScript({ target: { tabId: sender.tab.id, frameIds: [sender.frameId ?? 0] }, world: "MAIN", func: () => {
+      const proto = HTMLInputElement.prototype
+      const click = proto.click
+      const picker = proto.showPicker
+      const keep = function (input) {
+        if (!input.isConnected) { input.style.display = "none"; document.body.appendChild(input) }
+        input.setAttribute("data-odds-picker", String(Date.now()))
+      }
+      // Sites open it three ways: input.click(), input.showPicker(), or a click event fired at a made-up input (Hunkemöller).
+      const dispatch = EventTarget.prototype.dispatchEvent
+      proto.click = function (...args) { if (this.type === "file") return keep(this); return click.apply(this, args) }
+      if (picker) proto.showPicker = function (...args) { if (this.type === "file") return keep(this); return picker.apply(this, args) }
+      EventTarget.prototype.dispatchEvent = function (event) {
+        if (event?.type === "click" && this instanceof HTMLInputElement && this.type === "file") { keep(this); return true }
+        return dispatch.call(this, event)
+      }
+      setTimeout(() => { proto.click = click; if (picker) proto.showPicker = picker; EventTarget.prototype.dispatchEvent = dispatch }, 5000)
+    } }).then(() => reply({ ok: true }), () => reply({ ok: false }))
+    return true
+  }
   // MAIN-world window.open wrapper avoids popup blocking without activating it.
   if (message?.type === "apply-arm-offsite" && sender.tab && typeof sender.tab.id === "number") {
     const tabId = sender.tab.id
@@ -736,6 +759,10 @@ chrome.webNavigation?.onCommitted.addListener((d) => {
   if (!theirs) return
   // Odds opens and moves its own tabs (tabs.update / tabs.create): those navigations are the application's, never "the person took the tab".
   if (oddsNavigating.has(d.tabId)) return
+  // Broods (or Odds) just clicked in this tab: the site moving on from that click (Unilever → its Workday site) is the application,
+  // even when Chrome files it as a "generated" navigation. Only a navigation well after the last click is the person's.
+  const clicked = followFrom.get(d.tabId)
+  if (clicked && Date.now() - clicked.at < 15_000) return
   personTookTab(d.tabId)
 })
 /** The person took this application tab for themselves: Odds lets go of it, tells Broods to stop, keeps a paused record for the app. */

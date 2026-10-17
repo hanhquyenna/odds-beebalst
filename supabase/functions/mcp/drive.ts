@@ -81,6 +81,21 @@ async function saveLesson(env: Env, run: Json, url: string, lesson: unknown, out
   if (!clean || !site.host || !["success", "failure"].includes(outcome)) return
   await svc(env, "rpc/record_site_lesson", { method: "POST", body: JSON.stringify({ p_run: run.id, p_host: site.host, p_ats: site.ats, p_lesson: clean, p_outcome: outcome }) })
 }
+const CHOOSING = ["select", "radio", "choice", "combobox", "listbox", "typeahead"]
+/** Words a contact value shares with any site's structure (a LinkedIn link names LinkedIn): not a sign the label echoes the person. */
+const STRUCTURE_WORDS = new Set(["http", "https", "www", "com", "net", "org", "linkedin", "profile"])
+/** Where a field the person's own detail went sits, as structure: the field's normalized label and which of the same-labelled fields
+ * it is. Null when the label is not plain structure or repeats any word of the value (a label must never carry the person). */
+function placedMapping(page: Json, field: Json, key: string, value: unknown): Json | null {
+  const label = fieldPattern(field?.label)
+  if (!label || !key) return null
+  const words = String(value ?? "").toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 3 && !STRUCTURE_WORDS.has(w))
+  if (words.some((w) => label.includes(w))) return null
+  const nth = (page?.fields || []).filter((f: Json) => fieldPattern(f?.label) === label).findIndex((f: Json) => f?.id === field.id)
+  if (nth < 0) return null
+  const method = key === "cv" ? "upload" : CHOOSING.includes(field.kind) ? "choosing" : "typing"
+  return sanitizeLesson({ kind: "mapping", field: key, autofill_key: key, method, label, nth })
+}
 async function learnRun(env: Env, run: Json, stage: string): Promise<void> {
   const commands = await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&order=id.asc&select=tool,args,result`).catch(() => [])
   let page: Json = null
@@ -202,7 +217,7 @@ const BASE_TOOLS = [
   },
   {
     name: "upload_cv",
-    description: "Attach the person's CV from Odds to a file field (by field id). Only for CV/resume fields.",
+    description: "Attach the person's CV from Odds to a CV/resume file field (field id), or through a CV upload button that has no file field (button id).",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, id: { type: "string" } }, required: ["run_id", "id"] },
   },
   {
@@ -296,6 +311,31 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       }
     }
     // A cover letter is only asked for when the page has a field for one: never invented (Oracle's Personal Info page has none).
+const questionSlug = (q: string): string => `broods_${q.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 60)}`
+const words = (t: string): Set<string> => new Set(t.toLowerCase().replace(/[^a-z0-9à-ÿ ]+/g, " ").split(/\s+/).filter((w) => w.length > 2))
+/** Broods' questions matched to the page's own fields (exact label and options), plus every required field still empty on the page. */
+async function personQuestions(env: Env, run: Json, questions: string[]): Promise<Json[]> {
+  const fields = ((await freshFields(env, run)) ?? []).filter((f: Json) => f?.kind !== "file" && !f?.consent && f?.kind !== "checkbox")
+  const clean = (l: string): string => String(l ?? "").replace(/\s*[*✱]\s*$/, "").trim()
+  const out = new Map<string, Json>()
+  const add = (label: string, f: Json | null): void => {
+    const exact = clean(f?.label ?? label).slice(0, 300)
+    const options = Array.isArray(f?.options) ? f.options.filter((o: unknown) => typeof o === "string" && o.trim() && !/^(select|choose|kies)\b/i.test(o as string)).slice(0, 40) : []
+    out.set(questionSlug(exact), { key: questionSlug(exact), label: exact, kind: options.length ? "radio" : "text", ...(options.length ? { options } : {}) })
+  }
+  for (const q of questions) {
+    const qw = words(q)
+    let best: Json | null = null, score = 0
+    for (const f of fields) {
+      const fw = words(clean(f.label))
+      const hit = [...qw].filter((w) => fw.has(w)).length / Math.max(1, Math.min(qw.size, fw.size))
+      if (hit > score) { score = hit; best = f }
+    }
+    add(q, score >= 0.6 ? best : null)
+  }
+  for (const f of fields) if (f.required && !f.filled && !out.has(questionSlug(clean(f.label)))) add(f.label, f)
+  return [...out.values()].slice(0, 30)
+}
     if (reason === "letter" || /cover letter|motivation letter/i.test(message)) {
       const fields = await freshFields(env, run)
       if (fields && !fields.some((f: Json) => LETTER_FIELD.test(String(f?.label ?? "")))) {
@@ -334,9 +374,11 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     // Stop late fills: queued/taken work must not POST drive-result after Stuck/review.
     await cancelOpenCommands(env, run.id, `finished:${stage}`)
     // Questions only the person can answer: they appear in Odds (the job's page) to answer there; saving them carries Broods on.
-    if (questions.length && run.posting_id) {
-      const slug = (q: string): string => `broods_${q.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 60)}`
-      await svc(env, "application_prompts?on_conflict=user_id,posting_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: run.user_id, posting_id: run.posting_id, questions: questions.slice(0, 30).map((q: string) => ({ key: slug(q), label: q.slice(0, 300), kind: "text" })), updated_at: new Date().toISOString() }) }).catch(() => undefined)
+    if ((questions.length || reason === "questions") && run.posting_id) {
+      // Asked with the page's own words and choices, so an answer is kept under the same question every time (and reused on the next job
+      // that asks it), and a choice is a choice in Odds, not free text. Every required question still empty on the page is asked at once.
+      const asked = await personQuestions(env, run, questions)
+      if (asked.length) await svc(env, "application_prompts?on_conflict=user_id,posting_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: run.user_id, posting_id: run.posting_id, questions: asked, updated_at: new Date().toISOString() }) }).catch(() => undefined)
     }
     await learnRun(env, run, stage).catch(() => console.warn("Site playbook learning unavailable"))
     return { text: "Finished." }
@@ -390,6 +432,13 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         const idCheck = jobIdentityMismatch({ intendedUrl: run.url, pageUrl: page.url, pageTitle: page.title })
         if (!idCheck.ok) {
           const now = new Date().toISOString()
+  // Looking costs time: a screenshot is for something that did not take. Two looks in the last few steps with nothing failing → refused.
+  if (name === "screenshot") {
+    const recent = (await svc(env, `drive_commands?run_id=eq.${run.id}&order=id.desc&limit=4&select=tool,status,result`).catch(() => null)) ?? []
+    const looks = recent.filter((c: Json) => c.tool === "screenshot" || c.tool === "click_at").length
+    const failed = recent.some((c: Json) => c.status !== "done" || c.result?.ok === false || (Array.isArray(c.result?.results) && c.result.results.some((r: Json) => r?.ok === false)) || (Array.isArray(c.result?.errors) && c.result.errors.length))
+    if (looks >= 2 && !failed) return { text: "No screenshot needed: nothing failed in the last steps. Use the page each action returns (or read_page) and carry on.", error: true }
+  }
           await svc(env, `drive_runs?id=eq.${run.id}`, {
             method: "PATCH",
             body: JSON.stringify({
@@ -448,6 +497,21 @@ export async function handleDriveMcp(req: Request, env: Env): Promise<Response> 
       return { jsonrpc: "2.0", id, result: { content: [...("image" in out && out.image ? [{ type: "image", data: out.image, mimeType: "image/jpeg" }] : []), { type: "text", text: out.text }], ...(out.error ? { isError: true } : {}) } }
     }
     return { jsonrpc: "2.0", id: id ?? null, error: { code: -32601, message: "Method not found" } }
+  // Twice in a row no tab took a step: the application is on a page Odds cannot run on (another window, a security check, Chrome's own
+  // error page) or the tab is gone. Retrying only burns minutes; say so to the person now, with what to do.
+  if (kind === "never_started") {
+    const prev = (await svc(env, `drive_commands?run_id=eq.${run.id}&id=lt.${cmd.id}&order=id.desc&limit=1&select=status,result`).catch(() => null))?.[0]
+    if (prev?.status === "expired" && prev?.result?.timeout === "never_started") {
+      const now = new Date().toISOString()
+      const message = "The application tab stopped answering Odds (it may have opened in another window, or landed on a security check or a page Odds cannot read). Open the tab and press Apply with Odds to carry on from there."
+      await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "needs_you", reason: "other", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }),
+      }).catch(() => undefined)
+      await cancelOpenCommands(env, run.id, "tab_silent")
+      return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, run_ended: true, error: "The tab stopped answering twice; Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
+    }
+  }
   }
   if (Array.isArray(msg)) {
     const out = (await Promise.all(msg.map(one))).filter((x) => x !== null)
@@ -478,7 +542,9 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
   // Whether Odds holds this job's own cover / motivation letter (upload_letter), else the person is asked for one.
   const letter = run.posting_id ? (await svc(env, `job_documents?user_id=eq.${run.user_id}&posting_id=eq.${encodeURIComponent(run.posting_id)}&kind=eq.cover_letter&select=document_id&limit=1`).catch(() => null))?.[0] : null
   // What the person answered in Odds since (Broods' own questions included): Broods fills those in when it carries on.
-  const answered = resume ? ((await svc(env, `application_questions?user_id=eq.${run.user_id}&updated_at=gt.${encodeURIComponent(new Date(Date.now() - 3 * 3_600_000).toISOString())}&select=question,answer&limit=40`).catch(() => null)) ?? []) : []
+  // Everything the person ever answered in Odds (their own words, question by question): Broods fills those in on every run, any job.
+  const answered = ((await svc(env, `application_questions?user_id=eq.${run.user_id}&answer=neq.&select=question,answer&order=updated_at.desc&limit=150`).catch(() => null)) ?? [])
+    .filter((a: Json) => typeof a?.question === "string" && a.question.trim())
   const task = resume
     ? { run_id: run.id, resume, has_cover_letter: Boolean(letter), person_answers: answered, goal: "Carry on with the same application in the same tab: read_page first, then go on until only Submit is left (finish review), or something only the person can do (finish needs_you)." }
     : {
@@ -518,6 +584,7 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
       const run = await runOf(env, body.run_id)
       if (run && run.user_id === userId && live(run)) return json(200, { run_id: run.id, resumed: true })
       // The page moved on while Broods waited for the person (they signed in, solved the captcha): the same run carries on.
+        person_answers: answered,
       if (run && run.user_id === userId && resumeRun(run)) {
         await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify(resumePatch(run)) })
         return json(200, { run_id: run.id, resumed: true })
@@ -565,6 +632,13 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
       })
       await cancelOpenCommands(env, run.id, "stopped")
     }
+    // A run whose tab has not checked in for 10 minutes is over (Chrome closed, the tab gone without a word): never left "running".
+    const gone = encodeURIComponent(new Date(Date.now() - 600_000).toISOString())
+    void svc(env, `drive_runs?user_id=eq.${userId}&status=eq.running&or=(last_seen_at.lt.${gone},and(last_seen_at.is.null,created_at.lt.${gone}))`, {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ status: "stopped", resume_pending: false, message: "The application tab went away.", updated_at: new Date().toISOString() }),
+    }).catch(() => undefined)
     return json(200, { ok: true })
   }
   if (route === "drive-continue") {

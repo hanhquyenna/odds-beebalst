@@ -1094,8 +1094,11 @@
         // give it the full saved +31 number, or the box takes 06… / 61… as another country's.
         const PHONE_LABEL = /\b(mobile|phone|telephone|telefoon\w*|mobiel\w*)\b/i
         const saved = String(facts?.phone || facts?.answers?.phone || "")
-        if (PHONE_LABEL.test(f.label) && !besideCountry && !/^\s*(\+|00)/.test(value) && /^\s*\+/.test(saved) && A.nationalNumber
-          && A.nationalNumber(saved).replace(/\D/g, "") === A.nationalNumber(value).replace(/\D/g, "")) value = saved.replace(/\s+/g, "")
+        if (PHONE_LABEL.test(f.label) && !besideCountry && !/^\s*(\+|00)/.test(value)) {
+          if (/^\s*\+/.test(saved) && A.nationalNumber && A.nationalNumber(saved).replace(/\D/g, "") === A.nationalNumber(value).replace(/\D/g, "")) value = saved.replace(/\s+/g, "")
+          // A Dutch mobile written the local way (06 1234 5678, or saved without +31): +31 6…, never read as another country's code.
+          else if (/^0?6\d{8}$/.test(value.replace(/\D/g, ""))) value = `+31${value.replace(/\D/g, "").replace(/^0/, "")}`
+        }
         if (secretField(f)) { results.push({ id: it.id, ok: false, error: "the person fills this one" }); continue }
         if (f.kind === "file") { results.push({ id: it.id, ok: false, error: "use upload_cv" }); continue }
         if (f.kind === "checkbox") {
@@ -1284,6 +1287,23 @@
     let fresh = true
     // Ended for the person (captcha, sign-in, questions, a letter, stuck): Odds keeps watching the tab for 30 minutes and carries on by
     // itself once they handled it. Broods going quiet is decided by the server (retried once, then said), never by a silent timer here.
+      // A CV button with no file field behind it: press it with the site's picker caught, then put the CV in the picker it made.
+      const button = driveButtons.get(args.id)
+      if (button && button.isConnected && !driveFields.get(args.id)) {
+        if (!cv) return { ok: false, error: "no CV in Odds: finish needs_you" }
+        const seen = new Set(document.querySelectorAll("input[type=file]"))
+        const armed = await ask({ type: "catch-file-picker" }, 5000).catch(() => null)
+        if (!armed?.ok) return { ok: false, error: "could not catch this site's file picker" }
+        button.click()
+        let input = null
+        for (let t = 0; t < 20 && !input; t++) {
+          await sleep(100)
+          input = document.querySelector("input[type=file][data-odds-picker]") || [...document.querySelectorAll("input[type=file]")].find((i) => !seen.has(i)) || null
+        }
+        if (!input) return { ok: false, error: "this button opened no file picker; attach the CV by sight or finish needs_you" }
+        const ok = await uploadCv({ el: input, kind: "file", label: `CV ${controlLabel(button)}` }, true)
+        return { ok: Boolean(ok) && Boolean(input.files?.length), value: input.files?.[0]?.name || "", file_name: input.files?.[0]?.name || "" }
+      }
     let endedAt = 0
     let endedReason = ""
     let resumedFor = 0

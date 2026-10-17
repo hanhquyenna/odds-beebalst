@@ -4419,6 +4419,53 @@ test("Broods says what it does, stops at a captcha with the reason, and carries 
   expect(fake.drives.size).toBe(1)
 })
 
+test("a CV button with no file field behind it (Hunkemöller): Odds catches the picker the site makes and attaches the CV", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  // The site builds its file input only on click, never in the page, and reads the file from its change event.
+  const html = `<!doctype html><html><body><h1>Internship Business Control</h1><form><label for="fn">First name</label><input id="fn" required>
+    <div class="cv"><span>CV *</span><button type="button" id="cvbtn">Upload your CV</button><span id="cvname">No file</span></div><button type="button">Submit</button></form>
+    <script>document.getElementById("cvbtn").addEventListener("click", () => { const i = document.createElement("input"); i.type = "file"; i.accept = ".pdf"
+      i.addEventListener("change", () => { document.getElementById("cvname").textContent = i.files[0] ? i.files[0].name : "No file" }); i.dispatchEvent(new MouseEvent("click")) })</script></body></html>`
+  await context.route("https://jobs.example-cvbutton.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pcvbtn", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true } }
+  let up: Record<string, unknown> = {}
+  fake.driveScript = async (cmd) => {
+    const r = await cmd("read_page")
+    const b = (r.buttons as Array<{ id: string; text: string }>).find((x) => /upload your cv/i.test(x.text))!
+    up = await cmd("upload_cv", { id: b.id })
+    return { status: "stuck", message: "checked" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://jobs.example-cvbutton.com/apply")
+  await applyFrom(context, page, "https://jobs.example-cvbutton.com/apply")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/checked/, { timeout: 60000 })
+  expect(up.ok).toBe(true)
+  await expect(page.locator("#cvname")).toHaveText(/\.pdf$/)
+})
+
+test("Broods clicks a job that opens in a new tab (Glassdoor): the run moves to that tab and carries on there", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const list = `<!doctype html><html><body><h1>Internships</h1><a href="https://jobs.example-newtab.com/job/1" target="_blank" rel="noopener">Communications Associate</a></body></html>`
+  const form = `<!doctype html><html><body><h1>Communications Associate</h1><form><label for="fn">First name</label><input id="fn" required><button type="button">Submit</button></form></body></html>`
+  await context.route("https://www.glassdoor.nl/Vacature/**", (route) => route.fulfill({ contentType: "text/html", body: list }))
+  await context.route("https://jobs.example-newtab.com/**", (route) => route.fulfill({ contentType: "text/html", body: form }))
+  fake.kit = { job_id: "pnewtab", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  let second: Record<string, unknown> = {}
+  fake.driveScript = async (cmd) => {
+    const r = await cmd("read_page")
+    const link = (r.buttons as Array<{ id: string; text: string }>).find((b) => /communications/i.test(b.text))!
+    await cmd("click", { id: link.id })
+    second = await cmd("read_page")
+    return { status: "review", message: "Everything is filled in." }
+  }
+  const page = await context.newPage()
+  await page.goto("https://www.glassdoor.nl/Vacature/communications-SRCH_KO0,14.htm")
+  await applyFrom(context, page, "https://www.glassdoor.nl/Vacature/communications-SRCH_KO0,14.htm")
+  await expect.poll(() => String(second.url ?? ""), { timeout: 45000 }).toContain("jobs.example-newtab.com/job/1").catch((e) => { console.log("DEBUG", JSON.stringify([...fake.drives.values()].map((d) => d.log)), context.pages().map((p) => p.url())); throw e })
+})
+
 test("the person only clicks around the page (brings the tab forward, clicks text, scrolls): Broods keeps going, never You're filling in", async ({ context, fake }) => {
   test.setTimeout(90_000)
   await connect(context)
@@ -4522,15 +4569,17 @@ test("a phone box behind a country-code picker still on International (Tony's Ch
     // Broods writing the local way (06…): the box would read it as +61 (Australia); Odds gives it the saved +31 number.
     local = await cmd("fill", { fields: [{ id: phone.id, value: "0612345678" }] })
     return { status: "stuck", message: "checked" }
+    // Saved without +31 at all (Autofill says 0626280534): still a Dutch mobile.
+    bare = await cmd("fill", { fields: [{ id: phone.id, value: "0626280534" }] })
   }
   const page = await context.newPage()
   await page.goto("https://jobs.example-phone.com/apply")
   await applyFrom(context, page, "https://jobs.example-phone.com/apply")
   await expect(page.locator(".odds-apply-bar")).toContainText(/checked/, { timeout: 60000 })
-  expect(await page.locator("#phone").inputValue()).toBe("+31612345678")
+  expect(await page.locator("#phone").inputValue()).toBe("+31626280534")
   expect(JSON.stringify(filled)).toContain('"ok":true')
   expect(JSON.stringify(local)).toContain('"value":"+31612345678"')
-  expect(JSON.stringify(local)).toContain('"ok":true')
+  expect(JSON.stringify(bare)).toContain('"value":"+31626280534"')
 })
 
 test("Broods drives LinkedIn Easy Apply: each step read and filled from the person's facts, Next pressed by Broods, the unknown left to them, Submit never pressed", async ({ context, fake }) => {
@@ -4641,6 +4690,9 @@ const REAL_JOBS = [
   { name: "indeed-fb-intern", url: "https://nl.indeed.com/viewjob?jk=3420fff5df333289", title: "Food & Beverage Management Intern", board: true },
   { name: "tonys-branding-intern", url: "https://jobs.tonyschocolonely.com/o/talent-acquisition-employer-branding-intern/c/new?source=LinkedIn", title: "Talent Acquisition & Employer Branding Intern" },
   { name: "linkedin-marketing", url: "https://www.linkedin.com/jobs/view/4479270692", title: "Marketing & Communications Intern", board: true },
+  { name: "glassdoor-schiphol", url: "https://www.glassdoor.nl/Vacature/schiphol-communications-associate-vacatures-SRCH_IL.0,8_IC3063788_KO9,33.htm?jl=1010296633864", title: "Communications Associate", board: true },
+  { name: "unilever-digital-finance", url: "https://careers.unilever.com/en/job/rotterdam/internship-27-digital-finance/34155/101567837152/", title: "Internship 27 Digital Finance" },
+  { name: "hunkemoller-business-control", url: "https://jobs.hunkemoller.nl/en/vacancies/internship-business-control-hilversum-jr78429", title: "Internship Business Control" },
 ] as Array<{ name: string; url: string; title: string; board?: boolean }>
 const TEST_PERSON = { first_name: "Test", last_name: "Applicant", email: "test.applicant@example.com", phone: "+31 6 1234 5678", lives_in: "Amsterdam, Netherlands", nationality_group: "Non-EU nationality", work_permit: "Orientation year (zoekjaar) permit: may work in the Netherlands without sponsorship", education: "Master, Business Analytics, Vrije Universiteit Amsterdam, Sep 2025–Aug 2027", experience: "Data Analyst, Shopee, 2022–2024", linkedin: "https://www.linkedin.com/in/test-applicant", start_date: "1 February 2027", hours_per_week: "40", role_values: "learning fast; international teams; measurable impact" }
 for (const job of REAL_JOBS) {
