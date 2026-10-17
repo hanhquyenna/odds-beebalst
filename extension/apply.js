@@ -654,9 +654,16 @@
     let fresh = true
     let endedAt = 0
     let resumedFor = 0
-    // The person's own typing and clicks in the Easy Apply window (Broods' are synthetic; the Odds bar is not the form).
+    // The person answering the Easy Apply form themselves: typing in a field or picking a choice (Broods' events are synthetic; the Odds
+    // bar is not the form). Clicking Next, scrolling or bringing the window forward is not filling in and must not pause Broods.
     const person = { at: 0 }
-    const mark = (e) => { if (e.isTrusted && !e.target?.closest?.(".odds-apply-bar")) person.at = Date.now() }
+    const FORM_CONTROL = "input:not([type=button]):not([type=submit]), textarea, select, [contenteditable='true'], [role='textbox'], [role='combobox'], [role='option'], [role='radio'], [role='checkbox'], [role='listbox']"
+    const mark = (e) => {
+      const t = e.target
+      if (!e.isTrusted || !t?.closest || t.closest(".odds-apply-bar")) return
+      if (e.type === "keydown" && /^(Tab|Escape|Shift|Control|Alt|Meta|PageUp|PageDown|Home|End|ArrowUp|ArrowDown|F\d+)$/.test(e.key)) return
+      if (t.closest(FORM_CONTROL) || t.closest("label")) person.at = Date.now()
+    }
     for (const type of ["keydown", "mousedown", "input", "paste"]) modal.addEventListener(type, mark, true)
     for (let i = 0; i < 4000 && modal.isConnected && session?.modal === modal; i++) {
       // The person is filling in: Broods waits, then carries on around what they entered.

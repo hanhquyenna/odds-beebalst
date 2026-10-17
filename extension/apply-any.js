@@ -1345,10 +1345,15 @@
   const PERSON_QUIET_MS = 20000
   function watchPerson() {
     const state = { at: 0 }
+    // Only answering the form counts: typing or pasting into a field, or picking a choice. Clicking to bring the tab forward, scrolling,
+    // pressing a button or closing a pop-up is not filling in, and must not pause Broods.
+    const FORM_CONTROL = "input:not([type=button]):not([type=submit]):not([type=reset]):not([type=image]), textarea, select, [contenteditable=''], [contenteditable='true'], [role='textbox'], [role='combobox'], [role='option'], [role='radio'], [role='checkbox'], [role='listbox']"
     const mark = (e) => {
       if (!e.isTrusted) return
       const t = e.target
-      if (t && t.closest && t.closest(".odds-apply-bar, [data-odds-bar]")) return
+      if (!t || !t.closest || t.closest(".odds-apply-bar, [data-odds-bar]")) return
+      if (e.type === "keydown" && /^(Tab|Escape|Shift|Control|Alt|Meta|PageUp|PageDown|Home|End|ArrowUp|ArrowDown|F\d+)$/.test(e.key)) return
+      if (!t.closest(FORM_CONTROL) && !(t.closest("label") && t.closest("form, [role='form'], [class*='field' i]"))) return
       state.at = Date.now()
     }
     for (const type of ["keydown", "mousedown", "input", "paste"]) document.addEventListener(type, mark, true)
