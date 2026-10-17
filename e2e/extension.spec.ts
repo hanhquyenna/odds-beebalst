@@ -4561,6 +4561,7 @@ test("a phone box behind a country-code picker still on International (Tony's Ch
   fake.kit = { job_id: "pphone", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", phone: "+31 6 1234 5678", answers: {}, remembered: {} }, cv: null }
   let filled: Record<string, unknown> = {}
   let local: Record<string, unknown> = {}
+  let bare: Record<string, unknown> = {}
   fake.driveScript = async (cmd) => {
     const r = await cmd("read_page")
     const fields = r.fields as Array<{ id: string; label: string }>
@@ -4568,9 +4569,9 @@ test("a phone box behind a country-code picker still on International (Tony's Ch
     filled = await cmd("fill", { fields: [{ id: phone.id, value: "+31 6 1234 5678" }] })
     // Broods writing the local way (06…): the box would read it as +61 (Australia); Odds gives it the saved +31 number.
     local = await cmd("fill", { fields: [{ id: phone.id, value: "0612345678" }] })
-    return { status: "stuck", message: "checked" }
     // Saved without +31 at all (Autofill says 0626280534): still a Dutch mobile.
     bare = await cmd("fill", { fields: [{ id: phone.id, value: "0626280534" }] })
+    return { status: "stuck", message: "checked" }
   }
   const page = await context.newPage()
   await page.goto("https://jobs.example-phone.com/apply")
@@ -4689,10 +4690,10 @@ const REAL_JOBS = [
   { name: "glassdoor-rosewood", url: "https://www.glassdoor.nl/job-listing/talent-and-culture-intern-rosewood-hotel-group-JV_IC3064478_KO0,25_KE26,46.htm?jl=1010295738909", title: "Talent and Culture Intern", board: true },
   { name: "indeed-fb-intern", url: "https://nl.indeed.com/viewjob?jk=3420fff5df333289", title: "Food & Beverage Management Intern", board: true },
   { name: "tonys-branding-intern", url: "https://jobs.tonyschocolonely.com/o/talent-acquisition-employer-branding-intern/c/new?source=LinkedIn", title: "Talent Acquisition & Employer Branding Intern" },
-  { name: "linkedin-marketing", url: "https://www.linkedin.com/jobs/view/4479270692", title: "Marketing & Communications Intern", board: true },
   { name: "glassdoor-schiphol", url: "https://www.glassdoor.nl/Vacature/schiphol-communications-associate-vacatures-SRCH_IL.0,8_IC3063788_KO9,33.htm?jl=1010296633864", title: "Communications Associate", board: true },
   { name: "unilever-digital-finance", url: "https://careers.unilever.com/en/job/rotterdam/internship-27-digital-finance/34155/101567837152/", title: "Internship 27 Digital Finance" },
   { name: "hunkemoller-business-control", url: "https://jobs.hunkemoller.nl/en/vacancies/internship-business-control-hilversum-jr78429", title: "Internship Business Control" },
+  { name: "linkedin-marketing", url: "https://www.linkedin.com/jobs/view/4479270692", title: "Marketing & Communications Intern", board: true },
 ] as Array<{ name: string; url: string; title: string; board?: boolean }>
 const TEST_PERSON = { first_name: "Test", last_name: "Applicant", email: "test.applicant@example.com", phone: "+31 6 1234 5678", lives_in: "Amsterdam, Netherlands", nationality_group: "Non-EU nationality", work_permit: "Orientation year (zoekjaar) permit: may work in the Netherlands without sponsorship", education: "Master, Business Analytics, Vrije Universiteit Amsterdam, Sep 2025–Aug 2027", experience: "Data Analyst, Shopee, 2022–2024", linkedin: "https://www.linkedin.com/in/test-applicant", start_date: "1 February 2027", hours_per_week: "40", role_values: "learning fast; international teams; measurable impact" }
 for (const job of REAL_JOBS) {
@@ -5035,6 +5036,83 @@ for (const mismatch of [false,true]) test(`Broods playbook recipe ${mismatch ? "
   expect(fake.drives.size).toBe(1)
   expect((read.fields as unknown[]).length>0).toBe(!mismatch)
   if(!mismatch) await expect(page.locator("input")).toHaveValue("Test")
+})
+
+// A field-mapping recipe (label pattern → which contact detail; structure only) fills what the generic rules miss before Broods' first step.
+for (const mismatch of [false,true]) test(`Broods field-mapping recipe ${mismatch ? "that no longer matches the page fills nothing" : "fills its fields and the CV before Broods' first read_page, never submits"}`,async({context,fake})=>{
+  await connect(context)
+  fake.kit={job_id:"recipe-fields",broods_drive:true,facts:{name:"Test Applicant",email:"test@example.com",phone:"+31 6 1234 5678",answers:{first_name:"Test",last_name:"Applicant",email:"test@example.com",phone:"+31 6 1234 5678"},remembered:{}},cv:{id:"11111111-2222-3333-4444-555555555555",name:"Test_CV",file_name:"Test_CV.pdf",for_this_job:true}}
+  const lesson=(field:string,label:string,method="typing",nth=0)=>({lesson:{kind:"mapping",field,autofill_key:field,method,label,nth},successes:4,failures:0,confidence:0.66})
+  fake.drivePlaybook={recipes:mismatch ? [lesson("first_name","preferred given name"),lesson("cv","attach","upload",2)] : [lesson("first_name","preferred first name"),lesson("cv","attach","upload",0)]}
+  const url="https://careers.example.org/recipe-fields"
+  await context.route(url,r=>r.fulfill({contentType:"text/html",body:`<h1>Application</h1><form id="application" onsubmit="event.preventDefault(); window.sent = (window.sent || 0) + 1">
+    <label>First Name<input id="first" required></label><label>Preferred First Name<input id="preferred" required></label>
+    <div><p>Resume/CV</p><label>Attach<input type="file" id="resume" required></label></div>
+    <div><p>Cover Letter</p><label>Attach<input type="file" id="letter"></label></div>
+    <label>Why this role?<textarea id="why" required></textarea></label><button type="submit">Submit application</button></form>`}))
+  let read:{fields:Array<{label:string;filled:boolean;by?:string;key?:string}>}={fields:[]}
+  fake.driveScript=async cmd=>{read=await cmd("read_page") as typeof read;return {status:"needs_you",message:"Only the person's question is left"}}
+  const page=await context.newPage();await page.goto(url);await applyFrom(context,page,url)
+  await expect(page.locator(".odds-apply-bar")).toContainText("Only the person's question is left",{timeout:20000})
+  const field=(label:string,nth=0)=>read.fields.filter(f=>f.label===label)[nth]
+  // The generic contact rules fill First Name either way.
+  expect(field("First Name")).toMatchObject({filled:true,by:"odds",key:"first_name"})
+  if (mismatch) {
+    expect(field("Preferred First Name").filled).toBe(false)
+    expect(field("Attach",0).filled).toBe(false)
+  } else {
+    expect(field("Preferred First Name")).toMatchObject({filled:true,by:"odds",key:"first_name"})
+    await expect(page.locator("#preferred")).toHaveValue("Test")
+    expect(field("Attach",0)).toMatchObject({filled:true,by:"odds",key:"cv"})
+    expect(await page.locator("#resume").evaluate((el:HTMLInputElement)=>el.files?.length ?? 0)).toBe(1)
+  }
+  // The cover letter box and the person's own question are never touched by a recipe; nothing is ever sent.
+  expect(field("Attach",1).filled).toBe(false)
+  await expect(page.locator("#why")).toHaveValue("")
+  expect([...fake.drives.values()][0].log.filter(x=>x.startsWith("read_page"))).toHaveLength(1)
+  expect(await page.evaluate(()=>(window as unknown as {sent?:number}).sent ?? 0)).toBe(0)
+})
+
+test("Broods: fields a click reveals on the same page (Ashby's Application tab) are prefilled before Broods reads them, consent ticked, nothing sent",async({context,fake})=>{
+  await connect(context)
+  fake.kit={job_id:"tab-reveal",broods_drive:true,facts:{name:"Test Applicant",email:"test@example.com",answers:{first_name:"Test",last_name:"Applicant",email:"test@example.com"},remembered:{}},cv:null}
+  const url="https://careers.example.org/tab-reveal"
+  await context.route(url,r=>r.fulfill({contentType:"text/html",body:`<h1>ML Intern</h1><button type="button" id="tab" onclick="document.getElementById('application').hidden=false;this.remove()">Application</button>
+    <form id="application" hidden onsubmit="event.preventDefault(); window.sent = (window.sent || 0) + 1"><label>Full Name<input id="name" required></label><label>Email<input id="email" required></label>
+    <label><input type="checkbox" id="privacy" required> I agree to the privacy policy *</label><label>How did you hear about us?<input id="heard" required></label><button type="submit">Submit Application</button></form>`}))
+  let revealed:{fields:Array<{label:string;filled:boolean;by?:string}>}={fields:[]}
+  fake.driveScript=async cmd=>{
+    const first=await cmd("read_page") as {buttons:Array<{id:string;text:string}>}
+    await cmd("click",{id:first.buttons.find(b=>b.text==="Application")!.id})
+    revealed=await cmd("read_page") as typeof revealed
+    return {status:"needs_you",message:"Tab test reached"}
+  }
+  const page=await context.newPage();await page.goto(url);await applyFrom(context,page,url)
+  await expect(page.locator(".odds-apply-bar")).toContainText("Tab test reached",{timeout:20000})
+  expect(revealed.fields.find(f=>f.label==="Full Name")).toMatchObject({filled:true,by:"odds"})
+  expect(revealed.fields.find(f=>f.label==="Email")).toMatchObject({filled:true,by:"odds"})
+  await expect(page.locator("#privacy")).toBeChecked()
+  await expect(page.locator("#heard")).toHaveValue("")
+  expect(await page.evaluate(()=>(window as unknown as {sent?:number}).sent ?? 0)).toBe(0)
+})
+
+test("Broods: a required dropdown that draws its choices only when opened already lists them in Broods' first read_page",async({context,fake})=>{
+  await connect(context)
+  fake.kit={job_id:"lazy-choices",broods_drive:true,facts:{name:"Test Applicant",answers:{},remembered:{}},cv:null}
+  const url="https://careers.example.org/lazy-choices"
+  await context.route(url,r=>r.fulfill({contentType:"text/html",body:`<h1>Application</h1><form onsubmit="event.preventDefault(); window.sent = (window.sent || 0) + 1">
+    <label for="nl">Are you currently located in the Netherlands? *</label><input id="nl" role="combobox" aria-controls="nl-list" aria-required="true" required>
+    <ul id="nl-list" role="listbox"></ul><button type="submit">Submit application</button></form>
+    <script>const box=document.getElementById("nl"),list=document.getElementById("nl-list")
+    box.addEventListener("mousedown",()=>{list.innerHTML='<li role="option">Yes</li><li role="option">No</li>'})
+    box.addEventListener("keydown",e=>{if(e.key==="Escape")list.innerHTML=""});box.addEventListener("blur",()=>setTimeout(()=>{list.innerHTML=""},50))</script>`}))
+  let read:{fields:Array<{label:string;options?:string[]}>}={fields:[]}
+  fake.driveScript=async cmd=>{read=await cmd("read_page") as typeof read;return {status:"needs_you",message:"Choices test reached"}}
+  const page=await context.newPage();await page.goto(url);await applyFrom(context,page,url)
+  await expect(page.locator(".odds-apply-bar")).toContainText("Choices test reached",{timeout:20000})
+  expect(read.fields.find(f=>/located in the Netherlands/.test(f.label))?.options).toEqual(["Yes","No"])
+  await expect(page.locator("#nl")).toHaveValue("")
+  expect(await page.evaluate(()=>(window as unknown as {sent?:number}).sent ?? 0)).toBe(0)
 })
 
 test("a missing job page (404) closes the job instead of leaving Applying or starting an agent",async({context,fake})=>{

@@ -360,10 +360,11 @@
   const boxOf = (f) => (f.kind === "choice" && f.box.parentElement) || (f.kind === "radio" && elOf(f).closest('[role="radiogroup"], fieldset')) || elOf(f).closest("[role='radiogroup'], fieldset, [data-automation-id], .field, .form-group, .application-question, label, div") || elOf(f)
 
   /** The person's CV in an upload asking for one, from odds. */
-  async function uploadCv(f) {
+  /** known: a validated site recipe names this field as the CV upload (Greenhouse labels it only "Attach"). */
+  async function uploadCv(f, known = false) {
     const around = `${f.label} ${f.el.name || ""} ${f.el.id || ""} ${f.el.getAttribute("aria-label") || ""}`
     // On a resume-only step, accept any file input even when the button says "Sélectionner un fichier".
-    const resumeStep = isResumeAsk(around) || isResumeAsk(textOf(document.querySelector("h1, h2, h3")))
+    const resumeStep = known || isResumeAsk(around) || isResumeAsk(textOf(document.querySelector("h1, h2, h3")))
       || (f.kind === "file" && fields().filter((x) => x.kind !== "file").every((x) => answered(x) || !required(elOf(x), x.label)))
     if (uploaded || !cv || (!isResumeAsk(around) && !resumeStep)) return false
     const file = await ask({ type: "cv-file", doc: cv.id }, 15000)
@@ -465,7 +466,7 @@
         key: A.applicationQuestionKey(f.label, facts?.job_id),
         label: f.label.slice(0, 200),
         kind: f.kind === "choice" ? "radio" : (f.kind === "combobox" || f.kind === "listbox") && f.options?.length ? "select" : f.kind,
-        ...((f.options?.length || ["combobox", "listbox"].includes(f.kind)) ? { options: (f.options?.length ? f.options : listed(elOf(f)).texts).slice(0, 300).map((o) => String(o).slice(0, 120)) } : {}),
+        ...((f.options?.length || ["combobox", "listbox"].includes(f.kind)) ? { options: (f.options?.length ? f.options : dropdownChoices.get(f.el)?.length ? dropdownChoices.get(f.el) : listed(elOf(f)).texts).slice(0, 300).map((o) => String(o).slice(0, 120)) } : {}),
       })),
     }, 35000).catch(() => null)
     const answers = Array.isArray(res?.accepted) ? res.accepted : Array.isArray(res?.answers) ? res.answers : []
@@ -891,36 +892,160 @@
     return !/^(next|continue|review|save and continue|volgende|verder|suivant|back|previous|reject all(?: cookies)?|deny all(?: cookies)?|necessary only|functional only)$/i.test(controlLabel(control).trim())
   }
   const prefilledFields = new WeakMap()
+  /** While Odds itself fills or clicks (a prefill, a Broods command): the browser's own input/change events after a scripted checkbox
+   * click are trusted, and must not read as the person filling in. */
+  let oddsActing = 0, oddsActedAt = 0
+  async function asOdds(work) {
+    oddsActing++
+    try { return await work() } finally { oddsActing--; oddsActedAt = Date.now() }
+  }
+  /** Which of the person's contact details Odds put in a field (first_name, email, cv…): read_page shows it so the server learns where it goes. */
+  const prefilledKeys = new WeakMap()
+  /** Every field is filled by Odds on its own at most once per page: a field the person (or Broods) emptied again stays theirs. */
+  const prefillTried = new WeakSet()
   const PREFILL_CONTACT = /^(first name|given name|last name|family name|surname|full name|name|email|e-mail|email address|phone|phone number|mobile|mobile number|linkedin|linkedin url|linkedin profile|city|country|current location|location|voornaam|achternaam|telefoon)$/i
-  async function drivePrefill() {
+  // ---- Site recipes: field mappings Broods runs proved on this ATS/host (label pattern → which contact detail), replayed here so Broods'
+  // first read_page already shows them filled. Structure only, from the server's validated playbook: never a value, answer or URL.
+  let drivePlaybook = null
+  /** Recipe replays not yet reported to the server ({lesson, ok}); the next drive-start or command result carries them. */
+  let recipeAttempts = []
+  /** The same rule as the server's fieldPattern: a label as lowercase words, or null when it holds anything else (a file name, an email). */
+  const fieldPattern = (label) => {
+    const text = String(label || "").toLowerCase().replace(/[*:✱★•]/g, " ").replace(/\((optional|required)\)/g, " ").replace(/\s+/g, " ").trim()
+    return /^[a-z][a-z '&/()?,-]{0,47}$/.test(text) && text.split(" ").length <= 6 ? text : null
+  }
+  const patternOf = (f) => fieldPattern(A.questionText ? A.questionText(f.label) : f.label)
+  /** Each canonical contact key, asked the way Autofill understands it. */
+  const CONTACT_ASK = { first_name: "First name", last_name: "Last name", full_name: "Full name", email: "Email", phone: "Phone", linkedin: "LinkedIn", city: "City", country: "Country" }
+  const factValue = (key) => (CONTACT_ASK[key] && facts ? A.answerText(CONTACT_ASK[key], facts) : null)
+  const sameText = (a, b) => String(a || "").replace(/\s+/g, " ").trim().toLowerCase() === String(b || "").replace(/\s+/g, " ").trim().toLowerCase()
+  /** Which of the person's own contact details a value is (only its key leaves the tab), or null. */
+  function factKey(value) {
+    const v = String(value || "").trim()
+    if (!v) return null
+    for (const key of ["full_name", "first_name", "last_name", "email", "linkedin", "city", "country"]) if (sameText(factValue(key), v)) return key
+    const saved = factValue("phone"), digits = v.replace(/\D/g, "")
+    const national = saved && A.nationalNumber ? A.nationalNumber(saved).replace(/\D/g, "") : ""
+    return national.length >= 6 && digits.length >= 6 && digits.endsWith(national) ? "phone" : null
+  }
+  /** The contact value really sits in the box (a phone box that reformatted the number to another country does not count). */
+  function keptValue(f, key, answer) {
+    const kept = fieldValue(f)
+    if (!answered(f) || !kept) return false
+    if (key !== "phone") return true
+    const want = A.nationalNumber ? A.nationalNumber(answer).replace(/\D/g, "") : answer.replace(/\D/g, "").slice(-8)
+    return kept.replace(/\D/g, "").endsWith(want) && !(/^\s*\+/.test(kept) && kept.replace(/\D/g, "") === want)
+  }
+  async function fillContact(f, answer, besideCountry) {
+    return f.widget === "typeahead" ? fillTypeahead(f, answer, besideCountry)
+      : ["combobox", "listbox"].includes(f.kind) ? fillCombobox(f, answer)
+      : ["select", "radio", "choice"].includes(f.kind) ? fillButtonChoice(f, answer)
+      : fillPlainOrCard(f, answer, besideCountry)
+  }
+  /** The CV went in: the box holds it, or the site replaced the box with the attached file (Greenhouse, Lever). */
+  const cvPlaced = (f) => answered(f) || (uploaded && (!f.el.isConnected || !shown(f.el)))
+  async function replayMappings() {
+    const recipes = (drivePlaybook?.recipes || []).filter((r) => r?.lesson?.kind === "mapping" && typeof r.lesson.label === "string" && r.confidence >= 0.55).slice(0, 12)
+    if (!recipes.length) return false
+    // A phone box beside a country picker still on International gets the full +31 number (countryPickerSet is false then).
+    const besideCountry = countryPickerSet(fields())
+    let uploadedNow = false
+    for (const { lesson } of recipes) {
+      // Counted the way read_page lists fields (no secrets, no site chrome), so nth means the same field the server learned.
+      const same = fields().filter((f) => !secretField(f) && !siteChrome(elOf(f)) && patternOf(f) === lesson.label)
+      const f = same[lesson.nth || 0]
+      if (!f || prefillTried.has(elOf(f)) || answered(f) || f.kind === "checkbox") continue
+      // The page must still look the way the recipe was learned: a file box for the CV, a text or choice box for contact details.
+      if ((f.kind === "file") !== (lesson.method === "upload")) continue
+      prefillTried.add(elOf(f))
+      if (lesson.field === "cv") {
+        // One CV per page: once it is in, a same-labelled box left over is another upload (Greenhouse swaps the CV box for its file name,
+        // and the next "Attach" is the cover letter's).
+        if (!cv || uploaded || /autofill|auto-fill|parse/i.test(f.label)) continue
+        const ok = Boolean(await uploadCv(f, true)) && cvPlaced(f)
+        if (ok) { prefilledFields.set(elOf(f), fieldValue(f)); prefilledKeys.set(elOf(f), "cv"); uploadedNow = true }
+        recipeAttempts.push({ lesson, ok })
+        continue
+      }
+      let answer = factValue(lesson.field)
+      if (!answer) continue
+      if (lesson.field === "phone" && !besideCountry) answer = answer.replace(/\s+/g, "")
+      const result = await Promise.race([fillContact(f, answer, besideCountry).catch(() => ({ ok: false })), sleep(8000).then(() => ({ ok: false }))])
+      await sleep(60)
+      const ok = Boolean(result?.ok) && keptValue(f, lesson.field, answer)
+      if (ok) { prefilledFields.set(elOf(f), fieldValue(f)); prefilledKeys.set(elOf(f), lesson.field) }
+      recipeAttempts.push({ lesson, ok })
+    }
+    return uploadedNow
+  }
+  /** Consent, terms and privacy boxes a form requires: ticked, as the person chose consent yes in Odds. Never a cookie banner's box. */
+  /** Lever's "…has my consent to retain my data for the purpose of considering me for employment": consent to keep the application. */
+  const consentToKeep = (label) => /\b(consent|agree)\b/i.test(label) && /\b(my data|personal data|personal information|employment|retain)\b/i.test(label) && !/\b(gender|ethnic\w*|race|disabilit\w*|veteran|sexual|religio\w*|criminal)\b/i.test(label)
+  async function tickRequiredConsents() {
+    const dialog = openDialog()
+    for (const box of document.querySelectorAll("input[type=checkbox], [role='checkbox']")) {
+      const input = box.matches("input") ? box : null
+      const on = () => (input ? input.checked : box.getAttribute("aria-checked") === "true")
+      if (prefillTried.has(box) || on() || (dialog ? !dialog.contains(box) : siteChrome(box)) || box.closest(".odds-apply-bar")) continue
+      const face = input ? (input.closest("label") || (input.id && document.querySelector(`label[for="${CSS.escape(input.id)}"]`)) || input.parentElement) : box
+      if (!face || !shown(face)) continue
+      const label = ((input ? labelOf(input) : "") || box.getAttribute("aria-label") || textOf(face)).replace(/\s+/g, " ").trim()
+      const needed = Boolean(input?.required || box.getAttribute("aria-required") === "true" || /\*/.test(label))
+      if (!needed || label.length > 500 || /cookies?/i.test(label) || !(A.isConsentCheckbox?.(label) || consentToKeep(label))) continue
+      prefillTried.add(box)
+      ;(face !== box ? face : box).click()
+      await sleep(60)
+      if (!on()) box.click()
+      await sleep(40)
+    }
+  }
+  const drivePrefill = () => asOdds(drivePrefillNow)
+  /** Required dropdowns that draw their choices only when opened (Greenhouse's Yes/No questions): opened once, so read_page lists their
+   * choices and Broods answers them in its first fill instead of an options call per question. */
+  async function listRequiredChoices() {
+    let n = 0
+    for (const f of fields()) {
+      if (n >= 10 || !["combobox", "listbox"].includes(f.kind) || f.options?.length || dropdownChoices.has(f.el) || answered(f) || secretField(f) || siteChrome(elOf(f))) continue
+      if (!required(elOf(f), f.label) || listed(elOf(f)).texts.length) continue
+      n++
+      await Promise.race([readChoices(f).catch(() => null), sleep(1500)])
+    }
+  }
+  async function drivePrefillNow() {
+    globalThis.oddsDismissCookies?.()
     if (openDialog() || blockingCaptcha()) return
+    let uploadedNow = await replayMappings()
     await prefillContacts()
+    await tickRequiredConsents()
+    await listRequiredChoices()
     // The CV goes last: some sites (Lever) read an uploaded CV and clear or hide name/email while they do. Wait for that, then fill
     // again whatever it emptied — Broods must never see a contact field missing or be told the form is done when it is not.
-    let uploadedNow = false
     for (const f of fields()) {
-      if (f.kind !== "file" || answered(f)) continue
+      if (f.kind !== "file" || answered(f) || prefillTried.has(elOf(f))) continue
       const label = (A.questionText ? A.questionText(f.label) : f.label).replace(/[*:✱★•]/g, "").trim()
-      if (cv && isResumeAsk(label) && await uploadCv(f)) { prefilledFields.set(elOf(f), fieldValue(f)); uploadedNow = true }
+      // Ashby's "Autofill from resume" rewrites the form from the file: the CV goes into the Resume box itself.
+      if (!cv || !isResumeAsk(label) || /autofill|auto-fill|parse/i.test(label)) continue
+      prefillTried.add(elOf(f))
+      if (await uploadCv(f)) { prefilledFields.set(elOf(f), fieldValue(f)); prefilledKeys.set(elOf(f), "cv"); uploadedNow = true }
     }
     if (uploadedNow) {
       await sleep(2500)
-      await prefillContacts()
+      await prefillContacts(true)
     }
   }
-  async function prefillContacts() {
+  /** again: after a CV upload, refill contact boxes the site's own CV reader emptied (they were filled once already). */
+  async function prefillContacts(again = false) {
     const country = fields().some(f => /country code|landcode/i.test(f.label))
     for (const f of fields()) {
       if (answered(f) || secretField(f) || f.kind === "checkbox" || f.kind === "file") continue
+      if (prefillTried.has(elOf(f)) && !(again && prefilledFields.has(elOf(f)))) continue
       const label = (A.questionText ? A.questionText(f.label) : f.label).replace(/[*:✱★•]/g, "").trim()
       if (!PREFILL_CONTACT.test(label)) continue
       const answer = A.answerText(f.label, facts)
       if (!answer) continue
-      const result = f.widget === "typeahead" ? await fillTypeahead(f, answer, country)
-        : ["combobox","listbox"].includes(f.kind) ? await fillCombobox(f,answer)
-        : ["select","radio","choice"].includes(f.kind) ? fillButtonChoice(f,answer)
-        : await fillPlainOrCard(f, answer, country)
-      if (result?.ok && answered(f)) prefilledFields.set(elOf(f), fieldValue(f))
+      prefillTried.add(elOf(f))
+      const result = await fillContact(f, answer, country)
+      if (result?.ok && answered(f)) { prefilledFields.set(elOf(f), fieldValue(f)); prefilledKeys.set(elOf(f), factKey(fieldValue(f))) }
     }
   }
   const driveFieldIds = new WeakMap(), driveButtonIds = new WeakMap()
@@ -963,7 +1088,7 @@
       const id=driveFieldIds.get(node)
       driveFields.set(id, f)
       const consent = f.kind === "checkbox" && Boolean(A.isConsentCheckbox?.(f.label))
-      return { id, label: A.questionText ? A.questionText(f.label).slice(0, 300) : f.label.slice(0, 300), kind: f.kind, required: required(elOf(f), f.label), filled: answered(f), ...(prefilledFields.has(elOf(f)) && prefilledFields.get(elOf(f)) === fieldValue(f) ? { by: "odds" } : {}), value: fieldValue(f), ...((f.options?.length || ["combobox", "listbox"].includes(f.kind)) ? { options: (f.options?.length ? f.options : listed(elOf(f)).texts).slice(0, 300).map((o) => String(o).slice(0, 120)) } : {}), ...(consent ? { consent: true } : {}) }
+      return { id, label: A.questionText ? A.questionText(f.label).slice(0, 300) : f.label.slice(0, 300), kind: f.kind, required: required(elOf(f), f.label), filled: answered(f), ...(prefilledFields.has(elOf(f)) && prefilledFields.get(elOf(f)) === fieldValue(f) ? { by: "odds", ...(prefilledKeys.get(elOf(f)) ? { key: prefilledKeys.get(elOf(f)) } : {}) } : {}), value: fieldValue(f), ...((f.options?.length || ["combobox", "listbox"].includes(f.kind)) ? { options: (f.options?.length ? f.options : listed(elOf(f)).texts).slice(0, 300).map((o) => String(o).slice(0, 120)) } : {}), ...(consent ? { consent: true } : {}) }
     })
     // Checkboxes drawn by the site (Oracle, Workday: the real input hidden, a styled box or role=checkbox shown) — fields() skips them.
     const seenBoxes = new Set(list.filter((f) => f.kind === "checkbox").map((f) => elOf(f)))
@@ -1007,6 +1132,8 @@
       headings: [...document.querySelectorAll("h1, h2, h3")].filter(shown).map(textOf).filter(Boolean).slice(0, 8).map((t) => t.slice(0, 160)),
       errors: [...document.querySelectorAll('[role="alert"], .error, [aria-invalid="true"]')].filter(shown).map(textOf).filter(Boolean).slice(0, 10).map((t) => t.slice(0, 200)),
       captcha: Boolean(blockingCaptcha()),
+      // The person's CV is already attached on this page (the site may show it as a file name, not in a box): never upload it again.
+      ...(uploaded ? { cv_attached: true } : {}),
       password_field: [...document.querySelectorAll('input[type="password"]')].some(shown),
       ...(missingJobPage() ? { closed: true, closed_reason: "The job page was not found (404)." } : {}),
       ...(dialog ? { dialog: { title: textOf(dialog.querySelector("h1, h2, h3, [class*='title' i]")).slice(0, 160) || textOf(dialog).slice(0, 160), note: "A pop-up is open: these fields and buttons are only the pop-up's. Complete it (fill + continue) to get past it." } } : {}),
@@ -1074,7 +1201,11 @@
   /** One Broods command, done in this tab. Answers what happened; a click that leaves the page answers before it clicks. */
   async function driveCommandRaw(cmd, sendResult) {
     const args = cmd.args || {}
-    if (cmd.tool === "read_page") return drivePage()
+    // Fields that appeared since (Ashby's Application tab, the next step) get the person's contact details and recipes first, once each.
+    if (cmd.tool === "read_page") {
+      if (!args.review_check) await drivePrefill()
+      return drivePage()
+    }
     if (["screenshot", "click_at", "type_text", "press_key", "scroll"].includes(cmd.tool)) return driveVision(cmd, sendResult, DRIVE_DENY)
     if (cmd.tool === "options") {
       const f = driveFields.get(args.id)
@@ -1129,7 +1260,8 @@
         await sleep(80)
         // DOM verification: selected value / typed text must stick before we report ok.
         const stuck = fieldValue(f)
-        let okDom = Boolean(result.ok) && answered(f) && (stuck.length > 0 || f.kind === "checkbox")
+        // The page is the judge: a dropdown that shows exactly the asked choice took it, whatever the widget handler reported.
+        let okDom = (Boolean(result.ok) || (["combobox", "listbox", "select"].includes(f.kind) && sameText(stuck, value))) && answered(f) && (stuck.length > 0 || f.kind === "checkbox")
         // A phone box that reformats what it gets (a country picker in front): the digits Broods meant must still be there.
         let phoneError = ""
         if (okDom && /\b(mobile|phone|telephone|telefoon\w*|mobiel\w*)\b/i.test(f.label)) {
@@ -1138,7 +1270,9 @@
           const got = stuck.replace(/\D/g, "")
           if ((want && !got.endsWith(want)) || (full && /^\s*\+/.test(stuck) && got !== full) || (!full && /^\s*\+/.test(stuck) && got === want)) { okDom = false; phoneError = `the phone box changed it to "${stuck}": set the country code picker to the number's country first, then fill the number again` }
         }
-        results.push({ id: it.id, ok: okDom, value: stuck, ...(okDom ? {} : { error: phoneError || result.error || "no matching option or the site did not keep the value" }) })
+        // Which contact detail it was (never the value): the server learns where this site wants it.
+        const key = okDom ? factKey(value) : null
+        results.push({ id: it.id, ok: okDom, value: stuck, ...(key ? { key } : {}), ...(okDom ? {} : { error: phoneError || result.error || "no matching option or the site did not keep the value" }) })
       }
       const sigAfter = `${location.href}|${[...driveFields.values()].map((f) => `${f.label}:${fieldValue(f)}`).join("|")}`
       const unfilled = [...driveFields.entries()]
@@ -1153,8 +1287,26 @@
       }
     }
     if (cmd.tool === "upload_cv") {
+      // A CV button with no file field behind it: press it with the site's picker caught, then put the CV in the picker it made.
+      const button = driveButtons.get(args.id)
+      if (button && button.isConnected && !driveFields.get(args.id)) {
+        if (!cv) return { ok: false, error: "no CV in Odds: finish needs_you" }
+        const seen = new Set(document.querySelectorAll("input[type=file]"))
+        const armed = await ask({ type: "catch-file-picker" }, 5000).catch(() => null)
+        if (!armed?.ok) return { ok: false, error: "could not catch this site's file picker" }
+        button.click()
+        let input = null
+        for (let t = 0; t < 20 && !input; t++) {
+          await sleep(100)
+          input = document.querySelector("input[type=file][data-odds-picker]") || [...document.querySelectorAll("input[type=file]")].find((i) => !seen.has(i)) || null
+        }
+        if (!input) return { ok: false, error: "this button opened no file picker; attach the CV by sight or finish needs_you" }
+        const ok = await uploadCv({ el: input, kind: "file", label: `CV ${controlLabel(button)}` }, true)
+        return { ok: Boolean(ok) && Boolean(input.files?.length), value: input.files?.[0]?.name || "", file_name: input.files?.[0]?.name || "" }
+      }
       const f = driveFields.get(args.id)
       if (!f || f.kind !== "file" || !elOf(f)?.isConnected) return { ok: false, error: "not a file field (read_page again)" }
+      if (uploaded) return { ok: false, cv_attached: true, error: "the CV is already attached on this page (by Odds); this box is another upload, e.g. a cover letter: leave it unless it asks for one" }
       const ok = await uploadCv(f)
       const name = fieldValue(f)
       return { ok: Boolean(ok) && Boolean(name), value: name, file_name: name }
@@ -1210,11 +1362,13 @@
     return { error: `Unknown tool ${cmd.tool}` }
   }
   async function driveCommand(cmd, sendResult) {
-    const result = await driveCommandRaw(cmd, sendResult)
+    let result = await asOdds(() => driveCommandRaw(cmd, sendResult))
     if (result && cmd.tool !== "read_page" && cmd.tool !== "screenshot") {
       await sleep(180)
-      return { ...result, page: drivePage() }
+      result = { ...result, page: drivePage() }
     }
+    // Recipes replayed during the run go back with this result; the server judges them when the run ends.
+    if (result && recipeAttempts.length) result = { ...result, recipe_attempts: recipeAttempts.splice(0) }
     return result
   }
   /** Broods drives: take its commands for this run until it finishes; the bar shows what it does and how it ended. */
@@ -1229,6 +1383,7 @@
       await ask({ type: "drive-recipe", pending: null })
     }
     const reply = await ask({ type: "drive", op: "playbook", page: location.href }, 5000)
+    drivePlaybook = reply?.playbook || null
     for (const recipe of (reply?.playbook?.recipes || []).slice(0, 3)) {
       const lesson = recipe.lesson
       if (recipe.confidence < 0.6 || recipe.successes < 5 || !["opener", "skip_dialog"].includes(lesson?.kind)) continue
@@ -1277,7 +1432,7 @@
     if (recipes.navigating) return
     await drivePrefill()
     say("Broods is applying in this tab…", "filling")
-    const start = await ask({ type: "drive", op: "start", url: intent.job, page: location.href, run_id: intent.driveRun || null, recipe_attempts: recipes.attempts }, 30000).catch(() => null)
+    const start = await ask({ type: "drive", op: "start", url: intent.job, page: location.href, run_id: intent.driveRun || null, recipe_attempts: [...recipes.attempts, ...recipeAttempts.splice(0)] }, 30000).catch(() => null)
     const runId = start?.run_id
     if (!runId) {
       say(start?.error ? `Broods could not start: ${start.error}` : "Broods could not start. Press Apply with Odds again.", "ask")
@@ -1287,23 +1442,6 @@
     let fresh = true
     // Ended for the person (captcha, sign-in, questions, a letter, stuck): Odds keeps watching the tab for 30 minutes and carries on by
     // itself once they handled it. Broods going quiet is decided by the server (retried once, then said), never by a silent timer here.
-      // A CV button with no file field behind it: press it with the site's picker caught, then put the CV in the picker it made.
-      const button = driveButtons.get(args.id)
-      if (button && button.isConnected && !driveFields.get(args.id)) {
-        if (!cv) return { ok: false, error: "no CV in Odds: finish needs_you" }
-        const seen = new Set(document.querySelectorAll("input[type=file]"))
-        const armed = await ask({ type: "catch-file-picker" }, 5000).catch(() => null)
-        if (!armed?.ok) return { ok: false, error: "could not catch this site's file picker" }
-        button.click()
-        let input = null
-        for (let t = 0; t < 20 && !input; t++) {
-          await sleep(100)
-          input = document.querySelector("input[type=file][data-odds-picker]") || [...document.querySelectorAll("input[type=file]")].find((i) => !seen.has(i)) || null
-        }
-        if (!input) return { ok: false, error: "this button opened no file picker; attach the CV by sight or finish needs_you" }
-        const ok = await uploadCv({ el: input, kind: "file", label: `CV ${controlLabel(button)}` }, true)
-        return { ok: Boolean(ok) && Boolean(input.files?.length), value: input.files?.[0]?.name || "", file_name: input.files?.[0]?.name || "" }
-      }
     let endedAt = 0
     let endedReason = ""
     let resumedFor = 0
@@ -1393,7 +1531,7 @@
     // pressing a button or closing a pop-up is not filling in, and must not pause Broods.
     const FORM_CONTROL = "input:not([type=button]):not([type=submit]):not([type=reset]):not([type=image]), textarea, select, [contenteditable=''], [contenteditable='true'], [role='textbox'], [role='combobox'], [role='option'], [role='radio'], [role='checkbox'], [role='listbox']"
     const mark = (e) => {
-      if (!e.isTrusted) return
+      if (!e.isTrusted || (e.type === "input" && (oddsActing > 0 || Date.now() - oddsActedAt < 400))) return
       const t = e.target
       if (!t || !t.closest || t.closest(".odds-apply-bar, [data-odds-bar]")) return
       if (e.type === "keydown" && /^(Tab|Escape|Shift|Control|Alt|Meta|PageUp|PageDown|Home|End|ArrowUp|ArrowDown|F\d+)$/.test(e.key)) return

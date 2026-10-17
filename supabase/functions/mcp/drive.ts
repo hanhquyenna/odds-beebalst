@@ -1,6 +1,6 @@
 import { BroodsClient } from "broods"
 import { canAcceptDriveResult, humanStopAllowed, jobIdentityMismatch } from "../_shared/drive-ownership.ts"
-import { playbookFor, sanitizeLesson, siteIdentity, structuralField } from "../_shared/site-playbook.ts"
+import { fieldPattern, playbookFor, sanitizeLesson, siteIdentity, structuralField } from "../_shared/site-playbook.ts"
 
 // Broods drives the person's own Chrome through the Odds extension.
 //
@@ -99,6 +99,13 @@ function placedMapping(page: Json, field: Json, key: string, value: unknown): Js
 async function learnRun(env: Env, run: Json, stage: string): Promise<void> {
   const commands = await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&order=id.asc&select=tool,args,result`).catch(() => [])
   let page: Json = null
+  // Field placements are judged over the whole run: one wrong placement (Broods had to redo it) outweighs its successes in the same run.
+  const placements = new Map<string, { lesson: Json; url: string; outcome: string }>()
+  const place = (lesson: Json | null, url: string, outcome: string) => {
+    if (!lesson) return
+    const k = JSON.stringify(lesson)
+    if (!placements.has(k) || outcome === "failure") placements.set(k, { lesson, url, outcome })
+  }
   for (const cmd of commands || []) {
     const result = cmd.result || {}, url = page?.url || run.url
     if (cmd.tool === "click" && page) {
@@ -110,9 +117,17 @@ async function learnRun(env: Env, run: Json, stage: string): Promise<void> {
       const moved = after && (after.url !== page.url || JSON.stringify(after.headings) !== JSON.stringify(page.headings) || Boolean(page.dialog) !== Boolean(after.dialog))
       if (clean && (result.ok === false || moved)) await saveLesson(env, run, url, clean, result.ok !== false && after.fields?.length && ["review", "needs_you"].includes(stage) ? "success" : "failure")
     }
+    const reached = ["review", "needs_you"].includes(stage)
     if (cmd.tool === "fill" && page) {
       for (const item of result.results || []) {
-        const field = page.fields?.find((f: Json) => f.id === item.id), key = structuralField(field?.label)
+        const field = page.fields?.find((f: Json) => f.id === item.id)
+        // Broods redid a field Odds had filled (from a recipe or its own contact rules): that placement was wrong for this page.
+        if (field?.by === "odds" && item.ok && field.key) {
+          place(placedMapping(page, field, field.key, field.value), url, "failure")
+        }
+        // The extension names which of the person's own contact details the filled value is (key); the value itself never leaves this loop.
+        if (item.ok && reached && typeof item.key === "string") place(placedMapping(page, field, item.key, cmd.args?.fields?.find((f: Json) => f?.id === item.id)?.value), url, "success")
+        const key = structuralField(field?.label)
         if (!key) continue
         const method = ["select", "radio", "choice", "combobox", "listbox", "typeahead"].includes(field.kind) ? "choosing" : "typing"
         const lesson = { kind: "widget", field: key, method, autofill_key: key }
@@ -120,9 +135,18 @@ async function learnRun(env: Env, run: Json, stage: string): Promise<void> {
         await saveLesson(env, run, url, { ...lesson, kind: "mapping" }, item.ok && ["review", "needs_you"].includes(stage) ? "success" : "failure")
       }
     }
+    if (cmd.tool === "upload_cv" && page && result.ok && reached) {
+      const field = page.fields?.find((f: Json) => f.id === cmd.args?.id)
+      if (field?.kind === "file") place(placedMapping(page, field, "cv", result.file_name), url, "success")
+    }
     // Notes are hints; only a failure is stored directly. Successful notes need browser evidence above.
     if (cmd.tool === "note_site" && cmd.args?.outcome === "failure") await saveLesson(env, run, url, cmd.args.lesson, "failure")
-    if (cmd.tool === "recipe" && result.lesson) await saveLesson(env, run, url, result.lesson, result.ok ? "success" : "failure")
+    if (cmd.tool === "recipe" && result.lesson?.kind === "mapping") { if (!result.ok || reached) place(sanitizeLesson(result.lesson), url, result.ok ? "success" : "failure") }
+    else if (cmd.tool === "recipe" && result.lesson) await saveLesson(env, run, url, result.lesson, result.ok ? "success" : "failure")
+    for (const attempt of (Array.isArray(result.recipe_attempts) ? result.recipe_attempts : []).slice(0, 12)) {
+      const lesson = sanitizeLesson(attempt?.lesson)
+      if (lesson?.kind === "mapping" && (attempt.ok !== true || reached)) place(lesson, url, attempt.ok === true ? "success" : "failure")
+    }
     const snapshot = cmd.tool === "read_page" ? result : result.page
     if (snapshot && ["review", "needs_you"].includes(stage)) {
       for (const field of snapshot.fields || []) {
@@ -131,9 +155,15 @@ async function learnRun(env: Env, run: Json, stage: string): Promise<void> {
         const method = field.kind === "file" ? "upload" : ["select", "radio", "combobox", "listbox", "typeahead"].includes(field.kind) ? "choosing" : "typing"
         for (const kind of ["widget", "mapping"]) await saveLesson(env, run, snapshot.url || url, { kind, field: key, autofill_key: key, method }, "success")
       }
+      // Fields Odds filled before or between Broods' steps, with the contact detail it used: their placement is evidence too.
+      for (const field of snapshot.fields || []) {
+        if (field.by !== "odds" || !field.filled || typeof field.key !== "string") continue
+        place(placedMapping(snapshot, field, field.key, field.value), snapshot.url || url, "success")
+      }
     }
     if (snapshot) page = snapshot
   }
+  for (const p of placements.values()) await saveLesson(env, run, p.url, p.lesson, p.outcome)
 }
 /** Navigation survives document unload: obtain the resulting page internally, without another model turn. */
 async function afterNavigation(env: Env, runId: string, result: Json, budgetMs = TOOL_WAIT_MS): Promise<Json> {
@@ -281,6 +311,31 @@ const BASE_TOOLS = [
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, stage: { type: "string", enum: ["review", "needs_you", "stuck"] }, reason: { type: "string", enum: ["captcha", "account", "questions", "letter", "closed", "other"] }, message: { type: "string" }, questions: { type: "array", items: { type: "string" } } }, required: ["run_id", "stage", "message"] },
   },
 ]
+const questionSlug = (q: string): string => `broods_${q.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 60)}`
+const words = (t: string): Set<string> => new Set(t.toLowerCase().replace(/[^a-z0-9à-ÿ ]+/g, " ").split(/\s+/).filter((w) => w.length > 2))
+/** Broods' questions matched to the page's own fields (exact label and options), plus every required field still empty on the page. */
+async function personQuestions(env: Env, run: Json, questions: string[]): Promise<Json[]> {
+  const fields = ((await freshFields(env, run)) ?? []).filter((f: Json) => f?.kind !== "file" && !f?.consent && f?.kind !== "checkbox")
+  const clean = (l: string): string => String(l ?? "").replace(/\s*[*✱]\s*$/, "").trim()
+  const out = new Map<string, Json>()
+  const add = (label: string, f: Json | null): void => {
+    const exact = clean(f?.label ?? label).slice(0, 300)
+    const options = Array.isArray(f?.options) ? f.options.filter((o: unknown) => typeof o === "string" && o.trim() && !/^(select|choose|kies)\b/i.test(o as string)).slice(0, 40) : []
+    out.set(questionSlug(exact), { key: questionSlug(exact), label: exact, kind: options.length ? "radio" : "text", ...(options.length ? { options } : {}) })
+  }
+  for (const q of questions) {
+    const qw = words(q)
+    let best: Json | null = null, score = 0
+    for (const f of fields) {
+      const fw = words(clean(f.label))
+      const hit = [...qw].filter((w) => fw.has(w)).length / Math.max(1, Math.min(qw.size, fw.size))
+      if (hit > score) { score = hit; best = f }
+    }
+    add(q, score >= 0.6 ? best : null)
+  }
+  for (const f of fields) if (f.required && !f.filled && !out.has(questionSlug(clean(f.label)))) add(f.label, f)
+  return [...out.values()].slice(0, 30)
+}
 /** Every tool takes the line Broods writes for the person about this step: the tracker shows it live. */
 const SAY = { type: "string", description: "One short line for the person, in plain words: what you are doing now and why (shown live in their tracker), e.g. 'Filling your details from Autofill'." }
 const TOOLS = BASE_TOOLS.map((t) => (t.name === "finish" ? t : { ...t, inputSchema: { ...t.inputSchema, properties: { ...t.inputSchema.properties, say: SAY } } }))
@@ -311,31 +366,6 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       }
     }
     // A cover letter is only asked for when the page has a field for one: never invented (Oracle's Personal Info page has none).
-const questionSlug = (q: string): string => `broods_${q.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 60)}`
-const words = (t: string): Set<string> => new Set(t.toLowerCase().replace(/[^a-z0-9à-ÿ ]+/g, " ").split(/\s+/).filter((w) => w.length > 2))
-/** Broods' questions matched to the page's own fields (exact label and options), plus every required field still empty on the page. */
-async function personQuestions(env: Env, run: Json, questions: string[]): Promise<Json[]> {
-  const fields = ((await freshFields(env, run)) ?? []).filter((f: Json) => f?.kind !== "file" && !f?.consent && f?.kind !== "checkbox")
-  const clean = (l: string): string => String(l ?? "").replace(/\s*[*✱]\s*$/, "").trim()
-  const out = new Map<string, Json>()
-  const add = (label: string, f: Json | null): void => {
-    const exact = clean(f?.label ?? label).slice(0, 300)
-    const options = Array.isArray(f?.options) ? f.options.filter((o: unknown) => typeof o === "string" && o.trim() && !/^(select|choose|kies)\b/i.test(o as string)).slice(0, 40) : []
-    out.set(questionSlug(exact), { key: questionSlug(exact), label: exact, kind: options.length ? "radio" : "text", ...(options.length ? { options } : {}) })
-  }
-  for (const q of questions) {
-    const qw = words(q)
-    let best: Json | null = null, score = 0
-    for (const f of fields) {
-      const fw = words(clean(f.label))
-      const hit = [...qw].filter((w) => fw.has(w)).length / Math.max(1, Math.min(qw.size, fw.size))
-      if (hit > score) { score = hit; best = f }
-    }
-    add(q, score >= 0.6 ? best : null)
-  }
-  for (const f of fields) if (f.required && !f.filled && !out.has(questionSlug(clean(f.label)))) add(f.label, f)
-  return [...out.values()].slice(0, 30)
-}
     if (reason === "letter" || /cover letter|motivation letter/i.test(message)) {
       const fields = await freshFields(env, run)
       if (fields && !fields.some((f: Json) => LETTER_FIELD.test(String(f?.label ?? "")))) {
@@ -402,6 +432,13 @@ async function personQuestions(env: Env, run: Json, questions: string[]): Promis
   }
   if (personBusy(run)) return { text: "The person is filling in the form themselves right now. Call wait, then read_page, and keep everything they entered.", error: true }
   if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
+  // Looking costs time: a screenshot is for something that did not take. Two looks in the last few steps with nothing failing → refused.
+  if (name === "screenshot") {
+    const recent = (await svc(env, `drive_commands?run_id=eq.${run.id}&order=id.desc&limit=4&select=tool,status,result`).catch(() => null)) ?? []
+    const looks = recent.filter((c: Json) => c.tool === "screenshot" || c.tool === "click_at").length
+    const failed = recent.some((c: Json) => c.status !== "done" || c.result?.ok === false || (Array.isArray(c.result?.results) && c.result.results.some((r: Json) => r?.ok === false)) || (Array.isArray(c.result?.errors) && c.result.errors.length))
+    if (looks >= 2 && !failed) return { text: "No screenshot needed: nothing failed in the last steps. Use the page each action returns (or read_page) and carry on.", error: true }
+  }
   const { run_id: _r, say, ...rest } = args ?? {}
   const note = typeof say === "string" && say.trim() ? say.trim().slice(0, 300) : null
   const docGen = typeof run.doc_gen === "number" ? run.doc_gen : 0
@@ -432,13 +469,6 @@ async function personQuestions(env: Env, run: Json, questions: string[]): Promis
         const idCheck = jobIdentityMismatch({ intendedUrl: run.url, pageUrl: page.url, pageTitle: page.title })
         if (!idCheck.ok) {
           const now = new Date().toISOString()
-  // Looking costs time: a screenshot is for something that did not take. Two looks in the last few steps with nothing failing → refused.
-  if (name === "screenshot") {
-    const recent = (await svc(env, `drive_commands?run_id=eq.${run.id}&order=id.desc&limit=4&select=tool,status,result`).catch(() => null)) ?? []
-    const looks = recent.filter((c: Json) => c.tool === "screenshot" || c.tool === "click_at").length
-    const failed = recent.some((c: Json) => c.status !== "done" || c.result?.ok === false || (Array.isArray(c.result?.results) && c.result.results.some((r: Json) => r?.ok === false)) || (Array.isArray(c.result?.errors) && c.result.errors.length))
-    if (looks >= 2 && !failed) return { text: "No screenshot needed: nothing failed in the last steps. Use the page each action returns (or read_page) and carry on.", error: true }
-  }
           await svc(env, `drive_runs?id=eq.${run.id}`, {
             method: "PATCH",
             body: JSON.stringify({
@@ -454,7 +484,10 @@ async function personQuestions(env: Env, run: Json, questions: string[]): Promis
           return { text: JSON.stringify({ ok: false, wrong_job: true, error: idCheck.message, page }), error: true }
         }
       }
-      return { text: JSON.stringify(res).slice(0, 30_000) }
+      // Recipe replays are the server's evidence, not Broods' business.
+      const { recipe_attempts: _replayed, ...shown } = res
+      if (shown.page?.recipe_attempts) { const { recipe_attempts: _inPage, ...rest } = shown.page; shown.page = rest }
+      return { text: JSON.stringify(shown).slice(0, 30_000) }
     }
     if (row?.status === "cancelled" || row?.status === "expired") {
       const kind = row.result?.timeout || row.status
@@ -464,6 +497,21 @@ async function personQuestions(env: Env, run: Json, questions: string[]): Promis
   const row = (await svc(env, `drive_commands?id=eq.${cmd.id}&select=status,taken_at`))?.[0]
   const kind = row?.status === "queued" || !row?.taken_at ? "never_started" : "result_lost"
   await abandonCommand(env, cmd.id, kind)
+  // Twice in a row no tab took a step: the application is on a page Odds cannot run on (another window, a security check, Chrome's own
+  // error page) or the tab is gone. Retrying only burns minutes; say so to the person now, with what to do.
+  if (kind === "never_started") {
+    const prev = (await svc(env, `drive_commands?run_id=eq.${run.id}&id=lt.${cmd.id}&order=id.desc&limit=1&select=status,result`).catch(() => null))?.[0]
+    if (prev?.status === "expired" && prev?.result?.timeout === "never_started") {
+      const now = new Date().toISOString()
+      const message = "The application tab stopped answering Odds (it may have opened in another window, or landed on a security check or a page Odds cannot read). Open the tab and press Apply with Odds to carry on from there."
+      await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "needs_you", reason: "other", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }),
+      }).catch(() => undefined)
+      await cancelOpenCommands(env, run.id, "tab_silent")
+      return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, run_ended: true, error: "The tab stopped answering twice; Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
+    }
+  }
   return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, error: `The browser did not answer (${kind}). Call read_page again.` }), error: true }
 }
 
@@ -497,21 +545,6 @@ export async function handleDriveMcp(req: Request, env: Env): Promise<Response> 
       return { jsonrpc: "2.0", id, result: { content: [...("image" in out && out.image ? [{ type: "image", data: out.image, mimeType: "image/jpeg" }] : []), { type: "text", text: out.text }], ...(out.error ? { isError: true } : {}) } }
     }
     return { jsonrpc: "2.0", id: id ?? null, error: { code: -32601, message: "Method not found" } }
-  // Twice in a row no tab took a step: the application is on a page Odds cannot run on (another window, a security check, Chrome's own
-  // error page) or the tab is gone. Retrying only burns minutes; say so to the person now, with what to do.
-  if (kind === "never_started") {
-    const prev = (await svc(env, `drive_commands?run_id=eq.${run.id}&id=lt.${cmd.id}&order=id.desc&limit=1&select=status,result`).catch(() => null))?.[0]
-    if (prev?.status === "expired" && prev?.result?.timeout === "never_started") {
-      const now = new Date().toISOString()
-      const message = "The application tab stopped answering Odds (it may have opened in another window, or landed on a security check or a page Odds cannot read). Open the tab and press Apply with Odds to carry on from there."
-      await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: "needs_you", reason: "other", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }),
-      }).catch(() => undefined)
-      await cancelOpenCommands(env, run.id, "tab_silent")
-      return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, run_ended: true, error: "The tab stopped answering twice; Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
-    }
-  }
   }
   if (Array.isArray(msg)) {
     const out = (await Promise.all(msg.map(one))).filter((x) => x !== null)
@@ -551,6 +584,7 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
         run_id: run.id,
         job: { title: job?.title ?? null, employer: job?.employer_display ?? job?.employer ?? null, url: run.url },
         person: facts,
+        person_answers: answered,
         has_cover_letter: Boolean(letter),
         goal: "Apply to this job in the person's browser tab with the odds-browser tools until only Submit is left (finish review), or something only the person can do (finish needs_you).",
       }
@@ -579,12 +613,18 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
   const body = await req.json().catch(() => null)
   if (route === "drive-playbook") return json(200, { playbook: await sitePlaybook(env, String(body?.page || body?.url || "")) })
   if (route === "drive-start") {
+    // What the extension replayed from the playbook on this page (structure only, re-checked here): judged when the run ends.
+    const recordAttempts = async (run: Json) => {
+      for (const attempt of (Array.isArray(body?.recipe_attempts) ? body.recipe_attempts : []).slice(0, 12)) {
+        const lesson = sanitizeLesson(attempt?.lesson)
+        if (lesson) await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "recipe", args: {}, status: "done", result: { lesson, ok: attempt.ok === true }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+      }
+    }
     // A page load in the same application resumes its run (Broods is still driving), never a second agent.
     if (typeof body?.run_id === "string") {
       const run = await runOf(env, body.run_id)
-      if (run && run.user_id === userId && live(run)) return json(200, { run_id: run.id, resumed: true })
+      if (run && run.user_id === userId && live(run)) { await recordAttempts(run); return json(200, { run_id: run.id, resumed: true }) }
       // The page moved on while Broods waited for the person (they signed in, solved the captcha): the same run carries on.
-        person_answers: answered,
       if (run && run.user_id === userId && resumeRun(run)) {
         await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify(resumePatch(run)) })
         return json(200, { run_id: run.id, resumed: true })
@@ -592,16 +632,20 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
     }
     const url = String(body?.url || body?.page || "").slice(0, 2000)
     if (!/^https:\/\//.test(url)) return json(400, { error: "No application address." })
+    // A run whose tab has not checked in for 10 minutes is over (Chrome closed, the tab gone without a word): never left "running".
+    const gone = encodeURIComponent(new Date(Date.now() - 600_000).toISOString())
+    void svc(env, `drive_runs?user_id=eq.${userId}&status=eq.running&or=(last_seen_at.lt.${gone},and(last_seen_at.is.null,created_at.lt.${gone}))`, {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ status: "stopped", resume_pending: false, message: "The application tab went away.", updated_at: new Date().toISOString() }),
+    }).catch(() => undefined)
     // The same application asked to start twice (two frames, a quick reload): join the live run started moments ago — one agent per form.
     const page = String(body?.page || url).slice(0, 2000)
     const recent = (await svc(env, `drive_runs?user_id=eq.${userId}&status=eq.running&url=eq.${encodeURIComponent(page)}&created_at=gte.${encodeURIComponent(new Date(Date.now() - 120_000).toISOString())}&order=created_at.desc&limit=1&select=id`).catch(() => null))?.[0]
     if (recent?.id) return json(200, { run_id: recent.id, resumed: true })
     const job = await ctx.job(url).catch(() => null)
     const [run] = await svc(env, "drive_runs", { method: "POST", body: JSON.stringify({ user_id: userId, posting_id: job?.id ?? null, url: String(body?.page || url).slice(0, 2000) }) })
-    for (const attempt of (Array.isArray(body?.recipe_attempts) ? body.recipe_attempts : []).slice(0, 5)) {
-      const lesson = sanitizeLesson(attempt.lesson)
-      if (lesson) await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "recipe", args: {}, status: "done", result: { lesson, ok: attempt.ok === true }, done_at: new Date().toISOString() }) }).catch(() => undefined)
-    }
+    await recordAttempts(run)
     const problem = await startBroods(env, run, job, await ctx.facts().catch(() => ({})))
     if (problem) {
       await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ status: "failed", message: problem }) }).catch(() => undefined)
@@ -632,13 +676,6 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
       })
       await cancelOpenCommands(env, run.id, "stopped")
     }
-    // A run whose tab has not checked in for 10 minutes is over (Chrome closed, the tab gone without a word): never left "running".
-    const gone = encodeURIComponent(new Date(Date.now() - 600_000).toISOString())
-    void svc(env, `drive_runs?user_id=eq.${userId}&status=eq.running&or=(last_seen_at.lt.${gone},and(last_seen_at.is.null,created_at.lt.${gone}))`, {
-      method: "PATCH",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify({ status: "stopped", resume_pending: false, message: "The application tab went away.", updated_at: new Date().toISOString() }),
-    }).catch(() => undefined)
     return json(200, { ok: true })
   }
   if (route === "drive-continue") {

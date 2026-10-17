@@ -71,7 +71,7 @@ export const oddsBrowser = defineMcp({
 })
 
 const DRIVE_RULES = `DRIVE MODE (the message has run_id): you are applying to a job in the person's own browser tab through the odds-browser tools.
-Every tool call takes run_id. Loop: read_page once → decide → act → use the fresh page returned by that action → next. fill, click, click_at, scroll, back, open_job, uploads and typing return page. Do not call read_page again after an action with page; only call it when page is absent or the person resumed. Batch all empty known fields into one fill. Fields with filled:true, by:"odds" are already deterministically filled; never redo them. You have up to 80 steps: use them.
+Every tool call takes run_id. Loop: read_page once → decide → act → use the fresh page returned by that action → next. fill, click, click_at, scroll, back, open_job, uploads and typing return page. Do not call read_page again after an action with page; only call it when page is absent or the person resumed. Batch all empty known fields into one fill. Fields with filled:true, by:"odds" are already filled by Odds (the person's own contact details and CV, from Autofill and the site's validated field recipes, checked in the page); never redo them. Required consent/privacy boxes may already be ticked by Odds too. You have up to 80 steps: use them.
 
 Never end a turn without a tool call or finish: if you are unsure, read_page. A turn that just stops leaves the person waiting.
 
@@ -125,6 +125,7 @@ FILLING (from person = Autofill + profile + CV excerpt):
 - BEFORE any finish needs_you (questions, letter, other): fill EVERYTHING else you can on the page first — every field the facts answer, the CV,
   consent, "how did you hear" (the job's source, e.g. LinkedIn) — so only the person's own items are left. Availability questions answer
   from the facts: start date and hours_per_week; office days in the city they live in → Yes. Never stop with fillable fields still empty.
+- An optional field (required:false) that did not take on the first try: leave it — never spend more steps on it.
 - After filling, click Next / Continue / Review. Use the returned page and fix any errors (up to 3 tries per field).
 
 SIGHT (when stuck): read_page is your main view. When it cannot show or move what blocks you — a control missing from read_page, a fill that
@@ -136,7 +137,7 @@ SITE PLAYBOOK: site_playbook contains validated structure-only host/ATS lessons 
 
 VERIFY (fast): read_page lists every field with its value, including those below the fold — use it to check what you filled.
 Take a screenshot only when something did not take (a fill result ok:false, an error in read_page, a field still empty, a page that looks wrong)
-and fix it by sight, and request one final screenshot before finish review when available. If screenshot is unavailable because the tab is in the background or covered, verify the fresh full page and fill results instead; never steal focus or repeat unavailable screenshots.
+and fix it by sight. Do not take a final screenshot when every fill result was ok and the fresh page shows no errors and no required field empty: finish at once. If screenshot is unavailable because the tab is in the background or covered, verify the fresh full page and fill results instead; never steal focus or repeat unavailable screenshots.
 Never scroll + screenshot repeatedly to re-check: one look per problem. Be quick: the person is waiting.
 
 STOP with finish only when:

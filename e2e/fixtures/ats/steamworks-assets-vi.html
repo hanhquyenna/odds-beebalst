@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tài sản hiển thị ở mọi ngôn ngữ</title>
+  <style>
+    :root {
+      --line: #d8dde6;
+      --muted: #5b6472;
+      --ink: #1b2430;
+      --drop: #eef2f7;
+      --accent: #2f6fed;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif;
+      color: var(--ink);
+      background: #fff;
+      padding: 32px 40px 64px;
+      max-width: 920px;
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 700;
+      margin: 0 0 28px;
+    }
+    .field {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.4fr);
+      gap: 16px 28px;
+      align-items: start;
+      padding: 18px 0;
+      border-top: 1px solid var(--line);
+    }
+    .field:last-child { border-bottom: 1px solid var(--line); }
+    label.main { font-weight: 600; display: block; margin-bottom: 6px; }
+    .req { color: var(--accent); }
+    .hint { color: var(--muted); font-size: 13px; }
+    .hint p { margin: 0 0 4px; }
+    input[type="url"], input[type="text"] {
+      width: 100%;
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font: inherit;
+    }
+    .drop {
+      min-height: 120px;
+      border: 1.5px dashed #b7c2d2;
+      border-radius: 8px;
+      background: var(--drop);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: var(--accent);
+      cursor: pointer;
+      position: relative;
+    }
+    .drop.wide { min-height: 140px; }
+    .drop .plus {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 2px solid var(--accent);
+      display: grid;
+      place-items: center;
+      font-size: 20px;
+      line-height: 1;
+      font-weight: 500;
+    }
+    .drop input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .preview {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .preview img {
+      max-height: 72px;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+    }
+  </style>
+</head>
+<body>
+  <h1>Tài sản hiển thị ở mọi ngôn ngữ</h1>
+
+  <form id="assets" onsubmit="event.preventDefault()">
+    <div class="field">
+      <div>
+        <label class="main" for="trailer">Video quảng cáo hiển thị ở mọi ngôn ngữ</label>
+      </div>
+      <div>
+        <input id="trailer" name="trailer_youtube" type="url" placeholder="" />
+        <p class="hint" style="margin-top:8px">Nhập URL của video trên YouTube. Ví dụ: https://www.youtube.com/watch?v=1234567890A</p>
+      </div>
+    </div>
+
+    <div class="field">
+      <div>
+        <label class="main">Ảnh chụp màn hình <span class="req">*</span></label>
+        <div class="hint">
+          <p>Tối đa 5 ảnh</p>
+          <p>1280x800 hoặc 640x400</p>
+          <p>JPEG hoặc PNG 24 bit (không phải alpha)</p>
+          <p>Cần ít nhất 1 ảnh</p>
+        </div>
+      </div>
+      <div>
+        <label class="drop">
+          <span class="plus">+</span>
+          <span>Thả ảnh vào đây</span>
+          <input id="screenshots" name="screenshots" type="file" accept="image/jpeg,image/png" multiple required />
+        </label>
+        <div class="preview" id="screenshots-preview"></div>
+      </div>
+    </div>
+
+    <div class="field">
+      <div>
+        <label class="main">Ô quảng cáo nhỏ</label>
+        <div class="hint">
+          <p>Canvas 440x280</p>
+          <p>JPEG hoặc PNG 24 bit (không phải alpha)</p>
+        </div>
+      </div>
+      <div>
+        <label class="drop">
+          <span class="plus">+</span>
+          <span>Thả ảnh vào đây</span>
+          <input id="smallcapsule" name="smallcapsule" type="file" accept="image/jpeg,image/png" />
+        </label>
+        <div class="preview" id="smallcapsule-preview"></div>
+      </div>
+    </div>
+
+    <div class="field">
+      <div>
+        <label class="main">Ô quảng cáo marquee</label>
+        <div class="hint">
+          <p>Canvas 1400x560</p>
+          <p>JPEG hoặc PNG 24 bit (không phải alpha)</p>
+        </div>
+      </div>
+      <div>
+        <label class="drop wide">
+          <span class="plus">+</span>
+          <span>Thả ảnh vào đây</span>
+          <input id="marquee" name="marquee" type="file" accept="image/jpeg,image/png" />
+        </label>
+        <div class="preview" id="marquee-preview"></div>
+      </div>
+    </div>
+  </form>
+
+  <script>
+    function bindPreview(inputId, previewId, maxFiles) {
+      const input = document.getElementById(inputId)
+      const preview = document.getElementById(previewId)
+      input.addEventListener("change", () => {
+        const files = [...(input.files || [])].slice(0, maxFiles || 1)
+        preview.innerHTML = ""
+        for (const file of files) {
+          const img = document.createElement("img")
+          img.alt = file.name
+          img.src = URL.createObjectURL(file)
+          preview.append(img)
+        }
+        if (files.length) {
+          const note = document.createElement("span")
+          note.textContent = files.map((f) => f.name).join(", ")
+          preview.append(note)
+        }
+      })
+    }
+    bindPreview("screenshots", "screenshots-preview", 5)
+    bindPreview("smallcapsule", "smallcapsule-preview", 1)
+    bindPreview("marquee", "marquee-preview", 1)
+  </script>
+</body>
+</html>
