@@ -297,11 +297,12 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
   }
   const progressTitle = drive ? driveTitles[driveLabel(drive)] : undefined
   const progressLine = drive ? driveWhy(drive) : view?.message
-  const driveLive = <DriveLive post={post} />
+  const driveLive = <DriveLive post={post} questionsOpen={questionsOpen} />
   // Broods asked these questions: answering them here carries it on by itself, with the answers.
   const answered = (): void => {
     const d = driveOf(post.id)
-    if (d && d.status === "needs_you" && d.reason === "questions") void driveControl(d.runId, "continue").then((ok) => { if (ok) toast.message("Broods carries on with your answers.") })
+    // Any stop that waits on the person (questions, a letter, a detail): one Save and continue carries Broods on with everything they added.
+    if (d && (d.status === "needs_you" || (d.status === "stuck" && d.reason !== "closed"))) void driveControl(d.runId, "continue").then((ok) => { if (ok) toast.message("Broods carries on with your answers.") })
   }
   const revealGate = view ? applyNeedsReveal(view.status, view.message || "") : false
   const stuck = revealGate && /after (odds )?assist|odds assist could not|broods could not|agent gave up|reconnect/i.test(view?.message || "")

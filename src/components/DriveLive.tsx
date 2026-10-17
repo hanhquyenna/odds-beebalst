@@ -18,7 +18,8 @@ const ago = (iso: string, now: number): string => {
  * with the person's moves right there. Shown only while the application tab is open; Broods carries on by itself once they handled
  * what it waits for. Never a silent spinner.
  */
-export function DriveLive({ post }: { post: Posting }): React.JSX.Element | null {
+/** `questionsOpen`: Broods' questions are shown below; their Save and continue carries Broods on, so no second button here. */
+export function DriveLive({ post, questionsOpen = false }: { post: Posting; questionsOpen?: boolean }): React.JSX.Element | null {
   useApplyActivityTick()
   const data = useData()
   const drive = driveOf(post.id)
@@ -64,7 +65,7 @@ export function DriveLive({ post }: { post: Posting }): React.JSX.Element | null
         </details>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        {drive.reason === "letter" && drive.status === "needs_you" ? (
+        {drive.reason === "letter" && drive.status === "needs_you" && !questionsOpen ? (
           <Button type="button" disabled={busy} onClick={() => act("continue")} className="h-10 cursor-pointer rounded-lg bg-brand-ink px-4 text-white hover:bg-brand-ink/90">I added it — carry on</Button>
         ) : null}
         {drive.status === "stuck" && drive.reason !== "closed" ? (
