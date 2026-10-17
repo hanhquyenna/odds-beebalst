@@ -47,7 +47,7 @@ const applyPickSchema = {
   required: ["stage", "action", "text", "answers", "reason"],
 } as const
 
-const PICK_RULES = `Return one apply_pick:
+const PICK_RULES = `Return one apply_pick, as the bare JSON object {"stage","action","text","answers","reason"} and nothing else (the model route may not enforce the schema):
 - stage=account or captcha → action=wait_human (person only).
 - Cookie banners FIRST when present: Functional only / Necessary only / Reject / Reject non-essential / Reject all — even if Easy Apply is also listed. Never Accept all.
 - Then progress: Easy Apply / Apply / Apply now / Apply for this job → Next → Continue → Save and Continue → Review.

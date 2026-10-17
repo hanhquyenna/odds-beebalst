@@ -1140,6 +1140,8 @@
       return null
     }
     if (cmd.tool === "back") {
+      // Going back out of the web (to a blank or new-tab page) leaves no page for Odds to drive: every next step would expire.
+      if (history.length <= 1 || !/^https?:\/\//.test(document.referrer)) return { ok: false, error: "there is no web page to go back to from here; use open_job for the job's own link, or finish" }
       await sendResult({ ok: true, note: "went back one page; read_page next" })
       history.back()
       return null
