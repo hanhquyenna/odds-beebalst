@@ -59,7 +59,7 @@
   /** Placeholder chrome ("Type your response") is never the question — that caused empty Odds prompts and missed autofill. */
   const PLACEHOLDER_ASK = /^(type your (response|answer)|enter (your )?(answer|response)|your answer|please (enter|type|write)|write (your )?(answer|response)|antwoord|uw antwoord)\b/i
   // EN + FR Workday/Eightfold file chrome ("Sélectionner un fichier") — never Broods text questions.
-  const genericUpload = (t) => /^(upload(\s+a)?\s+file|choose(\s+a)?\s+file|browse|tap to choose|drop (it|file)|drag\s*(and|&)\s*drop|choose a file or drop|s[eé]lectionner(\s+un)?\s+fichier|choisir(\s+un)?\s+fichier|parcourir|t[eé]l[eé]charger(\s+un)?\s+fichier)$/i.test((t || "").replace(/\s+/g, " ").trim())
+  const genericUpload = (t) => /^(upload(\s+a)?\s+file|choose(\s+a)?\s+file|browse|tap to choose|drop (it|file)|drag\s*(and|&)\s*drop|choose a file or drop|s[eé]lectionner(\s+un)?\s+fichier|choisir(\s+un)?\s+fichier|parcourir|t[eé]l[eé]charger(\s+un)?\s+fichier)(\s+(it\s+|files?\s+)?here)?$/i.test((t || "").replace(/\s+/g, " ").trim())
   /** Resume/CV step labels (EN/NL/FR — Kraft "Reprendre" / "Téléchargez votre CV"). */
   const isResumeAsk = (t) => /\b(resume|cv|curriculum(\s+vitae)?|levensloop|reprendre|curriculum)\b|t[eé]l[eé]chargez?\s+(votre\s+)?cv|upload\s+(your\s+)?(resume|cv)/i.test(t || "")
   /** Real <label>/aria may be short ("Email", "Phone"). Sibling <p>/headings need more text so we don't grab chrome. */
@@ -172,6 +172,8 @@
         out.push({ kind: "radio", el: radios, label, options: radios.map((r) => labelOf(r)), widget: "plain" })
         continue
       }
+      // The search box inside a dropdown drawn as role=combobox (its own entry below): one question, not two.
+      if (el.tagName === "INPUT" && el.closest("[role='combobox']:not(input):not(select)")) continue
       let label = labelOf(el)
       if (t !== "file" && isTrap(el, label)) continue
       // A choice about being considered for other roles has no label of its own on some forms: its options say what it is.
@@ -377,8 +379,20 @@
     return uploaded
   }
 
-  /** Consent and terms remain the person's decision. */
-  function tickConsents() { return 0 }
+  /** Consent, terms and privacy-notice boxes are ticked: the person chose consent yes in Odds. Answers how many it ticked. Never anything else. */
+  function tickConsents() {
+    let ticked = 0
+    for (const c of document.querySelectorAll('input[type="checkbox"], [role="checkbox"]:not(input)')) {
+      const on = () => (c.matches("input") ? c.checked : c.getAttribute("aria-checked") === "true")
+      if (on() || !shown(c) && !c.closest("label") || c.disabled || c.closest(".odds-apply-bar, nav, header, footer, [id*='cookie' i], [class*='cookie' i], [id*='onetrust' i]")) continue
+      const label = (c.matches("input") ? labelOf(c) : "") || c.getAttribute("aria-label") || textOf(c.closest("label, fieldset") || c.parentElement)
+      if (!A.isConsentCheckbox?.(label)) continue
+      c.click()
+      if (!on()) c.closest("label")?.click()
+      if (on()) ticked++
+    }
+    return ticked
+  }
 
   /** Widget handlers — one path per ATS kind (typeahead / choice / listbox / card+plain / file). */
   async function fillTypeahead(f, answer, besideCountry) {
@@ -749,7 +763,7 @@
     const want = typeof res?.text === "string" ? res.text.replace(/\s+/g, " ").trim() : ""
     if (res?.action !== "click" || !want || AGENT_CLICK_DENY.test(want)) return false
     const el = [...document.querySelectorAll("a, button, input[type=button], input[type=submit]")].find((b) => shown(b) && controlLabel(b) === want)
-    if (!el || humanConsentButton(el)) {
+    if (!el || humanConsentButton(el) || pastEmptyRequired(want)) {
       if (!agentFailedLabels.includes(want)) agentFailedLabels.push(want)
       return false
     }
@@ -784,6 +798,8 @@
   const PAUSED = "You went back a step, so Odds paused here. Press Next or Apply yourself and Odds carries on, or press Apply with Odds again."
   const BACK_LABEL = /^(back|previous|prev|go back|vorige|terug|zur(u|ü)ck|pr(e|é)c(e|é)dent|retour|anterior|atr(a|á)s)$/i
   const FORWARD_LABEL = /^(next|continue|review|save and continue|apply|apply now|volgende|verder|weiter|suivant|continuer|solliciteer|solliciteren|postuler)\b/i
+  /** A forward button while this step's required questions are still empty: never pressed by Odds or Broods — those questions go to the person (or the phone) first. */
+  const pastEmptyRequired = (label) => FORWARD_LABEL.test(label) && fields().some((f) => f.kind !== "checkbox" && !answered(f) && required(elOf(f), f.label))
   /** This page was reached with the browser's Back/Forward (not by Odds' own step back during a search). */
   async function cameBack() {
     if (performance.getEntriesByType("navigation")[0]?.type !== "back_forward") return false
@@ -1386,6 +1402,13 @@
   /** The employer's own words saying the application went through (a thank-you page or message, with no form left). */
   const SENT = /thank you for (applying|your (application|interest in))|your application (has been|was|is) (successfully )?(submitted|received|sent)|(we have|we've) received your application|application (submitted|received|complete)|bedankt voor je sollicitatie|je sollicitatie is (verzonden|ontvangen)|vielen dank für ihre bewerbung/i
   let reported = false
+  /** After the person sends it (the fill loop may be over by then): the site's own thank-you on this page marks the job applied. */
+  let watchingSent = 0
+  function watchSent() {
+    if (watchingSent || reported) return
+    watchingSent = window.setInterval(() => { if (confirmed() || reported) { window.clearInterval(watchingSent); watchingSent = 0 } }, 500)
+    window.setTimeout(() => { window.clearInterval(watchingSent); watchingSent = 0 }, 60000)
+  }
   function confirmed() {
     if (reported || !applicationJob) return false
     const text = textOf(document.querySelector("main, [role=main]") || document.body).slice(0, 3000)
@@ -1521,9 +1544,9 @@
     listening = true
     document.addEventListener("click", (event) => {
       const b = event.target instanceof Element ? event.target.closest("button, input[type=submit], a") : null
-      if (b && /submit|send|next|continue|verzend|versturen|volgende|apply|solliciteer|review/i.test(textOf(b) || b.value || "")) keep()
+      if (b && /submit|send|next|continue|verzend|versturen|volgende|apply|solliciteer|review/i.test(textOf(b) || b.value || "")) { keep(); watchSent() }
     }, true)
-    document.addEventListener("submit", keep, true)
+    document.addEventListener("submit", () => { keep(); watchSent() }, true)
     // The person's own clicks (never Odds' synthetic ones): Back/Previous pauses Odds; their Next/Apply after that resumes it.
     document.addEventListener("click", (event) => {
       if (!event.isTrusted) return
@@ -1663,6 +1686,20 @@
      * Never leave the person staring at Filling with no agent turn.
      * @returns {"moved"|"human"|"stuck"}
      */
+    /** Outlined questions handed to the person: true once they are answered on the tab, an answer arrives from Odds (the phone), or Continue is pressed. */
+    async function waitForAnswers() {
+      for (const until = Date.now() + 1800000; Date.now() < until && !pausedByPerson;) {
+        await sleep(1500)
+        if (wantContinue) return true
+        const open = fields().filter((f) => f.kind !== "file" && boxOf(f).classList.contains("odds-ask"))
+        if (!open.length || open.every(answered)) return true
+        if (await handoff?.refresh(facts)) {
+          for (const f of fields()) { attempts.delete(elOf(f)); verifications.delete(elOf(f)) }
+          return true
+        }
+      }
+      return false
+    }
     async function agentConfirm(status) {
       agentTried = true
       say("No progress — Broods is reading this page…", "filling")
@@ -1734,7 +1771,7 @@
         const want = scan.text.replace(/\s+/g, " ").trim()
         const el = [...document.querySelectorAll("a, button, input[type=button], input[type=submit]")].find((b) => shown(b) && controlLabel(b) === want)
           || [...document.querySelectorAll(".dropdown-location, .dropdown-results > *, [role='option']")].find((b) => shown(b) && textOf(b).replace(/\s+/g, " ").trim() === want)
-        if (el && !humanConsentButton(el)) {
+        if (el && !humanConsentButton(el) && !pastEmptyRequired(want)) {
           await ask({ type: "apply-follow" })
           el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
           el.click()
@@ -1749,6 +1786,8 @@
         await fillAll()
         await handoff?.publish(fields().filter((f) => f.kind !== "file" && boxOf(f).classList.contains("odds-ask")), facts)
         say("odds filled in what it knows. Answer the outlined questions: odds keeps your answers. Then check the form and send it yourself.", "ask")
+        // The answers can come from the phone (or the tab itself): Odds carries on once they are in, never left at this step.
+        if (await waitForAnswers()) return "moved"
         return "human"
       }
       say("Odds assist could not move this application forward after assist. Open the tab to continue.", "ask")

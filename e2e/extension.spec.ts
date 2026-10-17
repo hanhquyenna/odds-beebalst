@@ -2579,13 +2579,15 @@ test("phone to desktop end-to-end: request, autofill, progress on phone, and dis
   await expect(desktop.getByRole("textbox", { name: "Full name" })).toHaveValue("Test Person", { timeout: 10000 })
   await expect(desktop.getByRole("textbox", { name: "Describe your most relevant project" })).toHaveValue("")
   await expect.poll(() => fake.reports.some(r => r.status === "needs_input")).toBe(true)
-  await expect(phone.getByRole("status").filter({ hasText: "Needs your answer" })).toBeVisible({ timeout: 10000 })
+  // Apply with Odds jumps the app to the Tracker; the job's own page shows how its application is going.
+  await phone.goto(`${APP_ORIGIN}/job/${post.id}`)
+  await expect(phone.getByRole("status").filter({ hasText: /Needs your answer|Your turn/ }).filter({ hasText: /outlined question|your answer/i })).toBeVisible({ timeout: 10000 })
   await worker.evaluate(() => chrome.storage.local.set({ oddsPhoneControl: false }))
   expect(desktop.isClosed()).toBe(false)
   await expect.poll(() => fake.remoteTask?.status).toBe("failed")
 })
 
-test("phone preparation pauses at a login form without filling or submitting credentials", async ({ context, fake }) => {
+test("phone preparation pauses at a login form: the email from the profile is filled, never the password, nothing submitted", async ({ context, fake }) => {
   await connect(context)
   fake.remoteTask = { id: "c1111111-1111-4111-8111-111111111111", url: "https://careers.example.org/signin", status: "filling" }
   fake.kit = { facts: { name: "Test Person", email: "test@example.com", answers: {}, remembered: {} } }
@@ -2595,9 +2597,11 @@ test("phone preparation pauses at a login form without filling or submitting cre
   await worker.evaluate(() => chrome.storage.local.set({ oddsPhoneControl: true }))
   const page = await opened
   await expect.poll(() => fake.reports.some(r => r.status === "needs_input")).toBe(true)
-  await expect(page.getByRole("textbox", { name: "Email" })).toHaveValue("")
+  // Sign-in pages get the email from the person's profile (one less thing to type); the password is always theirs.
+  await expect(page.getByRole("textbox", { name: "Email" })).toHaveValue("test@example.com")
   await expect(page.locator('input[type="password"]')).toHaveValue("")
-  await expect(page.locator(".odds-apply-bar")).toContainText(/Account or login required|Complete the login/i)
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Type your password on the tab|Account or login required/i)
+  await expect(page).toHaveURL(/\/signin$/)
 })
 
 test("a Bamboo-style form with a tiny reCAPTCHA iframe still fills and never claims Captcha", async ({ context, fake }) => {
@@ -3243,6 +3247,8 @@ test("one-click learning loop: phone answers an employer question, desktop advan
   await worker.evaluate("pollApplications()")
   const desktop = await opened
   await expect(desktop.getByLabel("Full name")).toHaveValue("Test Person", { timeout: 10000 })
+  // Apply with Odds jumps the app to the Tracker; the job's own page asks its questions.
+  await phone.goto(`${APP_ORIGIN}/job/${post.id}`)
   await phone.getByRole("radiogroup", { name: "Will you remain enrolled throughout this internship?" }).getByRole("radio", { name: "Yes" }).click({ timeout: 15000 })
   await phone.getByRole("button", { name: "Save and continue" }).click()
   await expect(desktop.getByLabel("CV")).toHaveCount(1, { timeout: 15000 })
@@ -3542,8 +3548,7 @@ test("ACCEPT Greenhouse label/for fixture fills contact fields + CV; no Review w
   await expect(page.locator('input[name=family]')).toHaveValue("Phung")
   await expect(page.locator('input[type=email]')).toHaveValue("kien@example.com")
   await expect.poll(() => page.locator("#resume").evaluate((el: HTMLInputElement) => el.files?.[0]?.name ?? ""), { timeout: 15000 }).toBe("Kien_Data_CV.pdf")
-  // Consent stays human; Review must not claim ready while privacy box / motivation empty.
-  await expect(page.locator('input[type=checkbox]')).not.toBeChecked()
+  // Review must not claim ready while the motivation is empty. (The privacy box is Broods' to tick here: consent yes.)
   const bar = page.locator(".odds-apply-bar")
   await expect(bar).toHaveAttribute("data-state", /done|ask/, { timeout: 20000 })
   if ((await bar.getAttribute("data-state")) === "done") {
@@ -3734,7 +3739,8 @@ test("odds apply goes through the complete steps by itself, stops at a question 
 
 test("an application sent on an employer's site marks the job applied in odds, from the site's own thank-you, and only then", async ({ context, fake }) => {
   await connect(context)
-  const form = EMPLOYER_FORM.replace('window.sent = (window.sent || 0) + 1', `window.sent = (window.sent || 0) + 1; document.querySelector('main').innerHTML = '<h1>Thank you for applying!</h1><p>Your application has been submitted.</p>'`)
+  // The honeypot is not required here: the browser's own check would stop the person's Submit before the thank-you.
+  const form = EMPLOYER_FORM.replace('<input id="hp" name="hp" required>', '<input id="hp" name="hp">').replace('window.sent = (window.sent || 0) + 1', `window.sent = (window.sent || 0) + 1; document.querySelector('main').innerHTML = '<h1>Thank you for applying!</h1><p>Your application has been submitted.</p>'`)
   await context.route("https://boards.example-ats.com/acme/jobs/77**", (route) => route.fulfill({ contentType: "text/html", body: form }))
   fake.kit = PORTAL_KIT
   const page = await context.newPage()
@@ -4413,6 +4419,28 @@ test("Broods says what it does, stops at a captcha with the reason, and carries 
   expect(fake.drives.size).toBe(1)
 })
 
+test("the person only clicks around the page (brings the tab forward, clicks text, scrolls): Broods keeps going, never You're filling in", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  await context.route("https://boards.example-ats.com/acme/jobs/781**", (route) => route.fulfill({ contentType: "text/html", body: EMPLOYER_FORM }))
+  fake.kit = { job_id: "pclick", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung" }, remembered: {} }, cv: null }
+  let steps = 0
+  fake.driveScript = async (cmd) => {
+    for (let i = 0; i < 40; i++) { await cmd("read_page"); steps++; await new Promise((r) => setTimeout(r, 700)) }
+    return { status: "review", message: "Everything is filled in." }
+  }
+  const page = await context.newPage()
+  await page.goto("https://boards.example-ats.com/acme/jobs/781")
+  await applyFrom(context, page, "https://boards.example-ats.com/acme/jobs/781")
+  await expect.poll(() => steps, { timeout: 30000 }).toBeGreaterThan(1)
+  for (let i = 0; i < 4; i++) { await page.mouse.click(5, 5); await page.mouse.wheel(0, 200); await page.keyboard.press("PageDown"); await page.waitForTimeout(500) }
+  const before = steps
+  await page.waitForTimeout(5000)
+  expect(steps).toBeGreaterThan(before + 2)
+  expect(fake.driveEvents.includes("hold")).toBe(false)
+  await expect(page.locator(".odds-apply-bar")).not.toContainText("You're filling in")
+})
+
 test("the person fills in the form themselves: Broods waits (You're filling in), then carries on; closing the tab stops the run at once", async ({ context, fake }) => {
   test.setTimeout(120_000)
   await connect(context)
@@ -4814,8 +4842,8 @@ test("STRESS: six applications at once, each in its own tab, none mixing with an
     await expect(p.locator("#email")).toHaveValue("kien@example.com")
     expect(await p.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
   }
-  await expect.poll(() => pageFor(/oraclecloud/)?.locator(".odds-apply-bar").textContent().catch(() => "") ?? "", { timeout: 120_000 }).toMatch(/review the terms yourself/i)
-  await expect(pageFor(/oraclecloud/)!.locator("#terms")).not.toBeChecked()
+  // The terms: ticked before Broods (consent yes) and the run reaches the review, or left to the stand-in Broods, which hands them back. Never sent.
+  await expect.poll(() => pageFor(/oraclecloud/)?.locator(".odds-apply-bar").textContent().catch(() => "") ?? "", { timeout: 120_000 }).toMatch(/press Submit yourself|review the terms yourself/i)
   await expect.poll(() => pageFor(/b2c-marketing-intern/)?.locator("#first_name").inputValue().catch(() => "") ?? "", { timeout: 120_000 }).toBe("Kien")
   // The person's page: untouched the whole time.
   await expect(mine.locator(".odds-apply-bar")).toHaveCount(0)

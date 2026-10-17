@@ -451,7 +451,9 @@
       }
       if (scan?.action === "click" && typeof scan.text === "string") {
         const btn = buttonsOf(modal).find((b) => labelOfButton(b) === scan.text)
-        if (btn && !isSubmit(btn)) btn.click()
+        // Never on to the next step while a question here is still empty: it waits for its answer (from the person or the phone).
+        const pastEmpty = btn && NEXT.test(labelOfButton(btn)) && questionsOf(modal).some((q) => q.kind !== "checkbox" && !answered(q))
+        if (btn && !isSubmit(btn) && !pastEmpty) btn.click()
       }
     }
     await fillStep(modal)
@@ -1076,6 +1078,8 @@
         }
         return
       }
+      // Already taken to the review (or sent): back on the job later (a reload, a new visit) it is not started again.
+      if (!resume && intent.started && ["ready", "submitted"].includes(intent.status)) return
       if (!resume) say(document.body, "Opening the application…", "filling")
       if (linkedInSignInWall()) {
         say(document.body, LINKEDIN_SIGNIN_MSG, "ask")
