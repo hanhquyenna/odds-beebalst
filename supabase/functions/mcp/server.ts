@@ -1170,6 +1170,29 @@ const EXT_DAILY_READS = 30
 /** Jobs from any other site a person's browser may hand over in a day: free to read, but each one goes into the table everyone sees. */
 const EXT_DAILY_PAGE_READS = 300
 /** A job we hold, found by the address it was stored under (job boards loaded in bulk kept longer ones: heldFilter finds those by the job's id). */
+const POSTING_COLUMNS = "id,closed_at,region,employer,employer_display,ats,title,url"
+/** The job an employer's application form belongs to, when its address is not a job link Odds holds (see apply-kit). */
+async function formJob(env: Env, url: string, postingId: string | null, title: string): Promise<Json | null> {
+  const clean = url.split("#")[0]!.slice(0, 2000)
+  if (!/^https:\/\//.test(clean)) return null
+  const byId = (id: string) => rest(env, `postings?id=eq.${encodeURIComponent(id)}&select=${POSTING_COLUMNS}&limit=1`).then((r) => r?.[0] ?? null).catch(() => null)
+  if (postingId) { const p = await byId(postingId); if (p) return p }
+  const base = clean.split("?")[0]!
+  const seen = (await svc(env, `posting_apply_links?apply_url=like.${encodeURIComponent(base.replace(/[*%_]/g, ""))}*&select=posting_id&limit=1`).catch(() => null))?.[0]?.posting_id
+  if (seen) { const p = await byId(String(seen)); if (p) return p }
+  const name = title.replace(/\s*[|·–—-]\s*(careers?|jobs?|workday|apply|application)\b.*$/i, "").replace(/^(apply( for)?|application)\s*:?\s*/i, "").trim()
+  if (name.length < 6) return null
+  const host = (() => { try { return new URL(clean).hostname.toLowerCase() } catch { return "" } })()
+  const rows = await rest(env, `postings?title=ilike.${encodeURIComponent(name.replace(/[*%,()]/g, " ").trim())}&closed_at=is.null&select=${POSTING_COLUMNS}&limit=10`).catch(() => null) ?? []
+  const key = (t: unknown) => String(t ?? "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]/g, "")
+  // The posting on this very site first (YETI's own Workday), else one whose employer's first name is in the address ("yeti" in yeticoolers…).
+  const hostOf = (u: unknown) => { try { return new URL(String(u)).hostname.toLowerCase() } catch { return "" } }
+  const firstWord = (p: Json) => key(String(p.employer_display || p.employer || "").split(/\s+/)[0])
+  const hit = rows.find((p: Json) => hostOf(p.url) === host) ?? rows.find((p: Json) => firstWord(p).length >= 3 && key(host).includes(firstWord(p)))
+  if (!hit) return null
+  await svc(env, "posting_apply_links?on_conflict=posting_id", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ posting_id: hit.id, apply_url: clean, source: "match", updated_at: new Date().toISOString() }) }).catch(() => undefined)
+  return hit
+}
 const heldJob = (env: Env, link: JobLink): Promise<Json[] | null> => rest(env, `postings?select=id,closed_at,region,employer,employer_display,ats,title,url&${heldFilter(link)}&order=closed_at.desc.nullsfirst&limit=1`).catch(() => [])
 
 /**
@@ -1461,9 +1484,13 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     if (accepted.length) {
       const rows = accepted.map((a) => {
         const q = questions.find((x) => x.key === a.key)
-        return { user_id: me.id, question_key: a.key, question: q?.label ?? a.key, answer: a.answer, updated_at: new Date().toISOString() }
+        return { user_id: me.id, question_key: a.key, question: q?.label ?? a.key, answer: a.answer, source: "odds", updated_at: new Date().toISOString() }
       })
-      await svc(env, "application_questions?on_conflict=user_id,question_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) })
+      // Written by Odds, not the person: never over an answer the person gave themselves (their words stay theirs).
+      const keys = rows.map((r) => `"${r.question_key.replace(/"/g, '\\"')}"`).join(",")
+      const mine = new Set(((await svc(env, `application_questions?user_id=eq.${me.id}&question_key=in.(${encodeURIComponent(keys)})&source=eq.person&select=question_key`).catch(() => null)) ?? []).map((r: Json) => r.question_key))
+      const fresh = rows.filter((r) => !mine.has(r.question_key))
+      if (fresh.length) await svc(env, "application_questions?on_conflict=user_id,question_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(fresh) })
     }
     void logApplyAgentEvent(env, me.id, "suggest-answers", held.id, {
       accepted: accepted.length,
@@ -1572,14 +1599,17 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
       return json(400, { error: "Send { url }." })
     }
     const link = jobLink(String(body?.url ?? ""), true)
-    const [held, profile, savedAnswers, remembered, email, mainCv] = await Promise.all([
+    const [heldDirect, profile, savedAnswers, remembered, email, mainCv] = await Promise.all([
       link ? heldJob(env, link).then((r) => r?.[0] ?? null) : Promise.resolve(null),
       myProfile(env, me),
       myAnswers(env, me.id),
-      svc(env, `application_questions?user_id=eq.${me.id}&select=question_key,answer&order=updated_at.desc&limit=500`),
+      svc(env, `application_questions?user_id=eq.${me.id}&select=question_key,question,answer,source&order=updated_at.desc&limit=500`),
       emailOf(env, me),
       svc(env, `documents?user_id=eq.${me.id}&kind=eq.cv&is_main=eq.true&select=id,name,file_name`),
     ])
+    // An employer's own form Odds does not list (YETI's Workday for a LinkedIn job): the job it is, from the run's posting, the address
+    // seen before for a posting, or the page's job title at an employer named in the address. Learned, so the next visit knows it at once.
+    const held = heldDirect ?? await formJob(env, String(body?.url ?? ""), typeof body?.posting_id === "string" ? body.posting_id : null, typeof body?.title === "string" ? body.title : "")
     const answers = { ...personalFromProfile(profile, email), ...educationFromProfile(profile), ...workFromProfile(profile), ...savedAnswers }
     // Gender answered once on a form (Odds drawer or the page) becomes the Autofill answer, so every later form fills it and Autofill shows it.
     if (!savedAnswers.gender) {
@@ -1621,6 +1651,7 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
       apply_url: typeof direct === "string" && /^https:\/\//.test(direct) ? direct : null,
       // The job's own title: the extension checks the employer's page is this job, not their list of vacancies.
       job_title: held?.title ?? null,
+      job_employer: held?.employer_display ?? held?.employer ?? null,
       // Broods drives the application in the person's tab (switch on Connect; on unless they turned it off).
       broods_drive: (profile as Json)?.broodsDrive !== false,
       facts: {
@@ -1639,6 +1670,9 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
         dutch: profile.dutch ?? null,
         answers,
         remembered: Object.fromEntries((remembered ?? []).map((r: Json) => [r.question_key, r.answer])),
+        // The person's own answers with their question, newest first (never ones Odds wrote): the extension puts one in word for word
+        // when a form asks the same question (Broods never rewords or adds to the person's own answer).
+        saved_answers: (remembered ?? []).filter((r: Json) => r.source === "person" && typeof r.question === "string" && typeof r.answer === "string" && r.answer.trim()).slice(0, 200).map((r: Json) => ({ q: String(r.question).slice(0, 300), a: String(r.answer).slice(0, 1000) })),
       },
       cv: cv ? { id: cv.id, name: cv.name, file_name: cv.file_name, for_this_job: Boolean(cvRow) } : null,
       letter: letter ? { id: letter.id, name: letter.name, file_name: letter.file_name } : null,
@@ -1658,7 +1692,7 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
       const question = typeof q?.question === "string" ? q.question.replace(/\s+/g, " ").trim().slice(0, 500) : ""
       const answer = typeof q?.answer === "string" ? q.answer.replace(/\s+/g, " ").trim().slice(0, 1000) : ""
       const key = applicationQuestionKey(question, answerJob?.id)
-      return key.length >= 2 && answer ? { user_id: me.id, question_key: key, question, answer, updated_at: new Date().toISOString() } : null
+      return key.length >= 2 && answer ? { user_id: me.id, question_key: key, question, answer, source: "person", updated_at: new Date().toISOString() } : null
     }).filter(Boolean)
     if (rows.length) await svc(env, "application_questions?on_conflict=user_id,question_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) })
 

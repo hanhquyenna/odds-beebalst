@@ -3,7 +3,7 @@
 import type { DriveRun } from "@/lib/drive-run-state"
 import { supabase } from "@/lib/supabase"
 
-export { askIfSent, onScreen, TAB_GONE_MS, tabGone, type DriveReason, type DriveRun, type DriveStatus } from "@/lib/drive-run-state"
+export type { DriveRun } from "@/lib/drive-run-state"
 
 /** Runs updated in this window are read (a live run checks in far more often). */
 const SHOW_MS = 2 * 60 * 60 * 1000

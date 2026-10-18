@@ -17,7 +17,14 @@ Object.assign(globalThis, {
     setInterval: (): number => 1,
     clearInterval: (): void => undefined,
   },
-  document: { visibilityState: "visible", addEventListener: (): void => undefined, removeEventListener: (): void => undefined },
+  // Stays global for the test files that run after this one: enough of a document for a library that adds its CSS on load (sonner).
+  document: {
+    visibilityState: "visible", addEventListener: (): void => undefined, removeEventListener: (): void => undefined,
+    head: { firstChild: null, appendChild: (): void => undefined, insertBefore: (): void => undefined },
+    getElementsByTagName: (): unknown[] => [],
+    createElement: (): Record<string, unknown> => ({ appendChild: (): void => undefined, setAttribute: (): void => undefined, styleSheet: null }),
+    createTextNode: (): Record<string, unknown> => ({}),
+  },
   fetch: async (): Promise<Response> => {
     calls += 1
     await new Promise<void>((resolve) => {

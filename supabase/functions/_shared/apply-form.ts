@@ -276,7 +276,8 @@ export function answerText(label: string, facts: Facts): string | null {
   const pick = (v: string | null | undefined): string | null => (v && v.trim() ? v.trim() : remembered || null)
   if (/\b(value|values|priorities)\b/.test(key) && /\b(role|job|workplace|new position)\b/.test(key) && !/salary|pay|compensation/.test(key)) return pick(a.role_values)
   // A question put as a question ("Have you...", "Are you...") is not a field asking for a value: it is never answered with a URL, a number of hours or a city.
-  const asks = /^(have you|has |do you|does |did you|are you|is |can you|could you|would you|will you|were you|was |if you)/.test(key)
+  // A yes/no question, also when a statement comes first ("For this role, native Dutch is required. Do you speak Dutch fluently?").
+  const asks = /^(have you|has |do you|does |did you|are you|is |can you|could you|would you|will you|were you|was |if you)/.test(key) || /\b(do|are|have|can|will|would) you\b/.test(key)
   // "If it is not listed, please specify", "If not already based here...": follow-ups to another answer, left for the person.
   if (/^(si oui|wenn ja|if yes)\b/.test(key) || /^if\b.*\b(not listed|another|other|not applicable|not already|you are not|you do not|you don t|specify|provide details|explain)\b/.test(key) && !/\bgraduation\b/.test(key)) return null
   if (/\b(first name|given name|voornaam|prenom|vorname)\b/.test(key)) return pick(a.first_name)
@@ -407,7 +408,7 @@ export function answerText(label: string, facts: Facts): string | null {
     if (/^\s*no\b|\b(need|require)s?\b.*\b(sponsor|visa|permit)/i.test(w)) return "No"
     return /^\s*yes\b|\b(eu|eea)\b|\ballowed\b|\bauthori[sz]ed\b|\bfree to work\b|\bpermit\b|\b(zoekjaar|orientation year|search year)\b/i.test(w) ? "Yes" : null
   }
-  if (asks && /\bnative\b/.test(key) && /\b(dutch|nederlands)\b/.test(key)) {
+  if (asks && /\bnative\b/.test(key) && /\b(dutch|nederlands)\b/.test(key) && !/\benglish\b/.test(key)) {
     const level = (facts.dutch ?? "").toLowerCase()
 
     return level ? (level === "native" ? "Yes" : "No") : remembered || null
@@ -418,7 +419,14 @@ export function answerText(label: string, facts: Facts): string | null {
       const level = (facts.dutch ?? "").toLowerCase()
       if (!level) return remembered || null
       const good = level === "professional" || level === "native"
-      if (/\benglish\b/.test(key)) return good ? remembered || null : "No"
+      // Dutch and English asked together: both answered truthfully in one line (the person's Dutch level, their English).
+      if (/\benglish\b/.test(key)) {
+        if (good) return remembered || null
+        const extra = facts as Record<string, unknown>
+        const said = (k: string): string => (typeof extra[k] === "string" ? (extra[k] as string) : "")
+        const english = /\benglish\b[^;,]*\b(fluent|native|c1|c2|professional|full)/i.test(said("languages")) || /\b(fluent|native)\b/i.test(said("english"))
+        return english ? `Not fluently: my Dutch is ${level}. I work fluently in English.` : `Not fluently: my Dutch is ${level}.`
+      }
 
       return good ? "Yes" : "No"
     }
@@ -453,16 +461,28 @@ export function chooseOption(options: string[], answer: string, label = ""): num
     const i = options.findIndex((o, n) => real(n) && DUTCH_OPTION[want].test(o.trim()))
     if (i >= 0) return i
   }
-  for (const test of [(o: string) => o === want, (o: string) => o.startsWith(want) || want.startsWith(o), (o: string) => o.includes(want)]) {
+  // Whole words only: "Yes" is not "Yeshiva University", "Man" is not "Management".
+  const word = (o: string, at: number, len: number): boolean => (at === 0 || !/[a-z0-9]/.test(o[at - 1])) && (at + len === o.length || !/[a-z0-9]/.test(o[at + len]))
+  const within = (o: string, w: string): boolean => { for (let at = o.indexOf(w); at >= 0; at = o.indexOf(w, at + 1)) if (word(o, at, w.length)) return true; return false }
+  for (const test of [(o: string) => o === want, (o: string) => (o.startsWith(want) && word(o, 0, want.length)) || (want.startsWith(o) && word(want, 0, o.length)), (o: string) => within(o, want)]) {
     const i = opts.findIndex((o, n) => real(n) && test(o))
     if (i >= 0) return i
   }
   // A year of study kept as "2" or "2nd year" is "Year 2", "2nd year" or "Second year" in a list.
-  const nth = /\b([1-6])(st|nd|rd|th)?\b/.exec(want)?.[1]
-  if (nth && /\byear\b|\bjaar\b/.test(`${want} ${norm(label)}`)) {
+  // "Second year" / "2e jaar" / "2nd year": the year's number; an option per level ("1st year undergraduate", "1st year postgraduate") is chosen only
+  // when the answer says which level, never guessed (the study year is a fact about the person).
+  const ORDINAL: Record<string, number> = { first: 1, eerste: 1, second: 2, tweede: 2, third: 3, derde: 3, fourth: 4, vierde: 4, fifth: 5, vijfde: 5, sixth: 6, zesde: 6 }
+  const nth = /\b([1-6])(st|nd|rd|th|e|de)?\b/.exec(want)?.[1] ?? String(ORDINAL[Object.keys(ORDINAL).find((w) => new RegExp(`\\b${w}\\b`).test(want)) ?? ""] ?? "")
+  if (nth && /^[1-6]$/.test(nth) && /\byear\b|\bjaar\b/.test(`${want} ${norm(label)}`)) {
     const ordinal = ["", "first", "second", "third", "fourth", "fifth", "sixth"][Number(nth)]
-    const i = opts.findIndex((o, n) => real(n) && (new RegExp(`\\b${nth}(st|nd|rd|th)?\\b`).test(o) || o.includes(ordinal)) && /\byear\b|\bjaar\b/.test(o))
-    if (i >= 0) return i
+    const hits = opts.map((_o, n) => n).filter((n) => real(n) && (new RegExp(`\\b${nth}(st|nd|rd|th|e|de)?\\b`).test(opts[n]) || opts[n].includes(ordinal)) && /\byear\b|\bjaar\b/.test(opts[n]))
+    if (hits.length === 1) return hits[0]
+    if (hits.length > 1) {
+      const post = /\b(master\w*|postgrad\w*|msc|mba)\b/.test(want), under = /\b(bachelor\w*|undergrad\w*|bsc)\b/.test(want)
+      const level = hits.filter((n) => (post && /\b(master\w*|postgrad\w*|msc|mba)\b/.test(opts[n])) || (under && /\b(bachelor\w*|undergrad\w*|bsc)\b/.test(opts[n])))
+      if (level.length === 1) return level[0]
+      return -1
+    }
   }
   const yes = /^(yes|ja|true|y|oui|si)\b/.test(want)
   const no = /^(no|nee|false|n|non|nein)\b/.test(want)

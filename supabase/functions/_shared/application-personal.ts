@@ -1,5 +1,28 @@
-/** Contact details already supplied by the person. Never infer name order from a display name. */
-export function personalFromProfile(profile: { firstName?: string; lastName?: string; phone?: string; email?: string; linkedin?: string; place?: string; cv?: string }, accountEmail?: string | null): Record<string, string> {
+/** Family names that come first in a Vietnamese, Chinese or Korean name ("Phung Chi Kien", "Nguyen Van An", "Wang Xiao Ming"). */
+const FAMILY_FIRST = new Set("nguyen tran le pham hoang huynh phan vu vo dang bui do ho ngo duong ly phung trinh dinh lam mai truong luong ta cao chu kieu quach lu ha thai tang van wang li zhang liu chen yang huang zhao wu zhou xu sun ma zhu hu guo he lin luo zheng liang xie song tang han feng deng cao peng zeng xiao tian dong pan yuan cai jiang yu du ye cheng wei su lu ding shen ren yao lu jin kim lee park choi jung kang cho yoon jang lim shin oh seo kwon hwang ahn song yoo hong jeon ko moon yang".split(" "))
+/**
+ * Given and family name from the person's full name when the profile has no separate ones: the order their CV writes it in ("Kien Phung"
+ * on a CV for "Phung Chi Kien"), else a known family name first (Vietnamese, Chinese, Korean), else the first word is the given name.
+ * Applications only need it right, not asked: it is never a question for the person.
+ */
+export function splitName(name: string, cv = ""): { first_name: string; last_name: string } | null {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  if (words.length < 2) return null
+  const plain = (w: string): string => w.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/đ/gi, "d").toLowerCase()
+  const mine = new Set(words.map(plain))
+  // The CV's own heading: a line made only of the name's words, in another order.
+  for (const line of cv.slice(0, 800).split(/\n/).map((l) => l.trim()).filter(Boolean).slice(0, 8)) {
+    const parts = line.split(/\s+/)
+    if (parts.length >= 2 && parts.length <= words.length && parts.every((w) => mine.has(plain(w))) && parts.map(plain).join(" ") !== words.map(plain).join(" ")) {
+      return { first_name: parts.slice(0, -1).join(" "), last_name: parts[parts.length - 1] }
+    }
+  }
+  if (FAMILY_FIRST.has(plain(words[0]))) return { first_name: words.slice(1).join(" "), last_name: words[0] }
+  return { first_name: words[0], last_name: words.slice(1).join(" ") }
+}
+
+/** Contact details already supplied by the person; given and family name from the full name when the profile has none (splitName). */
+export function personalFromProfile(profile: { name?: string; firstName?: string; lastName?: string; phone?: string; email?: string; linkedin?: string; place?: string; cv?: string }, accountEmail?: string | null): Record<string, string> {
   const contact = (profile.cv || "").slice(0, 4000)
   const one = (values: string[]): string => [...new Set(values)].length === 1 ? values[0] : ""
   const emails = contact.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || []
@@ -7,9 +30,10 @@ export function personalFromProfile(profile: { firstName?: string; lastName?: st
   const phones = (contact.match(/\+\d[\d ().-]{7,22}\d/g) || []).filter(v => v.replace(/\D/g, "").length >= 9 && v.replace(/\D/g, "").length <= 15)
   const labelledPhone = /(?:phone|mobile|tel(?:ephone)?|telefoon)\s*[:|]\s*([+\d][\d ().-]{7,22}\d)/i.exec(contact)?.[1]
   const labelled = (pattern: RegExp): string => pattern.exec(contact)?.[1]?.trim() || ""
+  const split = !profile.firstName && !profile.lastName && profile.name ? splitName(profile.name, contact) : null
   const values = {
-    first_name: profile.firstName || labelled(/(?:first name|given names?|voornaam)\s*:\s*([^\n|;]+)/i),
-    last_name: profile.lastName || labelled(/(?:last name|family name|surname|achternaam)\s*:\s*([^\n|;]+)/i),
+    first_name: profile.firstName || labelled(/(?:first name|given names?|voornaam)\s*:\s*([^\n|;]+)/i) || split?.first_name || "",
+    last_name: profile.lastName || labelled(/(?:last name|family name|surname|achternaam)\s*:\s*([^\n|;]+)/i) || split?.last_name || "",
     email: profile.email || one(emails) || accountEmail || "",
     phone: profile.phone || one(phones) || labelledPhone || "",
     linkedin: profile.linkedin || one(contact.match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/[\w%-]+\/?/gi) || []),

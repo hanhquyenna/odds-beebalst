@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { educationFromProfile, personalFromProfile, workFromProfile } from "../../supabase/functions/_shared/application-personal"
+import { educationFromProfile, personalFromProfile, splitName, workFromProfile } from "../../supabase/functions/_shared/application-personal"
 import { answerText } from "../../supabase/functions/_shared/apply-form"
 test("contact details come from structured profile and CV, preserving name order", () => {
   const answers = personalFromProfile({ name: "Family Given" , firstName: "Given Names", lastName: "Family", place: "Amsterdam, Netherlands", cv: "Candidate\nme@example.com | +31 6 12345678\n2024 - 2026\n" } as Parameters<typeof personalFromProfile>[0], "account@example.com")
@@ -11,6 +11,14 @@ test("ambiguous display names, phone numbers and email addresses are not guessed
   const a = personalFromProfile({ cv: "one@example.com two@example.com\n+31 612345678\n+44 7123456789\n2020 - 2024" }, "verified@example.com")
   expect(a).toEqual({ email: "verified@example.com" })
   expect(answerText("First name", { name: "Family Given", answers: a })).toBeNull()
+})
+test("a full name is split the way the person writes it: their CV's order, else a family name that comes first, else Western order", () => {
+  expect(splitName("Phung Chi Kien", "Kien Phung\nAmsterdam | kien@example.com")).toEqual({ first_name: "Kien", last_name: "Phung" })
+  expect(splitName("Phung Chi Kien")).toEqual({ first_name: "Chi Kien", last_name: "Phung" })
+  expect(splitName("Nguyễn Văn An")).toEqual({ first_name: "Văn An", last_name: "Nguyễn" })
+  expect(splitName("Anna van Dijk")).toEqual({ first_name: "Anna", last_name: "van Dijk" })
+  expect(splitName("Madonna")).toBeNull()
+  expect(personalFromProfile({ name: "Phung Chi Kien", cv: "Kien Phung\n" })).toMatchObject({ first_name: "Kien", last_name: "Phung" })
 })
 test("personal overrides fill contact and address fields without changing source profile", () => {
   const a = { email: "chosen@example.com", city: "Utrecht", address: "Example street 10", country: "Netherlands", postcode: "1234 AB", linkedin: "https://www.linkedin.com/in/chosen" }

@@ -344,3 +344,21 @@ describe("Kraft Heinz French questions", () => {
     expect(answerText("Avez-vous un membre de votre famille actuellement employé(e) chez Kraft Heinz ?", fr)).toBeNull()
   })
 })
+
+test("a Dutch question that starts with a statement is still a yes/no question, answered truthfully from the person's level (Fastned)", () => {
+  const label = "For this role, native fluency in Dutch is required. Do you speak Dutch fluently, and are you also comfortable working in English?"
+  expect(answerText(label, { dutch: "basic" } as Facts)).toBe("Not fluently: my Dutch is basic.")
+  expect(answerText(label, { dutch: "basic", languages: "English (fluent); Vietnamese (native)" } as Facts)).toBe("Not fluently: my Dutch is basic. I work fluently in English.")
+  expect(answerText("For this role Dutch is required. Do you speak Dutch fluently?", { dutch: "basic" } as Facts)).toBe("No")
+  expect(answerText("For this role Dutch is required. Do you speak Dutch fluently?", { dutch: "native" } as Facts)).toBe("Yes")
+})
+
+test("a year of study said in words picks its option; with two levels it is never guessed (IMC)", () => {
+  const imc = ["1st year undergraduate (Bachelor's)", "2nd year undergraduate (Bachelor's)", "1st year postgraduate (Master's)", "2nd year postgraduate (Master's)", "Other"]
+  const label = "What is the current year of your studies?"
+  expect(chooseOption(imc, "Second year", label)).toBe(-1)
+  expect(chooseOption(imc, "Second year Master's", label)).toBe(3)
+  expect(chooseOption(imc, "first year bachelor", label)).toBe(0)
+  expect(chooseOption(["Year 1", "Year 2", "Year 3"], "Second year", label)).toBe(1)
+  expect(chooseOption(["First year", "Second year"], "2nd year", label)).toBe(1)
+})

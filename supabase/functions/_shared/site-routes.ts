@@ -103,7 +103,7 @@ export function compressRoute(commands: Array<{ tool: string; args?: Record<stri
   commands.forEach((c, i) => {
     if (c.tool === "read_page" && c.args?.after_action) return
     if (c.tool === "click") {
-      const text = (buttonText(String(c.args?.id ?? ""), i) || "").replace(/\s+/g, " ").trim()
+      const text = (buttonText(typeof c.args?.id === "string" ? c.args.id : "", i) || "").replace(/\s+/g, " ").trim()
       out.push(BUTTON_WORDS.test(text) ? `click ${text.toLowerCase()}` : "click")
       return
     }

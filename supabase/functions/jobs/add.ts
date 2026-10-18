@@ -15,7 +15,7 @@
 import { imageDataUrl, reply } from "../_shared/http.ts"
 import { factsRow, industryFromLinkedIn, sameCompany, smallLogoOf, type CompanyItem } from "../_shared/company-facts.ts"
 import { cityOf, readVerdict, rowFromDetails, type JobDetails, type KnownEmployer } from "../_shared/job-intake.ts"
-import { heldFilter, jobLink, postingFrom, postingSent, postingUsable, type JobLink, type Posting } from "../_shared/job-sites.ts"
+import { heldFilter, jobLink, postingFrom, postingSent, postingUsable, textOf, type JobLink, type Posting } from "../_shared/job-sites.ts"
 
 const ACTOR = "scrapingmonkey~linkedin-job-details-scraper"
 const COMPANY_ACTOR = "harvestapi~linkedin-company"
@@ -121,7 +121,8 @@ export async function addJob(req: Request): Promise<Response> {
 
   // A job anywhere but LinkedIn: read from its own page, for free.
   if (parsed.site !== "linkedin") {
-    const posting = (await pageRead(parsed)) ?? fromBrowser
+    // Its own page, else the person's browser, else (a page that draws itself with scripts) Apify's page reader, within the day's paid ceiling.
+    const posting = (await pageRead(parsed)) ?? fromBrowser ?? (await apifyPageRead(parsed, apify))
     if (!posting) return reply(200, { status: "unreadable", message: "odds could not read that job page." })
 
     return await keep(itemOf(posting), parsed, { ats: parsed.ats, source: `${parsed.site}_user` })
@@ -181,12 +182,63 @@ export async function addJob(req: Request): Promise<Response> {
   }
 }
 
+/**
+ * A job page that shows nothing to a plain request (an employer's page drawn by scripts, no markup for search engines): read in a real browser by
+ * Apify's page reader. About a cent, so it counts in the same daily ceiling as the paid LinkedIn read and runs only when nothing else read the job.
+ * The employer is the page's site name, else the end of its title ("Analyst | Examplepay"), else the site's own name.
+ */
+async function apifyPageRead(link: JobLink, token: string): Promise<Posting | null> {
+  const base = Deno.env.get("SUPABASE_URL") ?? ""
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+  const db = { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" }
+  try {
+    const since = new Date(Date.now() - 86_400_000).toISOString()
+    await fetch(`${base}/rest/v1/linkedin_imports`, { method: "POST", headers: db, body: JSON.stringify({ user_id: null, ip_hash: null, kind: "job", url: link.url }) })
+    const counted = await fetch(`${base}/rest/v1/linkedin_imports?kind=eq.job&created_at=gte.${since}&select=id`, { headers: { ...db, Prefer: "count=exact", Range: "0-0" } })
+    if (Number((counted.headers.get("content-range") ?? "*/0").split("/")[1] ?? 0) > GLOBAL_LIMIT) return null
+    const run = await fetch(`https://api.apify.com/v2/acts/apify~website-content-crawler/run-sync-get-dataset-items?token=${token}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ startUrls: [{ url: link.url }], maxCrawlPages: 1, maxCrawlDepth: 0, crawlerType: "playwright:adaptive", saveMarkdown: false }),
+      signal: AbortSignal.timeout(100_000),
+    })
+    if (!run.ok) return null
+    const item = ((await run.json()) as Array<{ text?: string; metadata?: { title?: string; openGraph?: Array<{ property?: string; content?: string }> } }>)[0]
+    const text = String(item?.text ?? "").trim()
+    if (!item || text.length < 400 || !/\b(apply|sollicit\w*|bewerb\w*|vacature|responsibilit\w*|requirements?)\b/i.test(text)) return null
+    const og = (name: string) => item.metadata?.openGraph?.find((o) => o.property === name)?.content?.trim() ?? ""
+    const full = (og("og:title") || item.metadata?.title || "").trim()
+    const parts = full.split(/\s+[|–—-]\s+/).map((x) => x.trim()).filter(Boolean)
+    const host = new URL(link.url).hostname.replace(/^(www|careers?|jobs?|werkenbij|apply)\./i, "").split(".")[0] ?? ""
+    const company = og("og:site_name") || (parts.length > 1 ? parts[parts.length - 1]! : "") || host.replace(/^./, (c) => c.toUpperCase())
+    const posting: Posting = { title: (parts[0] ?? full).slice(0, 300), company: company.slice(0, 200), location: "", description: text.slice(0, 100_000), posted: null, valid: null, logo: null, employment: null }
+
+    return postingUsable(posting) ? posting : null
+  } catch {
+    return null
+  }
+}
+
 /** Sites that turn servers away whatever is asked: not tried, so the person does not wait for a refusal. */
 const NO_SERVERS = ["indeed", "glassdoor"]
 
 /** The job as its own page describes it for search engines, read by the server, or null when the page does not answer or says nothing. */
 async function pageRead(link: JobLink): Promise<Posting | null> {
   if (NO_SERVERS.includes(link.site)) return null
+  // Workday draws its job pages with scripts; its own public JSON (the one the page reads) says the job, free.
+  const wd = /^https:\/\/([a-z0-9-]+)\.wd\d+\.myworkdayjobs\.com\/(?:[a-z]{2}-[A-Z]{2}\/)?([^/]+)\/(job\/[^?#]+)/i.exec(link.url)
+  if (wd) {
+    try {
+      const res = await fetch(`https://${new URL(link.url).hostname}/wday/cxs/${wd[1]}/${wd[2]}/${wd[3]}`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(8000) })
+      const info = res.ok ? ((await res.json()) as { jobPostingInfo?: { title?: string; jobDescription?: string; location?: string; startDate?: string }; hiringOrganization?: { name?: string } }) : null
+      const j = info?.jobPostingInfo
+      if (j?.title) {
+        const posting: Posting = { title: textOf(j.title), company: textOf(info?.hiringOrganization?.name ?? wd[1]!), location: textOf(j.location ?? ""), description: textOf(j.jobDescription ?? ""), posted: j.startDate ?? null, valid: null, logo: null, employment: null }
+        if (postingUsable(posting)) return posting
+      }
+    } catch {
+      // no answer: the page itself next
+    }
+  }
   try {
     const res = await fetch(link.url, { headers: { "user-agent": "Mozilla/5.0 (compatible; odds-job-reader/1.0; +https://odds.beeblast.co)", accept: "text/html" }, redirect: "follow", signal: AbortSignal.timeout(8000) })
     if (!res.ok) return null
