@@ -20,7 +20,8 @@
     try { return window.parent.location.href } catch { return document.referrer || location.href }
   }
   /** An application form embedded from an ATS (Greenhouse, Lever... in an iframe): that frame drives, this page stays out. */
-  const atsFrame = () => window.top === window && [...document.querySelectorAll("iframe[src]")].some((f) => { try { return portalHost(new URL(f.src, pageHref()).hostname) } catch { return false } })
+  // A page that is itself on an ATS domain (jobs.smartrecruiters.com...) drives itself: its own widget frames (consent, captcha, analytics) are not the form.
+  const atsFrame = () => window.top === window && !portalHost(location.hostname) && [...document.querySelectorAll("iframe[src]")].some((f) => { try { return portalHost(new URL(f.src, pageHref()).hostname) } catch { return false } })
   /** A blank frame on this page that holds the application form (3+ fields): Odds drives it there instead of here. */
   const blankFrameForm = () => window.top === window && [...document.querySelectorAll("iframe")].some((f) => {
     try {
@@ -2554,6 +2555,8 @@
         return
       }
       if (embedded) {
+        // The form is another site's frame (SmartRecruiters, Workday, iCIMS...): the script is put into every frame of this tab, or nothing would fill it.
+        await ask({ type: "apply-frames" }, 8000).catch(() => null)
         say("Broods is applying in the form on this page…", "filling")
         return
       }
