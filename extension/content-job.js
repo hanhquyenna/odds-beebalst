@@ -203,7 +203,8 @@ function placeAuto() {
     })
   }
   const closed = current.closed
-  autoPill.hidden = closed
+  // Floating in a corner with nothing of the site to sit beside, it only repeats the mascot and the panel: not shown.
+  autoPill.hidden = closed || button.dataset.where === "float"
   autoPill.dataset.where = button.dataset.where || "inline"
   if (button.dataset.where === "float") autoPill.dataset.where = "float"
   for (const prop of ["--odds-h", "--odds-r", "--odds-fs", "--odds-gap", "--odds-w", "--odds-mt"]) {

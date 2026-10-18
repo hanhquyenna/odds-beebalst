@@ -4718,7 +4718,7 @@ test("REAL_FILL_URL: Broods' fill on a live form's dropdowns (fake Broods, no mo
   console.log("FILL PROBE", JSON.stringify(report, null, 1))
 })
 
-test("a pronoun box is ticked when its own words are sent, and a search list that says Searching first is waited for", async ({ context, fake }) => {
+test("a required pronoun group is answered by Odds itself with Prefer not to say, and a search list that says Searching first is waited for", async ({ context, fake }) => {
   test.setTimeout(90_000)
   await connect(context)
   const html = `<!doctype html><main><h1>Application</h1><form onsubmit="return false">
@@ -4747,7 +4747,8 @@ test("a pronoun box is ticked when its own words are sent, and a search list tha
     const page = await cmd("read_page") as { fields?: Array<{ id: string; label: string; kind: string }> }
     const box = page.fields!.find((f) => /^Prefer not to say/.test(f.label))!
     const school = page.fields!.find((f) => /^School/.test(f.label))!
-    sent = await cmd("fill", { fields: [{ id: box.id, value: "Prefer not to say" }, { id: school.id, value: "Vrije Universiteit Amsterdam" }] })
+    sent = await cmd("fill", { fields: [{ id: school.id, value: "Vrije Universiteit Amsterdam" }] })
+    void box
     return { status: "stuck", message: "probe done" }
   }
   const page = await context.newPage()

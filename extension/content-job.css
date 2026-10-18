@@ -53,3 +53,7 @@ html[data-odds-panel="open"] #odds-auto[data-where="float"] { right: 404px; }
 
 /* The chance chip stays quiet: a soft line, no strong fill. The mascot, its bar and the Auto apply pill draw themselves inside shadow roots (mascot.js, content-job.js). */
 #odds-add, .odds-job-chance { border-color: #D9D2C8; color: #1C1A18; }
+
+/* While the Odds panel is open it carries the status and the buttons, so the message bar and Auto apply are not drawn over the page again. The chance chips stay: pressing one opens that job in the panel. */
+html[data-odds-panel="open"] #odds-auto, html[data-odds-panel="open"] .odds-apply-bar, html[data-odds-panel="open"] [data-odds-mascot],
+html[data-odds-panel="side"] #odds-auto, html[data-odds-panel="side"] .odds-apply-bar, html[data-odds-panel="side"] [data-odds-mascot] { display: none !important; }

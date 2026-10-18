@@ -522,6 +522,18 @@
       if (!on()) c.closest("label")?.click()
       if (on()) ticked++
     }
+    // A required pronoun / gender group nobody answered: the neutral option ("Prefer not to say") is ticked, one box only — never an identity chosen for the person.
+    for (const c of document.querySelectorAll('input[type="checkbox"], input[type="radio"]')) {
+      if (c.checked || c.disabled || !shown(c) && !c.closest("label")) continue
+      const label = labelOf(c) || textOf(c.closest("label") || c.parentElement)
+      if (!/\b(prefer not to (say|answer|disclose|specify)|rather not (say|answer)|decline to (answer|state|self)|choose not to (answer|disclose)|do not wish to (answer|disclose|say))\b/i.test(label)) continue
+      const group = c.closest("fieldset, [role='group'], [role='radiogroup'], [class*='group' i]") || c.parentElement?.parentElement
+      if (!group || !/\b(pronouns?|gender|geslacht|voornaamwoord\w*)\b/i.test(textOf(group).slice(0, 300))) continue
+      if (group.querySelector("input:checked")) continue
+      c.click()
+      if (!c.checked) c.closest("label")?.click()
+      if (c.checked) ticked++
+    }
     return ticked
   }
 
@@ -1872,6 +1884,7 @@
     // Fields that appeared since (Ashby's Application tab, the next step) get the person's contact details and recipes first, once each.
     if (cmd.tool === "read_page") {
       if (!args.review_check) await drivePrefill()
+      tickConsents() // (consents and an unanswered pronoun group: the neutral box, before Broods reads what is left)
       return drivePage()
     }
     if (["screenshot", "click_at", "type_text", "press_key", "scroll"].includes(cmd.tool)) return driveVision(cmd, sendResult, DRIVE_DENY)
@@ -2459,9 +2472,8 @@
     // The person's own application (pressed in the app or the panel, or this very tab): the Odds panel opens in the page by itself, since Chrome's
     // side panel needs a click. An application nobody is watching (queued from the phone, in the Odds window) shows nothing of the kind.
     if ((intent.foreground === true || intent.here === true || intent.copilot === true) && typeof autoOpenPanel === "function") {
+      // The frame is inert while Odds fills, so it cannot take the keyboard: filling does not wait for it to load.
       autoOpenPanel()
-      // It gets to settle first, so it cannot take the keyboard while Odds is typing.
-      if (typeof panelReady === "function") await panelReady()
     }
     // Every page this application loads is counted on the run (it survives reloads): the same page again and again, or too many pages, stops for good.
     if (!visitNoted) {
