@@ -4,9 +4,9 @@ import { SEED_VIEWS, addView, duplicateView, normalizeViews, removeView, renameV
 import { NO_TRACKER_FILTER } from "@/lib/tracker"
 
 describe("the starting set", () => {
-  test("is one table: the board and the calendar are layouts of it, picked in the layout menu", () => {
+  test("is one board: the table and the calendar are layouts of it, picked at the top of the tracker", () => {
     expect(SEED_VIEWS.map((v) => v.name)).toEqual(["All jobs"])
-    expect(SEED_VIEWS.map((v) => v.layout)).toEqual(["table"])
+    expect(SEED_VIEWS.map((v) => v.layout)).toEqual(["board"])
     expect(new Set(SEED_VIEWS.map((v) => v.id)).size).toBe(SEED_VIEWS.length)
   })
 })

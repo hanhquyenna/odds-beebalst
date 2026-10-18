@@ -1,12 +1,12 @@
 import type { ReactNode } from "react"
 import type { StaticPage } from "@/lib/pages"
-import { prefetchOn } from "@/lib/prefetch"
+import { Buddy } from "@/components/Buddy"
 import { NotificationsRow } from "@/components/NotifyPrompt"
 import type { Session } from "@/lib/auth"
-import { BoardIcon, BriefcaseIcon, ChevronRightIcon, FileTextIcon, HomeIcon, PlugsIcon, SignOutIcon, MessageIcon, SparkleIcon, UserCircleIcon } from "@/components/icons"
+import { BoardIcon, BriefcaseIcon, ChevronRightIcon, FileTextIcon, HomeIcon, PeopleIcon, PlugsIcon, SignOutIcon, MessageIcon, SparkleIcon, UserCircleIcon } from "@/components/icons"
 
 /** The places someone with an account lives. Anything else (a research page, a shared job) leaves none of them lit. Companies lives under Tracker. */
-export type ShellTab = "account" | "jobs" | "tracker" | "connections" | "autofill" | "documents" | "claude" | "answers"
+export type ShellTab = "account" | "jobs" | "tracker" | "people" | "connections" | "autofill" | "documents" | "claude" | "answers"
 
 interface ShellNav {
   active: ShellTab | null
@@ -17,6 +17,7 @@ const TABS: ReadonlyArray<{ tab: ShellTab; label: string; icon: typeof HomeIcon 
   { tab: "account", label: "Home", icon: HomeIcon },
   { tab: "jobs", label: "Jobs", icon: BriefcaseIcon },
   { tab: "tracker", label: "Tracker", icon: BoardIcon },
+  { tab: "people", label: "People", icon: PeopleIcon },
   { tab: "connections", label: "Connect", icon: PlugsIcon },
   { tab: "autofill", label: "Autofill", icon: SparkleIcon },
   { tab: "documents", label: "Documents", icon: FileTextIcon },
@@ -30,42 +31,44 @@ const PAGES: ReadonlyArray<{ page: StaticPage; label: string }> = [
   { page: "research", label: "Research" },
 ]
 
+/** The five places on the bar across the top of a laptop or iPad. Home, Connect, Claude and Profile are in the account menu. */
+const WEB_TABS: ReadonlyArray<{ tab: ShellTab; label: string }> = [
+  { tab: "jobs", label: "Jobs" },
+  { tab: "tracker", label: "Tracker" },
+  { tab: "documents", label: "Documents" },
+  { tab: "autofill", label: "Autofill" },
+  { tab: "people", label: "People" },
+]
+
 /**
- * Laptop and iPad: the app's own menu down the left edge, in place of the
- * website header. The account and the bell sit at its foot.
+ * Laptop and iPad: one white bar across the top. The living mascot and the odds name (the way home) on the left, the five places in
+ * the middle, the bell and the account on the right. No page titles under it.
  */
-export function AppSidebar({ active, onNavigate, onOpenPage, onHome, wordmark, bell, account, loadPages }: ShellNav & { onOpenPage: (page: StaticPage) => void; onHome: () => void; wordmark: ReactNode; bell: ReactNode; account: ReactNode; loadPages: () => Promise<unknown> }): React.JSX.Element {
+export function AppTopNav({ active, onNavigate, onHome, wordmark, bell, account }: ShellNav & { onHome: () => void; wordmark: ReactNode; bell: ReactNode; account: ReactNode }): React.JSX.Element {
   return (
-    <aside aria-label="odds" className="fixed inset-y-0 left-0 z-20 hidden w-60 flex-col border-r-[1.5px] border-foreground/15 bg-brand text-foreground md:flex">
-      <button type="button" onClick={onHome} className="odds-wordmark cursor-pointer px-6 pt-7 pb-6 text-left text-xl font-semibold tracking-tight">
+    <header className="sticky top-0 z-20 hidden h-16 shrink-0 items-center gap-9 border-b-[1.5px] border-line bg-card px-7 md:flex">
+      <button type="button" onClick={onHome} aria-label="odds, home" className="odds-wordmark flex cursor-pointer items-center gap-2 text-foreground">
+        <Buddy size={38} />
         {wordmark}
       </button>
-      <nav aria-label="Your account" className="flex flex-col gap-1 px-3">
-        {TABS.map(({ tab, label, icon: Icon }) => (
+      <nav aria-label="Your account" className="flex h-full items-stretch gap-7">
+        {WEB_TABS.map(({ tab, label }) => (
           <button
             key={tab}
             type="button"
             onClick={() => onNavigate(tab)}
             aria-current={active === tab ? "page" : undefined}
-            className={`flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[0.95rem] font-semibold transition-colors ${active === tab ? "bg-foreground text-background" : "hover:bg-foreground/10"}`}
+            className={`-mb-[1.5px] cursor-pointer border-b-[3px] px-1 text-[0.95rem] transition-colors ${active === tab ? "border-foreground font-extrabold text-foreground" : "border-transparent font-semibold text-muted-foreground hover:text-foreground"}`}
           >
-            <Icon weight={active === tab ? "fill" : "regular"} className="size-5" aria-hidden="true" />
             {label}
           </button>
         ))}
       </nav>
-      <nav aria-label="odds information" className="mt-6 flex flex-col gap-0.5 px-3 text-sm">
-        {PAGES.map(({ page, label }) => (
-          <button key={page} type="button" onClick={() => onOpenPage(page)} {...prefetchOn(loadPages)} className="cursor-pointer rounded-lg px-3 py-2 text-left text-foreground/80 transition-colors hover:bg-foreground/10 hover:text-foreground">
-            {label}
-          </button>
-        ))}
-      </nav>
-      <div className="mt-auto flex items-center justify-between gap-2 border-t-[1.5px] border-foreground/15 px-4 py-4">
-        {account}
+      <div className="ml-auto flex items-center gap-2">
         {bell}
+        {account}
       </div>
-    </aside>
+    </header>
   )
 }
 
@@ -73,7 +76,8 @@ export function AppSidebar({ active, onNavigate, onOpenPage, onHome, wordmark, b
 export function AppTopBar({ onHome, wordmark, bell }: { onHome: () => void; wordmark: ReactNode; bell: ReactNode }): React.JSX.Element {
   return (
     <div className="flex items-center justify-between gap-3 bg-background px-5 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-1 md:hidden">
-      <button type="button" onClick={onHome} className="odds-wordmark cursor-pointer">
+      <button type="button" onClick={onHome} aria-label="odds, home" className="odds-wordmark flex cursor-pointer items-center gap-1.5">
+        <Buddy size={32} />
         {wordmark}
       </button>
       {bell}

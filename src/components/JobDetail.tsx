@@ -6,7 +6,6 @@ import { MoreAtEmployer } from "@/components/CompanyInsights"
 import { CompanyNews, CompanySection, PastHires, ReviewsSection } from "@/components/JobCompany"
 import { CompanyResearch } from "@/components/CompanyResearch"
 import { PostingText } from "@/components/PostingText"
-import { OddsApply } from "@/components/OddsApply"
 import { CvMatch } from "@/components/CvMatch"
 import { SourceLinks } from "@/components/SourceChips"
 import { StatusPicker } from "@/components/StatusPicker"
@@ -42,9 +41,13 @@ interface JobDetailProps {
   pane?: boolean
   /** The public preview: the personal sections become a locked card whose button leads into the form. */
   locked?: { onUnlock: () => void }
+  /** In the extension's side panel, under its own job card and Apply button: no back link and no header, only the tabs and what is in them. */
+  bare?: boolean
+  /** Open a tab from outside (the side panel's "See who you know here" opens People); `at` makes the same tab openable again. */
+  showTab?: { tab: JobTab; at: number }
 }
 
-type JobTab = "overview" | "company" | "people" | "documents"
+export type JobTab = "overview" | "company" | "people" | "documents"
 const JOB_TABS: ReadonlyArray<{ value: JobTab; label: string }> = [
   { value: "overview", label: "Overview" },
   { value: "company", label: "Company" },
@@ -57,7 +60,7 @@ const JOB_TABS: ReadonlyArray<{ value: JobTab; label: string }> = [
  * posting is open to anyone. What the questions unlock is the personal part:
  * whether you clear it, your chance, what you keep after tax, your permit.
  */
-export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locked }: JobDetailProps): React.JSX.Element {
+export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locked, bare = false, showTab }: JobDetailProps): React.JSX.Element {
   // In the extension's panel the app shares the tab's history with the job site beside it (LinkedIn adds an entry for every job picked in its
   // list), so it keeps out of that history: Back goes straight back to the jobs, never to the site's previous page.
   useBackEntry(post.id, onBack, !pane && !embedded)
@@ -130,17 +133,18 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
   const [tabAt, setTabAt] = useState<{ id: string; tab: JobTab }>({ id: post.id, tab: "overview" })
   const tab: JobTab = tabAt.id === post.id ? tabAt.tab : "overview"
   const setTab = (next: JobTab): void => setTabAt({ id: post.id, tab: next })
+  useEffect(() => { if (showTab) setTabAt({ id: post.id, tab: showTab.tab }) }, [showTab, post.id])
   const fit = base ? (base.failing === 0 ? "met every requirement" : base.failing === 1 ? "missing one requirement" : "missing several requirements") : ""
 
   return (
     <div className={pane ? "flex w-full flex-col gap-8 px-5 py-6 sm:px-8 sm:py-8" : "mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8"}>
-      {pane ? null : (
+      {pane || bare ? null : (
         <button type="button" onClick={() => (embedded ? onBack() : history.back())} className="cursor-pointer self-start text-sm font-medium text-primary">
           &larr; Back
         </button>
       )}
 
-      <header className="flex flex-col gap-4 rounded-xl border-[1.5px] bg-secondary/30 p-4 sm:p-5">
+      {bare ? null : <header className="flex flex-col gap-4 rounded-xl border-[1.5px] bg-secondary/30 p-4 sm:p-5">
         <div className="flex items-start gap-4">
           <div className="flex h-14 w-16 shrink-0 items-center justify-center">
             <CompanyLogo employer={post.employer} name={post.employer_display} size={52} wide={1.4} url={post.url} />
@@ -174,11 +178,10 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
           <StatusPicker post={post} fit={fit} onLocked={locked?.onUnlock} />
           <SourceLinks post={post} secondary={Boolean(data.session && !post.local)} />
         </div>
-        <OddsApply post={post} />
         {locked ? <KeyFacts post={post} onPick={onPick} /> : null}
-      </header>
+      </header>}
 
-      <div role="tablist" aria-label="Job" className="-mb-4 flex gap-1 overflow-x-auto border-b-[1.5px]">
+      <div id="job-tabs" role="tablist" aria-label="Job" className="-mb-4 flex gap-1 overflow-x-auto border-b-[1.5px]">
         {JOB_TABS.map(({ value, label }) => (
           <button
             key={value}

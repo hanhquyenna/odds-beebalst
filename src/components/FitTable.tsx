@@ -1,64 +1,27 @@
-import { useMemo, useRef, useState } from "react"
+import { useMemo } from "react"
 import { FilterEditor } from "@/components/JobFilters"
-import { ChevronDownIcon, ChevronUpIcon, PencilIcon, PlusIcon, XIcon } from "@/components/icons"
-import { JobRow } from "@/components/JobBoard"
+import { ChevronDownIcon, ChevronUpIcon, PlusIcon, XIcon } from "@/components/icons"
 import { DEFAULT_FILTERS, FIELD_OPTIONS, applyFilters, type JobFilters } from "@/lib/filters"
 import { useSavedViews } from "@/lib/use-saved-views"
 import { Button } from "@/components/ui/button"
 import { useData, type Data } from "@/lib/data"
 import { profileFields } from "@/lib/field"
 import { fitFilters, withFitLanguage } from "@/lib/fit-filters"
-import { openLinkedInImport } from "@/lib/open-profile"
-import { cvAccept, profileWithCv } from "@/lib/cv-profile"
 import { oddsV2 } from "@/lib/odds-v2"
 import { tailor } from "@/lib/tailor"
 import { useCompanyProfiles } from "@/lib/company-profile"
 import { useFitEngine } from "@/lib/use-fit-engine"
 import type { Posting } from "@/lib/types"
 
-/** How many rows are shown at each step: a first look, a longer one, then everything. */
-const STEPS = [5, 20] as const
-
-/** The last row of the list or table: "Show more" for a longer look, then "Show less" and "Show all". Underlined, inside the table. */
-function MoreRow({ total, step, setStep }: { total: number; step: 0 | 1 | 2; setStep: (s: 0 | 1 | 2) => void }): React.JSX.Element | null {
-  const link = "cursor-pointer text-sm underline underline-offset-4 hover:text-foreground"
-  const first = STEPS[0]
-  const second = STEPS[1]
-  if (total <= first) return null
-
-  return (
-    <div className="flex flex-wrap items-center justify-center gap-5 px-4 py-3 text-muted-foreground">
-      {step === 0 ? (
-        <button type="button" onClick={() => setStep(1)} className={link}>
-          Show more
-        </button>
-      ) : (
-        <>
-          <button type="button" onClick={() => setStep(0)} className={link}>
-            Show less
-          </button>
-          {step === 1 && total > second ? (
-            <button type="button" onClick={() => setStep(2)} className={link}>
-              Show all
-            </button>
-          ) : null}
-        </>
-      )}
-    </div>
-  )
-}
-
 /**
- * Jobs tailored to you: your preferences and the lines of work your profile points to, together with jobs like the ones you saved or
- * applied to and the roles on your own CV, ranked by what you are into, then the newest, then your interview chance (src/lib/tailor.ts). Each row says why it is here. Where you saved jobs in a line of work
- * your profile does not reach yet, a line says so and what would change it. Jobs you kept, applied to or dismissed are left out.
- * Five show first; "Show more" makes it twenty, and "Show all" everything.
+ * Jobs tailored to you: your preferences and the lines of work your profile points to, together with jobs like the ones you saved or applied to and
+ * the roles on your own CV, ranked by what you are into, then the newest, then your interview chance (src/lib/tailor.ts). Jobs you kept, applied to or
+ * dismissed are left out. The Jobs page puts the first five at the top of its list.
  */
-export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React.JSX.Element | null {
+export function useFitRows(): { rows: ReturnType<typeof tailor>; saved: ReturnType<typeof useSavedViews>; filters: JobFilters; needsProfile: boolean; ready: boolean } {
   const data = useData()
   const saved = useSavedViews("fit")
   const { filters } = saved
-  const [step, setStep] = useState<0 | 1 | 2>(0)
   const profiles = useCompanyProfiles()
   const engine = useFitEngine()
 
@@ -91,85 +54,14 @@ export function FitTable({ onOpen }: { onOpen: (post: Posting) => void }): React
     return tailor({ candidates, fitting, saved: mine, chanceOf, profiles, liftOf, own, fieldOrder: filters.field, fitOf })
   }, [data.postings, data.keptExtra, data.profile, data.reference, data.shares, data.saved, data.applications, data.passed, data.signals, strengthFor, effective, filters, profiles, needsProfile, engine])
 
-  if (!data.reference) return null
-  const rowLimit = step === 2 ? rows.length : STEPS[step]
-
-  return (
-    <FitSection label="Jobs tailored to you" heading="Jobs tailored to you" what="the jobs tailored to you" filters={filters} onChange={saved.setFilters} needsProfile={needsProfile} empty={rows.length === 0}>
-      <ul className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card max-md:-mx-5 max-md:rounded-none max-md:border-x-0">
-        {rows.slice(0, rowLimit).map((r) => (
-          <li key={r.post.id} className="relative after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border last:after:hidden md:after:left-4">
-            <JobRow post={r.post} onOpen={() => onOpen(r.post)} dismissible />
-          </li>
-        ))}
-      </ul>
-      <MoreRow total={rows.length} step={step} setStep={setStep} />
-    </FitSection>
-  )
-}
-
-/** The tailored list's heading with the pencil for your preferences, then the jobs, or the import prompt until a profile is in. */
-function FitSection({ label, heading, what, filters, onChange, needsProfile, empty, children }: { label: string; heading: string; what: string; filters: JobFilters; onChange: (next: JobFilters) => void; needsProfile: boolean; empty: boolean; children: React.ReactNode }): React.JSX.Element {
-  const [editing, setEditing] = useState<boolean>(false)
-
-  return (
-    <section aria-label={label} className="mt-10 flex flex-col gap-4">
-      <div className="flex items-center gap-3">
-        <h2 className="text-xl font-semibold tracking-tight">{heading}</h2>
-        <button type="button" aria-label="Edit your job preferences" title="Edit your job preferences" onClick={() => setEditing(true)} className="flex size-9 cursor-pointer items-center justify-center rounded-full border-[1.5px] border-line bg-card text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground">
-          <PencilIcon className="size-4" aria-hidden="true" />
-        </button>
-      </div>
-      {editing ? <PreferencesDialog filters={withFitLanguage(filters)} onChange={onChange} onClose={() => setEditing(false)} /> : null}
-      {needsProfile ? <ImportPrompt what={what} /> : empty ? <p className="text-sm text-muted-foreground">Nothing fits your preferences yet.</p> : children}
-    </section>
-  )
-}
-
-/** Shown in both job lists until a profile is in: the same box, the same button, so the two sections match. */
-function ImportPrompt({ what }: { what: string }): React.JSX.Element {
-  const data = useData()
-  const input = useRef<HTMLInputElement>(null)
-  const [reading, setReading] = useState<boolean>(false)
-  const [problem, setProblem] = useState<string | null>(null)
-
-  // The CV is the other way in: read in the browser, it fills the profile and the list appears.
-  async function take(file: File | undefined): Promise<void> {
-    if (!file) return
-    setReading(true)
-    setProblem(null)
-    try {
-      data.setProfile(await profileWithCv(data.profile, file))
-    } catch (caught) {
-      setProblem(caught instanceof Error ? caught.message : "We could not read that file.")
-    } finally {
-      setReading(false)
-      if (input.current) input.current.value = ""
-    }
-  }
-
-  return (
-    <div className="flex flex-col items-start gap-3 rounded-xl border-[1.5px] border-dashed border-line bg-secondary/30 px-5 py-6">
-      <p className="font-medium">Import your LinkedIn or upload your CV to see {what}.</p>
-      <div className="flex flex-wrap gap-2">
-        <Button type="button" onClick={openLinkedInImport} className="cursor-pointer">
-          Import LinkedIn
-        </Button>
-        <input ref={input} type="file" accept={cvAccept()} aria-label="Your CV" className="sr-only" onChange={(e) => void take(e.target.files?.[0])} />
-        <Button type="button" variant="outline" disabled={reading} onClick={() => input.current?.click()} className="cursor-pointer">
-          {reading ? "Reading…" : "Upload your CV"}
-        </Button>
-      </div>
-      {problem ? <p role="alert" className="text-sm text-destructive">{problem}</p> : null}
-    </div>
-  )
+  return { rows, saved, filters, needsProfile, ready: Boolean(data.reference) }
 }
 
 /**
  * What you want, set in one place, the way a job site asks: how recent, what level of job, where, which line of work, which language. The jobs that fit you are narrowed to these,
  * then ranked by your interview chance. They are kept with the profile.
  */
-function PreferencesDialog({ filters, onChange, onClose }: { filters: JobFilters; onChange: (next: JobFilters) => void; onClose: () => void }): React.JSX.Element {
+export function PreferencesDialog({ filters, onChange, onClose }: { filters: JobFilters; onChange: (next: JobFilters) => void; onClose: () => void }): React.JSX.Element {
   return (
     <div role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()} className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
       <div role="dialog" aria-modal="true" aria-label="Job preferences" onKeyDown={(e) => e.key === "Escape" && onClose()} className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-xl border-[1.5px] bg-card shadow-lg">

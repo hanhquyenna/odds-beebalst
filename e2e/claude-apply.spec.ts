@@ -3,22 +3,25 @@ import { expect, shot, test } from "./mock"
 test.describe("signed in: answers for application forms and Claude's message drafts", () => {
   test.use({ signedIn: true })
 
-  test("the profile keeps the answers forms ask for, saved when a box is left", async ({ page }) => {
+  test("Autofill keeps the answers forms ask for: Edit, then Save", async ({ page }) => {
+    let kept: Record<string, string> = { phone: "+31 6 11111111" }
     await page.route("**/rest/v1/application_answers*", async (route) => {
-      if (route.request().method() === "GET") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { phone: "+31 6 11111111" } }) })
+      if (route.request().method() === "GET") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: kept }) })
+      kept = route.request().postDataJSON().data
 
       return route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
     })
     await page.goto("/")
-    await page.getByRole("button", { name: /Autofill/ }).last().click()
-    await expect(page.getByRole("heading", { name: "Answers", exact: true })).toBeVisible()
-    await expect(page.getByLabel("Phone number")).toHaveValue("+31 6 11111111")
+    await page.getByRole("navigation", { name: "Your account" }).getByRole("button", { name: "Autofill", exact: true }).click()
+    await expect(page.getByRole("heading", { name: "About you", exact: true })).toBeVisible()
+    await expect(page.getByText("+31 6 11111111")).toBeVisible()
+    await page.getByRole("button", { name: "Edit Pay you expect" }).click()
     const saving = page.waitForRequest((r) => r.url().includes("/rest/v1/application_answers") && r.method() === "POST")
     await page.getByLabel("Pay you expect").fill("EUR 600 a month")
-    await page.getByLabel("Pay you expect").blur()
+    await page.getByRole("button", { name: "Save", exact: true }).click()
     const body = JSON.parse((await saving).postData() ?? "{}") as { user_id: string; data: Record<string, string> }
     expect(body.data).toEqual({ phone: "+31 6 11111111", expected_salary: "EUR 600 a month" })
-    await expect(page.getByText("Saved", { exact: true })).toBeVisible()
+    await expect(page.getByText("EUR 600 a month")).toBeVisible()
     await shot(page, "profile-answers")
   })
 
@@ -74,9 +77,10 @@ test.describe("signed in: answers for application forms and Claude's message dra
     await page.getByRole("button", { name: "Finish setup", exact: true }).click()
     await expect(dialog.getByLabel("First name (given names)", { exact: true })).toHaveValue("Alex")
     await page.keyboard.press("Escape")
-    await page.getByRole("button", { name: /Autofill/ }).last().click()
+    await page.getByRole("navigation", { name: "Your account" }).getByRole("button", { name: "Autofill", exact: true }).click()
+    await page.getByRole("button", { name: "Edit Phone number" }).click()
     await page.getByLabel("Phone number", { exact: true }).fill("+31 6 22222222")
-    await page.getByLabel("Phone number", { exact: true }).blur()
+    await page.getByRole("button", { name: "Save", exact: true }).click()
     await expect.poll(() => data.phone).toBe("+31 6 22222222")
     await shot(page, "quick-setup-editable")
   })
@@ -99,14 +103,15 @@ test.describe("signed in: answers for application forms and Claude's message dra
     await expect(next.getByRole("region", { name: "Set up one-click applying" })).toBeVisible()
   })
 
-  test("the Autofill tab holds the CV, the answers and what odds learned, and Profile no longer does", async ({ page }) => {
+  test("the Autofill tab holds the answers, what odds learned, Chrome and the CV, and Profile no longer does", async ({ page }) => {
     await page.route("**/rest/v1/application_answers*", (route) => route.fulfill({ json: route.request().method() === "GET" ? { data: { phone: "+31 6 11111111" } } : [] }))
     await page.goto("/")
-    await page.getByRole("button", { name: /Autofill/ }).last().click()
-    await expect(page.getByRole("heading", { level: 1, name: "Autofill" })).toBeVisible()
-    for (const name of ["CV", "Answers", "Learned from forms", "Chrome"]) await expect(page.getByRole("heading", { name, exact: true })).toBeVisible()
-    await expect(page.getByLabel("Phone number")).toHaveValue("+31 6 11111111")
-    await page.getByRole("button", { name: /Profile/ }).last().click()
+    await page.getByRole("navigation", { name: "Your account" }).getByRole("button", { name: "Autofill", exact: true }).click()
+    for (const name of ["About you", "Work and study", "Learned from forms", "Chrome extension", "CV"]) await expect(page.getByRole("heading", { name, exact: true })).toBeVisible()
+    await expect(page.getByText(/\d+ of \d+ filled/)).toBeVisible()
+    await expect(page.getByText("+31 6 11111111")).toBeVisible()
+    await page.getByRole("button", { name: "Account menu" }).click()
+    await page.getByRole("button", { name: "Profile and settings" }).click()
     await expect(page.getByRole("heading", { name: "Answers", exact: true })).toHaveCount(0)
     await expect(page.getByLabel("Phone number")).toHaveCount(0)
   })
@@ -118,19 +123,17 @@ test.describe("signed in: answers for application forms and Claude's message dra
       return route.fulfill({ json: route.request().method() === "GET" ? { data } : [] })
     })
     await page.goto("/")
-    await page.getByRole("button", { name: /Autofill/ }).last().click()
-    await page.getByLabel("First name (given names)", { exact: true }).fill("Chi Kien")
-    await page.getByLabel("First name (given names)", { exact: true }).blur()
-    await expect.poll(() => data.first_name).toBe("Chi Kien")
-    await page.getByLabel("Last name (family name)", { exact: true }).fill("Phung")
-    await page.getByLabel("Last name (family name)", { exact: true }).blur()
-    await page.getByLabel("Phone number", { exact: true }).fill("+31 6 12345678")
-    await page.getByLabel("Phone number", { exact: true }).blur()
+    await page.getByRole("navigation", { name: "Your account" }).getByRole("button", { name: "Autofill", exact: true }).click()
+    for (const [label, value] of [["First name (given names)", "Chi Kien"], ["Last name (family name)", "Phung"], ["Phone number", "+31 6 12345678"]]) {
+      await page.getByRole("button", { name: `Edit ${label}` }).click()
+      await page.getByLabel(label, { exact: true }).fill(value)
+      await page.getByRole("button", { name: "Save", exact: true }).click()
+      await expect(page.getByText(value, { exact: true })).toBeVisible()
+    }
     await expect.poll(() => data).toEqual({ first_name: "Chi Kien", last_name: "Phung", phone: "+31 6 12345678" })
     await page.reload()
-    await expect(page.getByLabel("First name (given names)", { exact: true })).toHaveValue("Chi Kien")
-    await expect(page.getByLabel("Last name (family name)", { exact: true })).toHaveValue("Phung")
-    await expect(page.getByLabel("Phone number", { exact: true })).toHaveValue("+31 6 12345678")
+    await page.getByRole("navigation", { name: "Your account" }).getByRole("button", { name: "Autofill", exact: true }).click()
+    for (const value of ["Chi Kien", "Phung", "+31 6 12345678"]) await expect(page.getByText(value, { exact: true })).toBeVisible()
   })
 
   test("personal information is extracted from profile and CV and can be overridden", async ({ page }) => {
@@ -141,15 +144,11 @@ test.describe("signed in: answers for application forms and Claude's message dra
       return route.fulfill({ json: route.request().method() === "GET" ? { data } : [] })
     })
     await page.goto("/")
-    await page.getByRole("button", { name: /Autofill/ }).last().click()
-    await expect(page.getByRole("heading", { name: "Answers", exact: true })).toBeVisible()
-    await expect(page.getByLabel("First name (given names)", { exact: true })).toHaveValue("Given Names")
-    await expect(page.getByLabel("Last name (family name)", { exact: true })).toHaveValue("Family")
-    await expect(page.getByLabel("Application email", { exact: true })).toHaveValue("cv@example.com")
-    await expect(page.getByLabel("Phone number", { exact: true })).toHaveValue("+31 6 12345678")
-    await expect(page.getByLabel("City", { exact: true })).toHaveValue("Amsterdam")
+    await page.getByRole("navigation", { name: "Your account" }).getByRole("button", { name: "Autofill", exact: true }).click()
+    for (const value of ["Given Names", "Family", "cv@example.com", "+31 6 12345678", "Amsterdam"]) await expect(page.getByText(value, { exact: true }).first()).toBeVisible()
+    await page.getByRole("button", { name: "Edit Phone number" }).click()
     await page.getByLabel("Phone number", { exact: true }).fill("+44 7123456789")
-    await page.getByLabel("Phone number", { exact: true }).blur()
+    await page.getByRole("button", { name: "Save", exact: true }).click()
     await expect.poll(() => data.phone).toBe("+44 7123456789")
   })
 
@@ -189,7 +188,8 @@ test.describe("signed in: answers for application forms and Claude's message dra
 
   test("the Claude page offers the new things in plain words, with the sign-in stop in the apply message", async ({ page }) => {
     await page.goto("/")
-    await page.getByRole("button", { name: "Claude" }).last().click()
+    await page.getByRole("button", { name: "Account menu" }).click()
+    await page.getByRole("button", { name: "Claude", exact: true }).click()
     await expect(page.getByRole("tab", { name: "Make a CV for a job" })).toBeVisible()
     await expect(page.getByRole("tab", { name: "Message people there" })).toBeVisible()
     await expect(page.getByText(/If it needs me to sign in or make an account, stop and tell me/)).toBeVisible()

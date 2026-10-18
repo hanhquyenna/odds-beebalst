@@ -46,14 +46,21 @@ export function placeOf(region: string | null): string {
   return more > 0 ? `${cities[0]}, +${more} more` : cities[0]
 }
 
+/** HTML names for accented Latin letters (aacute, Euml, ouml ...), built from their base letters so postings in Dutch, German or French read right. */
+const accented: Record<string, string> = Object.fromEntries(
+  [["acute", "\u0301"], ["grave", "\u0300"], ["circ", "\u0302"], ["uml", "\u0308"], ["tilde", "\u0303"], ["ring", "\u030A"]].flatMap(([name, mark]) =>
+    "aeiouyAEIOUY".split("").map((letter) => [`${letter}${name}`, `${letter}${mark}`.normalize("NFC")] as const).filter(([, ch]) => ch.length === 1),
+  ),
+)
+
 export function stripMarkup(text: string): string {
-  const named: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", rsquo: "’", lsquo: "‘", ndash: "–", mdash: "—" }
+  const named: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", rsquo: "’", lsquo: "‘", ldquo: "“", rdquo: "”", ndash: "–", mdash: "—", hellip: "…", bull: "•", middot: "·", euro: "€", pound: "£", copy: "©", reg: "®", trade: "™", szlig: "ß", ccedil: "ç", Ccedil: "Ç", ntilde: "ñ", Ntilde: "Ñ", ...accented }
 
   return text
     .replace(/\*\*/g, "")
     .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
     .replace(/&#(\d+);/g, (_, dec: string) => String.fromCodePoint(Number(dec)))
-    .replace(/&([a-z]+);/gi, (whole, name: string) => named[name.toLowerCase()] ?? whole)
+    .replace(/&([a-z]+);/gi, (whole, name: string) => named[name] ?? named[name.toLowerCase()] ?? whole)
     .replace(/\n{3,}/g, "\n\n")
 }
 

@@ -7,7 +7,7 @@ import type { SavedView, ViewConfig, ViewLayout } from "@/lib/types"
  * from the view options, not separate starting tabs. Nothing is stored until you change something; then your set is kept with the profile and the starting set no longer applies.
  */
 export const SEED_VIEWS: ReadonlyArray<SavedView> = [
-  { id: "all", name: "All jobs", layout: "table", filters: NO_FILTERS, tracker: NO_TRACKER_FILTER },
+  { id: "all", name: "All jobs", layout: "board", filters: NO_FILTERS, tracker: NO_TRACKER_FILTER },
 ]
 
 /** The views of the jobs that fit you start as one table, the same as your own jobs: first jobs, best fit first (a job that needs Dutch ranks lower by itself). */

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { BadgeCheckIcon, CheckIcon, ChevronDownIcon, PlusIcon, SearchIcon, XIcon, FunnelIcon } from "@/components/icons"
+import { BadgeCheckIcon, CheckIcon, ChevronDownIcon, PlusIcon, SearchIcon, XIcon } from "@/components/icons"
 import { useData } from "@/lib/data"
 import { cityOf, JOB_TYPES, WORKPLACES, type JobType, type Workplace } from "@/lib/job-facts"
 import { cn } from "cn"
@@ -125,7 +125,7 @@ export function JobFilters({ filters, onChange, trailing, extra, open, search = 
   )
 }
 
-interface Def {
+export interface Def {
   key: string
   label: string
   always?: boolean
@@ -135,7 +135,7 @@ interface Def {
 }
 
 /** Every filter the list offers, each with its control. The row of filters and the preferences editor both draw from this one list. */
-function useFilterDefs(filters: Filters, onChange: (next: Filters) => void): Def[] {
+export function useFilterDefs(filters: Filters, onChange: (next: Filters) => void): Def[] {
   const data = useData()
   // The sites the jobs were found on, with how many each carries. A job on two sites counts under both.
   const sources = useMemo(() => {
@@ -299,16 +299,5 @@ export function MultiPick({ label, any, items, value, onChange, rest = [], restL
         ) : null}
       </PopoverContent>
     </Popover>
-  )
-}
-
-/** The underlined "Filter" that folds the row of filters away and brings it back, with how many are set. It sits in the bar with the layout and sort buttons. */
-export function FilterToggle({ open, onToggle, count }: { open: boolean; onToggle: () => void; count: number }): React.JSX.Element {
-  return (
-    <button type="button" aria-expanded={open} onClick={onToggle} className={`flex cursor-pointer items-center gap-1 text-sm underline underline-offset-4 hover:text-foreground max-md:h-10 max-md:gap-1.5 max-md:rounded-full max-md:border-[1.5px] max-md:px-3 max-md:font-medium max-md:no-underline ${open || count > 0 ? "max-md:border-foreground max-md:bg-foreground max-md:text-background" : "max-md:bg-card"}`}>
-      <FunnelIcon className="size-4 md:hidden" aria-hidden="true" />
-      Filter{count > 0 ? ` (${count})` : ""}
-      <ChevronDownIcon className={`size-3.5 transition-transform duration-150 max-md:hidden ${open ? "rotate-180" : ""}`} aria-hidden="true" />
-    </button>
   )
 }

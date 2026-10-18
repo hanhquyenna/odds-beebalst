@@ -1,42 +1,39 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react"
-import { JobDrawer } from "@/components/JobBoard"
-import { FilterToggle, JobFilters } from "@/components/JobFilters"
-import { JobGallery } from "@/components/JobGallery"
 import { BoardIcon, BookmarkIcon, CalendarIcon, DownloadIcon, ImportExportIcon, UploadIcon, ChevronDownIcon, PlusIcon, TableIcon } from "@/components/icons"
 import { SearchSummary } from "@/components/InterviewMeter"
 import type { ViewLayout, ViewName } from "@/lib/types"
-import { ViewTabs, NewViewButton, LAYOUT_CHOICES } from "@/components/ViewTabs"
-import { ToolBar, ToolButton } from "@/components/ToolBar"
-import { TrackerFilters } from "@/components/TrackerFilterBar"
+import { NewViewButton, LAYOUT_CHOICES } from "@/components/ViewTabs"
+import { ToolButton } from "@/components/ToolBar"
 import { TrackerCalendar } from "@/components/TrackerCalendar"
 import { applicationOf } from "@/components/tracker-values"
 import { useSavedViews } from "@/lib/use-saved-views"
 import { usePeopleViews } from "@/lib/use-people-views"
-import { applyTrackerFilter, isTrackerFilterOn } from "@/lib/tracker"
+import { applyTrackerFilter } from "@/lib/tracker"
 import { choicesFor, peopleChoices, ViewControls } from "@/components/ViewSettings"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ColumnsBy, PipelineBoard } from "@/components/PipelineBoard"
 import { STEPS, stepOf } from "@/components/job-steps"
-import { AddJobs, panelWith, Tracker, type AddPanel } from "@/components/Tracker"
+import { AddJobs, panelWith, type AddPanel } from "@/components/Tracker"
 import { TrackerTable } from "@/components/TrackerTable"
-import { SimilarJobs } from "@/components/SimilarJobs"
 import { ClaudePromo } from "@/components/ClaudeGuide"
 import { DueNow } from "@/components/DueNow"
 import { ExtensionNotice } from "@/components/ExtensionNotice"
 import { Insights } from "@/components/Insights"
 import { HeardBack } from "@/components/HeardBack"
 import { Button } from "@/components/ui/button"
+import { WebButton } from "@/components/web/ui"
 import { JobListSkeleton } from "@/components/Skeleton"
 import { useData } from "@/lib/data"
 import { CompaniesView } from "@/components/Companies"
 import { usePhone } from "@/lib/use-phone"
 import { FilterBus } from "@/lib/filter-bus"
-import { activeCount, applyFilters } from "@/lib/filters"
+import { applyFilters } from "@/lib/filters"
 import type { Posting } from "@/lib/types"
 import { downloadCsv, toCsv } from "@/lib/export-csv"
 import { appliedDay, overrideOf } from "@/lib/cells"
 import { formatPlace } from "@/lib/format"
 import { LIVE_APPLY_EVENT, peekLiveApplyPostingId, takeLiveApplyPostingId } from "@/lib/apply-nav"
+import { goTo } from "@/lib/web-nav"
 import { applyActivityOf, isLiveApply, useApplyActivityTick } from "@/lib/apply-activity"
 
 const SetupCard = lazy(() => import("@/components/SetupCard").then((m) => ({ default: m.SetupCard })))
@@ -49,11 +46,8 @@ export type AccountPage = "home" | "tracker" | "people" | "companies"
 
 interface AccountProps {
   page?: AccountPage
-  /** True in the job list, false on the account's own page. */
-  looking: boolean
   onEdit: () => void
   onStartLooking: () => void
-  onStopLooking: () => void
   /** Opens the page on using odds inside Claude. */
   onOpenClaude?: () => void
   /** Goes to another page of the account (the People page, from a nudge that is due). */
@@ -66,7 +60,7 @@ interface AccountProps {
  * The account's own page: the jobs you kept, where you applied, and what we
  * read from you. The big button goes to the jobs that fit.
  */
-export function Account({ page = "home", looking, onStartLooking, onStopLooking, onOpenClaude, onOpenPage, onOpenTab }: AccountProps): React.JSX.Element {
+export function Account({ page = "home", onStartLooking, onOpenClaude, onOpenPage, onOpenTab }: AccountProps): React.JSX.Element {
   const data = useData()
   const saved = useSavedViews()
   const { active, filters, configName } = saved
@@ -87,13 +81,19 @@ export function Account({ page = "home", looking, onStartLooking, onStopLooking,
     }
     window.addEventListener(LIVE_APPLY_EVENT, on)
     return () => window.removeEventListener(LIVE_APPLY_EVENT, on)
-  }, [data.postings, data.keptExtra, page, looking])
+  }, [data.postings, data.keptExtra, page])
+  // A job picked anywhere on Home or the tracker opens on the Jobs page, where the whole job is.
+  useEffect(() => {
+    if (!revisit) return
+    if (peekLiveApplyPostingId() === revisit.id) takeLiveApplyPostingId()
+    goTo("jobs", { job: revisit.id })
+    setRevisit(null)
+  }, [revisit])
   // Each page shows one thing: jobs, people, or companies. Home shows none of them, only what is due.
   const subject: Subject = page === "people" ? "people" : page === "companies" ? "companies" : "jobs"
   const pviews = usePeopleViews()
   // The form to add jobs of your own: opened by the small link under your jobs, or by the upload button beside Sort.
   const [addPanel, setAddPanel] = useState<AddPanel>(null)
-  const [filtersOpen, setFiltersOpen] = useState<boolean>(false)
   // Jobs have views (tabs) that each keep their own layout and filters; people keep a list or a board.
   const phone = usePhone()
   const chosen: Layout = subject === "jobs" ? active.layout : pviews.active.layout
@@ -132,38 +132,11 @@ export function Account({ page = "home", looking, onStartLooking, onStopLooking,
     [kept, filters, active.tracker, data.signals, data.reference, data.applications],
   )
   const shownIds = useMemo(() => new Set(shown.map((p) => p.id)), [shown])
-  const filtered = activeCount(filters) > 0 || isTrackerFilterOn(active.tracker)
   // How many jobs are in the pool: one plain number, the same one the job list counts from, not a personal subset of it.
   const pool = data.postings.length
 
   if (data.status === "loading") {
     return <JobListSkeleton />
-  }
-
-  if (looking) {
-    return (
-      <div className="flex w-full flex-1 flex-col gap-5">
-        <div className="flex flex-1 flex-col">
-          <JobGallery />
-        </div>
-        <div className="sticky bottom-0 z-20 -mx-5 border-t-[1.5px] bg-background px-5 py-3 max-md:hidden sm:-mx-6 sm:px-6">
-          <Button variant="ghost" onClick={onStopLooking} className="mx-auto block w-full max-w-sm cursor-pointer">
-            Back to your list
-          </Button>
-        </div>
-        {/* Keep drawer state while Apply switches Jobs → Tracker. */}
-        {revisit ? (
-          <JobDrawer
-            post={revisit}
-            onClose={() => {
-              if (peekLiveApplyPostingId() === revisit.id) takeLiveApplyPostingId()
-              setRevisit(null)
-            }}
-            onSwitch={setRevisit}
-          />
-        ) : null}
-      </div>
-    )
   }
 
   /** Your jobs as a spreadsheet: what every job says, where it stands, and the properties you added. Excel opens it. */
@@ -191,7 +164,6 @@ export function Account({ page = "home", looking, onStartLooking, onStopLooking,
     )
   }
 
-  const filterToggle = <FilterToggle open={filtersOpen} onToggle={() => setFiltersOpen(!filtersOpen)} count={activeCount(filters) + (isTrackerFilterOn(active.tracker) ? 1 : 0)} />
   const toolsSubject: "jobs" | "people" = subject === "people" ? "people" : "jobs"
   const viewCount = toolsSubject === "people" ? pviews.views.length : saved.views.length
   const tools = (
@@ -237,19 +209,7 @@ export function Account({ page = "home", looking, onStartLooking, onStopLooking,
             {/* Only once there is something for Claude to work on: a saved or applied job. Before that, the first thing to do is to find jobs. */}
             {onOpenClaude && kept.length > 0 ? <ClaudePromo onOpen={onOpenClaude} /> : null}
           </>
-        ) : (
-          <div role="tablist" aria-label="Tracker" className="flex gap-1 border-b-[1.5px]">
-            {([
-              { target: "tracker" as const, label: "All jobs" },
-              { target: "people" as const, label: "All people" },
-              { target: "companies" as const, label: "All companies" },
-            ]).map(({ target, label }) => (
-              <button key={target} type="button" role="tab" aria-selected={page === target} onClick={() => onOpenPage?.(target)} className={`-mb-px cursor-pointer border-b-2 px-3 py-2 text-sm transition-colors duration-150 ${page === target ? "border-foreground font-semibold" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
+        ) : null}
 
         {page !== "home" ? (
         <section aria-label={page === "tracker" ? "Your jobs" : page === "people" ? "Your people" : "Companies"} className="flex flex-col gap-4">
@@ -261,19 +221,14 @@ export function Account({ page = "home", looking, onStartLooking, onStopLooking,
             </Suspense>
           ) : (
             <>
-              <ViewTabs views={saved.views} active={active} onSelect={saved.select} onAdd={saved.add} onRename={saved.rename} onDuplicate={saved.duplicate} onRemove={saved.remove} onReset={saved.reset} />
-              {kept.length > 0 ? (
-                <>
-                  <JobFilters search={false} open={filtersOpen} filters={filters} onChange={saved.setFilters} extra={<TrackerFilters value={active.tracker} onChange={saved.setTracker} />} />
-                </>
-              ) : null}
-              {kept.length > 0 && layout !== "table" ? <ToolBar noun={{ one: "job", many: "jobs" }} tools={tools} lead={filterToggle} /> : null}
+              <TrackerBar layout={layout} onLayout={chooseLayout} onImport={() => setAddPanel((current) => panelWith(current, "upload"))} onAdd={() => setAddPanel((current) => panelWith(current, "one"))} />
+              {kept.length > 0 ? <TrackerStats posts={kept} /> : null}
               {kept.length === 0 ? (
-                <div className="flex flex-col items-center gap-3 rounded-xl border-[1.5px] border-dashed bg-secondary/30 px-6 py-14 text-center">
-                  <span className="flex size-12 items-center justify-center rounded-full bg-card text-brand shadow-sm">
+                <div className="flex flex-col items-center gap-3 rounded-[18px] border-[1.5px] border-dashed border-line bg-card px-6 py-14 text-center">
+                  <span className="flex size-12 items-center justify-center rounded-full bg-accent text-brand">
                     <BookmarkIcon weight="fill" className="size-6" aria-hidden="true" />
                   </span>
-                  <p className="text-lg font-semibold tracking-tight">Nothing saved yet</p>
+                  <p className="text-lg font-extrabold tracking-tight">Nothing saved yet</p>
                   <Button type="button" onClick={onStartLooking} className="cursor-pointer max-md:h-10">
                     See jobs tailored to you
                   </Button>
@@ -281,19 +236,14 @@ export function Account({ page = "home", looking, onStartLooking, onStopLooking,
                     <UploadIcon className="size-4" aria-hidden="true" /> Upload your own jobs
                   </ToolButton>
                 </div>
-              ) : layout === "board" ? (
-                <PipelineBoard onOpen={setRevisit} viewName={configName} include={(post) => shownIds.has(post.id)} />
               ) : layout === "calendar" ? (
                 <TrackerCalendar posts={shown} dateKey={active.dateKey ?? "applied"} onDateKey={saved.setDateKey} onOpen={setRevisit} />
-              ) : shown.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{filtered ? "Nothing here fits these filters." : "Nothing here yet."}</p>
               ) : layout === "table" ? (
-                <TrackerTable posts={shown} onOpen={setRevisit} viewName={configName} toolbar={tools} lead={filterToggle} />
+                <TrackerTable posts={shown} onOpen={setRevisit} viewName={configName} toolbar={null} lead={null} />
               ) : (
-                <Tracker posts={shown} onOpen={setRevisit} viewName={configName} />
+                <PipelineBoard onOpen={setRevisit} viewName={configName} include={(post) => shownIds.has(post.id)} />
               )}
               <AddJobs panel={addPanel} setPanel={setAddPanel} />
-              {kept.length > 0 ? <SimilarJobs onOpen={setRevisit} /> : null}
             </>
           )}
         </section>
@@ -301,18 +251,8 @@ export function Account({ page = "home", looking, onStartLooking, onStopLooking,
 
       </div>
 
-      {revisit ? (
-        <JobDrawer
-          post={revisit}
-          onClose={() => {
-            if (peekLiveApplyPostingId() === revisit.id) takeLiveApplyPostingId()
-            setRevisit(null)
-          }}
-          onSwitch={setRevisit}
-        />
-      ) : null}
 
-      {page === "home" || page === "tracker" ? (
+      {page === "home" ? (
       <div className="flex justify-center pb-4 max-md:hidden">
         <Button size="lg" onClick={onStartLooking} title={pool > 0 ? `${pool.toLocaleString()} jobs in the job pool` : undefined} className="flex w-full max-w-sm cursor-pointer">
           All jobs
@@ -418,5 +358,43 @@ function DataMenu({ count, onImport, onAdd, onExport }: { count: number; onImpor
         </button>
       </PopoverContent>
     </Popover>
+  )
+}
+
+/** The view switch, import and add buttons over the tracker. The page has no title: the bar says where you are. */
+function TrackerBar({ layout, onLayout, onImport, onAdd }: { layout: Layout; onLayout: (next: Layout) => void; onImport: () => void; onAdd: () => void }): React.JSX.Element {
+  const shown: Layout = layout === "list" ? "board" : layout
+
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2.5">
+      <div role="group" aria-label="Layout" className="inline-flex rounded-full border-[1.5px] border-line bg-card p-1">
+        {([["board", "Board"], ["table", "Table"], ["calendar", "Calendar"]] as const).map(([value, label]) => (
+          <button key={value} type="button" aria-pressed={shown === value} onClick={() => onLayout(value)} className={`h-9 cursor-pointer rounded-full px-5 text-sm font-extrabold ${shown === value ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <WebButton onClick={onImport}>Import a CSV</WebButton>
+      <WebButton tone="primary" onClick={onAdd}>
+        + Add a job
+      </WebButton>
+    </div>
+  )
+}
+
+/** How many jobs are saved, applied to, at interview and at offer: counted from your own list. */
+function TrackerStats({ posts }: { posts: ReadonlyArray<Posting> }): React.JSX.Element {
+  const data = useData()
+  const count = (...steps: string[]): number => posts.filter((p) => steps.includes(stepOf(data, p))).length
+
+  return (
+    <dl className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {([["Saved", count("saved")], ["Applied", count("applied")], ["Interviews", count("interview")], ["Offers", count("offer", "hired")]] as const).map(([label, n]) => (
+        <div key={label} className="rounded-[18px] border-[1.5px] border-line bg-card px-6 py-5">
+          <dt className="text-sm font-bold text-muted-foreground">{label}</dt>
+          <dd className="text-[2rem] leading-tight font-extrabold tracking-tight tabular-nums">{n}</dd>
+        </div>
+      ))}
+    </dl>
   )
 }

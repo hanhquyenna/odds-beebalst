@@ -1,73 +1,18 @@
 import { DownloadIcon, UploadIcon, XIcon } from "@/components/icons"
-import { useEffect, useMemo, useRef, useState } from "react"
-import { JobRow } from "@/components/JobBoard"
-import { trackerSortValue } from "@/components/tracker-values"
+import { useRef, useState } from "react"
 import { AddFromLinkedIn } from "@/components/AddJob"
 import { Button } from "@/components/ui/button"
 import { useData } from "@/lib/data"
-import { applyActivityOf, isLiveApply, pinLiveApplies, useApplyActivityTick } from "@/lib/apply-activity"
-import { settleClosedJob } from "@/lib/job-closed"
-import { sortJobs } from "@/lib/sort"
-import { useViewConfig } from "@/lib/views"
 import { parseCsv } from "@/lib/csv"
 import { addJob, JOB_LINK } from "@/lib/add-job"
+import type { Posting } from "@/lib/types"
 import { TARGETS, guessMapping, readJobs, type ImportedJob, type Mapping, type Target } from "@/lib/import"
-import type { Posting, ViewName } from "@/lib/types"
 
 // Mirrors the job properties shown in the tracker, so a sheet started here fits
 // the same Notion-style table rather than a second, unrelated schema.
 const TEMPLATE = "Job,Company,Location,Link,Description,Pay,Deadline,Contact,Notes\nMarketing Intern,Company name,Amsterdam,https://example.com/job,Paste the job description here,,2026-12-31,Recruiter name,Replace this sample row with your own job\n"
 
-interface TrackerProps {
-  posts: ReadonlyArray<Posting>
-  onOpen: (post: Posting) => void
-}
-
-/**
- * The jobs you kept, as the same rows the job list uses: logo, title, company,
- * place, posted. Status, pay, fit and your own properties are inside each job.
- */
-export function Tracker({ posts, onOpen, viewName, rowLimit, footer, dismissible }: TrackerProps & { viewName: ViewName; /** Each row has an X: not interested, not recommended again. */ dismissible?: boolean; /** Show only this many rows, with `footer` as the last row (the way to see more). */ rowLimit?: number; footer?: React.ReactNode }): React.JSX.Element {
-  const data = useData()
-  const { profile } = data
-  const view = useViewConfig(viewName)
-  const applyTick = useApplyActivityTick()
-
-  // Closed while Apply was mid-fill: toast once, clear Filling chip, keep Saved (sorted to bottom).
-  useEffect(() => {
-    for (const p of posts) {
-      if (p.closed_at && isLiveApply(applyActivityOf(p.id))) settleClosedJob(data, p)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [posts, applyTick])
-
-  const sorted = useMemo(() => {
-    const key = view.config.sortKey
-    const extra = (post: Posting): string | number | null => trackerSortValue(data, key, post)
-    const unique = [...new Map(posts.map(p=>[p.id,p])).values()]
-    const ordered = key
-      ? sortJobs(unique, key, view.config.sortDir, { reference: data.reference, shares: data.shares, profile, referrals: data.referrals }, extra)
-      : unique
-    // Jobs you're actively Applying with Odds jump to the top until review/submit/fail ages out.
-    return pinLiveApplies(ordered)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [posts, view.config.sortKey, view.config.sortDir, profile, data.applications, data.reference, data.shares, data.referrals, applyTick])
-
-  return (
-    <div className="@container overflow-hidden rounded-xl border-[1.5px] border-line bg-card max-md:-mx-5 max-md:rounded-none max-md:border-x-0">
-      <ul>
-        {sorted.slice(0, rowLimit ?? sorted.length).map((post) => (
-          <li key={post.id} className="relative after:absolute after:right-0 after:bottom-0 after:left-4 max-md:after:left-0 after:h-px after:bg-border last:after:hidden @2xl:after:left-6">
-            <JobRow post={post} onOpen={() => onOpen(post)} status dismissible={dismissible} />
-          </li>
-        ))}
-        {footer ? <li className="border-t-[1.5px] border-line">{footer}</li> : null}
-      </ul>
-    </div>
-  )
-}
-
-/** Bring your own jobs: add one by hand (the small link under the jobs), or upload a spreadsheet saved as CSV (the button beside Sort). The form opens below the jobs. */
+/** Bring your own jobs: add one by hand, or upload a spreadsheet saved as CSV. The form opens below the jobs. */
 export type AddPanel = "one" | "upload" | "both" | null
 
 /** Open one add flow alongside the other instead of replacing it. */

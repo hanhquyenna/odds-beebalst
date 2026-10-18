@@ -126,7 +126,7 @@ export function AddPerson({ onDone, fixedJob }: { onDone: () => void; fixedJob?:
  * fetched when there are any (free), otherwise from the next page of 25 (one search). Never on its own.
  * `guest` is true for a free guest account, which is not shown other people (the server refuses it too).
  */
-function useFindPeople(post: Posting): { state: "idle" | "busy"; problem: string | null; find: () => void; more: (group: PeopleGroup) => void; drop: (url: string) => void; rec: PastSearch | null; notLookedUp: boolean; guest: boolean } {
+export function useFindPeople(post: Posting): { state: "idle" | "busy"; problem: string | null; find: () => void; more: (group: PeopleGroup) => void; drop: (url: string) => void; rec: PastSearch | null; notLookedUp: boolean; guest: boolean } {
   const data = useData()
   const guest = isGuestEmail(data.session?.user.email)
   const [state, setState] = useState<"idle" | "busy">("idle")
@@ -327,7 +327,7 @@ function FindPeople({ post }: { post: Posting }): React.JSX.Element {
  * step or two from the role and not its leaders, to ask about the team or for a referral. Anyone you add is
  * linked to the job, so they show on the job and count as the referral.
  */
-function OutreachFromJobs({ onClose }: { onClose: () => void }): React.JSX.Element {
+export function OutreachFromJobs({ onClose }: { onClose: () => void }): React.JSX.Element {
   const tracked = useTrackedJobs()
 
   return (

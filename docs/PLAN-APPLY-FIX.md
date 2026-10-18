@@ -116,3 +116,27 @@ employer's form directly. Measure: the 6 captcha stops on set3 become employer-f
 - The attempt budget must not keep Broods looping: at most one send-back per run, the step limit stays.
 - Learning must stay structure-only: a tactic never holds an applicant value (same sanitiser as site lessons).
 - Moving the loop into the extension is the biggest change: behind a flag, A/B before switching.
+
+## 5. The side panel and the form, made reliable (17 October, night; from the YETI Workday test)
+
+What the owner's real run on YETI (Workday) showed, and the fix for each. ✅ = done and tested offline; ⏳ = next.
+
+| # | Seen on YETI | Cause | Fix |
+|---|---|---|---|
+| 1 | Job card shows the address, no logo/company | The Workday form's address (`/en-US/…%2C…/apply/applyManually`) is not the posting's link | ✅ apply-kit `formJob`: the run's posting, an address seen before, or the page title at an employer named in the host; learned into `posting_apply_links` (source `match`). ⏳ no posting at all: read JobPosting JSON-LD / og tags from the page and add the job |
+| 2 | Names "required" though the boxes show text | Odds sent `blur`; React/Workday commit on `focusout`, and the page has no focus while the person is in the side panel | ✅ `type()` sends focusin/focusout (apply-any, apply.js); fixture test |
+| 3 | "Confirm the five unlabeled questions" | Workday dropdowns name themselves "Select One Required" | ✅ placeholder labels replaced by the field's own question; fixture test |
+| 4 | "The form reports errors, correct them in the tab" | Broods handed a widget problem to the person | ✅ server sends it back to Broods (widget guard) |
+| 5 | "Closed" on a live job | Read before Workday drew the page | ✅ server accepts closed only when the page says so; stale bubble dropped when a form shows |
+| 6 | Panel said "No application form" | Tab opened before the extension update ran the old script | ✅ the panel puts Odds' script on the tab once |
+| 7 | How did you hear (Workday two-level menu) | Search box treated as text | ✅ Workday multi-select: search, pick, chip check |
+| 8 | Sponsorship answered "No" with permit `other_non_eu` | Hard fact guessed by the model | ⏳ rule: sponsorship / right to work only from `permit` (+ study status); unclear → asked once, remembered |
+| 9 | Values checked only by what the box shows | — | ⏳ after each field, the site's own error / `aria-invalid` counts as "not kept" → real input retry |
+
+### Order of work
+1. Hard facts by code (#8): permit → sponsorship, right to work, relocation; never the model's guess.
+2. Site-error check after every fill (#9), per platform tactic learned.
+3. Panel parity with Simplify: "Stay on this page" while filling, missing-fields count + Complete profile, Saved answers (review), resume/chance ring, people.
+4. Job from the page when Odds has no posting (#1 rest).
+5. Golden set: ~30 real forms on 8 platforms (Workday, Greenhouse, Ashby, Lever, SmartRecruiters, SuccessFactors, Phenom, Homerun) with the test applicant, never submitted. Done = every field correct and zero site errors at Review, two runs in a row. Every fix adds a fixture.
+6. Nightly run on new jobs; new failure signatures become fixtures.

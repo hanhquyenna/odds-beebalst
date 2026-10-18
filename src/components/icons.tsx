@@ -67,5 +67,11 @@ export {
   Lock as LockIcon,
   PlusSquare as PlusSquareIcon,
   Star as StarIcon,
+  CurrencyEur as CurrencyEurIcon,
+  MapPin as MapPinIcon,
+  GraduationCap as GraduationCapIcon,
+  ShieldCheck as ShieldCheckIcon,
+  TrendUp as TrendUpIcon,
+  ArrowUpRight as ArrowUpRightIcon,
   WifiHigh as WifiIcon,
 } from "@phosphor-icons/react"

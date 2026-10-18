@@ -190,6 +190,15 @@ export async function renameDocument(id: string, wanted: string): Promise<void> 
   if (doc.inDrive) renameInDrive(id)
 }
 
+/** Corrects the text odds reads from a file (the chance and the keywords come from it). The file itself is not changed. */
+export async function saveDocumentText(id: string, body: string): Promise<void> {
+  const doc = store.docs.find((d) => d.id === id)
+  if (!doc || doc.body === body) return
+  const r = await supabase.from("documents").update({ body }).eq("id", id)
+  if (r.error) throw explain(r.error)
+  set({ ...store, docs: store.docs.map((d) => (d.id === id ? { ...d, body } : d)) })
+}
+
 export async function makeMain(id: string): Promise<void> {
   const r = await supabase.rpc("set_main_document", { doc: id })
   if (r.error) throw explain(r.error)

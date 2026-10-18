@@ -349,7 +349,7 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
       : "Connect Odds in Chrome"
     const canPress = !pending && !unavailable && (gateOnly || Boolean(view || activeRun) || extensionPresent === "looking")
     const primary = canPress ? (
-      <Button type="button" disabled={Boolean(activeRun && run.status === "queued") && !view && !gateOnly} onClick={press} className="h-11 min-h-11 w-full flex-1 cursor-pointer rounded-lg bg-brand-ink text-base text-white hover:bg-brand-ink/90">
+      <Button type="button" data-odds-apply="primary" disabled={Boolean(activeRun && run.status === "queued") && !view && !gateOnly} onClick={press} className="h-11 min-h-11 w-full flex-1 cursor-pointer rounded-lg bg-brand-ink text-base text-white hover:bg-brand-ink/90 [.web_&]:bg-brand [.web_&]:text-foreground">
         {label}
       </Button>
     ) : null
@@ -365,7 +365,7 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
     ) : null
 
     return (
-      <div className={`flex w-full flex-col gap-4 transition-colors duration-150 ${phase ? (phase === "needs_input" ? "rounded-xl border border-brand/40 bg-card p-4" : "rounded-xl border border-line bg-card p-4") : ""}`}>
+      <div data-phase={phase ? "live" : "idle"} className={`flex w-full flex-col gap-4 transition-colors duration-150 ${phase ? (phase === "needs_input" ? "rounded-xl border border-brand/40 bg-card p-4" : "rounded-xl border border-line bg-card p-4") : ""}`}>
         {phase && (view || activeRun) ? (
           <button type="button" disabled={pending || unavailable} onClick={press} className="w-full cursor-pointer rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-default disabled:opacity-70">
             <ApplyProgress phase={phase} message={progressLine} title={progressTitle} />
@@ -418,13 +418,13 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
   }
   // Only show a control when it does something — never a dead “working in the background” button.
   const primary = view?.status === "submitted" ? null : (
-    <Button type="button" onClick={press} className="h-11 min-h-11 w-full flex-1 cursor-pointer rounded-lg bg-brand-ink text-base text-white hover:bg-brand-ink/90">
+    <Button type="button" data-odds-apply="primary" onClick={press} className="h-11 min-h-11 w-full flex-1 cursor-pointer rounded-lg bg-brand-ink text-base text-white hover:bg-brand-ink/90 [.web_&]:bg-brand [.web_&]:text-foreground">
       {label}
     </Button>
   )
 
   return (
-    <div className={`flex w-full flex-col gap-4 transition-colors duration-150 ${phase ? (phase === "needs_input" ? "rounded-xl border border-brand/40 bg-card p-4" : "rounded-xl border border-line bg-card p-4") : ""}`}>
+    <div data-phase={phase ? "live" : "idle"} className={`flex w-full flex-col gap-4 transition-colors duration-150 ${phase ? (phase === "needs_input" ? "rounded-xl border border-brand/40 bg-card p-4" : "rounded-xl border border-line bg-card p-4") : ""}`}>
       {phase && liveApply ? (
         <button type="button" onClick={press} className="w-full cursor-pointer rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
           <ApplyProgress phase={phase} message={progressLine} title={progressTitle} />

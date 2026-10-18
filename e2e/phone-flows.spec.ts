@@ -76,7 +76,7 @@ test.describe("on a phone, first visit", () => {
     await page.getByRole("button", { name: "Skip for now, just show me jobs" }).click()
     await expect(jobRows(page)).toHaveCount(DEFAULT_VISIBLE)
     await jobRows(page).first().getByRole("button").first().click()
-    await expect(page.getByRole("dialog")).toBeVisible()
+    await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible()
     await expectNoSideScroll(page)
     // The phone's Back button closes the job and returns to the list, not out of the app.
     await page.goBack()
@@ -145,7 +145,7 @@ test.describe("on a phone, signed in", () => {
     await page.getByRole("dialog", { name: "odds is now an app" }).getByRole("button", { name: "Not now", exact: true }).click({ timeout: 8000 })
     await page.getByRole("button", { name: "Profile" }).last().click()
     await page.getByRole("button", { name: "Documents" }).last().click()
-    await expect(page.getByRole("heading", { name: "Documents" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "CVs" })).toBeVisible()
     await expect(page.getByText("Google Drive")).toHaveCount(0)
     await expectNoSideScroll(page)
     await shot(page, "phone-documents")

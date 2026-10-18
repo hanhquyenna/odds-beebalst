@@ -306,3 +306,48 @@
   .apply-drop { animation: apply-drop 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; }
   .phone-prompt-pop { animation: phone-prompt-pop 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
 }
+
+/* The extension side panel's odds button: a soft buzz while the page in front has a form waiting to be filled. */
+@keyframes odds-fill-buzz {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--brand) 55%, transparent); transform: translateX(0); }
+    8% { transform: translateX(-1.5px); } 16% { transform: translateX(1.5px); } 24% { transform: translateX(0); }
+    50% { box-shadow: 0 0 0 8px color-mix(in oklch, var(--brand) 0%, transparent); }
+}
+.odds-fill-pulse { animation: odds-fill-buzz 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .odds-fill-pulse { animation: none; } }
+
+/* The signed-in web app: sand background, white cards, flat orange. Set on <body> while someone is inside the app, so the menus that open over it match. */
+body.web {
+    --background: #F1EBE2;
+    --foreground: #1C1A18;
+    --card: #FFFFFF;
+    --popover: #FFFFFF;
+    --primary: #1C1A18;
+    --brand: #EE7A2A;
+    --brand-ink: #B4561A;
+    --secondary: #F7F3EC;
+    --accent: #FDEEDF;
+    --muted: #F7F3EC;
+    --muted-foreground: #6B645C;
+    --border: #E7E1D8;
+    --line: #E7E1D8;
+    --input: #D9D0C4;
+    --ring: #EE7A2A;
+    --good: #E3F1E8;
+    --good-foreground: #2F6B47;
+    --radius: 0.75rem;
+}
+
+/* The living mascot. */
+@keyframes buddy-bob { 0%, 100% { transform: translateY(0) scale(1, 1); } 45% { transform: translateY(-3px) scale(.97, 1.04); } 60% { transform: translateY(0) scale(1.04, .96); } }
+@keyframes buddy-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+@keyframes buddy-look { 0%, 100% { transform: translate(0, 0); } 25% { transform: translate(2.2px, -1px); } 50% { transform: translate(-2px, 0); } 75% { transform: translate(1px, 1.6px); } }
+@keyframes buddy-hop { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(1px, -3px); } }
+.buddy { transform-origin: 50% 90%; animation: buddy-bob 1.6s ease-in-out infinite; }
+.buddy .lid, .lid { transform-origin: 15px 17px; animation: buddy-blink 3.4s infinite; }
+.buddy .pupil, .pupil { animation: buddy-look 4.2s ease-in-out infinite; }
+.buddy .orb, .orb { animation: buddy-hop 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .buddy, .lid, .pupil, .orb { animation: none; } }
+
+/* The Auto apply button in the job page's tab bar presses the real button; that one stays out of sight until Auto apply is doing something. */
+.web .odds-bar-apply [data-phase="idle"] [data-odds-apply="primary"] { display: none; }

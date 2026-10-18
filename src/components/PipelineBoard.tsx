@@ -9,15 +9,19 @@ import { useFit } from "@/components/FitCells"
 import { useData } from "@/lib/data"
 import { sortJobs } from "@/lib/sort"
 import { useViewConfig } from "@/lib/views"
+import { sourcesOf } from "@/components/SourceChips"
+import { applySourceOf } from "@/lib/apply-source"
+import { daysOr } from "@/lib/follow-days"
+import { appliedOn, followUpOf, followUpText } from "@/lib/tracker"
 import { formatAge, formatPlace } from "@/lib/format"
 import type { Application, Posting, ViewName } from "@/lib/types"
 
-const COLUMNS: ReadonlyArray<{ step: Step; title: string; hint: string }> = [
-  { step: "saved", title: "Saved", hint: "Kept, not applied yet" },
-  { step: "applied", title: "Applied", hint: "Waiting to hear" },
-  { step: "interview", title: "Interview", hint: "They want to talk" },
-  { step: "offer", title: "Offer", hint: "An offer or a hire" },
-  { step: "rejected", title: "Closed", hint: "Turned down, no reply, or withdrawn" },
+const COLUMNS: ReadonlyArray<{ step: Step; title: string; hint: string; dot: string }> = [
+  { step: "saved", title: "Saved", hint: "Kept, not applied yet", dot: "#6B645C" },
+  { step: "applied", title: "Applied", hint: "Waiting to hear", dot: "#0A66C2" },
+  { step: "interview", title: "Interview", hint: "They want to talk", dot: "#B4561A" },
+  { step: "offer", title: "Offer", hint: "An offer or a hire", dot: "#1F7A4D" },
+  { step: "rejected", title: "Closed", hint: "Turned down, no reply, or withdrawn", dot: "#6B645C" },
 ]
 
 interface Card {
@@ -175,13 +179,15 @@ export function PipelineBoard({ onOpen, viewName, include }: { onOpen: (post: Po
                   move(card, column.step, "moved on the board").catch(() => undefined)
                 }
               }}
-              className={`min-h-32 flex-col gap-3 rounded-xl max-md:min-h-0 max-md:gap-2 lg:flex lg:min-h-48 lg:border-[1.5px] lg:border-line lg:p-3 ${phone === column.step ? "flex" : "hidden"} ${here.length > 0 ? "max-md:flex" : "max-md:hidden"} ${over === column.step ? "bg-accent ring-2 ring-primary/30" : "lg:bg-secondary/40"}`}
+              className={`min-h-32 flex-col gap-3 rounded-[18px] max-md:min-h-0 max-md:gap-2 lg:flex lg:min-h-[28rem] lg:border-[1.5px] lg:border-dashed lg:border-line lg:p-3 ${phone === column.step ? "flex" : "hidden"} ${here.length > 0 ? "max-md:flex" : "max-md:hidden"} ${over === column.step ? "bg-accent ring-2 ring-brand/30" : "lg:bg-secondary/60"}`}
             >
-              <header className="hidden items-baseline justify-between gap-2 px-1 lg:flex">
-                <div>
-                  <h3 className="text-base font-semibold tracking-tight">{column.title}</h3>
-                </div>
-                <span className="rounded-full bg-card px-2.5 py-0.5 text-sm font-medium tabular-nums">{here.length}</span>
+              <header className="hidden flex-col px-1 lg:flex">
+                <h3 className="flex items-center gap-2 text-base font-extrabold tracking-tight">
+                  <span className="size-2.5 rounded-full" style={{ background: column.dot }} aria-hidden="true" />
+                  {column.title}
+                  <span className="font-bold text-muted-foreground tabular-nums">{here.length}</span>
+                </h3>
+                <span className="pl-[1.125rem] text-xs text-muted-foreground">{column.hint}</span>
               </header>
               {here.length === 0 ? <p className="rounded-xl border-[1.5px] border-dashed px-3 py-8 text-center text-sm text-muted-foreground">Nothing here</p> : null}
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-1">
@@ -199,34 +205,34 @@ export function PipelineBoard({ onOpen, viewName, include }: { onOpen: (post: Po
 
 function JobCard({ card, onOpen, onMove }: { card: Card; onOpen: () => void; onMove: (to: Step, fit: string) => Promise<void> }): React.JSX.Element {
   const { post } = card
+  const data = useData()
   const st = useFit(post)
   const fit = st ? (st.failing === 0 ? "met every requirement" : st.failing === 1 ? "missing one requirement" : "missing several requirements") : ""
   const closed = ENDED.has(card.step)
+  const app = data.applications.find((a) => a.posting_id === post.id)
+  const day = appliedOn(app)
+  const ago = day ? Math.max(0, Math.round((Date.now() - new Date(`${day}T12:00:00Z`).getTime()) / 86_400_000)) : null
+  const follow = followUpOf(app, new Date(), daysOr(data.profile.followUpDays, 7))
+  const canApply = card.step === "saved" && !post.closed_at && Boolean(applySourceOf(sourcesOf(post))?.url)
+  const line = card.step === "saved" ? (post.local ? null : formatAge(post)) : ago !== null ? (ago === 0 ? "Applied today" : `Applied ${ago} ${ago === 1 ? "day" : "days"} ago`) : null
 
   return (
-    <article
-      draggable
-      onDragStart={(e) => e.dataTransfer.setData("text/plain", card.id)}
-      className={`flex cursor-grab flex-col gap-3 rounded-lg border-[1.5px] border-line bg-card p-4 active:cursor-grabbing ${closed ? "opacity-60" : ""}`}
-    >
+    <article draggable onDragStart={(e) => e.dataTransfer.setData("text/plain", card.id)} className={`flex cursor-grab flex-col gap-2.5 rounded-xl border-[1.5px] border-line bg-card p-3.5 active:cursor-grabbing ${closed ? "opacity-70" : ""}`}>
       <button type="button" onClick={onOpen} className="flex cursor-pointer items-start gap-3 text-left">
-        <span className="flex h-9 w-10 shrink-0 items-center justify-center">
-          <CompanyLogo employer={post.employer} name={post.employer_display} size={32} wide={1.4} url={post.url} />
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-card shadow-[0_0_0_1.5px_var(--line)]">
+          <CompanyLogo employer={post.employer} name={post.employer_display} size={28} wide={1.2} url={post.url} />
         </span>
         <span className="min-w-0">
-          <span className="line-clamp-3 block leading-snug font-semibold break-words">{post.title}</span>
-          <span className="block text-[0.95rem]">{post.employer_display}</span>
-          <span className="block text-sm text-muted-foreground">{formatPlace(post.region)}</span>
-          {post.local ? null : <span className={`block text-sm ${formatAge(post) === "Date not shown" ? "text-muted-foreground" : "font-medium text-good-foreground"}`}>{formatAge(post)}</span>}
-          {closed && card.step !== "rejected" ? <span className="block text-sm text-muted-foreground">{STEPS.find((c) => c.step === card.step)?.title}</span> : null}
+          <span className="line-clamp-3 block text-[0.95rem] leading-snug font-extrabold break-words">{post.title}</span>
+          <span className="block text-[0.8125rem] text-muted-foreground">{post.employer_display}</span>
         </span>
       </button>
-      <select
-        aria-label={`Move ${post.title}`}
-        value={columnOf(card.step)}
-        onChange={(e) => onMove(e.target.value as Step, fit).catch(() => undefined)}
-        className="h-9 w-full cursor-pointer rounded-md border-[1.5px] bg-background px-2 text-sm text-foreground"
-      >
+      {line ? <span className="text-xs text-muted-foreground">{closed && card.step !== "rejected" ? `${STEPS.find((c) => c.step === card.step)?.title} · ${line}` : line}</span> : closed && card.step !== "rejected" ? <span className="text-xs text-muted-foreground">{STEPS.find((c) => c.step === card.step)?.title}</span> : null}
+      <div className="flex flex-wrap gap-1.5">
+        {canApply ? <span className="rounded-full bg-accent px-2.5 py-1 text-xs font-extrabold text-[#8A3F10]">Odds can apply</span> : null}
+        {follow && card.step === "applied" ? <span className={`rounded-full px-2.5 py-1 text-xs font-extrabold ${follow.due ? "bg-[#FBE9E6] text-[#9B2C1F]" : "bg-[#E6F0FB] text-[#0A4F96]"}`}>{follow.due ? followUpText(follow) : `Reminder in ${follow.inDays} ${follow.inDays === 1 ? "day" : "days"}`}</span> : null}
+      </div>
+      <select aria-label={`Move ${post.title}`} value={columnOf(card.step)} onChange={(e) => onMove(e.target.value as Step, fit).catch(() => undefined)} className="h-9 w-full cursor-pointer rounded-lg border-[1.5px] border-line bg-card px-2 text-sm font-bold text-foreground">
         {COLUMNS.map((c) => (
           <option key={c.step} value={c.step}>
             {c.title}

@@ -29,12 +29,14 @@ import { syncApplyActivities, syncDriveRuns } from "@/lib/apply-activity"
 import { liveDriveRuns } from "@/lib/drive-runs"
 import { liveApplicationRuns } from "@/lib/application-runs"
 import { LIVE_APPLY_EVENT } from "@/lib/apply-nav"
+import type { WebView } from "@/lib/web-nav"
 
 // Lazy because they carry the form schema. Someone coming back to their
 // account needs neither.
 // Lazy because only someone with an account sees them: the front page a visitor lands on never waits on the app's
 // own menus or the bell, and stays inside its size budget (e2e/lean.spec.ts).
-const AppSidebar = lazy(() => import("@/components/AppShell").then((module) => ({ default: module.AppSidebar })))
+const ApplyPanel = lazy(() => import("@/components/ApplyPanel").then((m) => ({ default: m.ApplyPanel })))
+const AppTopNav = lazy(() => import("@/components/AppShell").then((module) => ({ default: module.AppTopNav })))
 const AppTopBar = lazy(() => import("@/components/AppShell").then((module) => ({ default: module.AppTopBar })))
 const BottomNav = lazy(() => import("@/components/AppShell").then((module) => ({ default: module.BottomNav })))
 const PhoneMore = lazy(() => import("@/components/AppShell").then((module) => ({ default: module.PhoneMore })))
@@ -46,6 +48,8 @@ const SignIn = lazy(() => import("@/components/SignIn").then((module) => ({ defa
 const JobDetail = lazy(() => import("@/components/JobDetail").then((module) => ({ default: module.JobDetail })))
 const Connections = lazy(() => import("@/components/Connections").then((module) => ({ default: module.Connections })))
 const Autofill = lazy(() => import("@/components/Autofill").then((module) => ({ default: module.Autofill })))
+const JobsPage = lazy(() => import("@/components/web/JobsPage").then((m) => ({ default: m.JobsPage })))
+const PeoplePage = lazy(() => import("@/components/web/PeoplePage").then((m) => ({ default: m.PeoplePage })))
 const Documents = lazy(() => import("@/components/Documents").then((module) => ({ default: module.Documents })))
 const ProfilePage = lazy(() => import("@/components/ProfilePage").then((module) => ({ default: module.ProfilePage })))
 const BetaInvitePrompt = lazy(() => import("@/components/BetaInvitePrompt").then((module) => ({ default: module.BetaInvitePrompt })))
@@ -222,6 +226,24 @@ export default function App(): React.JSX.Element {
     return () => window.removeEventListener(LIVE_APPLY_EVENT, on)
   }, [sharedJobId])
 
+  // A page asking for another one (a tracker card opens its job, a Message button opens People).
+  useEffect(() => {
+    const go = (event: Event): void => {
+      const to = (event as CustomEvent<WebView>).detail
+      if (sharedJobId) {
+        history.pushState({}, "", "/")
+        setSharedJobId(null)
+      }
+      setPage(null)
+      if (to === "jobs") setVisits((count) => count + 1)
+      setView(to === "account" ? "account" : to)
+    }
+    window.addEventListener("odds:goto", go)
+
+    return () => window.removeEventListener("odds:goto", go)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharedJobId, view])
+
   // Signing in brings a saved profile down with it: from then on this is someone's account.
   useEffect(() => {
     if (onboarded && view === "journey" && homeVisits === 0 && data.session) {
@@ -245,6 +267,8 @@ export default function App(): React.JSX.Element {
       : wide
         ? "max-w-sm sm:max-w-2xl lg:max-w-6xl"
         : "max-w-sm md:max-w-lg"
+  // Inside the app the pages use the whole width, like the boards they were drawn on.
+  const appColumn = "max-w-sm sm:max-w-2xl md:max-w-[1600px]"
 
 
   /** Back to the front page. The form remounts on the welcome step, which is what the wordmark promises. */
@@ -425,7 +449,15 @@ export default function App(): React.JSX.Element {
 
   // Someone with an account gets the app: a side menu on a laptop or iPad, a tab bar on a phone, no website header.
   const shell = onboarded && !shooReturn && view !== "signin"
-  const activeTab: ShellTab | null = page || sharedJobId ? null : view === "account" || view === "jobs" || view === "tracker" || view === "people" || view === "companies" || view === "connections" || view === "autofill" || view === "documents" || view === "claude" || view === "answers" ? (view === "people" || view === "companies" ? "tracker" : view) : null
+  const activeTab: ShellTab | null = page || sharedJobId ? null : view === "account" || view === "jobs" || view === "tracker" || view === "people" || view === "companies" || view === "connections" || view === "autofill" || view === "documents" || view === "claude" || view === "answers" ? (view === "companies" ? "tracker" : view) : null
+
+  // The sand look belongs to the app: set on <body> while someone is inside it, so the menus and panels that open over the page match.
+  useEffect(() => {
+    if (!shell || embedded) return
+    document.body.classList.add("web")
+
+    return () => document.body.classList.remove("web")
+  }, [shell])
 
   function goTab(tab: ShellTab): void {
     if (page || sharedJobId) {
@@ -448,11 +480,11 @@ export default function App(): React.JSX.Element {
     </Suspense>
   )
   const accountMenu = (
-    <AccountMenu email={isGuestEmail(data.session?.user.email) ? null : (data.session?.user.email ?? null)} guest={isGuestEmail(data.session?.user.email)} profileAvatar={data.profile.avatar || ""} sessionAvatar={data.session?.user.avatar || ""} name={data.profile.name} onDashboard={onboarded ? () => goTab("account") : undefined} onAnswers={() => goTab("answers")} onDocuments={onboarded ? () => goTab("documents") : undefined} onSignIn={() => leaveSharedJob("signin")} onSignOut={handleSignOut} />
+    <AccountMenu email={isGuestEmail(data.session?.user.email) ? null : (data.session?.user.email ?? null)} guest={isGuestEmail(data.session?.user.email)} profileAvatar={data.profile.avatar || ""} sessionAvatar={data.session?.user.avatar || ""} name={data.profile.name} onDashboard={onboarded ? () => goTab("account") : undefined} onAnswers={() => goTab("answers")} onConnect={onboarded ? () => goTab("connections") : undefined} onClaude={onboarded ? () => goTab("claude") : undefined} onSignIn={() => leaveSharedJob("signin")} onSignOut={handleSignOut} />
   )
 
   return (
-    <div className={`flex min-h-svh flex-col bg-background text-foreground ${shell ? "md:pl-60" : ""}`}>
+    <div className="flex min-h-svh flex-col bg-background text-foreground">
       {/* A phone gets its messages at the bottom, over the tab bar, where a thumb can swipe them away. */}
       <Toaster position={phone && shell ? "bottom-center" : "top-center"} closeButton={!phone} mobileOffset={{ bottom: "calc(env(safe-area-inset-bottom) + 80px)" }} />
       {onboarded ? (
@@ -465,7 +497,7 @@ export default function App(): React.JSX.Element {
       {/* Stays at the top, solid brand orange, the same as the footer, so the two bookend the page. */}
       {shell ? (
         <Suspense fallback={null}>
-          <AppSidebar active={activeTab} onNavigate={goTab} onOpenPage={openPage} onHome={() => goTab("account")} wordmark={<Wordmark />} bell={bell} account={accountMenu} loadPages={loadStaticPages} />
+          <AppTopNav active={activeTab} onNavigate={goTab} onHome={() => goTab("account")} wordmark={<Wordmark />} bell={bell} account={accountMenu} />
           <AppTopBar onHome={() => goTab("account")} wordmark={<Wordmark />} bell={bell} />
         </Suspense>
       ) : null}
@@ -509,7 +541,7 @@ export default function App(): React.JSX.Element {
       </header>
       )}
 
-      <main className={`mx-auto flex w-full ${page ? "max-w-5xl" : column} flex-1 flex-col px-5 pt-8 sm:px-6 ${shell ? "pt-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pt-8 md:pb-7" : "pb-7"}`}>
+      <main className={`mx-auto flex w-full ${page ? "max-w-5xl" : shell && !sharedJobId ? appColumn : column} flex-1 flex-col px-5 pt-8 sm:px-6 ${shell ? "pt-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:px-7 md:pt-7 md:pb-7" : "pb-7"}`}>
         {data.status === "loading" ? (
           <JobListSkeleton />
         ) : data.status === "error" ? (
@@ -538,9 +570,21 @@ export default function App(): React.JSX.Element {
           <Suspense fallback={null}>
             {view === "signin" ? <SignIn onCancel={() => back(onboarded ? "account" : "journey")} /> : null}
 
-            {(view === "account" || view === "jobs" || view === "tracker" || view === "people" || view === "companies") && onboarded ? (
+            {view === "people" && onboarded ? (
               <Suspense fallback={<JobListSkeleton />}>
-                <Account page={view === "tracker" || view === "people" || view === "companies" ? view : "home"} onOpenPage={(next) => setView(next === "home" ? "account" : next)} onOpenTab={(tab) => setView(tab)} looking={view === "jobs"} onEdit={() => setView("answers")} onStartLooking={showJobs} onStopLooking={() => setView("account")} onOpenClaude={() => goTab("claude")} />
+                <PeoplePage />
+              </Suspense>
+            ) : null}
+
+            {view === "jobs" && onboarded ? (
+              <Suspense fallback={<JobListSkeleton />}>
+                <JobsPage />
+              </Suspense>
+            ) : null}
+
+            {(view === "account" || view === "tracker" || view === "companies") && onboarded ? (
+              <Suspense fallback={<JobListSkeleton />}>
+                <Account page={view === "tracker" || view === "companies" ? view : "home"} onOpenPage={(next) => setView(next === "home" ? "account" : next)} onOpenTab={(tab) => setView(tab)} onEdit={() => setView("answers")} onStartLooking={showJobs} onOpenClaude={() => goTab("claude")} />
               </Suspense>
             ) : null}
 
@@ -559,7 +603,7 @@ export default function App(): React.JSX.Element {
 
             {view === "autofill" && onboarded ? (
               <Suspense fallback={null}>
-                <Autofill onDocuments={() => setView("documents")} onJobs={showJobs} />
+                <Autofill onDocuments={() => setView("documents")} onJobs={showJobs} onConnect={() => setView("connections")} />
               </Suspense>
             ) : null}
 
@@ -567,7 +611,7 @@ export default function App(): React.JSX.Element {
 
             {view === "documents" && onboarded ? (
               <Suspense fallback={null}>
-                <Documents onBack={() => back("account")} onSignIn={() => setView("signin")} onConnect={() => setView("connections")} />
+                <Documents onSignIn={() => setView("signin")} onConnect={() => setView("connections")} />
               </Suspense>
             ) : null}
 
@@ -590,8 +634,8 @@ export default function App(): React.JSX.Element {
           </Suspense>
         )}
 
-        {view !== "signin" || page ? (
-          <div className={shell ? "hidden md:contents" : "contents"}>
+        {(view !== "signin" || page) && !(shell && !page) ? (
+          <div className="contents">
             <Footer onOpenPage={openPage} />
           </div>
         ) : null}
@@ -618,6 +662,12 @@ export default function App(): React.JSX.Element {
         </Suspense>
       ) : null}
       {embedded ? null : <NotifyPrompt session={data.session} />}
+      {/* In the extension's side panel on a job site: the page in front (insights, Track, Fill with Odds). */}
+      {embedded && data.session ? (
+        <Suspense fallback={null}>
+          <ApplyPanel />
+        </Suspense>
+      ) : null}
       {connectRequest ? (
         <Suspense fallback={null}>
           <ConnectApproval />
@@ -672,13 +722,14 @@ interface AccountMenuProps {
   name: string
   onDashboard?: () => void
   onAnswers: () => void
-  onDocuments?: () => void
+  onConnect?: () => void
+  onClaude?: () => void
   onSignIn: () => void
   onSignOut: () => void
 }
 
 /** The circle in the header: your photo once signed in, and the way to your answers and out. */
-function AccountMenu({ email, guest, profileAvatar, sessionAvatar, name, onDashboard, onAnswers, onDocuments, onSignIn, onSignOut }: AccountMenuProps): React.JSX.Element {
+function AccountMenu({ email, guest, profileAvatar, sessionAvatar, name, onDashboard, onAnswers, onConnect, onClaude, onSignIn, onSignOut }: AccountMenuProps): React.JSX.Element {
   // Controlled so choosing an item closes it; left open it covered the page it opened.
   const [open, setOpen] = useState<boolean>(false)
   // A dead photo URL falls through to the next source, then to the initial.
@@ -702,7 +753,7 @@ function AccountMenu({ email, guest, profileAvatar, sessionAvatar, name, onDashb
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger aria-label="Account menu" className="flex size-11 cursor-pointer items-center justify-center overflow-hidden rounded-full border-[1.5px] border-foreground bg-background font-semibold text-primary">
+      <PopoverTrigger aria-label="Account menu" className="flex size-10 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-brand font-extrabold text-foreground">
         {photo ? (
           <img src={photo} alt="" onError={() => setSkipped((n) => n + 1)} className="size-full object-cover" />
         ) : (
@@ -722,9 +773,14 @@ function AccountMenu({ email, guest, profileAvatar, sessionAvatar, name, onDashb
         <Button variant="ghost" onClick={() => choose(onAnswers)} className="cursor-pointer justify-start">
           Profile and settings
         </Button>
-        {onDocuments ? (
-          <Button variant="ghost" onClick={() => choose(onDocuments)} className="cursor-pointer justify-start">
-            Documents
+        {onConnect ? (
+          <Button variant="ghost" onClick={() => choose(onConnect)} className="cursor-pointer justify-start">
+            Connect
+          </Button>
+        ) : null}
+        {onClaude ? (
+          <Button variant="ghost" onClick={() => choose(onClaude)} className="cursor-pointer justify-start">
+            Claude
           </Button>
         ) : null}
         {email ? null : (
@@ -742,5 +798,5 @@ function AccountMenu({ email, guest, profileAvatar, sessionAvatar, name, onDashb
 
 /** The name on the orange header, all in black so the "o" does not vanish into the orange. The round mark sits by the headline on the front page. */
 function Wordmark(): React.JSX.Element {
-  return <span className="text-[1.75rem] leading-none font-bold tracking-[-0.05em]">odds</span>
+  return <span className="text-[1.75rem] leading-none font-extrabold tracking-[-0.05em]">odds</span>
 }
