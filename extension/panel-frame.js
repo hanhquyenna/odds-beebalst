@@ -30,6 +30,11 @@ function openJob(id, once = false) {
 }
 
 function viewJob(job) {
+  // A job added or opened from a page (its % pressed): the apply card for the page in front shows it (job, Apply, insights), never the
+  // app's home. While Odds is still reading the job, the card says so and fills in once the job is known.
+  jobViewUrl = null
+  // The job the page's button just read: the apply card shows it even before the server's page lookup knows this address.
+  if (job.id) knownJob = { id: job.id, title: job.title || "", employer: job.company || null, url: lastPageUrl }
   if (job.pending) {
     waiting = null
     lastOpened = null
@@ -40,8 +45,12 @@ function viewJob(job) {
   if (!appReady) {
     app.hidden = true
     say(`Opening ${job.title || "job details"}…`)
+    waiting = null
+    showOnReady = true
   } else { app.hidden = false; say("") }
-  openJob(job.id)
+  kitRefresh = Date.now()
+  sendPanelInfo()
+  setTimeout(sendPanelInfo, 2500)
 }
 
 
@@ -82,6 +91,8 @@ window.addEventListener("message", (event) => {
     if (event.data.type === "ready") {
       appReady = true
       if (!app.hidden) say("")
+      // A job added before the app was ready: its apply card now.
+      if (showOnReady) { showOnReady = false; app.hidden = false; say(""); sendPanelInfo() }
       if (waiting) {
         app.hidden = false
         say("")
@@ -130,3 +141,57 @@ pollPhone()
 syncApplyChips()
 setInterval(pollPhone, 5000)
 setInterval(syncApplyChips, 2000)
+
+
+// The page in front, for the odds app's apply view (src/components/ApplyPanel.tsx): the form on it, its job, how filling goes, and at review
+// the form's new answers for Autofill. The app draws it with its own components; its presses come back here (panel-fill, panel-add-job,
+// panel-keep-answers) and go to the background.
+let lastAnswers = { tabId: null, at: 0, items: [] }
+let lastPageUrl = null
+let jobViewUrl = null
+/** When a job was just added from the page: the next panel info asks the server afresh (the new job's card). */
+let kitRefresh = 0
+/** The job a page's button last added or opened, with the address it was for (null until the next panel info says which page). */
+let knownJob = null
+/** A job was added before the app was ready: show the app (its apply card) once it is. */
+let showOnReady = false
+function sendPanelInfo() {
+  chrome.runtime.sendMessage({ type: "panel-apply-info", fresh: Date.now() - kitRefresh < 10000 }, (info) => {
+    if (chrome.runtime.lastError) return
+    let page = info?.page || null
+    if (knownJob && page) {
+      if (!knownJob.url) knownJob.url = page.url
+      if (knownJob.url === page.url && info && !info.job_id) info = { ...info, job_id: knownJob.id, job: { title: knownJob.title, employer: knownJob.employer } }
+      else if (knownJob.url !== page.url) knownJob = null
+    }
+    if (jobViewUrl && (jobViewUrl === "*" || page?.url === jobViewUrl)) { if (jobViewUrl === "*") jobViewUrl = page?.url || "*"; page = null }
+    else jobViewUrl = null
+    lastPageUrl = info?.page?.url || null
+    const state = info?.status?.state
+    const send = (answers) => toApp({ type: "panel-info", info: page ? { ...info, answers } : null })
+    // Two-way Autofill: whenever the page has a form or an application under way (not only at review), the answers on it that Autofill
+    // does not have yet (written by Odds, or typed by the person) are offered to keep.
+    if (page && (page.form || state) && state !== "filling") {
+      if (lastAnswers.tabId === page.tabId && Date.now() - lastAnswers.at < 6000) return send(lastAnswers.items)
+      chrome.runtime.sendMessage({ type: "panel-new-answers", tabId: page.tabId }, (res) => {
+        void chrome.runtime.lastError
+        lastAnswers = { tabId: page.tabId, at: Date.now(), items: res?.items || [] }
+        send(lastAnswers.items)
+      })
+    } else send([])
+  })
+}
+window.addEventListener("message", (event) => {
+  if (event.source !== app.contentWindow || event.origin !== ODDS || event.data?.source !== "odds-site") return
+  const d = event.data
+  if (d.type === "panel-fill" && typeof d.tabId === "number") chrome.runtime.sendMessage({ type: "fill-tab", tabId: d.tabId }, () => { void chrome.runtime.lastError; sendPanelInfo() })
+  if (d.type === "apply-here" && typeof d.tabId === "number" && typeof d.url === "string") chrome.runtime.sendMessage({ type: "apply-here", tabId: d.tabId, url: d.url, postingId: typeof d.postingId === "string" ? d.postingId : null }, () => { void chrome.runtime.lastError; sendPanelInfo() })
+  if (d.type === "panel-account" && typeof d.tabId === "number") chrome.runtime.sendMessage({ type: "panel-account", tabId: d.tabId, create: d.create === true }, () => { void chrome.runtime.lastError; sendPanelInfo() })
+  if (d.type === "panel-add-job" && typeof d.url === "string") chrome.runtime.sendMessage({ type: "panel-add-job", url: d.url }, () => { void chrome.runtime.lastError; sendPanelInfo() })
+  if (d.type === "panel-keep-answers" && typeof d.tabId === "number" && Array.isArray(d.questions)) {
+    chrome.runtime.sendMessage({ type: "panel-keep-answers", tabId: d.tabId, url: null, questions: d.questions }, () => { void chrome.runtime.lastError; lastAnswers = { tabId: null, at: 0, items: [] } })
+  }
+})
+sendPanelInfo()
+setInterval(sendPanelInfo, 2000)
+chrome.tabs?.onActivated?.addListener(() => sendPanelInfo())

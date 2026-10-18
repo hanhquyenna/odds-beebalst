@@ -18,6 +18,7 @@
 @media (prefers-reduced-motion: reduce) { #odds-panel-frame { transition: none; } }
 /* A button floating at the edge steps aside while the panel is open. */
 html[data-odds-panel="open"] #odds-add[data-where="float"] { right: 404px; }
+html[data-odds-panel="open"] #odds-auto[data-where="float"] { right: 404px; }
 
 /* A badge beside a job in a list: as tall as the site's own button or chip beside it (24 to 32px), its corners, compact lettering. */
 .odds-job-chance { all: initial; box-sizing: border-box; position: relative; display: inline-flex; flex: none; align-self: center; align-items: center; justify-content: center; min-width: 50px; height: var(--odds-h, 28px); margin: var(--odds-m, 4px 8px 4px 0); padding: 0 10px; border: 1.5px solid #a39d95; border-radius: var(--odds-r, 8px); background: #fff; color: #161513; font: 600 var(--odds-fs, 13px)/1 "odds Inter Tight", system-ui, sans-serif; gap: 6px; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; vertical-align: middle; z-index: 2; transition: background .15s, border-color .15s; }
@@ -48,3 +49,6 @@ html[data-odds-panel="open"] #odds-add[data-where="float"] { right: 404px; }
 #odds-add[data-state="problem"], .odds-job-chance[data-state="problem"] { color: #6b665f; border-style: dashed; border-color: #a39d95; background: #fff; }
 .odds-job-chance:focus-visible, #odds-add:focus-visible { outline: 2px solid #f37a12; outline-offset: 2px; }
 #odds-add[data-where="float"] { background: #fff; box-shadow: 0 2px 10px rgba(22, 21, 19, .14); }
+
+/* The chance chip stays quiet: a soft line, no strong fill. The mascot, its bar and the Auto apply pill draw themselves inside shadow roots (mascot.js, content-job.js). */
+#odds-add, .odds-job-chance { border-color: #D9D2C8; color: #1C1A18; }

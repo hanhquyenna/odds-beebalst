@@ -25,7 +25,7 @@
     let done = false
     const finish = () => { if (!done) { done = true; resolve() } }
     setTimeout(finish, ms)
-    if (document.hidden && ms >= 50) chrome.runtime.sendMessage({ type: "odds-sleep", ms }).then(finish, () => undefined)
+    if (document.hidden) chrome.runtime.sendMessage({ type: "odds-sleep", ms }).then(finish, () => undefined)
   })
   /** Never hang forever if the service worker never calls back (that froze Easy Apply in silence). */
   const ask = (message, ms = 20000) => new Promise((resolve) => {
@@ -116,6 +116,7 @@
     if (setter) setter.call(el, value)
     else el.value = value
     for (const name of ["input", "change", "blur"]) el.dispatchEvent(new Event(name, { bubbles: true }))
+    el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }))
   }
 
   /** Answers one question from what odds knows; false when it does not know or none of the options fits. */
@@ -608,7 +609,7 @@
       const results = []
       for (const it of (Array.isArray(args.fields) ? args.fields.slice(0, 40) : [])) {
         const q = driveQs.get(it?.id)
-        const value = typeof it?.value === "string" ? it.value.slice(0, 2000) : ""
+        let value = typeof it?.value === "string" ? it.value.slice(0, 2000) : ""
         if (!q || !(Array.isArray(q.el) ? q.el[0] : q.el)?.isConnected) { results.push({ id: it?.id, ok: false, error: "field gone, read_page again" }); continue }
         if (q.kind === "checkbox") {
           // Consent yes (the person's choice in Odds): Broods may tick it.

@@ -175,10 +175,11 @@ async function cvFile(doc) {
 const PREPARED_MS = 120_000
 const kits = new Map()
 const cvFiles = new Map()
-function kitFor(url, fresh = false) {
+function kitFor(url, fresh = false, hints = {}) {
   const hit = kits.get(url)
   if (!fresh && hit && Date.now() - hit.at < PREPARED_MS) return hit.promise
-  const promise = ext("apply-kit", { method: "POST", body: JSON.stringify({ url }) })
+  // hints: the page's title and the job Odds started from, so an employer's own form is known as the job (server: formJob).
+  const promise = ext("apply-kit", { method: "POST", body: JSON.stringify({ url, ...hints }) })
   kits.set(url, { at: Date.now(), promise })
   promise.then((kit) => {
     const doc = kit?.cv?.id
@@ -349,6 +350,119 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return true
   }
   // A page asking whether it was opened to apply: the job it is for, while that is fresh (the tab's own, or the one that opened it).
+  // "Fill with Odds" pressed on a form the person opened themselves: this tab becomes an application (the job is saved in the tracker),
+  // Broods fills the page in front of them, and each page they move to is filled the same way (mode copilot).
+  // The toolbar's "Fill with Odds": the page in front fills; a page Odds' script is not on yet (opened before a reload) gets it first.
+  // The side panel's apply card: the page in front, the job Odds knows it as, what Odds will use, and how the filling is going.
+  if (message?.type === "panel-apply-info") {
+    ;(async () => {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+      const url = tab?.url || ""
+      if (!tab || typeof tab.id !== "number" || !/^https:/.test(url) || /^https:\/\/(odds\.beeblast\.co|accounts\.google\.com|claude\.ai)/.test(url)) return reply({ page: null })
+      const intent = await intentOf(tab.id)
+      let kit = await Promise.race([kitFor(url, message.fresh === true).catch(() => null), new Promise((r) => setTimeout(() => r(null), 5000))])
+      // A page Odds does not hold as a job (an employer's own form): asked once more with its title and the job the tab applies for.
+      if (kit && !kit.job_id && !kitHinted.has(url) && (tab.title || intent?.postingId)) {
+        kitHinted.add(url)
+        kit = await Promise.race([kitFor(url, true, { title: String(tab.title || "").slice(0, 200), posting_id: intent?.postingId || null }).catch(() => kit), new Promise((r) => setTimeout(() => r(kit), 6000))])
+      }
+      const kind = await pageKindOf(tab.id)
+      // Still no job: a job page is read from the page and kept for everyone, then asked about again (the card fills in by itself).
+      if (kit && kit.status !== "connect" && !kit.job_id && !["captcha", "create_account", "sign_in"].includes(kind) && !enrichTried.has(url)) {
+        const done = await Promise.race([enrichFromPage(tab.id, url, kind).catch(() => false), new Promise((r) => setTimeout(() => r(false), 9000))])
+        if (done) kit = await Promise.race([kitFor(url, true, { title: String(tab.title || "").slice(0, 200), posting_id: intent?.postingId || null }).catch(() => kit), new Promise((r) => setTimeout(() => r(kit), 6000))])
+      }
+      const account = await siteAccount(new URL(url).hostname)
+      const facts = kit?.facts || {}
+      const answers = facts.answers || {}
+      const has = (...keys) => keys.some((k) => typeof (facts[k] ?? answers[k]) === "string" && String(facts[k] ?? answers[k]).trim())
+      const missing = [
+        !has("phone") && "Phone", !has("place", "city") && "City", !has("street", "address", "address_line") && "Street address",
+        !has("postcode", "postal_code", "zip") && "Postcode", !has("linkedin") && "LinkedIn", !has("dutch") && "Dutch level",
+        !kit?.cv && "CV",
+      ].filter(Boolean)
+      reply({
+        page: { tabId: tab.id, url, title: String(tab.title || "").slice(0, 160), form: formTabs.has(tab.id) || kind === "form", kind, account: Boolean(account) },
+        connected: Boolean(kit && kit.status !== "connect"),
+        job: kit?.job_title ? { title: kit.job_title, employer: kit.job_employer || null } : null,
+        job_id: kit?.job_id || null,
+        cv: kit?.cv ? kit.cv.name || kit.cv.file_name : null,
+        letter: kit?.letter ? kit.letter.name || kit.letter.file_name : null,
+        missing,
+        status: intent ? { state: intent.status || "filling", message: String(intent.message || "").slice(0, 200) } : null,
+      })
+    })().catch(() => reply({ page: null }))
+    return true
+  }
+  // The side panel: add the page's job to the person's Odds jobs; read the new answers on the form (Save to Autofill).
+  if (message?.type === "panel-add-job" && typeof message.url === "string") {
+    addJob(message.url).then((res) => { kits.delete(message.url); reply(res) }).catch(() => reply({ status: "error" }))
+    return true
+  }
+  if (message?.type === "panel-new-answers" && typeof message.tabId === "number") {
+    chrome.tabs.sendMessage(message.tabId, { type: "odds-new-answers" }, { frameId: 0 }).then((res) => reply(res || { items: [] })).catch(() => reply({ items: [] }))
+    return true
+  }
+  if (message?.type === "panel-keep-answers" && typeof message.tabId === "number" && Array.isArray(message.questions)) {
+    const questions = message.questions.slice(0, 40).filter((q) => typeof q?.question === "string" && typeof q?.answer === "string").map((q) => ({ question: q.question.slice(0, 500), answer: q.answer.slice(0, 1000) }))
+    ext("answers", { method: "POST", body: JSON.stringify({ questions, url: typeof message.url === "string" ? message.url : null }) }).then((res) => {
+      chrome.tabs.sendMessage(message.tabId, { type: "odds-answers-kept", questions }, { frameId: 0 }).catch(() => undefined)
+      reply(res)
+    }).catch(() => reply({ error: true }))
+    return true
+  }
+  // The side panel's Apply on a job page: the application opens in this same tab and is filled there, step by step (like Simplify).
+  if (message?.type === "apply-here" && typeof message.tabId === "number" && typeof message.url === "string" && /^https:\/\//.test(message.url)) {
+    applyHere(message.tabId, message.url, typeof message.postingId === "string" ? message.postingId : null).then(reply).catch(() => reply({ ok: false }))
+    return true
+  }
+  // The orange Auto apply pill on a job page: same as the panel's Apply, for the tab the pill is in.
+  if (message?.type === "auto-apply" && sender.tab && typeof sender.tab.id === "number") {
+    const url = /^https:\/\//.test(String(message.url || "")) ? String(message.url) : String(sender.tab.url || "")
+    if (!/^https:\/\//.test(url)) { reply({ ok: false }); return true }
+    applyHere(sender.tab.id, url, null).then(reply).catch(() => reply({ ok: false }))
+    return true
+  }
+  if (message?.type === "fill-tab" && typeof message.tabId === "number") {
+    fillTab(message.tabId).then((ok) => reply({ ok }))
+    return true
+  }
+  // The page showed a form after all: a "closed" stop on this tab was read too early and is dropped.
+  if (message?.type === "drop-closed" && sender.tab && typeof sender.tab.id === "number") {
+    changeIntents((all) => { if (all[sender.tab.id] && /no longer takes applications/i.test(String(all[sender.tab.id].message || ""))) delete all[sender.tab.id] }).then(() => reply({ ok: true }))
+    return true
+  }
+  // What the page in front is (job / create_account / sign_in / captcha / form), for the side panel's one button.
+  if (message?.type === "page-kind" && sender.tab && typeof sender.tab.id === "number" && sender.frameId === 0) {
+    pageKinds.set(sender.tab.id, message.kind || null)
+    reply({ ok: true })
+    return true
+  }
+  // Create account & Autofill / Sign in & Autofill from the side panel: the person's email and a password Odds makes for this site
+  // (kept in this Chrome only), then the application is filled in this tab once the account step is past.
+  if (message?.type === "panel-account" && typeof message.tabId === "number") {
+    accountInTab(message.tabId, message.create === true).then(reply).catch(() => reply({ ok: false }))
+    return true
+  }
+  // The page found an application form (or lost it): the toolbar icon says so with a pulsing orange "Fill".
+  if (message?.type === "form-here" && sender.tab && typeof sender.tab.id === "number" && sender.frameId === 0) {
+    if (message.on) formIsHere(sender.tab.id)
+    else formGone(sender.tab.id)
+    reply({ ok: true })
+    return true
+  }
+  if (message?.type === "copilot-start" && sender.tab && typeof sender.tab.id === "number") {
+    const tabId = sender.tab.id
+    const url = String(message.url || sender.tab.url || "").slice(0, 2000)
+    ;(async () => {
+      const held = await intentOf(tabId)
+      if (!held) await setIntent(tabId, { job: url, title: String(message.title || "").slice(0, 200), at: Date.now(), status: "filling", message: "Filling this page…", copilot: true, followed: false })
+      else await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], copilot: true, paused: false, at: Date.now() } })
+      addJob(url).catch(() => undefined)
+      reply({ ok: true })
+    })().catch(() => reply({ ok: false }))
+    return true
+  }
   if (message?.type === "apply-intent" && sender.tab && typeof sender.tab.id === "number") {
     intentOf(sender.tab.id).then((intent) => reply({ intent }))
     return true
@@ -404,7 +518,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
             stop = `Odds could not open the application form after assist: it kept landing on ${where.slice(0, 120)} without an application form. Open the job yourself and Odds fills it in.`
             all[tabId] = { ...intent, hunt: { ...hunt, visits: keep, loads }, status: "needs_input", message: stop, stopped: true, at: Date.now() }
           } else all[tabId] = { ...intent, hunt: { ...hunt, visits: keep, loads } }
-        } else if (message.op === "form" && applicationPage(tabUrl)) {
+        } else if (message.op === "form" && applicationPage(tabUrl) && !boardPage(tabUrl)) {
           // A real form: the search and the loop count start over (forms that reload the same address on every step are fine).
           all[tabId] = { ...intent, formSeen: true, stopped: false, hunt: { ...hunt, tries: 0, visits: {}, loads: 0 } }
           learn = intent.postingId || (intent.job ? `job:${jobKeyOf(intent.job, null)}` : "")
@@ -468,7 +582,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       if (pending) { pending.then((res) => reply(res)).catch(() => reply(null)); return true }
     }
     const body = message.op === "start"
-      ? { url: String(message.url || ""), page: String(message.page || ""), run_id: typeof message.run_id === "string" ? message.run_id : null, recipe_attempts: message.recipe_attempts || [], tab_id: tabId, ...(message.ready === true ? { ready: true } : {}) }
+      ? { url: String(message.url || ""), page: String(message.page || ""), run_id: typeof message.run_id === "string" ? message.run_id : null, recipe_attempts: message.recipe_attempts || [], tab_id: tabId, ...(message.ready === true ? { ready: true } : {}), ...(message.copilot === true ? { copilot: true } : {}), ...(message.odds_filled && typeof message.odds_filled === "object" ? { odds_filled: message.odds_filled } : {}) }
       : message.op === "playbook" ? { page: String(message.page || "") }
       : message.op === "next" ? { run_id: message.run_id, fresh: message.fresh === true, hold: message.hold === true, tab_id: tabId }
       : message.op === "continue" ? { run_id: message.run_id }
@@ -583,7 +697,8 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   }
   // Applying: what the form needs, the person's own answers kept, the job marked applied, their CV for the upload.
   if (message?.type === "apply-kit" && typeof message.url === "string") {
-    kitFor(message.url).then(reply)
+    // Always an answer: a failed fetch is "error" (the page retries), never silence the page would read as "not connected".
+    kitFor(message.url).then(reply).catch(() => { kits.delete(message.url); reply({ status: "error", message: "odds did not answer." }) })
     return true
   }
   if (message?.type === "application-questions" && sender.tab && typeof message.url === "string") {
@@ -832,6 +947,32 @@ async function revealApplicationTab(tabId, revealFocus) {
     await chrome.windows.update(tab.windowId, { focused: true, drawAttention: true }).catch(() => undefined)
   }
 }
+/**
+ * A form Odds filled is ready for the person's check and Submit, or needs them (a question, a sign-in): a Chrome notification, once per
+ * change, unless they are already looking at that tab. Clicking it brings the filled tab forward. Odds never sends the application.
+ */
+async function notifyApplication(tabId, title, status, message) {
+  if (!chrome.notifications?.create) return
+  const tab = await chrome.tabs.get(tabId).catch(() => null)
+  if (!tab) return
+  const focused = await chrome.windows.getLastFocused().catch(() => null)
+  if (tab.active && focused?.focused && focused.id === tab.windowId) return
+  const job = String(title || tab.title || "your application").replace(/\s+/g, " ").trim().slice(0, 80)
+  await chrome.notifications.create(`odds-tab-${tabId}`, {
+    type: "basic",
+    iconUrl: chrome.runtime.getURL("icons/icon-128.png"),
+    title: status === "ready" ? "Ready to send: check it and press Submit" : "Odds needs you to carry on",
+    message: status === "ready" ? job : `${job}: ${String(message || "").replace(/\s+/g, " ").slice(0, 120)}`,
+    priority: 1,
+  })
+}
+chrome.notifications?.onClicked.addListener((id) => {
+  const m = /^odds-tab-(\d+)$/.exec(id)
+  if (m) revealApplicationTab(Number(m[1]), true).catch(() => undefined)
+  chrome.notifications.clear(id).catch?.(() => undefined)
+})
+chrome.tabs.onRemoved.addListener((tabId) => { chrome.notifications?.clear(`odds-tab-${tabId}`).catch?.(() => undefined) })
+
 /** Content scripts die on extension reload; reinject so Continue can talk to the same tab without wiping the form. */
 async function injectApplyScripts(tabId) {
   const tab = await chrome.tabs.get(tabId).catch(() => null)
@@ -845,8 +986,8 @@ async function injectApplyScripts(tabId) {
     return true
   }
   const files = linkedin
-    ? ["job-sites.js", "site-dom.js", "panel.js", "content-job.js", "application-handoff.js", "apply.js"]
-    : ["job-sites.js", "site-dom.js", "panel.js", "content-job.js", "application-handoff.js", "apply-any.js"]
+    ? ["job-sites.js", "site-dom.js", "panel.js", "content-job.js", "mascot.js", "application-handoff.js", "apply.js"]
+    : ["job-sites.js", "site-dom.js", "panel.js", "content-job.js", "mascot.js", "application-handoff.js", "apply-any.js"]
   await chrome.scripting.executeScript({ target: { tabId }, files }).catch(() => undefined)
   await chrome.scripting.insertCSS({ target: { tabId }, files: ["content-job.css"] }).catch(() => undefined)
   return true
@@ -916,6 +1057,11 @@ const NOT_APPLICATION = /(^|\.)(broods\.app|beeblast\.co|claude\.ai|anthropic\.c
 function applicationPage(url) {
   try { const u = new URL(url); return u.protocol === "https:" && !NOT_APPLICATION.test(u.hostname) } catch { return false }
 }
+/** A job board's own pages (Glassdoor's search results, a LinkedIn or Indeed list): never "where this job's application is" — their search box looks like a form. */
+const JOB_BOARD_HOST = /(^|\.)(glassdoor|indeed|linkedin|magnet\.me|stepstone|monsterboard|nationalevacaturebank|werkzoeken|jobbird)\./i
+function boardPage(url) {
+  try { return JOB_BOARD_HOST.test(new URL(url).hostname) } catch { return false }
+}
 /** The employer's own form for a job listed on a board, from the server (Promise of a URL or null; never waits more than 4 s). */
 async function directApplyUrl(url) {
   const kit = await Promise.race([kitFor(url).catch(() => null), new Promise((r) => setTimeout(() => r(null), 4000))])
@@ -926,7 +1072,8 @@ async function learnedApplyUrl(postingId, job) {
   if (!postingId && !job) return null
   const { oddsLearnedApply = {} } = await chrome.storage.local.get("oddsLearnedApply")
   const url = (postingId && oddsLearnedApply[postingId]?.url) || (job && oddsLearnedApply[`job:${jobKeyOf(job, null)}`]?.url)
-  return typeof url === "string" && applicationPage(url) ? url : null
+  // (a board's page learned by an older build — Glassdoor's search results — is ignored, not followed)
+  return typeof url === "string" && applicationPage(url) && !boardPage(url) ? url : null
 }
 /** Tabs Odds itself is sending somewhere right now (opening the job, apply-go): their next navigation is the application's own. */
 const oddsNavigating = new Set()
@@ -1061,19 +1208,23 @@ function openApplication(url, from, opts = {}) {
     // New application: in the Odds window — a separate Chrome window, opened without focus, where Broods works in the open (the person can
     // glance at it) while their own window is never touched. Its tab is the visible one in that window, which is what lets Broods see it.
     // Intent MUST be stored before the job URL loads — otherwise apply.js asks apply-intent too early and never watches Closed.
-    const windowId = await oddsWindow(reveal)
+    // The person's own press (the app or the panel): the application opens as a visible tab next to the one they pressed in, and comes to
+    // the front, like Simplify. Chrome slows a hidden window's tabs to a crawl, which stalled runs ("the tab stopped answering"); the
+    // Odds window stays for applications nobody is watching (queued from the phone).
+    const personWindow = from && typeof from.windowId === "number" ? from.windowId : null
+    const windowId = personWindow ?? await oddsWindow(reveal)
     // Visible only inside the Odds window; if Odds had to fall back to the person's own window, the tab opens behind (never takes it over).
     const { oddsRunWindow: ownWindow } = await chrome.storage.session.get("oddsRunWindow").catch(() => ({}))
     const tab = typeof windowId === "number"
-      ? await chrome.tabs.create({ windowId, url: "about:blank", active: windowId === ownWindow || reveal })
+      ? await chrome.tabs.create({ windowId, url: "about:blank", active: personWindow !== null || windowId === ownWindow || reveal, ...(personWindow !== null && typeof from.index === "number" ? { index: from.index + 1 } : {}) })
       : (await chrome.windows.create({ url: "about:blank", focused: reveal, type: "normal" })).tabs?.[0]
     const tabId = tab?.id
     if (typeof tabId !== "number") return { ok: false, message: "Could not open an application tab." }
-    await setIntent(tabId, { job: applyUrl, postingId, at: Date.now(), status: "filling", message: "Opening the application…" })
+    await setIntent(tabId, { job: applyUrl, postingId, at: Date.now(), status: "filling", message: "Opening the application…", ...(personWindow !== null ? { foreground: true } : {}) })
     // Where this application was found last time (the employer's real form), straight away; the job's own link otherwise.
     // Where this application was found before, here or by anyone (the server's apply link): past the board's captcha and sign-in walls.
     const learned = await learnedApplyUrl(postingId, applyUrl) || await directApplyUrl(applyUrl)
-    await oddsGo(tabId, learned || applyUrl, { active: reveal }).catch(() => undefined)
+    await oddsGo(tabId, learned || applyUrl, { active: reveal || personWindow !== null }).catch(() => undefined)
     // Person asked to look: bring the new tab's window forward too.
     if (reveal) await revealApplicationTab(tabId, true)
     // Applying keeps the job in the person's tracker, in the same click.
@@ -1083,12 +1234,165 @@ function openApplication(url, from, opts = {}) {
   applicationStarts.set(job, opening)
   return opening
 }
+/**
+ * Apply in the person's own tab (the side panel's Apply on a job page): no new tab or window. The tab holds the application (copilot:
+ * Odds presses Next itself, stops before Submit) and goes to the employer's form, or to the job's page where Odds finds Apply.
+ */
+async function applyHere(tabId, url, postingId) {
+  if (!await savedKey()) return { ok: false, message: "Connect Odds from the extension icon first." }
+  const applyUrl = preferEnglishApplyUrl(url)
+  await setIntent(tabId, { job: applyUrl, postingId, at: Date.now(), status: "filling", message: "Opening the application…", copilot: true, here: true })
+  const learned = await learnedApplyUrl(postingId, applyUrl) || await directApplyUrl(applyUrl)
+  const target = learned || applyUrl
+  const tab = await chrome.tabs.get(tabId).catch(() => null)
+  if (tab?.url && tab.url.split("#")[0] === target.split("#")[0]) await continueInTab(tabId)
+  else await oddsGo(tabId, target, { active: true }).catch(() => undefined)
+  addJob(applyUrl).catch(() => undefined)
+  return { ok: true }
+}
+/** Pages already read for a job this load (address → true), so a page Odds cannot read is not tried again on every look. */
+const enrichTried = new Set()
+/**
+ * A job page Odds does not hold, read from the page itself (what it tells search engines, else its title and text) and kept for everyone, so the
+ * panel's job card is filled without the person pressing anything. Not kept for the person: Track does that. Returns true when Odds now holds it.
+ */
+async function enrichFromPage(tabId, url, kind) {
+  if (enrichTried.has(url)) return false
+  enrichTried.add(url)
+  const [read] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const meta = (n) => document.querySelector(`meta[property="${n}"],meta[name="${n}"]`)?.content || ""
+      const main = document.querySelector("main,[role=main],article") || document.body
+      return {
+        ld: [...document.querySelectorAll('script[type="application/ld+json"]')].map((s) => s.textContent.slice(0, 200000)),
+        h1: (document.querySelector("h1")?.innerText || "").trim(),
+        og: meta("og:title").trim(),
+        doc: (document.title || "").trim(),
+        company: meta("og:site_name").trim(),
+        text: (main.innerText || "").trim().slice(0, 30000),
+      }
+    },
+  }).then((r) => r || []).catch(() => [])
+  const found = read?.result
+  if (!found) return false
+  const S = globalThis.oddsSites
+  let posting = null
+  for (const block of found.ld) {
+    try { const p = S.postingFrom(JSON.parse(block)); if (S.postingUsable(p)) { posting = p; break } } catch { /* next block */ }
+  }
+  const readable = found.text.length >= 400 && /\b(apply|sollicit\w*|bewerb\w*)\b/i.test(found.text)
+  if (!posting && readable) {
+    // The heading, unless it is a site-wide one ("Careers", "Contact us", a browser warning): then the title the page gives search engines.
+    const norm = (t) => t.toLowerCase().replace(/[^a-z0-9]/g, "")
+    const others = [found.og, found.doc].map(norm)
+    const h1 = found.h1 && norm(found.h1).length >= 4 && others.some((o) => o.includes(norm(found.h1))) ? found.h1 : ""
+    const whole = (h1 || found.og || found.doc).trim()
+    // "Job Application for Analyst at Examplepay", "Analyst at Examplepay", "Analyst | Examplepay", "Examplepay Analyst | SmartRecruiters".
+    const at = /^(?:job application for\s+)?(.+?)\s+at\s+([^|–—-]+?)\s*$/i.exec(whole) || /^(?:job application for\s+)?(.+?)\s+at\s+([^|–—-]+?)\s*$/i.exec(found.doc)
+    const title = (at ? at[1] : whole.split(/\s+[|–—-]\s+/)[0] || whole).replace(/^job application for\s+/i, "").trim()
+    const host = new URL(url).hostname.replace(/^(www|careers?|jobs?|werkenbij|apply)\./i, "").split(".")[0] || ""
+    const company = found.company || (at ? at[2].trim() : "") || (/(greenhouse|lever|workday|myworkdayjobs|smartrecruiters|ashbyhq|recruitee|teamtailor)/i.test(host) ? "" : host.replace(/^./, (c) => c.toUpperCase()))
+    if (title && company) {
+      posting = { title: title.slice(0, 300), company: company.slice(0, 200), location: "", description: found.text, posted: null, valid: null, logo: null, employment: null }
+      if (!S.postingUsable(posting)) posting = null
+    }
+  }
+  // Nothing readable in the page but it is a job page (an Apply button, a real text): odds reads it itself (its own request, then Apify's page reader), once.
+  if (!posting && !(kind === "job" && found.text.length >= 400) && !/\.myworkdayjobs\.com$/i.test(new URL(url).hostname)) return false
+  if (posting) posting = { ...posting, title: posting.title.replace(/&amp;/g, "&").replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"'), company: posting.company.replace(/&amp;/g, "&") }
+  const answer = await addJob(url, true, posting ? postingOf({ posting }) : null)
+  return answer?.status === "added" || answer?.status === "exists"
+}
+/** Pages already asked about with their title (panel-apply-info). */
+const kitHinted = new Set()
+/** What each tab's page is, as its script last said (page-kind). */
+const pageKinds = new Map()
+chrome.tabs.onRemoved.addListener((tabId) => pageKinds.delete(tabId))
+/** The page's kind, asked live (falls back to the last report). */
+async function pageKindOf(tabId) {
+  const ask = () => Promise.race([chrome.tabs.sendMessage(tabId, { type: "odds-page-kind" }, { frameId: 0 }).catch(() => null), new Promise((r) => setTimeout(() => r(null), 1200))])
+  let live = await ask()
+  // A tab opened before Odds was updated still runs the old script (or none): Odds' script is put on it once, then asked again.
+  if (!(live && "kind" in live) && !kindInjected.has(tabId)) {
+    kindInjected.add(tabId)
+    const tab = await chrome.tabs.get(tabId).catch(() => null)
+    if (tab?.url && /^https:/.test(tab.url) && !/linkedin\.com/i.test(tab.url) && applicationPage(tab.url)) {
+      await injectApplyScripts(tabId)
+      await new Promise((r) => setTimeout(r, 500))
+      live = await ask()
+    }
+  }
+  if (live && "kind" in live) { pageKinds.set(tabId, live.kind || null); return live.kind || null }
+  return pageKinds.get(tabId) ?? null
+}
+const kindInjected = new Set()
+chrome.tabs.onUpdated.addListener((tabId, change) => { if (change.status === "loading") kindInjected.delete(tabId) })
+/** A strong password with every kind of character sites ask for (upper, lower, digit, special), 16 long. */
+function makePassword() {
+  const sets = ["ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnpqrstuvwxyz", "23456789", "!@#$%&*?"]
+  const all = sets.join("")
+  const rnd = (n) => crypto.getRandomValues(new Uint32Array(1))[0] % n
+  const chars = sets.map((set) => set[rnd(set.length)])
+  while (chars.length < 16) chars.push(all[rnd(all.length)])
+  for (let i = chars.length - 1; i > 0; i--) { const j = rnd(i + 1); [chars[i], chars[j]] = [chars[j], chars[i]] }
+  return chars.join("")
+}
+/** The account Odds made on a site (by host), kept in this Chrome only, never sent to the server. */
+async function siteAccount(host) {
+  const { oddsAccounts = {} } = await chrome.storage.local.get("oddsAccounts")
+  return oddsAccounts[host] || null
+}
+async function accountInTab(tabId, create) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null)
+  if (!tab?.url || !/^https:/.test(tab.url)) return { ok: false }
+  const host = new URL(tab.url).hostname
+  const kit = await Promise.race([kitFor(tab.url).catch(() => null), new Promise((r) => setTimeout(() => r(null), 5000))])
+  const email = String(kit?.facts?.email || "")
+  if (!email) return { ok: false, message: "Add your email in Odds first." }
+  let account = await siteAccount(host)
+  if (create && !account) {
+    account = { email, password: makePassword(), at: Date.now() }
+    await chrome.storage.local.get("oddsAccounts").then(({ oddsAccounts = {} }) => chrome.storage.local.set({ oddsAccounts: { ...oddsAccounts, [host]: account } }))
+  }
+  // The tab holds the application from here: once the account step is past, Odds fills every page up to Submit.
+  const held = await intentOf(tabId)
+  if (!held) await setIntent(tabId, { job: tab.url, title: String(tab.title || "").slice(0, 200), at: Date.now(), status: "filling", message: create ? "Creating your account…" : "Signing in…", copilot: true, here: true })
+  else await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], copilot: true, here: true, paused: false, driveRun: undefined, at: Date.now() } })
+  if (!held) addJob(tab.url).catch(() => undefined)
+  const res = await chrome.tabs.sendMessage(tabId, { type: "odds-account", email: account?.email || email, password: account?.password || "", create }, { frameId: 0 }).catch(() => null)
+  return { ok: Boolean(res?.ok), pressed: Boolean(res?.pressed) }
+}
+/** A new tab's first real address (window.open often starts at about:blank). */
+async function firstUrlOf(tabId, ms = 6000) {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    const t = await chrome.tabs.get(tabId).catch(() => null)
+    if (!t) return null
+    const url = t.pendingUrl || t.url || ""
+    if (/^https:\/\//.test(url)) return url
+    await new Promise((r) => setTimeout(r, 150))
+  }
+  return null
+}
 // A tab opened by a tab that was applying (the employer's application in a new tab) is applying too.
 chrome.tabs.onCreated.addListener((tab) => {
   const from = typeof tab.openerTabId === "number" ? followFrom.get(tab.openerTabId) : null
   if (!from || Date.now() - from.at >= 30_000 || typeof tab.id !== "number") return
   const opener = tab.openerTabId
   const tabId = tab.id
+  // Applying in the person's own tab: the site's new tab is folded back into it (same tab all the way, like Simplify).
+  if (from.here && typeof opener === "number") {
+    void (async () => {
+      const url = await firstUrlOf(tabId)
+      if (!url) return
+      followFrom.delete(opener)
+      await setIntent(opener, { ...from, at: Date.now(), followed: true, status: "filling", message: "Opening the employer’s application…" })
+      await chrome.tabs.remove(tabId).catch(() => undefined)
+      await oddsGo(opener, url, { active: true }).catch(() => undefined)
+    })()
+    return
+  }
   // MUST await intent before apply-any asks apply-intent — otherwise fill never starts (silent empty form).
   void (async () => {
     await setIntent(tabId, { ...from, at: Date.now(), followed: true, status: "filling", message: "Opening the employer’s application…" })
@@ -1099,7 +1403,7 @@ chrome.tabs.onCreated.addListener((tab) => {
       chrome.tabs.remove(opener).catch(() => undefined)
     }
     // Keep fill running in the background (Apply with Odds); do not steal focus.
-    if (tab.active) chrome.tabs.update(tabId, { active: false }).catch(() => undefined)
+    if (tab.active && !from.foreground) chrome.tabs.update(tabId, { active: false }).catch(() => undefined)
     // Wake apply-any if it loaded before intent was written.
     chrome.tabs.sendMessage(tabId, { type: "application-continue" }).catch(() => undefined)
   })()
@@ -1123,9 +1427,49 @@ chrome.runtime.onStartup.addListener(updateToolbar)
 chrome.storage.onChanged.addListener(changes => { if (changes[KEY]) updateToolbar() })
 chrome.action.onClicked.addListener(tab => {
   if (typeof tab.id !== "number") return
+  // Only fires without a popup (the manifest sets one: its Fill with Odds button fills the page in front). Fallback: the side panel.
   chrome.sidePanel.open({ tabId: tab.id }).catch(() => undefined)
   allowOddsInTab(tab.id).catch(() => undefined)
 })
+
+/** Fill with Odds in a tab: the application there is filled to the end (Submit stays the person's). Odds' script is put on first if missing. */
+async function fillTab(tabId) {
+  const tell = () => chrome.tabs.sendMessage(tabId, { type: "odds-fill-now" }, { frameId: 0 })
+  let res = await tell().catch(() => null)
+  if (!res?.ok) {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["job-sites.js", "site-dom.js", "panel.js", "content-job.js", "mascot.js", "application-handoff.js", "apply-any.js"] }).catch(() => undefined)
+    await new Promise((r) => setTimeout(r, 400))
+    res = await tell().catch(() => null)
+  }
+  return Boolean(res?.ok)
+}
+
+/** Tabs whose page holds an application form: the toolbar icon pulses an orange "Fill" there for a few seconds, then stays. */
+const formTabs = new Map()
+function formIsHere(tabId) {
+  if (formTabs.has(tabId)) return
+  chrome.action.setBadgeText({ tabId, text: "Fill" }).catch(() => undefined)
+  chrome.action.setBadgeTextColor?.({ tabId, color: "#ffffff" })?.catch?.(() => undefined)
+  chrome.action.setTitle({ tabId, title: "Fill with Odds: fills the application on this page (you press Submit)" }).catch(() => undefined)
+  let on = true
+  let beats = 0
+  const timer = setInterval(() => {
+    on = !on
+    chrome.action.setBadgeBackgroundColor({ tabId, color: on ? "#f2802a" : "#c65b00" }).catch(() => undefined)
+    if (++beats >= 24) { clearInterval(timer); chrome.action.setBadgeBackgroundColor({ tabId, color: "#f2802a" }).catch(() => undefined) }
+  }, 500)
+  chrome.action.setBadgeBackgroundColor({ tabId, color: "#f2802a" }).catch(() => undefined)
+  formTabs.set(tabId, timer)
+}
+function formGone(tabId) {
+  const timer = formTabs.get(tabId)
+  if (timer) clearInterval(timer)
+  formTabs.delete(tabId)
+  chrome.action.setBadgeText({ tabId, text: "" }).catch(() => undefined)
+  chrome.action.setTitle({ tabId, title: "odds" }).catch(() => undefined)
+}
+chrome.tabs.onRemoved.addListener((tabId) => { const t = formTabs.get(tabId); if (t) clearInterval(t); formTabs.delete(tabId) })
+chrome.tabs.onUpdated.addListener((tabId, info) => { if (info.url) formGone(tabId) })
 
 
 // Phone control is explicitly enabled in the desktop panel. Each request gets its own
@@ -1230,7 +1574,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   // The application form sits in a blank frame (HubSpot and similar embeds): Odds' form script goes into the page's frames, where it
   // drives only a blank frame that holds the form (apply-any.js checks).
   if (message?.type === "apply-frames" && sender.tab && typeof sender.tab.id === "number") {
-    chrome.scripting.executeScript({ target: { tabId: sender.tab.id, allFrames: true }, files: ["job-sites.js", "application-handoff.js", "apply-any.js"], injectImmediately: true })
+    chrome.scripting.executeScript({ target: { tabId: sender.tab.id, allFrames: true }, files: ["job-sites.js", "mascot.js", "application-handoff.js", "apply-any.js"], injectImmediately: true })
       .then(() => reply({ ok: true }), (e) => reply({ ok: false, error: String(e?.message || e) }))
     return true
   }
@@ -1251,14 +1595,17 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message?.type === "application-progress" && sender.tab) {
     updateApplicationRuns(() => {}).then(async runs => {
       if (!["filling", "needs_input", "ready", "submitted", "failed"].includes(message.status)) return
+      let turned = null
       // Merged into the newest record: never overwrite what another message just wrote (the loop count, a pause, a stop).
       await changeIntents((all) => {
         const intent = all[sender.tab.id]
         if (!intent) return
         // A run Odds stopped (loop) or the person paused keeps that message until they act: later "Filling…" chatter cannot hide it.
         if ((intent.stopped || intent.paused) && message.status === "filling") return
+        if (intent.status !== message.status && ["ready", "needs_input"].includes(message.status)) turned = { title: intent.title || sender.tab.title || "", status: message.status }
         all[sender.tab.id] = { ...intent, at: Date.now(), status: message.status, message: String(message.message || "").slice(0, 500) }
       })
+      if (turned) notifyApplication(sender.tab.id, turned.title, turned.status, String(message.message || "")).catch(() => undefined)
       // Never auto-focus on progress (login / account creation / ready). The person opens the tab from Odds when ready.
       let run = Object.values(runs).find(run => run.tabId === sender.tab.id)
       // Reloading an extension clears session storage. Reattach only a request

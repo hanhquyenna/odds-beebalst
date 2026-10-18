@@ -10,7 +10,7 @@ export const SUPABASE_ORIGIN = "http://supabase.test"
 const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64")
 
 /** Public tables the app reads that have no rows in these fixtures: answered with an empty list, like PostgREST does. */
-const EMPTY_TABLES: ReadonlySet<string> = new Set(["applications", "employer_about", "employer_culture", "employer_facts", "employer_glassdoor_pay", "employer_headcount", "employer_hiring", "employer_money", "employer_news", "employer_teams", "profiles", "documents", "job_documents", "drive_links", "mcp_keys", "saved_jobs", "chance_snapshots", "push_devices", "application_answers", "application_runs", "application_prompts", "application_questions", "application_desktops", "outreach_drafts"])
+const EMPTY_TABLES: ReadonlySet<string> = new Set(["applications", "employer_about", "employer_culture", "employer_facts", "employer_glassdoor_pay", "employer_headcount", "employer_hiring", "employer_money", "employer_news", "employer_teams", "profiles", "documents", "job_documents", "drive_links", "mcp_keys", "saved_jobs", "chance_snapshots", "push_devices", "application_answers", "application_runs", "application_prompts", "application_questions", "application_desktops", "outreach_drafts", "drive_runs"])
 
 /** Functions the job page calls about its employer: these fixtures know nothing about any employer, as for one we have no data on. */
 const EMPTY_RPCS: ReadonlySet<string> = new Set(["rpc/job_company", "rpc/company_research"])
@@ -55,9 +55,10 @@ export async function shot(page: Page, name: string): Promise<void> {
   }
 }
 
-/** The job rows of whichever list is on screen: each row carries its own save button. */
+/** The job rows of whichever list is on screen. */
 export function jobRows(page: Page): Locator {
-  return page.getByRole("listitem").filter({ has: page.getByRole("button", { name: /^Save / }) })
+  // The front page's rows carry a save button; in the app's two-pane Jobs page a row is the button that opens the job.
+  return page.locator("li:has(button[aria-label^='Save ']), li[data-job-row]")
 }
 
 /** Routes every request of the context: Supabase to fixtures, logos to a pixel, the app itself through, anything else is a failure. */

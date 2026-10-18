@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "odds: interview chances beside jobs",
   "short_name": "odds",
-  "version": "0.15.62",
+  "version": "0.15.96",
   "description": "See your interview chance beside jobs on LinkedIn, Indeed, Glassdoor and employers' sites. Click a % to open it in Odds.",
   "icons": {
     "16": "icons/icon-16.png",
@@ -23,7 +23,8 @@
     "sidePanel",
     "alarms",
     "webNavigation",
-    "debugger"
+    "debugger",
+    "notifications"
   ],
   "host_permissions": [
     "https://ukpmpyfcnbhngkgbnkxi.supabase.co/*",
@@ -42,6 +43,7 @@
         "site-dom.js",
         "panel.js",
         "content-job.js",
+        "mascot.js",
         "application-handoff.js",
         "apply.js"
       ],
@@ -67,6 +69,7 @@
         "site-dom.js",
         "panel.js",
         "content-job.js",
+        "mascot.js",
         "application-handoff.js",
         "apply-any.js"
       ],
@@ -99,6 +102,7 @@
       ],
       "js": [
         "job-sites.js",
+        "mascot.js",
         "application-handoff.js",
         "apply-any.js"
       ],

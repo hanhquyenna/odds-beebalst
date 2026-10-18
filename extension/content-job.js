@@ -173,6 +173,47 @@ function inspectJob(job, card, result, update) {
   })
 }
 
+/** The orange Auto apply pill beside the chance chip (and so beside the site's own buttons): opens the panel and starts the application in this tab. */
+let autoPill = null
+function placeAuto() {
+  if (!button) return
+  if (!autoPill) {
+    autoPill = document.createElement("div")
+    autoPill.id = "odds-auto"
+    const root = autoPill.attachShadow({ mode: "open" })
+    root.innerHTML = `<style>
+      :host{all:initial;display:inline-flex;flex:none;align-self:center;vertical-align:middle;margin-left:var(--odds-gap,8px)}
+      :host([data-where="stack"]){display:flex;width:var(--odds-w,auto);margin:var(--odds-mt,12px) 0 0}
+      :host([data-where="float"]){position:fixed;right:24px;bottom:144px;z-index:2147483645;margin:0}
+      button{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:8px;width:100%;height:max(40px,var(--odds-h,32px));padding:0 18px 0 7px;border:0;border-radius:var(--odds-r,999px);background:#EE7A2A;color:#1C1A18;font:800 var(--odds-fs,15px)/1 "odds Inter Tight",system-ui,-apple-system,"Segoe UI",sans-serif;white-space:nowrap;cursor:pointer}
+      button:hover{background:#F28B45}
+      button:focus-visible{outline:2px solid #1C1A18;outline-offset:2px}
+      button:disabled{opacity:.7;cursor:default}
+      i{display:block;width:26px;height:26px}
+      @keyframes blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.1)}}
+      @keyframes hop{0%,100%{transform:translate(0,0)}50%{transform:translate(1px,-3px)}}
+      .lid{transform-origin:15px 17px;animation:blink 3.4s infinite}
+      .orb{animation:hop 1.6s ease-in-out infinite}
+      @media (prefers-reduced-motion:reduce){.lid,.orb{animation:none}}
+    </style><button type="button" title="Odds fills in the application for you"><i>${globalThis.oddsMascot?.mark("#EE7A2A") || ""}</i><span>Auto apply</span></button>`
+    root.querySelector("button").addEventListener("click", () => {
+      openPanel()
+      const c = current
+      chrome.runtime.sendMessage({ type: "auto-apply", url: c.url }, () => void chrome.runtime.lastError)
+    })
+  }
+  const closed = current.closed
+  autoPill.hidden = closed
+  autoPill.dataset.where = button.dataset.where || "inline"
+  if (button.dataset.where === "float") autoPill.dataset.where = "float"
+  for (const prop of ["--odds-h", "--odds-r", "--odds-fs", "--odds-gap", "--odds-w", "--odds-mt"]) {
+    const value = button.style.getPropertyValue(prop)
+    if (value) autoPill.style.setProperty(prop, value)
+    else autoPill.style.removeProperty(prop)
+  }
+  if (autoPill.previousElementSibling !== button || autoPill.parentElement !== button.parentElement) button.after(autoPill)
+}
+
 function press() {
   const c = current
   if (c.phase === "connect") return chrome.runtime.sendMessage({ type: "open-connect" })
@@ -272,6 +313,7 @@ function sync() {
   const job = SITE.open()
   if (!job) {
     button?.remove()
+    autoPill?.remove()
     button = null
     current = { ...current, id: "", url: "" }
     return
@@ -286,6 +328,7 @@ function sync() {
     chrome.runtime.sendMessage({ type: "allow-frame" }, () => void chrome.runtime.lastError)
   }
   place()
+  placeAuto()
   // Another job opened in the same page (job sites do not reload): look it up, after a short pause so flicking through a list asks once.
   if (current.id !== job.id) {
     const firstJob = !current.id
@@ -442,7 +485,7 @@ function scheduleScan() {
 new MutationObserver((changes) => {
   if (
     changes.some((change) => {
-      if (change.target.closest?.("#odds-add, .odds-job-chance, #odds-panel-frame")) return false
+      if (change.target.closest?.("#odds-add, #odds-auto, .odds-job-chance, #odds-panel-frame")) return false
       if (change.type === "attributes") return change.target.matches?.(SITE.watch)
       return [...change.addedNodes, ...change.removedNodes].some((node) => node.nodeType === 1 && (node.matches?.(SITE.watch + ", button, iframe") || node.querySelector?.(SITE.watch + ", button, iframe")))
     })

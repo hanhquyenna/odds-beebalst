@@ -20,7 +20,7 @@ iframe { flex: 1 1 auto; width: 100%; border: 0; background: #fffdfb; }
 @keyframes bump { from { opacity: .7; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { #toast .card, #toast .card.leave, .count.bump { animation: none; } }
 
-.phone-control { flex: 0 0 auto; display: flex; gap: 8px; align-items: center; padding: 9px 12px; border-bottom: 1px solid #eee; color: #555; font-size: 12px; }
+.phone-control { flex: 0 0 auto; display: flex; gap: 8px; align-items: center; padding: 9px 12px; border-top: 1px solid #eee; color: #555; font-size: 12px; }
 .phone-control input { accent-color: #c65b00; }
 
 #app[hidden] { display: none; }

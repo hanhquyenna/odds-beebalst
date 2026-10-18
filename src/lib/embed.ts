@@ -20,6 +20,34 @@ export function onApplicationSignal(listener: (signal: ApplicationSignal) => voi
   return () => { applicationListeners.delete(listener) }
 }
 
+/** The page in front of the person, from the extension's side panel: the form on it, the job Odds knows it as, and how filling it goes. */
+export type PageKind = "job" | "create_account" | "sign_in" | "captcha" | "form" | null
+export interface PanelInfo {
+  /** kind: what the page is (a job's page, an account to make, a sign-in, a captcha, the form); account: Odds made one on this site. */
+  page: { tabId: number; url: string; title: string; form: boolean; kind?: PageKind; account?: boolean } | null
+  connected?: boolean
+  job?: { title: string; employer: string | null } | null
+  job_id?: string | null
+  cv?: string | null
+  letter?: string | null
+  missing?: string[]
+  status?: { state: string; message: string } | null
+  /** At review: the answers on the form Autofill does not have yet. */
+  answers?: Array<{ question: string; answer: string; long?: boolean }>
+}
+let panelInfo: PanelInfo | null = null
+const panelListeners = new Set<(info: PanelInfo | null) => void>()
+export function onPanelInfo(listener: (info: PanelInfo | null) => void): () => void {
+  panelListeners.add(listener)
+  listener(panelInfo)
+  return () => { panelListeners.delete(listener) }
+}
+/** Ask the extension to act on the page in front: fill it, add its job, keep answers in Autofill. */
+export function toExtension(message: Record<string, unknown>): void {
+  const parent = extensionParent()
+  if (parent) window.parent.postMessage({ source: "odds-site", ...message }, parent)
+}
+
 let pendingJob: string | null = null
 const jobListeners = new Set<(id: string) => void>()
 /** Deliver a selection to the mounted app without reloading its profile, CV library and job pool. */
@@ -44,6 +72,10 @@ export function startEmbed(): void {
         window.sessionStorage.setItem("odds:embedded-reloaded", "1")
         window.location.reload()
       }
+    }
+    if (data.type === "panel-info") {
+      panelInfo = ((data as { info?: PanelInfo | null }).info ?? null)
+      panelListeners.forEach((listener) => listener(panelInfo))
     }
     if (data.type === "application-status" || data.type === "application-started") applicationListeners.forEach((listener) => listener(data as ApplicationSignal))
     if (data.type === "open-job" && typeof data.id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(data.id)) {
