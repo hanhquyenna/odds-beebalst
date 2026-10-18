@@ -22,7 +22,7 @@ export function ExtensionNotice({ onJobs }: { onJobs: () => void }): React.JSX.E
     <section aria-label="Chrome is connected" className="phone-prompt-pop relative flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-xl border-[1.5px] bg-card p-4 pr-12 sm:p-5 sm:pr-14">
       <div className="min-w-0">
         <h2 className="font-heading text-lg font-semibold tracking-tight">Chrome is connected</h2>
-        <p className="text-muted-foreground">Apply with Odds now fills the form in a new tab. You check it and send it.</p>
+        <p className="text-muted-foreground">Apply with Odds fills the form in the same tab. You check it and send it.</p>
       </div>
       <Button type="button" onClick={onJobs} className="h-10 cursor-pointer rounded-lg px-4">
         See jobs

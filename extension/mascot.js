@@ -23,9 +23,6 @@
     if (state === "done" && /submit|send/i.test(t)) return "Ready to send. Check it and press Submit"
     if (state === "ask" && /(marked|outlined|highlighted) questions?/i.test(t)) return "Answer the highlighted questions"
     t = t.replace(/\bBroods\b:?\s*/gi, "Odds ").replace(/\bodds\b/g, "Odds").replace(/\s+/g, " ").trim().replace(/…$/, "")
-    // One sentence only.
-    const first = t.match(/^.+?[.!?](?=\s+[A-Z]|$)/)
-    if (first && first[0].length < t.length) t = first[0]
     return t.replace(/[.]$/, "")
   }
 

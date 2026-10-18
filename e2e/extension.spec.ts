@@ -764,8 +764,8 @@ test("next to LinkedIn's Save button when the page has one, at the edge when it 
   expect(await pill.evaluate((el) => getComputedStyle(el).borderTopLeftRadius)).toBe("999px")
   expect(await pill.evaluate((el) => getComputedStyle(el).marginLeft)).toBe("0px")
   expect(await pill.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(255, 255, 255)")
-  expect(await pill.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe("rgb(163, 157, 149)")
-  expect(await pill.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(22, 21, 19)")
+  expect(await pill.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe("rgb(217, 210, 200)")
+  expect(await pill.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(28, 26, 24)")
   expect(await pill.evaluate((el) => getComputedStyle(el).position)).not.toBe("fixed")
   // The odds lettering is loaded from the extension.
   await page.evaluate(() => document.fonts.load('700 15px "odds Inter Tight"'))
@@ -1533,14 +1533,15 @@ test("Magnet.me and any job page that says what it is: the button beside its Sav
   await page.goto(`${MAGNET_JOB}?utm_source=newsletter`)
   const pill = page.locator("#odds-add")
   await expect(pill).toContainText("11.5%")
-  // One more full-width row under Like, as tall, as round and as far below it as Like is below Apply.
+  // One more row under Like, as tall, as round and as far below it as Like is below Apply, but compact: never stretched to the site's button.
   await expect(pill).toHaveAttribute("data-where", "stack")
+  await page.screenshot({ path: "test-results/ext-stack-badge.png", clip: { x: 0, y: 0, width: 900, height: 520 } })
   expect(await pill.evaluate((el) => {
     const like = el.previousElementSibling!.getBoundingClientRect()
     const box = el.getBoundingClientRect()
 
-    return [el.previousElementSibling!.textContent, box.width, box.height, getComputedStyle(el).borderTopLeftRadius, Math.round(box.top - like.bottom), box.left === like.left]
-  })).toEqual(["Liken", 279, 45, "6px", 12, true])
+    return [el.previousElementSibling!.textContent, box.width <= 279, box.height, getComputedStyle(el).borderTopLeftRadius, Math.round(box.top - like.bottom), box.left === like.left]
+  })).toEqual(["Liken", true, 45, "6px", 12, true])
   expect(fake.analyzed.find((a) => a.url === MAGNET_JOB)?.posting).toMatchObject({ title: "Data Intern", company: "TU Delft", location: "Delft, South Holland, Netherlands" })
   await expect(page.locator(".tile .odds-job-chance")).toContainText("2.2%")
   expect(fake.analyzed.find((a) => a.url === "https://magnet.me/nl-NL/vacature/1086286/finance-trainee")?.posting).toMatchObject({ company: "Beta" })
@@ -1896,7 +1897,7 @@ window.sent = false
   await expect.poll(() => page.locator("#cv").evaluate((e: HTMLInputElement) => e.files?.length ?? 0), { timeout: 15000 }).toBe(1)
   await expect(page.locator("#li")).toHaveValue(/linkedin\.com\/in\/kien/)
   await expect(page.locator("#web")).toHaveValue(/kien\.example\.com/)
-  await expect(page.locator(".odds-apply-bar")).toContainText(/Filled in by odds/i, { timeout: 12000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Ready to send/i, { timeout: 12000 })
   expect(await page.evaluate("window.sent")).toBe(false)
 })
 
@@ -2020,7 +2021,7 @@ test("odds apply on an employer's own form: filled in from odds, the CV uploaded
   await expect(page.locator("#why")).toHaveValue("")
   // The bot trap is never an application question: not asked, not filled.
   await expect(page.locator(".odds-ask")).toHaveCount(1)
-  await expect(page.locator(".odds-apply-bar")).toContainText("outlined question")
+  await expect(page.locator(".odds-apply-bar")).toContainText("highlighted questions")
   await expect(page.locator("#hp")).toHaveValue("")
   await page.waitForTimeout(1500)
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
@@ -2837,7 +2838,7 @@ test("a Bamboo-style form with a tiny reCAPTCHA iframe still fills and never cla
   await expect(page.getByLabel("First Name")).toHaveValue("Chi", { timeout: 10000 })
   await expect(page.getByLabel("Email Address")).toHaveValue("kien@example.com")
   await expect(page.locator(".odds-apply-bar")).not.toContainText(/Captcha on the page/i)
-  await expect(page.locator(".odds-apply-bar")).toContainText(/Filled in by odds|send it yourself|outlined question/i, { timeout: 10000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Ready to send|press Submit|highlighted questions/i, { timeout: 10000 })
   expect(await page.evaluate("window.sent")).toBe(false)
 })
 
@@ -2862,7 +2863,7 @@ test("a real employer form with sibling labels, example placeholders and nested 
   await expect(page.locator('[name="company_url"]')).toHaveValue("")
   await expect(page.locator("#hp")).toHaveValue("")
   await expect(page.getByRole("checkbox")).toHaveAttribute("aria-checked", "true", { timeout: 8000 })
-  await expect(page.locator(".odds-apply-bar")).toContainText(/Filled in by odds|send it yourself|Continuing/i)
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Ready to send|Continuing/i)
   expect(await page.evaluate("window.sent")).toBe(false)
 })
 
@@ -2895,7 +2896,7 @@ test("a job-board page with Sign in in the nav still fills the form and never cl
   await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4470000302")
   await expect(page.getByLabel("First name")).toHaveValue("Chi", { timeout: 10000 })
   await expect(page.getByLabel("Email")).toHaveValue("kien@example.com")
-  await expect(page.locator(".odds-apply-bar")).toContainText(/outlined question|Filled in by odds|send it yourself/i, { timeout: 10000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText(/highlighted questions|Ready to send|press Submit/i, { timeout: 10000 })
   await expect(page.locator(".odds-apply-bar")).not.toContainText(/Sign in or make the account|Account or login required/i)
   expect(await page.evaluate("window.sent")).toBe(false)
 })
@@ -2925,7 +2926,7 @@ test("Apply with Odds from the app: Sign-in chrome on the employer tab is not re
   const application = await opened
   await expect(application.getByLabel("First name")).toHaveValue("Given Names", { timeout: 10000 })
   await expect(application.locator(".odds-apply-bar")).not.toContainText(/Sign in or make the account|Account or login required/i)
-  await expect(application.locator(".odds-apply-bar")).toContainText(/outlined question|Filled in by odds|send it yourself|Filling what we know/i, { timeout: 10000 })
+  await expect(application.locator(".odds-apply-bar")).toContainText(/highlighted questions|outlined question|Filled in by odds|send it yourself|Filling what we know/i, { timeout: 10000 })
 })
 
 test("an enriched job outside the loaded pool opens from one row without saving, with CV selection and apply available", async ({ context, fake }) => {
@@ -2980,7 +2981,7 @@ test("Apply with Odds in the desktop website starts the installed extension dire
   await expect(application.getByRole("textbox", { name: "Phone" })).toHaveValue("+31 6 12345678")
   // Full fillable form → terminal Ready (person must Submit themselves).
   await expect(application.locator(".odds-apply-bar")).toHaveAttribute("data-state", "done", { timeout: 15000 })
-  await expect(application.locator(".odds-apply-bar")).toContainText(/Check everything/i)
+  await expect(application.locator(".odds-apply-bar")).toContainText(/Check it and press Submit/i)
   // Apply with Odds jumps to Tracker and opens the job drawer — Open application tab is there.
   // If the drawer is slow, open the saved job row (same user path).
   const openTab = app.getByRole("button", { name: /Open application tab|Open tab:/ })
@@ -3059,7 +3060,7 @@ test("Indeed listing search fields never count as a filled application; employer
   await expect(page).toHaveURL("https://careers.example.org/actual-application", { timeout: 10000 })
   await expect(page.getByRole("textbox", { name: "Full name" })).toHaveValue("Test Person")
   await expect(page.getByRole("textbox", { name: "Email" })).toHaveValue("test@example.com")
-  await expect(page.locator(".odds-apply-bar")).toContainText("Check everything")
+  await expect(page.locator(".odds-apply-bar")).toContainText("Check it and press Submit")
 })
 
 
@@ -3084,7 +3085,7 @@ test("required radio groups on Cornerstone are outlined when their answer is unk
   await page.goto("https://careers.example.org/radio")
   await applyFrom(context, page, page.url())
   await expect(page.getByRole("radiogroup")).toHaveClass(/odds-ask/)
-  await expect(page.locator(".odds-apply-bar")).toContainText("outlined question")
+  await expect(page.locator(".odds-apply-bar")).toContainText("highlighted questions")
   await expect(page.getByRole("radio").first()).not.toBeChecked()
 })
 
@@ -3466,7 +3467,9 @@ test("one-click learning loop: phone answers an employer question, desktop advan
   await phone.goto(`${APP_ORIGIN}/profile`)
   await phone.getByRole("button", { name: "Autofill" }).click()
   await expect(phone.getByRole("heading", { name: "Learned from forms", exact: true })).toBeVisible()
-  await expect(phone.getByLabel("Will you remain enrolled throughout this internship?")).toHaveValue("Yes")
+  // The answer sits on its row with Edit and Forget buttons (the Autofill page lists them as text; Edit opens the box).
+  await phone.getByRole("button", { name: "Edit the answer to Will you remain enrolled throughout this internship?" }).click()
+  await expect(phone.getByRole("textbox", { name: /Will you remain enrolled/ })).toHaveValue("Yes")
   expect(saved[0].question_key).toContain(` job ${post.id}`)
 })
 
@@ -3498,7 +3501,7 @@ test("an employer's embedded Greenhouse form fills inside its frame and uploads 
   await expect(frame.getByLabel("Full name")).toHaveValue("Test Person")
   await expect(frame.getByLabel("Email")).toHaveValue("person@example.com")
   await expect.poll(() => frame.getByLabel("CV").evaluate((el: HTMLInputElement) => el.files?.[0]?.name)).toBe("Kien_Data_CV.pdf")
-  await expect(frame.locator(".odds-apply-bar")).toContainText("send it yourself")
+  await expect(frame.locator(".odds-apply-bar")).toContainText("press Submit")
   expect(await page.frames()[1].evaluate("window.submitted")).toBe(false)
 })
 
@@ -3571,7 +3574,7 @@ test("odds apply on Greenhouse: the searchable dropdown is opened and the option
   await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 8000 })
   await expect(page.locator("#auth-v")).toHaveText("Yes", { timeout: 8000 })
   await expect.poll(() => page.locator("#resume").evaluate((el: HTMLInputElement) => el.files?.[0]?.name ?? "")).toBe("Kien_Data_CV.pdf")
-  await expect(page.locator(".odds-apply-bar")).toContainText("Check everything", { timeout: 10000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText("Check it and press Submit", { timeout: 10000 })
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
   await shot(page, "ext-greenhouse")
 })
@@ -3588,7 +3591,7 @@ test("odds apply on Lever: the single Full name field, wrapped labels and the CV
   await expect(page.locator("input[name=phone]")).toHaveValue("+31 6 1234 5678")
   await expect(page.locator("input[name='urls[LinkedIn]']")).toHaveValue("https://www.linkedin.com/in/kien")
   await expect.poll(() => page.locator("input[name=resume]").evaluate((el: HTMLInputElement) => el.files?.[0]?.name ?? "")).toBe("Kien_Data_CV.pdf")
-  await expect(page.locator(".odds-apply-bar")).toContainText("Check everything", { timeout: 10000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText("Check it and press Submit", { timeout: 10000 })
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
   await shot(page, "ext-lever")
 })
@@ -3673,7 +3676,7 @@ test("ACCEPT known Autofill gap stall calls Broods scan (never only Checking…)
   await page.goto("https://jobs.eu.lever.co/gaps-broods/apply")
   await applyFrom(context, page, "https://jobs.eu.lever.co/gaps-broods/apply")
   await expect.poll(() => fake.suggestScanCalls, { timeout: 25000 }).toBeGreaterThan(0)
-  await expect(page.locator(".odds-apply-bar")).toContainText(/Broods|asking Odds|Still filling|outlined|assist/i, { timeout: 15000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Broods|asking Odds|Still filling|highlighted|assist/i, { timeout: 15000 })
   await expect(page.locator(".odds-apply-bar")).not.toHaveText(/Checking that the website kept your details and CV/i)
 })
 
@@ -3933,7 +3936,7 @@ test("odds apply goes through the complete steps by itself, stops at a question 
   await page.locator("#sql").fill("3")
   await expect(page.locator("#h")).toHaveText("Review", { timeout: 15000 })
   // The end: Submit is the person's.
-  await expect(page.locator(".odds-apply-bar")).toContainText("Check everything", { timeout: 10000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText("Check it and press Submit", { timeout: 10000 })
   await page.waitForTimeout(2500)
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
   expect(await page.evaluate(() => (window as unknown as { advanced: number }).advanced)).toBe(2)
@@ -3956,7 +3959,7 @@ test("an application sent on an employer's site marks the job applied in odds, f
   expect(fake.applied).toEqual([])
   await page.getByRole("button", { name: "Submit application" }).click()
   await expect.poll(() => fake.applied, { timeout: 8000 }).toEqual(["https://boards.example-ats.com/acme/jobs/77"])
-  await expect(page.locator(".odds-apply-bar")).toContainText("marked this job as applied")
+  await expect(page.locator(".odds-apply-bar")).toContainText("Marked as applied")
 })
 
 const BANNERS: ReadonlyArray<[string, string, string]> = [
@@ -4296,7 +4299,7 @@ test("a Workday application in French (Kraft Heinz): your data fills every field
   await expect(page.locator("#q5")).toHaveValue("")
   // Always consent: terms + privacy notice are ticked so the person only reviews and sends.
   for (const id of ["t1", "t2", "t3", "pn"]) await expect(page.locator(`#${id}`)).toBeChecked({ timeout: 15000 })
-  await expect(page.locator(".odds-apply-bar")).toContainText(/Filled in by odds|send it yourself/i, { timeout: 15000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText(/Ready to send|press Submit/i, { timeout: 15000 })
   await expect(page.locator(".odds-ask")).toHaveCount(0)
   await page.waitForTimeout(1500)
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
@@ -4950,7 +4953,7 @@ test("Broods says what it does, stops at a captcha with the reason, and carries 
   const page = await context.newPage()
   await page.goto("https://boards.example-ats.com/acme/jobs/779")
   await applyFrom(context, page, "https://boards.example-ats.com/acme/jobs/779")
-  await expect(page.locator(".odds-apply-bar")).toContainText("Broods: Filling your details from Autofill", { timeout: 30000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText("Odds Filling your details from Autofill", { timeout: 30000 })
   released()
   // No captcha left on the page (the person ticked it): the tab tells the server by itself and the same run carries on — no button.
   await expect.poll(() => fake.driveEvents.includes("continue"), { timeout: 20000 }).toBe(true)
@@ -4959,7 +4962,7 @@ test("Broods says what it does, stops at a captcha with the reason, and carries 
   run.outbox.push({ id: 9002, tool: "read_page", args: {}, doc_gen: run.docGen } as unknown as { id: number; tool: string; args: Record<string, unknown> })
   setTimeout(() => { run.done = { status: "review", message: "Everything is filled in. Check it and press Submit yourself." } }, 8000)
   await expect(page.locator(".odds-apply-bar")).toContainText(/carrying on|Broods is reading/, { timeout: 20000 })
-  await expect(page.locator(".odds-apply-bar")).toContainText("press Submit yourself", { timeout: 30000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText("press Submit", { timeout: 30000 })
   expect(fake.drives.size).toBe(1)
 })
 
@@ -5232,6 +5235,8 @@ test("the side panel knows the page: a create-account step gets Create account &
   // The application after the account step is filled in the same tab.
   await expect(page.locator("#mail")).toHaveValue("kien@example.com", { timeout: 30000 })
   expect(context.pages().filter((p) => p.url().includes("example-workday")).length).toBe(1)
+  // An application is running in this tab, so the Odds panel opens in the page by itself (Chrome's side panel would need a click).
+  await expect(page.locator("#odds-panel-frame")).toHaveAttribute("data-open", "true", { timeout: 15000 })
 })
 
 test("a box that keeps its value only on its own blur (Workday, React's focusout) keeps what Odds typed, even while the person is in the side panel", async ({ context, fake }) => {
@@ -5628,7 +5633,7 @@ test("Broods drives an Oracle-style step: fills the email, ticks the terms box (
   const page = await context.newPage()
   await page.goto("https://eklm.example-oraclecloud.com/job/354/apply")
   await applyFrom(context, page, "https://eklm.example-oraclecloud.com/job/354/apply")
-  await expect(page.locator(".odds-apply-bar")).toContainText(/press Submit yourself/i, { timeout: 60000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText(/press Submit/i, { timeout: 60000 })
   await expect(page.locator("#terms")).toBeChecked()
   await expect(page.locator("#email")).toHaveValue("kien@example.com")
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
@@ -5662,7 +5667,7 @@ test("Broods acts by sight when the page tools cannot: screenshot of the tab, a 
   }
   await page.goto("https://jobs.example-widget.com/apply")
   await applyFrom(context, page, "https://jobs.example-widget.com/apply")
-  await expect(page.locator(".odds-apply-bar")).toContainText(/press Submit yourself/i, { timeout: 60000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText(/press Submit/i, { timeout: 60000 })
   expect(shotBytes).toBeGreaterThan(1000)
   await expect(page.locator("#step2")).toBeVisible()
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
@@ -5896,7 +5901,7 @@ test("STRESS: six applications at once, each in its own tab, none mixing with an
     expect(await p.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
   }
   // The terms: ticked before Broods (consent yes) and the run reaches the review, or left to the stand-in Broods, which hands them back. Never sent.
-  await expect.poll(() => pageFor(/oraclecloud/)?.locator(".odds-apply-bar").textContent().catch(() => "") ?? "", { timeout: 120_000 }).toMatch(/press Submit yourself|review the terms yourself/i)
+  await expect.poll(() => pageFor(/oraclecloud/)?.locator(".odds-apply-bar").textContent().catch(() => "") ?? "", { timeout: 120_000 }).toMatch(/press Submit|review the terms yourself/i)
   await expect.poll(() => pageFor(/b2c-marketing-intern/)?.locator("#first_name").inputValue().catch(() => "") ?? "", { timeout: 120_000 }).toBe("Kien")
   // The person's page: untouched the whole time.
   await expect(mine.locator(".odds-apply-bar")).toHaveCount(0)
@@ -6122,7 +6127,7 @@ test("a missing job page (404) closes the job instead of leaving Applying or sta
   const url="https://careers.example.org/missing-job"
   await context.route(url,r=>r.fulfill({status:404,contentType:"text/html",body:"<title>404 — Page not found</title><h1>Page not found</h1>"}))
   const page=await context.newPage();await page.goto(url);await applyFrom(context,page,url)
-  await expect(page.locator(".odds-apply-bar")).toContainText("no longer available")
+  await expect(page.locator(".odds-apply-bar")).toContainText("This job is closed")
   await expect.poll(()=>fake.closedUrls).toContain(url)
   expect(fake.drives.size).toBe(0)
 })

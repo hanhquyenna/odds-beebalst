@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useMemo, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
 import { BookmarkIcon } from "@/components/icons"
 import { KeyFacts } from "@/components/Tag"
+import { OddsApply } from "@/components/OddsApply"
 import { MoreAtEmployer } from "@/components/CompanyInsights"
 import { CompanyNews, CompanySection, PastHires, ReviewsSection } from "@/components/JobCompany"
 import { CompanyResearch } from "@/components/CompanyResearch"
@@ -178,6 +179,7 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
           <StatusPicker post={post} fit={fit} onLocked={locked?.onUnlock} />
           <SourceLinks post={post} secondary={Boolean(data.session && !post.local)} />
         </div>
+        <OddsApply post={post} />
         {locked ? <KeyFacts post={post} onPick={onPick} /> : null}
       </header>}
 

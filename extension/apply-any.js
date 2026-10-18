@@ -1047,6 +1047,8 @@
     // The bar itself is the Odds mascot rolled out with one plain sentence (mascot.js), drawn in a shadow root.
     bar = globalThis.oddsMascot.bar(text, state)
     bar.dataset.raw = text
+    // An application is running here: the Odds panel opens in the page by itself (Chrome's side panel needs a click; the page's own frame does not).
+    if (typeof setPanelBusy === "function") setPanelBusy(state === "filling")
   }
 
   // ---- "Save to Autofill?" (the side panel asks): the answers on this form that Autofill does not have yet (questions, not contact details
@@ -2454,6 +2456,13 @@
       return
     }
     say("Filling in the background…", "filling")
+    // The person's own application (pressed in the app or the panel, or this very tab): the Odds panel opens in the page by itself, since Chrome's
+    // side panel needs a click. An application nobody is watching (queued from the phone, in the Odds window) shows nothing of the kind.
+    if ((intent.foreground === true || intent.here === true || intent.copilot === true) && typeof autoOpenPanel === "function") {
+      autoOpenPanel()
+      // It gets to settle first, so it cannot take the keyboard while Odds is typing.
+      if (typeof panelReady === "function") await panelReady()
+    }
     // Every page this application loads is counted on the run (it survives reloads): the same page again and again, or too many pages, stops for good.
     if (!visitNoted) {
       visitNoted = true

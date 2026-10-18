@@ -374,7 +374,6 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
         {driveLive}
         {phase === "ready" ? <div className="flex flex-col gap-2 sm:flex-row">{primary}{cancel}</div> : <ApplicationQuestions inline postingId={post.id} onHasQuestions={setQuestionsOpen} onSaved={answered} aside={primary} empty={<div className="flex flex-col gap-2 sm:flex-row">{primary}{phase === "needs_input" ? null : cancel}</div>} />}
         {phase === "needs_input" && cancel ? <div className="flex">{cancel}</div> : null}
-        {phase === "failed" && view?.message ? <p role="alert" className="text-sm text-destructive">{view.message}</p> : null}
         {gateOnly ? <p className="text-sm text-muted-foreground">Install and Connect Odds for Chrome once — then Apply fills forms in this browser.</p> : null}
         {!gateOnly && !online && !activeRun && !view && extensionPresent === "no" ? <p className="text-sm text-muted-foreground">Open Chrome on your computer to start, or reload the Odds extension.</p> : null}
         {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
@@ -442,7 +441,6 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
       {captcha && !stuck && !drive ? <p className="text-sm text-muted-foreground">Complete the captcha in the tab. Odds continues after you solve it — it never solves captchas for you.</p> : null}
       {login && !stuck && !drive ? <p className="text-sm text-muted-foreground">Sign in to the job board in that Chrome tab — Odds continues when the wall clears. Odds never types passwords. Chrome keeps the session for the next Apply.</p> : null}
       {boardNote && !view ? <p className="text-sm text-muted-foreground">This job’s only link is Glassdoor/Indeed — Apply opens that page (not LinkedIn).</p> : null}
-      {view?.status === "failed" && view.message ? <p role="alert" className="text-sm text-destructive">{view.message}</p> : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       <ExtensionOnboard open={connectTour} onClose={() => setConnectTour(false)} onConnected={() => { setConnectTour(false); pingExtension() }} />
     </div>

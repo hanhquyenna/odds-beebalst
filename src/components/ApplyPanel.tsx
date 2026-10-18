@@ -36,6 +36,20 @@ export function ApplyPanel(): React.JSX.Element | null {
     return () => { live = false }
   }, [jobId, known, data.status])
   const page = info?.page
+  // Between the panel opening and the extension telling it which page is in front, show a short "getting ready", never the app's Home.
+  const [waited, setWaited] = useState(false)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setWaited(true), 3500)
+    return () => window.clearTimeout(timer)
+  }, [])
+  if (!info && !waited) {
+    return (
+      <div data-apply-panel className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-background p-6 text-center">
+        <OddsMark size={56} />
+        <p className="text-base font-bold">Getting your application ready…</p>
+      </div>
+    )
+  }
   if (!page || !info?.connected || away === page.url) return null
   const post = known ?? (fetched && fetched.id === jobId ? fetched.post : null)
   // "See job insights" (the job, who got hired before, the company, people) and Tailor open that part of the job further down the panel.

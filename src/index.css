@@ -349,5 +349,3 @@ body.web {
 .buddy .orb, .orb { animation: buddy-hop 1.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .buddy, .lid, .pupil, .orb { animation: none; } }
 
-/* The Auto apply button in the job page's tab bar presses the real button; that one stays out of sight until Auto apply is doing something. */
-.web .odds-bar-apply [data-phase="idle"] [data-odds-apply="primary"] { display: none; }

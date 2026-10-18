@@ -183,7 +183,7 @@ function placeAuto() {
     const root = autoPill.attachShadow({ mode: "open" })
     root.innerHTML = `<style>
       :host{all:initial;display:inline-flex;flex:none;align-self:center;vertical-align:middle;margin-left:var(--odds-gap,8px)}
-      :host([data-where="stack"]){display:flex;width:var(--odds-w,auto);margin:var(--odds-mt,12px) 0 0}
+      :host([data-where="stack"]){display:inline-flex;width:auto;min-width:160px;margin:var(--odds-mt,12px) 0 0;vertical-align:middle}
       :host([data-where="float"]){position:fixed;right:24px;bottom:144px;z-index:2147483645;margin:0}
       button{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:8px;width:100%;height:max(40px,var(--odds-h,32px));padding:0 18px 0 7px;border:0;border-radius:var(--odds-r,999px);background:#EE7A2A;color:#1C1A18;font:800 var(--odds-fs,15px)/1 "odds Inter Tight",system-ui,-apple-system,"Segoe UI",sans-serif;white-space:nowrap;cursor:pointer}
       button:hover{background:#F28B45}
