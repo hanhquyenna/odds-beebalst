@@ -108,6 +108,20 @@
       const label = el.form?.querySelector(sel) || el.closest("[class*='field' i], [class*='form' i]")?.querySelector(sel) || document.querySelector(sel)
       if (label && realAsk(textOf(label), true)) return textOf(label)
     }
+    // An input inside a component's shadow root: its label is in that root, on the component itself, or around the component.
+    const root = el.getRootNode()
+    if (root instanceof ShadowRoot) {
+      const inner = textOf(root.querySelector(el.id ? `label[for="${CSS.escape(el.id)}"]` : "label")) || textOf(root.querySelector("label, legend"))
+      if (inner && realAsk(inner, true)) return inner
+      const byIn = (el.getAttribute("aria-labelledby") || "").split(/\s+/).map((id) => textOf(root.getElementById(id))).join(" ").trim()
+      if (realAsk(byIn, true)) return byIn
+      for (const a of ["label", "aria-label", "placeholder", "title"]) {
+        const v = (root.host.getAttribute(a) || "").trim()
+        if (realAsk(v, true)) return v
+      }
+      const outside = labelOf(root.host)
+      if (outside) return outside
+    }
     const by = el.getAttribute("aria-labelledby")
     if (by) {
       const t = by.split(/\s+/).map((id) => textOf(document.getElementById(id))).join(" ").trim()
@@ -159,19 +173,19 @@
     try { el.focus?.() } catch { /* ignore */ }
     // React hears focus as focusin/focusout, never as focus/blur events; and while the person is in the side panel the page has no focus,
     // so el.focus() fires nothing. Workday keeps a typed value only on its blur (focusout): without it the box shows text it never took.
-    el.dispatchEvent(new FocusEvent("focusin", { bubbles: true }))
+    el.dispatchEvent(new FocusEvent("focusin", { bubbles: true, composed: true }))
     const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
     const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set
       || Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
     if (setter) setter.call(el, value)
     else el.value = value
     try {
-      el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, data: value, inputType: "insertFromPaste" }))
+      el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, composed: true, data: value, inputType: "insertFromPaste" }))
     } catch {
-      el.dispatchEvent(new Event("input", { bubbles: true }))
+      el.dispatchEvent(new Event("input", { bubbles: true, composed: true }))
     }
-    for (const name of ["change", "blur"]) el.dispatchEvent(new Event(name, { bubbles: true }))
-    el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }))
+    for (const name of ["change", "blur"]) el.dispatchEvent(new Event(name, { bubbles: true, composed: true }))
+    el.dispatchEvent(new FocusEvent("focusout", { bubbles: true, composed: true }))
   }
 
   let applicationJob = null
@@ -188,11 +202,17 @@
   for (const name of ["input", "change"]) document.addEventListener(name, event => { if (event.isTrusted && event.target instanceof Element) verifications.delete(event.target) }, true)
   const asked = new Set()
 
+  /** Every element matching `selector` on the page, including inside open shadow roots (SmartRecruiters' Easy Apply and other component-built forms draw their inputs there). */
+  function deepAll(selector, root = document, out = []) {
+    for (const el of root.querySelectorAll(selector)) out.push(el)
+    for (const host of root.querySelectorAll("*")) if (host.shadowRoot) deepAll(selector, host.shadowRoot, out)
+    return out
+  }
   /** The fields of the form on screen: text-like inputs, text areas, selects and radio groups (one entry per group). */
   function fields() {
     const out = []
     const groups = new Set()
-    for (const el of document.querySelectorAll("input, textarea, select")) {
+    for (const el of deepAll("input, textarea, select")) {
       if ((!shown(el) || el.getAttribute("aria-hidden") === "true") && el.type !== "file") continue
       if (el.closest("#odds-add, .odds-job-chance, .odds-apply-bar, nav, header, footer, [role='search'], [id*='newsletter'], [class*='newsletter']")) continue
       // Job-board search widgets are not application questions (Indeed renders
@@ -205,7 +225,7 @@
       if (t === "radio") {
         if (!el.name || groups.has(el.name)) continue
         groups.add(el.name)
-        const radios = [...document.querySelectorAll(`input[type="radio"][name="${CSS.escape(el.name)}"]`)].filter(shown)
+        const radios = deepAll(`input[type="radio"][name="${CSS.escape(el.name)}"]`).filter(shown)
         const fieldset = el.closest("fieldset")
         const legend = fieldset?.querySelector("legend")
         // The question over the choices (Ashby puts it in a label of its own, not tied to any one radio), never the first choice's text.
@@ -2030,14 +2050,14 @@
       const button = driveButtons.get(args.id)
       if (button && button.isConnected && !driveFields.get(args.id)) {
         if (!cv) return { ok: false, error: "no CV in Odds: finish needs_you" }
-        const seen = new Set(document.querySelectorAll("input[type=file]"))
+        const seen = new Set(deepAll("input[type=file]"))
         const armed = await ask({ type: "catch-file-picker" }, 5000).catch(() => null)
         if (!armed?.ok) return { ok: false, error: "could not catch this site's file picker" }
         button.click()
         let input = null
         for (let t = 0; t < 20 && !input; t++) {
           await sleep(100)
-          input = document.querySelector("input[type=file][data-odds-picker]") || [...document.querySelectorAll("input[type=file]")].find((i) => !seen.has(i)) || null
+          input = document.querySelector("input[type=file][data-odds-picker]") || deepAll("input[type=file]").find((i) => !seen.has(i)) || null
         }
         if (!input) return { ok: false, error: "this button opened no file picker; attach the CV by sight or finish needs_you" }
         const ok = await uploadCv({ el: input, kind: "file", label: `CV ${controlLabel(button)}` }, true)

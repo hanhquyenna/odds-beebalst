@@ -3033,6 +3033,25 @@ test("a website rejecting a filled value or CV never reports ready", async ({ co
   const page = await context.newPage()
   await page.goto("https://careers.example.org/apply")
   await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4470000302")
+test("a form built from components with shadow roots (SmartRecruiters' Easy Apply) is read and filled like any other", async ({ context, fake }) => {
+  await connect(context)
+  fake.kit = { facts: { email: "test@example.com", answers: { first_name: "Chi Kien", last_name: "Phung", phone: "+31 6 12345678" }, remembered: {} }, cv: null }
+  const html = `<!doctype html><h1>Easy Apply</h1><form id="f" onsubmit="return false"></form><script>
+    class OddsField extends HTMLElement { connectedCallback() { const r = this.attachShadow({ mode: "open" }); r.innerHTML = '<label>' + this.getAttribute("label") + '<input></label>' } }
+    customElements.define("of-field", OddsField)
+    document.getElementById("f").innerHTML = '<of-field label="First name *"></of-field><of-field label="Last name *"></of-field><of-field label="Email *"></of-field><of-field label="Phone number *"></of-field><button type="button">Next</button>'
+  </script>`
+  await context.route("https://careers.example.org/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  const page = await context.newPage()
+  await page.goto("https://careers.example.org/apply")
+  await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4470000302")
+  const boxes = page.locator("of-field input")
+  await expect(boxes.nth(0)).toHaveValue("Chi Kien", { timeout: 20000 })
+  await expect(boxes.nth(1)).toHaveValue("Phung")
+  await expect(boxes.nth(2)).toHaveValue("test@example.com")
+  await expect(boxes.nth(3)).toHaveValue("+31 6 12345678")
+})
+
   await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask")
   await expect(page.locator(".odds-apply-bar")).not.toHaveAttribute("data-state", "done")
   await expect(page.locator('input[type="file"]')).toHaveAttribute("aria-invalid", "true")
