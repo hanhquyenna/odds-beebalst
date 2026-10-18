@@ -16,6 +16,20 @@ const day = (d: string | null | undefined): string | null => {
   return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]} ${m[1]}` : (d ?? null)
 }
 
+/** A source as a person reads it: a web address becomes the site's name ("Wikipedia"), never the raw link. */
+function sourceLabel(source: string | null | undefined): string {
+  const text = (source ?? "").trim()
+  if (!/^https?:\/\//i.test(text)) return text
+  try {
+    const host = new URL(text).hostname.replace(/^(www|en)\./, "")
+    const name = host.split(".").slice(-2, -1)[0] ?? host
+
+    return name.charAt(0).toUpperCase() + name.slice(1)
+  } catch {
+    return text
+  }
+}
+
 function Tile({ label, value, note }: { label: string; value: string; note?: string | null }): React.JSX.Element {
   return (
     <div className="flex flex-col gap-0.5 rounded-xl bg-secondary px-4 py-3">
@@ -56,9 +70,9 @@ export function JobCompanyTab({ post }: { post: Posting }): React.JSX.Element {
   const hq = f?.headquarters ?? file?.hq ?? null
   const website = f?.website ?? file?.website ?? null
   const tiles: Array<{ label: string; value: string; note: string | null }> = [
-    money.revenue ? { label: "Revenue", value: moneyText(money.revenue), note: [money.revenue.year, money.revenue.source].filter(Boolean).join(" · ") } : null,
-    money.profit ? { label: "Profit", value: moneyText(money.profit), note: [money.profit.year, money.profit.source].filter(Boolean).join(" · ") } : null,
-    money.marketValue ? { label: "Market value", value: moneyText(money.marketValue), note: [money.marketValue.year, money.marketValue.source].filter(Boolean).join(" · ") } : null,
+    money.revenue ? { label: "Revenue", value: moneyText(money.revenue), note: [money.revenue.year, sourceLabel(money.revenue.source)].filter(Boolean).join(" · ") } : null,
+    money.profit ? { label: "Profit", value: moneyText(money.profit), note: [money.profit.year, sourceLabel(money.profit.source)].filter(Boolean).join(" · ") } : null,
+    money.marketValue ? { label: "Market value", value: moneyText(money.marketValue), note: [money.marketValue.year, sourceLabel(money.marketValue.source)].filter(Boolean).join(" · ") } : null,
     employees ? { label: "Employees", value: Math.round(employees).toLocaleString("en-US"), note: f?.employees ? "LinkedIn" : null } : f?.employeeRange ? { label: "Employees", value: f.employeeRange, note: "stated" } : null,
     founded ? { label: "Founded", value: String(founded), note: null } : null,
     hq ? { label: "Based in", value: hq, note: null } : null,
@@ -116,13 +130,19 @@ export function JobCompanyTab({ post }: { post: Posting }): React.JSX.Element {
               </ul>
             </div>
           ) : null}
-          <p className="mt-4 text-sm">{post.ind_sponsor ? "On the IND register of recognised visa sponsors." : "Not on the IND register of recognised visa sponsors."}</p>
+          <p className={`mt-5 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-bold ${post.ind_sponsor ? "bg-good text-good-foreground" : "bg-secondary text-muted-foreground"}`}>
+            {post.ind_sponsor ? "On the IND register of recognised visa sponsors" : "Not on the IND register of recognised visa sponsors"}
+          </p>
+          {/* What is known about the whole group it belongs to, in the same card: one company, one place to read it. */}
+          <div className="mt-6 border-t-[1.5px] border-line pt-5 empty:hidden [&_section]:border-t-0 [&_section]:pt-0 [&_h2]:text-lg [&_h2]:font-extrabold [&_h2]:tracking-tight">
+            <CompanyResearch post={post} />
+          </div>
         </section>
-      ) : null}
-
-      <div className={`${card} empty:hidden`}>
-        <CompanyResearch post={post} />
-      </div>
+      ) : (
+        <div className={`${card} empty:hidden [&_section]:border-t-0 [&_section]:pt-0 [&_h2]:text-lg [&_h2]:font-extrabold`}>
+          <CompanyResearch post={post} />
+        </div>
+      )}
 
       {rating !== null || reviews.length > 0 ? (
         <section aria-label="Glassdoor reviews" className={card}>
