@@ -955,15 +955,20 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
     // Time from the page being ready to the first field Odds filled (from the local copies): how fast known sites feel.
     const firstFill = Number(body?.odds_filled?.first_fill_ms)
     const fillMs = Number.isFinite(firstFill) && firstFill >= 0 && firstFill < 600_000 ? { first_fill_ms: Math.round(firstFill) } : {}
+    // The column arrives with its migration: a database that does not have it yet gets the same row without the number, never a failed start.
+    const insertRun = async (row: Json): Promise<Json> => {
+      if (!Object.keys(fillMs).length) return svc(env, "drive_runs", { method: "POST", body: JSON.stringify(row) })
+      try { return await svc(env, "drive_runs", { method: "POST", body: JSON.stringify({ ...row, ...fillMs }) }) } catch { return svc(env, "drive_runs", { method: "POST", body: JSON.stringify(row) }) }
+    }
     // Odds' own fill already finished the form (every required field filled, only Submit left): the run is at review with no model call.
     if (body?.ready === true) {
       const now = new Date().toISOString()
       const message = "Everything is filled in. Check it and press Submit yourself."
-      const [done] = await svc(env, "drive_runs", { method: "POST", body: JSON.stringify({ user_id: userId, posting_id: job?.id ?? null, url: String(body?.page || url).slice(0, 2000), status: "review", steps: 0, message, last_note: "Filled by Odds from your profile (no AI needed).", fill_ended_at: now, agent_finished_at: now, ...(body?.copilot === true ? { mode: "copilot" } : {}), ...fillMs }) })
+      const [done] = await insertRun({ user_id: userId, posting_id: job?.id ?? null, url: String(body?.page || url).slice(0, 2000), status: "review", steps: 0, message, last_note: "Filled by Odds from your profile (no AI needed).", fill_ended_at: now, agent_finished_at: now, ...(body?.copilot === true ? { mode: "copilot" } : {}) })
       await recordAttempts(done)
       return json(200, { run_id: done.id, resumed: false, ready: true })
     }
-    const [run] = await svc(env, "drive_runs", { method: "POST", body: JSON.stringify({ user_id: userId, posting_id: job?.id ?? null, url: String(body?.page || url).slice(0, 2000), ...(body?.copilot === true ? { mode: "copilot" } : {}), ...fillMs }) })
+    const [run] = await insertRun({ user_id: userId, posting_id: job?.id ?? null, url: String(body?.page || url).slice(0, 2000), ...(body?.copilot === true ? { mode: "copilot" } : {}) })
     await recordAttempts(run)
     const problem = await startBroods(env, run, job, await ctx.facts().catch(() => ({})), undefined, body?.odds_filled)
     if (problem) {
