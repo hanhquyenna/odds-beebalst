@@ -142,6 +142,14 @@ describe("what an international student is asked", () => {
     }
     expect(answerText("Will you be enrolled in a Bachelor's or Master's degree program for the entire duration of the internship?", karl)).toBe("Yes, enrolled full time")
     expect(answerText("Do you hold an EU/EEA passport, or do you have a valid Dutch student residence permit?", karl)).toBe("Yes")
+    // Citizenship alone: a permit is no answer, and "not an EU/EEA citizen" is a No (Bynder answered Yes from those words).
+    const nonEu: Facts = { answers: { work_authorization: "I am not an EU/EEA citizen, but I am currently on a Dutch student residence permit" } }
+    expect(answerText("Are you an EU citizen?", nonEu)).toBe("No")
+    expect(answerText("Do you have EU citizenship?", nonEu)).toBe("No")
+    expect(answerText("Do you hold an EU/EEA passport, or do you have a valid Dutch student residence permit?", nonEu)).toBe("Yes")
+    expect(answerText("Are you an EU citizen?", { answers: { nationality: "Vietnamese" } })).toBe("No")
+    expect(answerText("Are you an EU citizen?", { answers: { nationality: "German" } })).toBe("Yes")
+    expect(answerText("Are you an EU citizen?", karl)).toBe("Yes")
     expect(chooseOption(["Yes", "No", "Other"], "Yes", "Do you hold an EU/EEA passport?")).toBe(0)
     expect(answerText("Where are you based? Are you able to relocate?", karl)).toBe("Amsterdam. Yes, anywhere in the Netherlands")
     expect(answerText("Is the internship a compulsory part of your academic program?", karl)).toBe("Yes, my university signs one")

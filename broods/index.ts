@@ -160,12 +160,13 @@ that means finish review (never stuck). Never ask in chat. After finish, stop: r
 export const oddsApply = defineAgent({
   name: "odds-apply",
   description: "Applies to jobs in the person's own Chrome through the Odds extension (MCP), from their Autofill and profile. Never submits.",
-  // Through the person's own 9router (OpenAI-compatible, their ChatGPT plan), not the paid API key: cx/gpt-6-luna, the small model (far more runs per plan window).
+  // Through the person's own 9router (OpenAI-compatible, their ChatGPT plan), not the paid API key. Drive runs on cx/gpt-6.1-sol: the small
+  // luna model gave up after ~6 steps and stopped for questions the facts answered (7 days of traces); sol is tried on the same batch.
   // The URL is a Cloudflare tunnel from their Mac: if it changes, `broods env set NINE_ROUTER_BASE_URL` and redeploy.
   provider: { custom: { apiKey: env("NINE_ROUTER_API_KEY"), baseURL: env("NINE_ROUTER_BASE_URL"), name: "ninerouter" } },
   model: {
     provider: "custom",
-    modelId: process.env.ODDS_APPLY_MODEL || "cx/gpt-6-luna",
+    modelId: process.env.ODDS_APPLY_MODEL || "cx/gpt-6.1-sol",
     reasoning: "medium",
     maxOutputTokens: 4000,
   },
@@ -191,7 +192,7 @@ export const oddsPick = defineAgent({
   provider: { custom: { apiKey: env("NINE_ROUTER_API_KEY"), baseURL: env("NINE_ROUTER_BASE_URL"), name: "ninerouter" } },
   model: {
     provider: "custom",
-    modelId: process.env.ODDS_APPLY_MODEL || "cx/gpt-6-luna",
+    modelId: process.env.ODDS_PICK_MODEL || "cx/gpt-6-luna",
     reasoning: "low",
     maxOutputTokens: 1500,
   },

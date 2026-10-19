@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "odds: interview chances beside jobs",
   "short_name": "odds",
-  "version": "0.15.129",
+  "version": "0.15.130",
   "description": "See your interview chance beside jobs on LinkedIn, Indeed, Glassdoor and employers' sites. Click a % to open it in Odds.",
   "icons": {
     "16": "icons/icon-16.png",

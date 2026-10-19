@@ -1,4 +1,4 @@
-// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts, apply-form.ts and apply-censor.ts (sources 1e6a27d5ca22070b). Do not edit.
+// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts, apply-form.ts and apply-censor.ts (sources 72084032a748633f). Do not edit.
 (() => {
   var __defProp = Object.defineProperty;
   var __returnValue = (v) => v;
@@ -39,6 +39,7 @@
     resolveAgentAnswer: () => resolveAgentAnswer,
     valueFor: () => valueFor
   });
+  var EU_EEA = new Set(["austrian", "belgian", "bulgarian", "croatian", "cypriot", "czech", "danish", "dutch", "estonian", "finnish", "french", "german", "greek", "hungarian", "irish", "italian", "latvian", "lithuanian", "luxembourgish", "maltese", "polish", "portuguese", "romanian", "slovak", "slovenian", "spanish", "swedish", "icelandic", "liechtensteiner", "norwegian", "swiss", "austria", "belgium", "bulgaria", "croatia", "cyprus", "czechia", "czech republic", "denmark", "netherlands", "the netherlands", "estonia", "finland", "france", "germany", "greece", "hungary", "ireland", "italy", "latvia", "lithuania", "luxembourg", "malta", "poland", "portugal", "romania", "slovakia", "slovenia", "spain", "sweden", "iceland", "liechtenstein", "norway", "switzerland"]);
   function questionKey(label) {
     let t = label.replace(/\s+/g, " ").trim();
     const half = t.length % 2 === 1 ? (t.length - 1) / 2 : -1;
@@ -317,6 +318,17 @@
       return pick(a.field_of_study);
     if (/\b(university|universiteit|school|college|institution|hogeschool|school name)\b/.test(key) && key.split(" ").length <= 6 && !/\b(high school|year|date|reference|referral|hear|find|about|why)\b/.test(key))
       return pick(a.university);
+    if (/\b(eu|eea|european union)\b[^?]*\b(citizen\w*|national\w*|passport)\b|\b(citizen\w*|national\w*|passport)\b[^?]*\b(eu|eea|european union)\b/.test(key) && !/\b(permit|visa|residence|authori[sz]\w*|right to work|sponsor\w*|allowed to work|eligible)\b/.test(key)) {
+      const w = a.work_authorization ?? "";
+      const nation = (a.nationality ?? "").trim().toLowerCase();
+      if (/\bnot (an? )?(eu|eea)\b|\bnon-?(eu|eea)\b|\boutside (the )?(eu|eea)\b|\b(eu|eea)\b[^.]{0,20}\b(no|not)\b/i.test(w))
+        return "No";
+      if (nation)
+        return EU_EEA.has(nation) ? "Yes" : "No";
+      if (/\b(eu|eea) (citizen|national|passport)/i.test(w))
+        return "Yes";
+      return remembered || null;
+    }
     if (/\b(nationality|nationaliteit|citizenship)\b/.test(key) && key.length <= 90)
       return pick(a.nationality);
     if (/\b(gender|geslacht|geschlecht|genre|sex)\b/.test(key) && !/\b(identity|transgender|pronouns?|orientation|identit)\b/.test(key) && key.length <= 90 && a.gender?.trim())

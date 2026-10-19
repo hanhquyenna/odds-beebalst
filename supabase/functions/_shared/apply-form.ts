@@ -28,6 +28,9 @@ export interface Facts {
   never_worked_here?: boolean
 }
 
+/** Nationalities whose holders are EU/EEA (or Swiss) citizens, in the words a nationality answer uses. */
+const EU_EEA = new Set(["austrian", "belgian", "bulgarian", "croatian", "cypriot", "czech", "danish", "dutch", "estonian", "finnish", "french", "german", "greek", "hungarian", "irish", "italian", "latvian", "lithuanian", "luxembourgish", "maltese", "polish", "portuguese", "romanian", "slovak", "slovenian", "spanish", "swedish", "icelandic", "liechtensteiner", "norwegian", "swiss", "austria", "belgium", "bulgaria", "croatia", "cyprus", "czechia", "czech republic", "denmark", "netherlands", "the netherlands", "estonia", "finland", "france", "germany", "greece", "hungary", "ireland", "italy", "latvia", "lithuania", "luxembourg", "malta", "poland", "portugal", "romania", "slovakia", "slovenia", "spain", "sweden", "iceland", "liechtenstein", "norway", "switzerland"])
+
 /** How a form asks: a line of text, a number, a longer text, a choice from a list, or yes/no style buttons. */
 export type Kind = "text" | "number" | "textarea" | "select" | "radio" | "checkbox"
 
@@ -347,6 +350,16 @@ export function answerText(label: string, facts: Facts): string | null {
   if (/\b(non ?compet\w*|non ?concurrence|noncompete|restrictive covenant)\b|\b(patent|patents|brevets?|confidential\w*|proprietary|exclusive information)\b.*\b(agreement|entente|contract|accord|signed|sign)\b|\b(agreement|entente|signed|sign)\b.*\b(patent|patents|brevets?|confidential\w*|proprietary)\b/.test(key)) return /^no\b/i.test(a.prior_agreements ?? "") ? "No" : remembered || null
   if (/\b(field of study|major|study programme|study program|discipline|area of study|opleiding|studierichting)\b/.test(key)) return pick(a.field_of_study)
   if (/\b(university|universiteit|school|college|institution|hogeschool|school name)\b/.test(key) && key.split(" ").length <= 6 && !/\b(high school|year|date|reference|referral|hear|find|about|why)\b/.test(key)) return pick(a.university)
+  // "Are you an EU citizen?" asks about citizenship only (no permit, visa or right to work in it): a permit is no answer to it, and
+  // "I am not an EU/EEA citizen, but I hold a permit" is a No. Answered "Yes" from those words once (Bynder).
+  if (/\b(eu|eea|european union)\b[^?]*\b(citizen\w*|national\w*|passport)\b|\b(citizen\w*|national\w*|passport)\b[^?]*\b(eu|eea|european union)\b/.test(key) && !/\b(permit|visa|residence|authori[sz]\w*|right to work|sponsor\w*|allowed to work|eligible)\b/.test(key)) {
+    const w = a.work_authorization ?? ""
+    const nation = (a.nationality ?? "").trim().toLowerCase()
+    if (/\bnot (an? )?(eu|eea)\b|\bnon-?(eu|eea)\b|\boutside (the )?(eu|eea)\b|\b(eu|eea)\b[^.]{0,20}\b(no|not)\b/i.test(w)) return "No"
+    if (nation) return EU_EEA.has(nation) ? "Yes" : "No"
+    if (/\b(eu|eea) (citizen|national|passport)/i.test(w)) return "Yes"
+    return remembered || null
+  }
   if (/\b(nationality|nationaliteit|citizenship)\b/.test(key) && key.length <= 90) return pick(a.nationality)
   // Gender from Autofill (the person's own answer, never a guess from a name or photo); empty → the background rule below (Prefer not to say).
   if (/\b(gender|geslacht|geschlecht|genre|sex)\b/.test(key) && !/\b(identity|transgender|pronouns?|orientation|identit)\b/.test(key) && key.length <= 90 && a.gender?.trim()) return a.gender.trim()
