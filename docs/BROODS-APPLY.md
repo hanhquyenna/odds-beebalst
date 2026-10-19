@@ -12,6 +12,10 @@ Odds Chrome extension = hands (clicks/fills in your logged-in tab). Broods = bra
 
 Ladder: extension rules and recoverFill, then Broods odds-apply (`cx/gpt-6-luna`: apply-stuck, then apply-roam), then a person (account, captcha, submit). Apply, fill, and answer decisions do not call an OpenAI mini model.
 
+### OpenAI mini audit
+
+No unrelated runtime OpenAI or mini-model call was found. The remaining repository references are negative ladder tests, historical Broods issue notes, and the word `openai` in the employer-name classifier (`src/lib/tiers.ts` and its generated MCP bundle). The apply deployment script no longer reads, validates, or uploads `OPENAI_API_KEY`.
+
 ## Status
 
 | Piece | Value |
