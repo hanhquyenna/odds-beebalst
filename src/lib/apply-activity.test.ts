@@ -119,3 +119,7 @@ test("poll sync emits once per changed batch and never for identical replay", as
   expect(changes).toBe(1)
   stop()
 })
+
+test("the plain stuck wording is still Couldn't fill", () => {
+  expect(applyActivityLabel({ postingId: "p", status: "needs_input", message: "Couldn't finish this one: the country list did not take it. Finish it in the tab, or press Apply with Odds to try again." } as never)).toBe(applyActivityLabel({ postingId: "p", status: "needs_input", message: "Odds assist could not move this application forward after assist: x" } as never))
+})

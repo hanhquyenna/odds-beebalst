@@ -2579,7 +2579,7 @@
       closed: "This job is closed: it no longer takes applications.",
     }[next.reason] || ""
     const text = next.reason === "closed" ? why : [why, m].filter(Boolean).join(" ")
-    return [next.status === "needs_you" ? (text || "Broods needs you for a step — open the tab.") : `Odds assist could not move this application forward after assist: ${text || "Broods stopped."}`, "ask"]
+    return [next.status === "needs_you" ? (text || "Broods needs you for a step — open the tab.") : `Couldn't finish this one: ${text || "Odds stopped here."} Finish it in the tab, or press Apply with Odds to try again.`, "ask"]
   }
   /** The employer's own words saying the application went through (a thank-you page or message, with no form left). */
   const SENT = /thank you for (applying|your (application|interest in))|your application (has been|was|is) (successfully )?(submitted|received|sent)|(we have|we've) received your application|application (submitted|received|complete)|bedankt voor je sollicitatie|je sollicitatie is (verzonden|ontvangen)|vielen dank für ihre bewerbung/i
@@ -3059,7 +3059,7 @@
         if (await waitForAnswers()) return "moved"
         return "human"
       }
-      say("Odds assist could not move this application forward after assist. Open the tab to continue.", "ask")
+      say("Couldn't finish this one. Finish it in the tab, or press Apply with Odds to try again.", "ask")
       return "stuck"
     }
 
@@ -3146,7 +3146,7 @@
         const scanSig = `${pageHref()}|${heading.slice(0, 80)}`
         if (globalThis.__oddsScanSig === scanSig) {
           // Already confirmed this page — stop after assist (never silent loop).
-          say("Odds assist could not move this application forward after assist. Open the tab to continue.", "ask")
+          say("Couldn't finish this one. Finish it in the tab, or press Apply with Odds to try again.", "ask")
           return
         }
         globalThis.__oddsScanSig = scanSig

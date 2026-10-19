@@ -157,7 +157,7 @@ function salaryFor(raw: string | undefined, key: string): string | null {
   return text
 }
 
-const DECLINE = /^(decline|prefer not|i (do not|don'?t) wish|i'?d rather not|rather not|choose not|not (to )?(say|disclose|answer)|no answer|pr[eé]f[eè]re(r)? ne pas|je (pr[eé]f[eè]re|ne (souhaite|veux) pas))|\bdecline to (self[- ]identify|answer|state)\b|\bprefer not to (say|answer|disclose)\b|\bne (souhaite|veux) pas (r[eé]pondre|dire|divulguer)\b/i
+const DECLINE = /^(decline|prefer not|i (do not|don'?t) wish|i'?d rather not|rather not|choose not|not (to )?(say|disclose|answer)|no answer|pr[eé]f[eè]re(r)? ne pas|je (pr[eé]f[eè]re|ne (souhaite|veux) pas))|\bdecline to (self[- ]identify|answer|state)\b|\bprefer not to (say|answer|disclose)\b|\b(i )?choose not to (identify|say|answer|disclose|specify)\b|\bnot to (identify|specify|state)\b|\bne (souhaite|veux) pas (r[eé]pondre|dire|divulguer)\b/i
 const DEMOGRAPHIC = /\b(gender|genre|geslacht|geschlecht|race|ethnic\w*|veteran|pronouns?|how old are you|age (group|range|bracket)|lgbt\w*|sexual orientation|transgender|disabilit\w*|health condition|neurodiver\w*|under[- ]represented|caregiving|religio\w*|divulgation volontaire|identit\w* de genre|voluntary (self[- ]?identif|disclosure))\b/i
 
 /** Bot traps ("Leave this field empty if you're human") — never ask the person, always leave empty. */
@@ -441,6 +441,11 @@ const norm = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[
 
 /** Which of a question's options an answer is: the same words, then one starting with it, then yes/no by meaning. -1 when none fits. */
 export function chooseOption(options: string[], answer: string, label = ""): number {
+  // "Prefer not to say" meets the site's own words for it ("I choose not to identify at this time", "Decline to self-identify").
+  if (DECLINE.test(answer.trim())) {
+    const d = options.findIndex((o) => DECLINE.test(o.trim()))
+    if (d >= 0) return d
+  }
   // The Dutch names and the English ones are the same place: Noord-Holland is North Holland, Nederland is the Netherlands.
   const canon = (t: string): string => norm(t).replace(/\bnoord\b/g, "north").replace(/\bzuid\b/g, "south").replace(/\bfryslan\b/g, "friesland").replace(/\bnederland\b/g, "netherlands").replace(/^the netherlands$/, "netherlands").replace(/^pays bas$|^niederlande$/, "netherlands").replace(/^hollande septentrionale$|^nordholland$/, "north holland").replace(/^hollande meridionale$|^sudholland$/, "south holland").replace(/^brabant septentrional$|^nordbrabant$/, "north brabant").replace(/^frise$/, "friesland").replace(/^zelande$/, "zeeland").replace(/^geldre$/, "gelderland")
     // Gender options in any wording: "Man", "Male (he/him)", "Mannelijk" are one choice; "Woman", "Female", "Vrouw" the other.

@@ -4868,6 +4868,28 @@ test("a box that shows the text but whose site still says 'cannot be left blank'
   await expect(page.locator("#ad-e")).toBeHidden()
 })
 
+test("REAL_DSM: the live dsm-firmenich country dropdown takes Netherlands", async ({ context, fake }) => {
+  test.skip(!process.env.REAL_DSM, "set REAL_DSM=1 to open the live dsm-firmenich form")
+  test.setTimeout(120_000)
+  await connect(context)
+  const url = "https://jobs.dsm-firmenich.com/careers/apply?pid=562949978671025&hl=en_US&domain=dsm.com&sType=Indeed"
+  await context.unroute("https://jobs.dsm-firmenich.com/**").catch(() => undefined)
+  fake.kit = { job_id: "pdsm", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  let sent: unknown = null
+  fake.driveScript = async (cmd) => {
+    const page = await cmd("read_page") as { fields?: Array<{ id: string; label: string }> }
+    const country = page.fields!.find((f) => /^Country of Residence/.test(f.label))!
+    sent = await cmd("fill", { fields: [{ id: country.id, value: "The Netherlands" }] })
+    return { status: "stuck", message: "probe done" }
+  }
+  const page = await context.newPage()
+  await page.goto(url)
+  await applyFrom(context, page, url)
+  await expect.poll(() => sent, { timeout: 90_000 }).not.toBeNull()
+  console.log("DSM RESULT", JSON.stringify(sent).slice(0, 1500))
+  console.log("DSM VALUE", await page.locator("#input-9").inputValue().catch((e) => String(e)))
+})
+
 test("while the browser's side panel is open the page draws no second panel, and it may again once that panel is closed", async ({ context }) => {
   test.setTimeout(60_000)
   await connect(context)

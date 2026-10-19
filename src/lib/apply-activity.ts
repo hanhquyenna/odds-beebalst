@@ -114,7 +114,7 @@ export function isLiveApply(a: ApplyActivity | null | undefined): boolean {
  * never bare timeouts / “still loading” (those stay Applying… or Your answers).
  */
 // Transport / “reload extension” is NOT Broods Stuck — never classify those as Stuck chips.
-const STUCK_MSG = /\bafter (odds )?assist\b|\bagent gave up\b|odds assist could not\b|broods could not\b|could not move this application forward after assist|could not open the application form after assist|could not open an application after assist|employer site returned an error/i
+const STUCK_MSG = /\bafter (odds )?assist\b|\bagent gave up\b|odds assist could not\b|broods could not\b|could not move this application forward after assist|could not open the application form after assist|could not open an application after assist|employer site returned an error|couldn.t finish this one/i
 const EXT_TRANSPORT_MSG = /extension did not respond|odds in chrome did not answer|reconnect(ing)? the extension|reconnect odds on connect|connect odds from the extension|extension context invalidated/i
 const CAPTCHA_MSG = /captcha|verify you are human|security verification/i
 /** Old stuck copy named both — never treat as Captcha (chip/title mismatch with Account body). */
