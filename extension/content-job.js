@@ -196,6 +196,15 @@ function placeAuto() {
       .orb{animation:hop 1.6s ease-in-out infinite}
       @media (prefers-reduced-motion:reduce){.lid,.orb{animation:none}}
     </style><button type="button" title="Odds fills in the application for you"><i>${globalThis.oddsMascot?.mark("#EE7A2A") || ""}</i><span>Auto apply</span></button>`
+    // The odds mark comes from mascot.js; if the page script ran first, it is put in as soon as it is there.
+    if (!globalThis.oddsMascot) {
+      let tries = 0
+      const fill = window.setInterval(() => {
+        const icon = root.querySelector("i")
+        if (globalThis.oddsMascot && icon) { icon.innerHTML = globalThis.oddsMascot.mark("#EE7A2A"); window.clearInterval(fill) }
+        else if (++tries > 20) window.clearInterval(fill)
+      }, 250)
+    }
     root.querySelector("button").addEventListener("click", () => {
       openPanel()
       const c = current

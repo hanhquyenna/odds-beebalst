@@ -30,6 +30,13 @@ async function allowOddsInTab(tabId) {
   })
 }
 // The tests switch the side panel off to try the panel drawn in the page; read ahead of time, because opening the side panel must not wait on anything.
+// The browser's own side panel windows that are open now (each holds a connection while it lives): then no panel is drawn in the page.
+const sidePanels = new Set()
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "odds-side-panel") return
+  sidePanels.add(port)
+  port.onDisconnect.addListener(() => sidePanels.delete(port))
+})
 let panelInPageOnly = false
 chrome.storage.local.get("oddsPanelInPage").then((got) => {
   panelInPageOnly = got.oddsPanelInPage === true
@@ -834,6 +841,10 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   }
   if (message?.type === "disconnect") {
     chrome.storage.local.remove(KEY).then(() => reply({ connected: false }))
+  if (message?.type === "native-panel-open") {
+    reply({ open: sidePanels.size > 0 })
+    return false
+  }
     return true
   }
   // The key comes only from the odds site itself (content-site.js on odds.beeblast.co), after the person is signed in there and allows it.

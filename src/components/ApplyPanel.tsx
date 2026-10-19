@@ -125,9 +125,18 @@ function JobCard({ info, post, onInsights }: { info: PanelInfo; post: Posting | 
   const page = info.page!
   let host = ""
   try { host = new URL(page.url).hostname.replace(/^www\./, "") } catch { host = "" }
-  const employer = post?.employer ?? (info.job?.employer || host)
-  const name = post?.employer_display ?? (info.job?.employer || host)
-  const title = post?.title ?? (info.job?.title || page.title || host)
+  // A page Odds does not hold yet and did not read a job from: its tab title is "Easy apply - Role (1 Year) - Bosch Group" or "Role | Company":
+  // the last part is the company, the rest the role. The address' own company slug (jobs.smartrecruiters.com/BoschGroup/…) is the next best.
+  const fromTitle = ((): { title: string; company: string } | null => {
+    const parts = String(page.title || "").split(/\s+[-–—|]\s+/).map((x) => x.trim()).filter(Boolean)
+    if (parts.length < 2) return null
+    const company = parts[parts.length - 1]
+    if (company.length > 40 || /\b(jobs?|careers?|vacatures?|apply|solliciteer)\b/i.test(company)) return null
+    return { title: parts.slice(0, -1).filter((x) => !/^(easy apply|apply( now)?|vacature|job)$/i.test(x)).join(" - "), company }
+  })()
+  const employer = post?.employer ?? (info.job?.employer || fromTitle?.company || host)
+  const name = post?.employer_display ?? (info.job?.employer || fromTitle?.company || host)
+  const title = post?.title ?? (info.job?.title || fromTitle?.title || page.title || host)
   const age = post && !post.local ? formatAge(post) : ""
   const kept = post ? data.saved.has(post.id) || data.applications.some((a) => a.posting_id === post.id) : false
   const company = name.toLowerCase()
@@ -185,6 +194,18 @@ function OddsButton({ info, post }: { info: PanelInfo; post: Posting | null }): 
   const busy = pressed || state === "filling"
   const source = post ? applySourceOf(sourcesOf(post)) : null
 
+  // A closed job is its own state, not "Filling…" with a sentence about it: nothing runs, nothing was sent.
+  if (state !== "submitted" && /\b(no longer (accepting|open|available|taking)|job is closed|has been closed|position is closed)\b/i.test(info.status?.message ?? "")) {
+    return (
+      <div role="status" className="flex min-h-16 w-full items-center gap-3 rounded-2xl border-[1.5px] border-destructive/40 bg-destructive/10 px-4 py-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/15 text-lg font-extrabold text-destructive" aria-hidden="true">!</span>
+        <span className="flex min-w-0 flex-col">
+          <span className="text-lg font-bold">This job is closed</span>
+          <span className="text-sm leading-snug text-muted-foreground">It no longer takes applications. Nothing was sent.</span>
+        </span>
+      </div>
+    )
+  }
   const kind = page.kind ?? null
   // An account step (like Simplify): Odds fills your email and a strong password it keeps for this site, presses the site's button,
   // then fills the application that follows in this tab. Sign-in uses the password Odds made here, or you type yours.
@@ -251,8 +272,8 @@ function ChanceCard({ post }: { post: Posting }): React.JSX.Element | null {
   const st = useMemo(() => (data.reference && data.shares ? standing(post, profile, data.reference, data.shares, NO_WHAT_IF, referral, strength) : null), [post, profile, data.reference, data.shares, referral, strength])
   if (!st || st.needsProfile) return null
   const mid = st.rate?.mid ?? null
-  // The ring is drawn against 10%: interview chances sit between about 1% and 10%.
-  const fill = mid !== null ? Math.min(100, Math.round(mid * 1000)) : 0
+  // The ring is the chance itself: 14% fills 14% of it (never a full circle for a small number).
+  const fill = mid !== null ? Math.min(100, mid * 100) : 0
 
   const R = 42
   const C = 2 * Math.PI * R
@@ -262,18 +283,16 @@ function ChanceCard({ post }: { post: Posting }): React.JSX.Element | null {
 
   return (
     <div className="flex flex-col gap-4 rounded-xl border-[1.5px] border-line bg-card p-4">
-      <div className="flex items-center gap-4">
-        <div className="relative grid size-[96px] shrink-0 place-items-center">
+      <div className="flex flex-col items-center gap-2 text-center">
+        <div className="relative grid size-[112px] shrink-0 place-items-center">
           <svg viewBox="0 0 100 100" className="absolute inset-0 -rotate-90" aria-hidden="true">
-            <circle cx="50" cy="50" r={R} fill="none" stroke="var(--secondary)" strokeWidth="12" />
-            <circle cx="50" cy="50" r={R} fill="none" stroke="var(--brand)" strokeWidth="12" strokeLinecap="round" strokeDasharray={`${(C * Math.max(fill, 3)) / 100} ${C}`} className="transition-[stroke-dasharray] duration-500" />
+            <circle cx="50" cy="50" r={R} fill="none" stroke="var(--secondary)" strokeWidth="10" />
+            <circle cx="50" cy="50" r={R} fill="none" stroke="var(--brand)" strokeWidth="10" strokeLinecap="round" strokeDasharray={`${(C * Math.max(fill, 1.5)) / 100} ${C}`} className="transition-[stroke-dasharray] duration-500" />
           </svg>
-          <span className="relative text-2xl font-extrabold tracking-tight tabular-nums">{mid !== null ? point(mid) : "–"}</span>
+          <span className="relative text-3xl font-extrabold tracking-tight tabular-nums">{mid !== null ? point(mid) : "–"}</span>
         </div>
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <span className="text-base font-bold">Interview chance</span>
-          {mid !== null ? <span className="text-sm text-muted-foreground">{Math.max(1, Math.round(mid * 100))} in 100 similar applicants get a call</span> : null}
-        </div>
+        <span className="text-base font-bold">Interview chance</span>
+        {mid !== null ? <span className="text-sm text-muted-foreground">{Math.max(1, Math.round(mid * 100))} in 100 similar applicants get a call</span> : null}
       </div>
       {have.length ? (
         <div className="flex flex-col gap-2">

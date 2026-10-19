@@ -56,6 +56,18 @@ function ensurePanel(then) {
 
 /** Shows the panel. `added` is the job just added ({ id, title, company, city, chance_pct }): it drops in and its page opens in the app. */
 function openPanel(added) {
+  // The browser's side panel is already open: it is the panel, the page draws no second one (the job just added goes to it).
+  chrome.runtime.sendMessage({ type: "native-panel-open" }, (answer) => {
+    if (!chrome.runtime.lastError && answer && answer.open) {
+      document.documentElement.dataset.oddsPanel = "side"
+      if (added && (added.id || added.pending)) chrome.runtime.sendMessage({ type: "panel-added", job: added }, () => void chrome.runtime.lastError)
+      return
+    }
+    openPanelInPage(added)
+  })
+}
+
+function openPanelInPage(added) {
   // Opened on purpose (the mascot, a badge press): the next page may open it by itself again.
   if (added !== undefined || document.documentElement.dataset.oddsPanel !== "open") try { sessionStorage.removeItem("odds-panel-closed") } catch { /* ignore */ }
   if (added && (added.id || added.pending)) panelWaiting = added

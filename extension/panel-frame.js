@@ -116,6 +116,8 @@ document.getElementById("close").onclick = () => (window.parent !== window ? win
 
 // In the browser's side panel, the page that added a job tells it by way of the background; only the panel of that tab reacts.
 if (window.parent === window) {
+  // While the browser's side panel is open the page never draws a second panel of its own: the background counts these connections.
+  try { chrome.runtime.connect({ name: "odds-side-panel" }) } catch { /* the background wakes on the next message */ }
   chrome.runtime.sendMessage({ type: "panel-ready" }, (answer) => {
     if (!chrome.runtime.lastError && answer?.job) viewJob(answer.job)
   })
