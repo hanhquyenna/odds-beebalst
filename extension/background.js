@@ -593,10 +593,20 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     })().catch(() => reply({ ok: false }))
     return true
   }
+  // Broods asks for a mail (a site's verification code or link): Gmail is opened in another tab of this Chrome (the person is signed in), polled
+  // for a new message, read, and the tab is closed when the run asks again later or ends. Nothing is stored; only what the tool returns leaves.
+  if (message?.type === "drive-mail" && sender.tab && typeof sender.tab.id === "number") {
+    readMail(sender.tab.id, { from: String(message.from || ""), subject: String(message.subject || "") })
+      .then(reply).catch((e) => reply({ error: String(e?.message || e).slice(0, 200) }))
+    return true
+  }
   // Broods looks at the application tab (only when its page tools are stuck): the tab is the visible one in the Odds window, so no focus is taken.
   if (message?.type === "drive-shot" && sender.tab && typeof sender.tab.id === "number") {
     const tab = sender.tab
     ;(async () => {
+      // Through the debugger first: it needs no focus and shows the page whether or not its tab is in front.
+      const viaDebugger = await shotViaDebugger(tab.id)
+      if (viaDebugger.image) return reply(viaDebugger)
       // Look only when it disturbs no one: the tab is already showing, or it sits in a window the person is not using (the Odds window).
       // Never switch tabs in the window the person is working in; Broods then works from read_page.
       if (!tab.active) {
@@ -1438,12 +1448,15 @@ async function autoAccount(tabId, kind) {
   // A click on the site's button can be lost while the page is still drawing or Odds is starting: while the same step is still on screen,
   // press again (same email and password), up to three times.
   for (let attempt = 0; attempt < 3; attempt++) {
-    await accountInTab(tabId, kind === "create_account").catch(() => undefined)
+    // While Broods drives this tab it presses the site's own Create / Sign in button itself: Odds only fills the boxes (never a second press).
+    const press = !(await intentOf(tabId))?.driveRun
+    await accountInTab(tabId, kind === "create_account", press).catch(() => undefined)
+    if (!press) return
     await new Promise((r) => setTimeout(r, 4000))
     if ((await pageKindOf(tabId).catch(() => null)) !== kind) return
   }
 }
-async function accountInTab(tabId, create) {
+async function accountInTab(tabId, create, press = true) {
   const tab = await chrome.tabs.get(tabId).catch(() => null)
   if (!tab?.url || !/^https:/.test(tab.url)) return { ok: false }
   const host = new URL(tab.url).hostname
@@ -1460,7 +1473,7 @@ async function accountInTab(tabId, create) {
   if (!held) await setIntent(tabId, { job: tab.url, title: String(tab.title || "").slice(0, 200), at: Date.now(), status: "filling", message: create ? "Creating your account…" : "Signing in…", copilot: true, here: true })
   else await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], copilot: true, here: true, paused: false, driveRun: undefined, at: Date.now() } })
   if (!held) addJob(tab.url).catch(() => undefined)
-  const res = await chrome.tabs.sendMessage(tabId, { type: "odds-account", email: account?.email || email, password: account?.password || "", create }, { frameId: 0 }).catch(() => null)
+  const res = await chrome.tabs.sendMessage(tabId, { type: "odds-account", email: account?.email || email, password: account?.password || "", create, press }, { frameId: 0 }).catch(() => null)
   return { ok: Boolean(res?.ok), pressed: Boolean(res?.pressed) }
 }
 /** A new tab's first real address (window.open often starts at about:blank). */
@@ -1749,6 +1762,88 @@ chrome.storage.onChanged.addListener((changes, area) => {
 pollApplications().catch(() => undefined)
 
 
+/** In the Gmail tab: the recent messages the list shows (Gmail's own markup), or the page's text when there are none. */
+function mailRowsInPage() {
+  if (/accounts\.google\.com/.test(location.hostname)) return { signedOut: true }
+  const rows = [...document.querySelectorAll("tr.zA")].slice(0, 10).map((r, i) => ({
+    i,
+    from: (r.querySelector(".yW span[email]")?.getAttribute("email") || r.querySelector(".yW")?.innerText || "").trim().slice(0, 80),
+    name: (r.querySelector(".yW")?.innerText || "").trim().slice(0, 60),
+    subject: (r.querySelector(".bog")?.innerText || "").trim().slice(0, 140),
+    snippet: (r.querySelector(".y2")?.innerText || "").replace(/^\s*-\s*/, "").trim().slice(0, 200),
+    unread: r.classList.contains("zE"),
+  }))
+  return { rows, text: rows.length ? "" : (document.body?.innerText || "").slice(0, 3000) }
+}
+/** In the Gmail tab: open the i-th message of the list. */
+function mailOpenInPage(i) { document.querySelectorAll("tr.zA")[i]?.click() }
+/** In the Gmail tab: the open message's text and its links (Google's redirect links unwrapped). */
+function mailBodyInPage() {
+  const el = [...document.querySelectorAll(".a3s")].pop()
+  const decode = (h) => { try { const u = new URL(h); return u.hostname.endsWith("google.com") && u.pathname === "/url" ? (u.searchParams.get("q") || h) : h } catch { return h } }
+  return el ? { text: el.innerText.replace(/\n{3,}/g, "\n\n").slice(0, 4000), links: [...el.querySelectorAll("a[href]")].map((a) => ({ text: (a.innerText || "").trim().slice(0, 80), href: decode(a.href) })).filter((l) => /^https:/.test(l.href)).slice(0, 15) } : null
+}
+/** One Gmail tab per application tab, kept for the length of the wait. */
+const mailTabs = new Map()
+/** Opens (or reuses) Gmail in a background tab, waits up to ~18 s for mail of the last hour, and returns what it shows and the best match in full. */
+async function readMail(appTabId, hint) {
+  // (chrome.storage.local oddsMailBase points the tests at a stand-in for Gmail; the person's Chrome always uses Gmail itself.)
+  const { oddsMailBase } = await chrome.storage.local.get("oddsMailBase")
+  const MAIL_URL = `${typeof oddsMailBase === "string" && /^https:\/\//.test(oddsMailBase) ? oddsMailBase.replace(/\/$/, "") : "https://mail.google.com"}/mail/u/0/#search/in%3Aanywhere+newer_than%3A1h`
+  let mailTab = mailTabs.get(appTabId) ? await chrome.tabs.get(mailTabs.get(appTabId)).catch(() => null) : null
+  if (!mailTab) {
+    const app = await chrome.tabs.get(appTabId).catch(() => null)
+    mailTab = await chrome.tabs.create({ url: MAIL_URL, active: false, windowId: app?.windowId })
+    mailTabs.set(appTabId, mailTab.id)
+  } else {
+    await chrome.tabs.update(mailTab.id, { url: MAIL_URL }).catch(() => undefined)
+  }
+  const end = Date.now() + 18_000
+  let scriptError = ""
+  const run = (func, args) => chrome.scripting.executeScript({ target: { tabId: mailTab.id }, func, args }).then((r) => r?.[0]?.result).catch((e) => { scriptError = String(e?.message || e).slice(0, 160); return null })
+  const list = () => run(mailRowsInPage)
+  let seen = null
+  while (Date.now() < end) {
+    await new Promise((r) => setTimeout(r, 2500))
+    seen = await list()
+    if (seen?.signedOut) return { error: "Gmail asks the person to sign in: they must sign in to Gmail in this Chrome first." }
+    if (seen?.rows?.length) break
+  }
+  if (!seen?.rows?.length) return { messages: [], text: seen?.text || "", note: "Nothing in Gmail from the last hour yet (or it has not loaded). Call check_email again in a moment.", ...(scriptError ? { debug: scriptError } : {}) }
+  const want = (hint.from + " " + hint.subject).toLowerCase().trim()
+  const score = (m) => (want && `${m.from} ${m.name} ${m.subject}`.toLowerCase().includes(hint.from.toLowerCase() || "\u0000") ? 2 : 0) + (want && hint.subject && m.subject.toLowerCase().includes(hint.subject.toLowerCase()) ? 2 : 0) + (m.unread ? 1 : 0) + (/verif|confirm|code|activate|welcome|account|bevestig/i.test(m.subject + m.snippet) ? 1 : 0)
+  const best = [...seen.rows].sort((a, b) => score(b) - score(a) || a.i - b.i)[0]
+  await run(mailOpenInPage, [best.i])
+  await new Promise((r) => setTimeout(r, 2200))
+  const body = await run(mailBodyInPage)
+  // Read: the Gmail tab is no longer needed.
+  if (body?.text) { chrome.tabs.remove(mailTab.id).catch(() => undefined); mailTabs.delete(appTabId) }
+  return { messages: seen.rows.map(({ i, ...m }) => m), opened: { from: best.from, subject: best.subject, ...(body || { text: "", links: [] }) } }
+}
+chrome.tabs.onRemoved.addListener((id) => { for (const [app, mail] of mailTabs) { if (app === id) { chrome.tabs.remove(mail).catch(() => undefined); mailTabs.delete(app) } else if (mail === id) mailTabs.delete(app) } })
+
+/** The tab as an image through Chrome's debugger: no focus, no tab switch, the page need not be in front. At most 1280 px wide. */
+async function shotViaDebugger(tabId) {
+  const prior = realInputQueue.get(tabId) || Promise.resolve()
+  const next = prior.catch(() => undefined).then(async () => {
+    const target = { tabId }
+    try { await chrome.debugger.attach(target, "1.3") } catch (e) { return { error: `screenshot unavailable: ${String(e?.message || e).slice(0, 120)}` } }
+    try {
+      const m = await chrome.debugger.sendCommand(target, "Page.getLayoutMetrics")
+      const vw = Math.max(1, Math.round(m?.cssVisualViewport?.clientWidth || m?.layoutViewport?.clientWidth || 1000))
+      const vh = Math.max(1, Math.round(m?.cssVisualViewport?.clientHeight || m?.layoutViewport?.clientHeight || 700))
+      const scale = Math.min(1, 1280 / vw)
+      const shot = await chrome.debugger.sendCommand(target, "Page.captureScreenshot", { format: "jpeg", quality: 60, optimizeForSpeed: true, clip: { x: 0, y: 0, width: vw, height: vh, scale } })
+      return shot?.data ? { image: shot.data, width: Math.round(vw * scale), height: Math.round(vh * scale), viewportWidth: vw, viewportHeight: vh } : { error: "empty screenshot" }
+    } catch (e) {
+      return { error: String(e?.message || e).slice(0, 160) }
+    } finally {
+      await chrome.debugger.detach(target).catch(() => undefined)
+    }
+  })
+  realInputQueue.set(tabId, next.catch(() => undefined))
+  return next
+}
 /** One real input action in a tab through Chrome's debugger (one at a time per tab). click {x,y} | type {text, clear} | key {key}. */
 const realInputQueue = new Map()
 function realInput(tabId, action) {

@@ -5690,6 +5690,54 @@ test("every click on a job page is logged with who made it (the person, the page
   expect((await log()).map((c) => `${c.who}:${c.label}`)).toEqual(["person:Delete All Data", "page:Next step"])
 })
 
+test("read_page comes with a screenshot of the page (taken through the debugger, whatever tab is in front)", async ({ context, fake }) => {
+  test.setTimeout(60_000)
+  await connect(context)
+  const host = "careers.shot.example-motor.eu"
+  await context.route(`https://${host}/**`, (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><html><body style='background:#eef'><h1>Marketing Internship</h1><p>We are hiring.</p></body></html>" }))
+  fake.kit = { job_id: "pshot", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: {}, remembered: {} }, cv: null }
+  let readPage: Record<string, unknown> = {}
+  fake.driveScript = async (cmd) => {
+    readPage = (await cmd("read_page")) as Record<string, unknown>
+    return { status: "review", message: "Everything is filled in. Check it and press Submit yourself." }
+  }
+  const page = await context.newPage()
+  await page.goto(`https://${host}/job`)
+  const other = await context.newPage() // another tab in front: the shot still shows the application tab
+  await other.goto("https://careers.shot.example-motor.eu/other")
+  const worker = context.serviceWorkers()[0]
+  await worker.evaluate(async (u) => {
+    const tab = (await chrome.tabs.query({ url: u }))[0]
+    await (globalThis as unknown as { setIntent(tabId: number, intent: unknown): Promise<void> }).setIntent(tab.id!, { job: tab.url, title: "Intern", at: Date.now(), status: "filling", message: "Filling…", copilot: true, here: true })
+    await (globalThis as unknown as { injectApplyScripts(tabId: number): Promise<void> }).injectApplyScripts(tab.id!)
+  }, `https://${host}/job`)
+  await expect.poll(() => Object.keys(readPage).length, { timeout: 40000 }).toBeGreaterThan(0)
+  const shot = readPage.screenshot as { image?: string; width?: number } | undefined
+  expect(String(shot?.image ?? "").length).toBeGreaterThan(2000)
+  expect(shot?.width).toBeLessThanOrEqual(1280)
+})
+
+test("the Gmail reader finds the verification mail in Gmail's list, opens it, and returns its text and its links with Google's redirect unwrapped", async ({ context }) => {
+  test.setTimeout(60_000)
+  await connect(context)
+  const host = "careers.mail.example-motor.eu"
+  await context.route(`https://${host}/**`, (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><body>
+    <table><tr class="zA zE"><td class="yW"><span email="no-reply@acme-careers.com">Acme Careers</span></td><td><span class="bog">Your Acme verification code</span><span class="y2"> - Use code 482913 to verify</span></td></tr>
+    <tr class="zA"><td class="yW"><span email="news@other.com">Other</span></td><td><span class="bog">Weekly digest</span><span class="y2"> - nothing</span></td></tr></table>
+    <div id="open" hidden><div class="a3s"><p>Your code is 482913.</p><a href="https://www.google.com/url?q=https%3A%2F%2Fcareers.mail.example-motor.eu%2Fverify%3Ft%3Dabc">Verify email</a></div></div>
+    <script>document.querySelectorAll("tr.zA").forEach((r) => r.addEventListener("click", () => { document.getElementById("open").hidden = false }))</script></body></html>` }))
+  const page = await context.newPage()
+  await page.goto(`https://${host}/gmail`)
+  const worker = context.serviceWorkers()[0]
+  const src = await worker.evaluate(() => { const g = globalThis as unknown as Record<string, { toString(): string }>; return { rows: g.mailRowsInPage.toString(), open: g.mailOpenInPage.toString(), body: g.mailBodyInPage.toString() } })
+  const rows = await page.evaluate((fn) => (0, eval)(`(${fn})()`) as { rows: Array<{ from: string; subject: string; unread: boolean }> }, src.rows)
+  expect(rows.rows.map((r) => `${r.from}|${r.subject}|${r.unread}`)).toEqual(["no-reply@acme-careers.com|Your Acme verification code|true", "news@other.com|Weekly digest|false"])
+  await page.evaluate((fn) => (0, eval)(`(${fn})(0)`), src.open)
+  const body = await page.evaluate((fn) => (0, eval)(`(${fn})()`) as { text: string; links: Array<{ href: string }> }, src.body)
+  expect(body.text).toContain("482913")
+  expect(body.links[0].href).toBe("https://careers.mail.example-motor.eu/verify?t=abc")
+})
+
 test("the saved logins page lists the accounts Odds made: the password is hidden until Show, Forget removes the site", async ({ context }) => {
   test.setTimeout(60_000)
   await connect(context)

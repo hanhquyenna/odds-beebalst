@@ -339,6 +339,16 @@ const BASE_TOOLS = [
     inputSchema: { type: "object", properties: { run_id: { type: "string" } }, required: ["run_id"] },
   },
   {
+    name: "check_email",
+    description: "Look in the person's Gmail (their own Chrome is signed in) for a mail from the last hour, such as a site's verification code or confirmation link: the tool opens Gmail in another tab, waits up to about 20 seconds for a new message, and returns the recent messages (sender, subject, snippet) and the text and links of the best match. Mail can take one to two minutes: if nothing has come, call it again (up to six times), and do something else useful in between. from / subject narrow the match (e.g. the site's name). Then type a code with fill, or open a link with open_link.",
+    inputSchema: { type: "object", properties: { run_id: { type: "string" }, from: { type: "string" }, subject: { type: "string" } }, required: ["run_id"] },
+  },
+  {
+    name: "open_link",
+    description: "Open an https link (a verification link from check_email) in the application tab. Returns when the page has loaded; then read_page.",
+    inputSchema: { type: "object", properties: { run_id: { type: "string" }, url: { type: "string" } }, required: ["run_id", "url"] },
+  },
+  {
     name: "open_job",
     description: "Open this job's own link again in the tab (when the tab ended up somewhere unrelated — a search page, a blank or warmup page, another job — and back does not help). Returns the fresh page snapshot.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" } }, required: ["run_id"] },
@@ -423,6 +433,8 @@ async function siteTactics(env: Env, url: string): Promise<Record<string, string
 function signInWall(page: Json): boolean {
   const texts = [...(page.headings ?? []), ...(page.buttons ?? []).map((b: Json) => b?.text ?? "")].map((t: unknown) => (typeof t === "string" ? t : ""))
   if (texts.some((t) => /save (your )?(progress|application)|save for later|continue as (a )?guest|apply without (an )?account/i.test(t))) return false
+  // A page that offers to create the account (Create account / Register / Sign up) is not a wall: making the account is the agent's job.
+  if (texts.some((t) => /\b(create (an |your )?account|register( now)?|sign ?up|new user|registreren|account aanmaken|nieuw account)\b/i.test(t))) return false
   const asks = (page.fields ?? []).filter((f: Json) => f?.kind !== "checkbox" && !/e-?mail|user ?name|password|wachtwoord|login|log in|sign in/i.test(String(f?.label ?? "")))
   if (asks.length >= 2) return false
   const says = texts.some((t) => /(please )?(log ?in|sign ?in|inloggen)( first)? to (apply|continue|solliciteren)|login required|sign in with your|log in with your|create an account to (apply|continue)|eu login/i.test(t))
@@ -625,14 +637,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     const link = (await svc(env, `job_documents?user_id=eq.${run.user_id}&posting_id=eq.${encodeURIComponent(run.posting_id)}&kind=eq.cover_letter&select=document_id&limit=1`).catch(() => null))?.[0]
     if (link?.document_id) args = { ...args, doc: link.document_id }
   }
-  if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
-  // Looking costs time: a screenshot is for something that did not take. Four looks in the last eight steps with nothing failing → refused.
-  if (name === "screenshot") {
-    const recent = (await svc(env, `drive_commands?run_id=eq.${run.id}&order=id.desc&limit=8&select=tool,status,result`).catch(() => null)) ?? []
-    const looks = recent.filter((c: Json) => c.tool === "screenshot" || c.tool === "click_at").length
-    const failed = recent.some((c: Json) => c.status !== "done" || c.result?.ok === false || (Array.isArray(c.result?.results) && c.result.results.some((r: Json) => r?.ok === false)) || (Array.isArray(c.result?.errors) && c.result.errors.length))
-    if (looks >= 4 && !failed) return { text: "No screenshot needed: nothing failed in the last steps. Use the page each action returns (or read_page) and carry on.", error: true }
-  }
+  if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
   // The same button three times in the last few steps and the page never changed: pressing it again is not an answer. Said once, plainly.
   if (name === "click" && typeof args?.id === "string") {
     const recentClicks = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.click&order=id.desc&limit=6&select=args,status`).catch(() => null)) ?? []
@@ -654,6 +659,13 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     const row = (await svc(env, `drive_commands?id=eq.${cmd.id}&select=status,result,taken_at`))?.[0]
     if (row?.status === "done") {
       let res = row.result ?? {}
+      // A picture of the page rides with read_page: kept out of the stored row (the database holds no images) and handed to the model as an image.
+      let shotImage: string | undefined
+      if (typeof res.screenshot?.image === "string") {
+        shotImage = res.screenshot.image
+        res = { ...res, screenshot: { width: res.screenshot.width, height: res.screenshot.height, note: "attached as an image" } }
+        void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: res }) }).catch(() => undefined)
+      }
       if (res.page_pending === true) {
         // Same wall clock — do not stack another full TOOL_WAIT_MS after timeout.
         const left = Math.max(0, deadline - Date.now())
@@ -738,7 +750,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       // Recipe replays are the server's evidence, not Broods' business.
       const { recipe_attempts: _replayed, ...shown } = res
       if (shown.page?.recipe_attempts) { const { recipe_attempts: _inPage, ...rest } = shown.page; shown.page = rest }
-      return { text: JSON.stringify(shown).slice(0, 30_000) }
+      return { text: JSON.stringify(shown).slice(0, 30_000), ...(shotImage ? { image: shotImage } : {}) }
     }
     if (row?.status === "cancelled" || row?.status === "expired") {
       const kind = row.result?.timeout || row.status
@@ -889,7 +901,11 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
     // A pick-up (the model call hung, the person carried on) is a new conversation: Broods runs one conversation's turns in order, so a
     // turn stuck on a hung model request would otherwise hold the pick-up behind it until the run was given up. The task carries what
     // the new turn needs; it reads the page first.
-    const turn = resume ? (Number(run.retries) || 0) + (Number(run.resumes) || 0) : 0
+    // The first time a run goes quiet (the model ended a turn without a tool call), the same conversation is asked to go on: it keeps what it
+    // already did and saw, so nothing starts over. Only a second silence (a hung model call would hold the same conversation) opens a new one.
+    const quietNudge = Boolean(resume) && (Number(run.retries) || 0) === 1 && (Number(run.resumes) || 0) === 0
+    const turn = resume && !quietNudge ? (Number(run.retries) || 0) + (Number(run.resumes) || 0) : 0
+    if (quietNudge) Object.assign(task, { nudge: "You ended your last turn without calling a tool, so the run went quiet. Carry on from where you are: call read_page, then the next action; every turn ends with a tool call or finish." })
     await client.runAsync({ agentId, eventId: crypto.randomUUID(), conversationKey: turn > 0 ? `odds-drive-${run.id}-${turn}` : `odds-drive-${run.id}`, input: JSON.stringify(task) })
   } catch { return "Broods did not start. Try again from Odds." }
   return null

@@ -1425,7 +1425,9 @@
   // ---- Broods drives this tab (MCP): the extension is the hands, Broods the brain. ----
   // Broods sends one command at a time (read_page, fill, options, click, upload_cv); the extension does it here in the person's own tab and
   // answers. Hard rules, whatever Broods asks: never Submit/Send, never a password or captcha, never a consent box, never another tab.
-  const DRIVE_DENY = /\b(submit|send application|send|verzend\w*|versturen|absenden|envoyer|soumettre|password|wachtwoord|captcha|sign[\s-]?up|register|create (an )?account|create profile|accept all|delete|remove|logout|log out|sign out)\b/i
+  // The only buttons Broods may not press: sending the application itself (the person's own Submit) and a captcha. Everything else on a page
+  // (Create account, Register, Accept, Delete, Sign in…) is its call: it reads the page and chooses.
+  const DRIVE_DENY = /\b(submit( (my )?application)?|send (my |the )?application|verzend\w*( sollicitatie)?|versturen|absenden|soumettre|captcha)\b/i
   function finalSubmitControl(el) {
     const control=el.closest("button,input[type=submit]")
     if(!control || !control.form || String(control.type).toLowerCase() !== "submit") return false
@@ -1980,7 +1982,13 @@
       // The application's own privacy statement, open over the form: the page shows nothing but that box, and a form with a password and no
       // fields looks like an account wall to the server (the run ended there at Yamaha). Odds takes the consent, then Broods reads the form.
       if (acceptPrivacyStatement()) await sleep(800)
-      return drivePage()
+      const page = drivePage()
+      // Like a person looking at the screen: a picture of the page goes with what read_page lists (not for the server's own quick checks).
+      if (!args.review_check && window === top) {
+        const shot = await ask({ type: "drive-shot" }, 8000).catch(() => null)
+        if (shot?.image) { driveImageSize = { width: shot.width, height: shot.height, viewportWidth: shot.viewportWidth || innerWidth, viewportHeight: shot.viewportHeight || innerHeight }; return { ...page, screenshot: { image: shot.image, width: shot.width, height: shot.height } } }
+      }
+      return page
     }
     if (["screenshot", "click_at", "type_text", "press_key", "scroll"].includes(cmd.tool)) return driveVision(cmd, sendResult, DRIVE_DENY)
     if (cmd.tool === "options") {
@@ -2164,6 +2172,18 @@
       f.el.dispatchEvent(new Event("change", { bubbles: true }))
       await sleep(80)
       return { ok: Boolean(f.el.files?.length), value: fieldValue(f) }
+    }
+    if (cmd.tool === "check_email") {
+      const mail = await ask({ type: "drive-mail", from: String(args.from || "").slice(0, 80), subject: String(args.subject || "").slice(0, 80) }, 40000).catch(() => null)
+      if (!mail || mail.error) return { ok: false, error: mail?.error || "Could not look in Gmail (is the person signed in to Gmail in this Chrome?)" }
+      return { ok: true, ...mail }
+    }
+    if (cmd.tool === "open_link") {
+      const url = String(args.url || "")
+      if (!/^https:\/\//.test(url) || url.length > 2000) return { ok: false, error: "an https link is needed" }
+      await sendResult({ ok: true, note: "opening the link; read_page next" })
+      location.href = url
+      return null
     }
     if (cmd.tool === "open_job") {
       if (!/^https:\/\//.test(driveJobUrl)) return { ok: false, error: "no job link known; use back" }
@@ -3445,7 +3465,7 @@
    * Create account & Autofill / Sign in & Autofill, pressed by the person in the side panel: their email, the password Odds made for this
    * site (kept in this Chrome only), the site's required agreement box on an account form, then the site's own Create account / Sign in.
    */
-  async function fillAccount({ email, password, create }) {
+  async function fillAccount({ email, password, create, press = true }) {
     const box = accountEmailBox()
     if (box && email && box.value !== email) { type(box, email); if (box.value !== email) await realTypeEl(box, email) }
     for (const pw of passwordBoxes()) {
@@ -3463,7 +3483,7 @@
     const want = create ? ACCOUNT_CREATE : ACCOUNT_SIGNIN
     const pick = (list) => list.find((b) => shown(b) && !b.disabled && want.test(controlLabel(b)) && controlLabel(b).length < 40)
     const scope = passwordBoxes()[0]?.closest("form, [role=dialog], section, main") || document
-    const go = password ? pick([...scope.querySelectorAll("button, input[type=submit], [role=button]")]) || pick([...document.querySelectorAll("button, input[type=submit], [role=button]")]) : null
+    const go = password && press ? pick([...scope.querySelectorAll("button, input[type=submit], [role=button]")]) || pick([...document.querySelectorAll("button, input[type=submit], [role=button]")]) : null
     if (go && !(await realClickEl(go))) go.click()
     // The real click can land on something over the button (Odds' own panel opens by itself on an application): if the step is still
     // exactly there two seconds later, the button is pressed from the page too.
@@ -3528,7 +3548,7 @@
     if (window !== top) return
     if (message?.type === "odds-page-kind") { lastKind = pageKind(); reply({ kind: lastKind }); return }
     if (message?.type === "odds-account" && typeof message.password === "string") {
-      void fillAccount({ email: String(message.email || ""), password: message.password, create: message.create === true }).then(reply).catch(() => reply({ ok: false }))
+      void fillAccount({ email: String(message.email || ""), password: message.password, create: message.create === true, press: message.press !== false }).then(reply).catch(() => reply({ ok: false }))
       return true
     }
   })
