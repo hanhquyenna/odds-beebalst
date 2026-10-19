@@ -17,7 +17,7 @@ import { PostingText } from "@/components/PostingText"
 import { useData } from "@/lib/data"
 import { callsIn100 } from "@/lib/calibration"
 import { useCalibration } from "@/lib/use-calibration"
-import { levelOf, point, type Standing } from "@/lib/engine"
+import { chanceSentence, levelOf, point, type Standing } from "@/lib/engine"
 import { fieldOf } from "@/lib/filters"
 import { formatAge, placeOf, stripMarkup } from "@/lib/format"
 import { workplaceOf } from "@/lib/job-facts"
@@ -284,8 +284,7 @@ function Ring({ value }: { value: number }): React.JSX.Element {
         <circle cx="50" cy="50" r={r} fill="none" stroke="#EE7A2A" strokeWidth="12" strokeLinecap="round" strokeDasharray={`${Math.max(0.02, Math.min(1, value / 100)) * c} ${c}`} />
       </svg>
       <span className="relative flex flex-col items-center leading-none">
-        <span className="text-[1.6rem] font-extrabold tracking-tight tabular-nums">{value >= 9.5 ? Math.round(value) : value.toFixed(1)}</span>
-        <span className="mt-0.5 text-[0.65rem] font-bold text-muted-foreground">in 100</span>
+        <span className="text-[1.6rem] font-extrabold tracking-tight tabular-nums">{point(value / 100)}</span>
       </span>
     </div>
   )
@@ -315,7 +314,7 @@ function ChanceCard({ post, st }: { post: Posting; st: Standing }): React.JSX.El
         <div className="flex min-w-0 flex-col gap-0.5">
           <h2 className="text-lg font-extrabold">Interview chance</h2>
           <p className="text-[0.8125rem] leading-snug text-muted-foreground">
-            {mid !== null && known ? `${point(st.rate!.mid).replace("%", "")} in 100 similar applicants get a call` : known ? "Too few similar jobs to give a number we would stand behind" : "Add your CV to see it"}
+            {mid !== null && known ? chanceSentence(st.rate!.mid) : known ? "Too few similar jobs to give a number we would stand behind" : "Add your CV to see it"}
           </p>
           {calls !== null ? <p className="text-[0.8125rem] leading-snug text-muted-foreground">Applications like this one got a call about {calls} in 100 times in Odds' data. A check, not a promise.</p> : null}
         </div>

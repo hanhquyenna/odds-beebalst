@@ -9,7 +9,7 @@ import { useData } from "@/lib/data"
 import { fetchKeptPostings } from "@/lib/jobs"
 import { applySourceOf } from "@/lib/apply-source"
 import { onPanelInfo, toExtension, type PanelInfo } from "@/lib/embed"
-import { NO_WHAT_IF, point, standing } from "@/lib/engine"
+import { chanceSentence, NO_WHAT_IF, point, standing } from "@/lib/engine"
 import { formatAge } from "@/lib/format"
 import type { Posting } from "@/lib/types"
 import { useJobProfile, useJobStrength } from "@/lib/use-documents"
@@ -301,7 +301,7 @@ function ChanceCard({ post }: { post: Posting }): React.JSX.Element | null {
           <span className="relative text-3xl font-extrabold tracking-tight tabular-nums">{mid !== null ? point(mid) : "–"}</span>
         </div>
         <span className="text-base font-bold">Interview chance</span>
-        {mid !== null ? <span className="text-sm text-muted-foreground">{Math.max(1, Math.round(mid * 100))} in 100 similar applicants get a call</span> : null}
+        {mid !== null ? <span className="text-sm text-muted-foreground">{chanceSentence(mid)}</span> : null}
       </div>
       {have.length ? (
         <div className="flex flex-col gap-2">

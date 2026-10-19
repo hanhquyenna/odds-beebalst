@@ -152,6 +152,11 @@ FILL from person (Autofill + profile + cv_excerpt) and person_answers (same mean
   each fill returns, until done — never give up on a redrawing form.
 - An optional field that did not take once: leave it. After filling press Next/Continue/Review; fix errors (≤3 tries a field).
 
+RESUME AND SEARCH BOXES: always attach the CV when the page has a resume / CV box (required or not; a file box under a "Resume" heading is one, its own label is
+often only "10MB size limit": read_page gives each file box its `section`): upload_cv with its id. A search box (city, school, employer) with `needs_choice`
+holds typed text only: open its suggestions and CHOOSE one (fill it with the option's exact text, or click the suggestion); a typed word is not an answer.
+read_page.cv_missing means a CV box is still empty: you cannot finish review until it is attached.
+
 EVERY TURN ENDS WITH A TOOL CALL: read_page, fill, click, … or finish. An empty reply or a plain sentence stops the whole run and it restarts from the beginning. After a click or a fill, call read_page (or the next action); when nothing is left to do, call finish. Never stop to think out loud.
 
 ACCOUNTS AND E-MAIL ARE YOURS TO DO. When an application needs an account, press Create account / Register / Sign up and go on: Odds fills the e-mail and

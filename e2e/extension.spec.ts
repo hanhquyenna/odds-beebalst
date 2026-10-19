@@ -5768,6 +5768,39 @@ test("a long privacy statement that mentions cookies far down is still not a coo
   await expect(page.locator("#deleteAll")).toBeHidden()
 })
 
+test("read_page does not call a search box filled while its suggestions are open, names the heading of a file box, and says when the CV box is still empty", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const host = "careers.combo.example-motor.eu"
+  const html = `<!doctype html><html><body><h1>Digital Marketing Internship</h1>
+    <label for="fn">First name</label><input id="fn" required>
+    <label for="city">City</label><input id="city" role="combobox" aria-autocomplete="list" aria-expanded="true" value="Amsterdam">
+    <ul role="listbox" id="opts" style="margin:0;padding:0;list-style:none"><li role="option">Amsterdam, North Holland, The Netherlands</li><li role="option">Amsterdam, NY, US</li></ul>
+    <h2>Resume</h2><div><span>10MB size limit</span><input type="file" id="cvfile" style="display:block"></div>
+    </body></html>`
+  await context.route(`https://${host}/**`, (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pcombo", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", city: "Amsterdam" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true } }
+  let seen: { fields?: Array<{ label: string; filled: boolean; needs_choice?: string; section?: string; kind: string }>; cv_missing?: boolean } = {}
+  fake.driveScript = async (cmd) => {
+    seen = (await cmd("read_page")) as typeof seen
+    return { status: "review", message: "Everything is filled in. Check it and press Submit yourself." }
+  }
+  const page = await context.newPage()
+  await page.goto(`https://${host}/apply`)
+  const worker = context.serviceWorkers()[0]
+  await worker.evaluate(async (u) => {
+    const [tab] = await chrome.tabs.query({ url: u })
+    await (globalThis as unknown as { setIntent(tabId: number, intent: unknown): Promise<void> }).setIntent(tab.id!, { job: tab.url, title: "Intern", at: Date.now(), status: "filling", message: "Filling…", copilot: true, here: true })
+    await (globalThis as unknown as { injectApplyScripts(tabId: number): Promise<void> }).injectApplyScripts(tab.id!)
+  }, `https://${host}/*`)
+  await expect.poll(() => (seen.fields ?? []).length, { timeout: 40000 }).toBeGreaterThan(0)
+  const city = seen.fields!.find((f) => /city/i.test(f.label))
+  expect(city?.needs_choice).toContain("choose")
+  expect(city?.filled).toBe(false)
+  const file = seen.fields!.find((f) => f.kind === "file")
+  expect(file?.section).toBe("Resume")
+})
+
 test("the saved logins page lists the accounts Odds made: the password is hidden until Show, Forget removes the site", async ({ context }) => {
   test.setTimeout(60_000)
   await connect(context)
@@ -6273,6 +6306,9 @@ for (const job of REAL_JOBS) {
     context.on("page",p=>p.on("pageerror",e=>console.log("REAL page error:",e.message.slice(0,180))))
     { const dbg=(p:typeof page)=>p.on("console",m=>{ if(process.env.REAL_DEBUG && /\[odds-/.test(m.text())) console.log("DBG",Date.now()%100000,m.text()) }); context.pages().forEach(dbg); context.on("page",dbg) }
     fake.realBroods.shot = async (label) => { await page.screenshot({ path: `test-results/real-${job.name}/${String(++shots).padStart(2, "0")}-step${label}.png` }) }
+    // Real sites, made-up applicant: no account is ever made (the extension refuses Create account / Register / Sign up and its own account step).
+    const realWorker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"))
+    await realWorker.evaluate(() => chrome.storage.local.set({ oddsNoAccountClicks: true, oddsAutoAccount: false }))
     fake.kit = { job_id: `preal-${job.name}`, broods_drive: true, facts: { job_country: "NL", job_source: /linkedin/.test(job.url) ? "LinkedIn" : "Company website", dutch: "basic", adult: true, never_worked_here: true, applied_before: false, name: "Test Applicant", email: TEST_PERSON.email, phone: TEST_PERSON.phone, answers: { ...TEST_PERSON, city:"Amsterdam",country:"Netherlands",first_name: "Test", last_name: "Applicant", email: TEST_PERSON.email, phone: TEST_PERSON.phone, university: "Vrije Universiteit Amsterdam", degree: "Master's degree", field_of_study: "Business Analytics", graduation_date: "August 2027", study_start: "September 2025", study_year: "1st year", study_status: "Yes, enrolled", current_job_title: "Data Analyst", current_company: "Shopee", nationality: "Vietnamese", work_authorization: "Orientation year (zoekjaar) permit: may work in the Netherlands without sponsorship", expected_salary: "In line with your standard internship allowance", notice_period: "None", relocation: "Yes", onsite_ok: "Yes", gender: "Male" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Test_Applicant_CV", file_name: "Test_Applicant_CV.pdf", for_this_job: true } }
     // The employer's own form for a board listing, as production's apply-kit sends it (posting_apply_links): Odds opens it straight away.
     const postingId = /-(p[0-9a-f]{8,})$/.exec(job.name)?.[1]

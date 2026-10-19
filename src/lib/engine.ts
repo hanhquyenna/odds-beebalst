@@ -396,6 +396,11 @@ export function point(p: number): string {
   return x >= 9.5 ? `${Math.round(x)}%` : `${x.toFixed(1)}%`
 }
 
+/** The sentence under the interview chance, the same on the panel and the job page: the number is the one `point` shows. */
+export function chanceSentence(p: number): string {
+  return `${point(p).replace("%", "")} in 100 similar applicants get a call`
+}
+
 export const FACTORS = {
   /** The starting point for each kind of job: the same two studies, read for that kind of role. */
   base: {

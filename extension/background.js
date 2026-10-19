@@ -1431,8 +1431,8 @@ const autoAccountTried = new Map()
  */
 async function autoAccount(tabId, kind) {
   if (kind !== "create_account" && kind !== "sign_in") return
-  const { oddsAutoAccount } = await chrome.storage.local.get("oddsAutoAccount")
-  if (oddsAutoAccount === false) return
+  const { oddsAutoAccount, oddsNoAccountClicks } = await chrome.storage.local.get(["oddsAutoAccount", "oddsNoAccountClicks"])
+  if (oddsAutoAccount === false || oddsNoAccountClicks === true) return
   const tab = await chrome.tabs.get(tabId).catch(() => null)
   if (!tab?.url || !/^https:/.test(tab.url)) return
   if (!(await intentOf(tabId))) return
@@ -1822,7 +1822,7 @@ async function readMail(appTabId, hint) {
 }
 chrome.tabs.onRemoved.addListener((id) => { for (const [app, mail] of mailTabs) { if (app === id) { chrome.tabs.remove(mail).catch(() => undefined); mailTabs.delete(app) } else if (mail === id) mailTabs.delete(app) } })
 
-/** The tab as an image through Chrome's debugger: no focus, no tab switch, the page need not be in front. At most 1280 px wide. */
+/** The tab as an image through Chrome's debugger: no focus, no tab switch, the page need not be in front. At most 1024 px wide. */
 async function shotViaDebugger(tabId) {
   const prior = realInputQueue.get(tabId) || Promise.resolve()
   const next = prior.catch(() => undefined).then(async () => {
@@ -1832,8 +1832,8 @@ async function shotViaDebugger(tabId) {
       const m = await chrome.debugger.sendCommand(target, "Page.getLayoutMetrics")
       const vw = Math.max(1, Math.round(m?.cssVisualViewport?.clientWidth || m?.layoutViewport?.clientWidth || 1000))
       const vh = Math.max(1, Math.round(m?.cssVisualViewport?.clientHeight || m?.layoutViewport?.clientHeight || 700))
-      const scale = Math.min(1, 1280 / vw)
-      const shot = await chrome.debugger.sendCommand(target, "Page.captureScreenshot", { format: "jpeg", quality: 60, optimizeForSpeed: true, clip: { x: 0, y: 0, width: vw, height: vh, scale } })
+      const scale = Math.min(1, 1024 / vw)
+      const shot = await chrome.debugger.sendCommand(target, "Page.captureScreenshot", { format: "jpeg", quality: 50, optimizeForSpeed: true, clip: { x: 0, y: 0, width: vw, height: vh, scale } })
       return shot?.data ? { image: shot.data, width: Math.round(vw * scale), height: Math.round(vh * scale), viewportWidth: vw, viewportHeight: vh } : { error: "empty screenshot" }
     } catch (e) {
       return { error: String(e?.message || e).slice(0, 160) }

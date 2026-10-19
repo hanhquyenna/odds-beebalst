@@ -1427,6 +1427,11 @@
   // answers. Hard rules, whatever Broods asks: never Submit/Send, never a password or captcha, never a consent box, never another tab.
   // The only buttons Broods may not press: sending the application itself (the person's own Submit) and a captcha. Everything else on a page
   // (Create account, Register, Accept, Delete, Sign in…) is its call: it reads the page and chooses.
+  // Test runs against real sites (made-up applicant) set this in storage so that no account is ever made there: Create account / Register / Sign up are refused.
+  let noAccountClicks = false
+  chrome.storage.local.get("oddsNoAccountClicks").then((v) => { noAccountClicks = v?.oddsNoAccountClicks === true }).catch(() => undefined)
+  chrome.storage.onChanged.addListener((changes) => { if (changes.oddsNoAccountClicks) noAccountClicks = changes.oddsNoAccountClicks.newValue === true })
+  const ACCOUNT_BUTTON = /\b(create (an |your )?account|register( now)?|sign[\s-]?up|registreren|account aanmaken)\b/i
   const DRIVE_DENY = /\b(submit( (my )?application)?|send (my |the )?application|verzend\w*( sollicitatie)?|versturen|absenden|soumettre|captcha)\b/i
   function finalSubmitControl(el) {
     const control=el.closest("button,input[type=submit]")
@@ -1791,7 +1796,7 @@
   const landedOnBoardSearch = () => /(^|\.)glassdoor\./i.test(location.hostname) && /\/(vacature|job|jobs|emploi|stellenangebote)\/[^/]*(vacatures|jobs|emplois|stellenangebote)\.htm/i.test(location.pathname)
   function missingJobPage() {
     const headings = [document.title, ...[...document.querySelectorAll("h1,h2")].filter(shown).map(textOf)]
-    if (headings.some(text => /^(404(?:\b|\s)|page (?:was )?not found\b|pagina niet gevonden\b|we can.t find (?:this|that) page\b)/i.test(String(text || "").trim()))) return true
+    if (headings.some(text => /^(404(?:\b|\s)|page (?:was )?not found\b|pagina niet gevonden\b|we can.t find (?:this|that) page\b|(custom )?job error\b)/i.test(String(text || "").trim()))) return true
     // A listing that says it is over, in a heading or a notice near the top, and no form to fill (any site, English / Dutch / German).
     const over = /\b(no longer (available|active|accepting|open)|(job|position|vacancy|listing|posting) (has )?(expired|been filled|closed)|not accepting (new )?applications|applications? (are|is) closed|niet meer beschikbaar|vacature is (gesloten|vervuld)|nicht mehr verfügbar|stelle (ist )?(besetzt|nicht mehr))\b/i
     const notices = [...headings, ...[...document.querySelectorAll("[role='alert'], [class*='alert' i], [class*='notice' i], [class*='message' i], [class*='banner' i], main p")].filter(shown).slice(0, 12).map(textOf)]
@@ -1827,6 +1832,20 @@
     }
     return ""
   }
+  /** Whether a search / typeahead box holds typed text with its suggestion list still open (nothing chosen yet). */
+  function comboTypedOnly(el) {
+    if (!el || !el.matches?.("input") || !String(el.value || "").trim()) return false
+    const combo = el.getAttribute("role") === "combobox" || el.hasAttribute("aria-autocomplete") || el.hasAttribute("aria-haspopup") || el.hasAttribute("list")
+    if (!combo) return false
+    if (el.getAttribute("aria-expanded") === "true") return true
+    try { return Boolean(suggestionBelow(el, el.value)) } catch { return false }
+  }
+  /** The nearest heading above or around a file box ("Resume"): the section it belongs to. */
+  function fileSection(el) {
+    // The closest heading before the box in the page: the section it sits in.
+    const heads = [...document.querySelectorAll("h1, h2, h3, h4, legend, [role=heading]")].filter((h) => (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) && !h.contains(el) && textOf(h).trim().length > 0)
+    return heads.length ? textOf(heads[heads.length - 1]).trim().slice(0, 60) : ""
+  }
   function drivePage() {
     driveFields = new Map()
     driveButtons = new Map()
@@ -1839,7 +1858,11 @@
       const id=driveFieldIds.get(node)
       driveFields.set(id, f)
       const consent = f.kind === "checkbox" && Boolean(A.isConsentCheckbox?.(f.label))
-      return { id, label: A.questionText ? A.questionText(f.label).slice(0, 300) : f.label.slice(0, 300), kind: f.kind, required: required(elOf(f), f.label), filled: answered(f) || (f.kind === "file" && (cvShownAt(elOf(f)) || (uploaded && prefilledKeys.get(elOf(f)) === "cv"))), ...(prefilledFields.has(elOf(f)) && prefilledFields.get(elOf(f)) === fieldValue(f) ? { by: "odds", ...(prefilledKeys.get(elOf(f)) ? { key: prefilledKeys.get(elOf(f)) } : {}) } : {}), value: fieldValue(f), ...((f.options?.length || ["combobox", "listbox"].includes(f.kind)) ? (() => { const all = f.options?.length ? f.options : listed(elOf(f)).texts; return all.length > 40 ? { options: all.slice(0, 25).map((o) => String(o).slice(0, 80)), options_total: all.length } : { options: all.map((o) => String(o).slice(0, 120)) } })() : {}), ...(consent ? { consent: true } : {}), ...(f.kind === "checkbox" && groupOf(elOf(f)) ? { group: groupOf(elOf(f)).slice(0, 200) } : {}), ...(charLimit(elOf(f)) ? { max_chars: charLimit(elOf(f)) } : {}) }
+      // A search box (city, school…) whose suggestions are still open holds text that was typed, not a choice made: it is not filled.
+      const typedOnly = comboTypedOnly(elOf(f))
+      // The heading a file box sits under ("Resume", "Cover letter"): its own label is often only "10MB size limit".
+      const section = f.kind === "file" ? fileSection(elOf(f)) : ""
+      return { id, label: A.questionText ? A.questionText(f.label).slice(0, 300) : f.label.slice(0, 300), ...(section ? { section } : {}), ...(typedOnly ? { needs_choice: "suggestions are open: choose one of them" } : {}), kind: f.kind, required: required(elOf(f), f.label), filled: (answered(f) && !typedOnly) || (f.kind === "file" && (cvShownAt(elOf(f)) || (uploaded && prefilledKeys.get(elOf(f)) === "cv"))), ...(prefilledFields.has(elOf(f)) && prefilledFields.get(elOf(f)) === fieldValue(f) ? { by: "odds", ...(prefilledKeys.get(elOf(f)) ? { key: prefilledKeys.get(elOf(f)) } : {}) } : {}), value: fieldValue(f), ...((f.options?.length || ["combobox", "listbox"].includes(f.kind)) ? (() => { const all = f.options?.length ? f.options : listed(elOf(f)).texts; return all.length > 40 ? { options: all.slice(0, 25).map((o) => String(o).slice(0, 80)), options_total: all.length } : { options: all.map((o) => String(o).slice(0, 120)) } })() : {}), ...(consent ? { consent: true } : {}), ...(f.kind === "checkbox" && groupOf(elOf(f)) ? { group: groupOf(elOf(f)).slice(0, 200) } : {}), ...(charLimit(elOf(f)) ? { max_chars: charLimit(elOf(f)) } : {}) }
     })
     // Checkboxes drawn by the site (Oracle, Workday: the real input hidden, a styled box or role=checkbox shown) — fields() skips them.
     const seenBoxes = new Set(list.filter((f) => f.kind === "checkbox").map((f) => elOf(f)))
@@ -1887,6 +1910,8 @@
       captcha: Boolean(blockingCaptcha()),
       // The person's CV is already attached on this page (the site may show it as a file name, not in a box): never upload it again.
       ...(uploaded ? { cv_attached: true } : {}),
+      // The person has a CV and this page has a resume box nothing was put in (required or not): Broods is told, and cannot finish review before it is attached.
+      ...(!uploaded && cv && list.some((f) => f.kind === "file" && isResumeAsk(`${f.label} ${fileSection(elOf(f))}`) && !cvShownAt(elOf(f))) ? { cv_missing: true } : {}),
       // A dialog is open over the page and only its contents are listed (fields and buttons): said plainly, so it is dealt with first.
       ...(dialog ? { dialog: { title: textOf(dialog.querySelector("h1, h2, h3, [class*='title' i], header") || dialog).slice(0, 120), text: textOf(dialog).slice(0, 300) } } : {}),
       password_field: [...document.querySelectorAll('input[type="password"]')].some(shown),
@@ -1926,6 +1951,7 @@
       const target = el.closest("a, button, input, select, textarea, label, [role='button'], [role='checkbox'], [role='option'], [role='radio'], [tabindex]") || el
       const words = `${target.innerText || ""} ${target.getAttribute("aria-label") || ""} ${target.value || ""}`.replace(/\s+/g, " ").trim().slice(0, 120)
       if (denyText.test(words) || finalSubmitControl(target)) return { ok: false, error: "Odds never presses this; it is the person's" }
+      if (noAccountClicks && ACCOUNT_BUTTON.test(words)) return { ok: false, error: "No account is made in this test run." }
       if (target.matches("input[type=password]")) return { ok: false, error: "passwords are the person's" }
       await sendResult({ ok: true, clicked: words || target.tagName.toLowerCase(), note: "screenshot or read_page next" })
       // A real click where Broods looked (the site cannot tell it from a person's); Odds' own events only when that is not available.
@@ -1984,7 +2010,12 @@
       if (acceptPrivacyStatement()) await sleep(800)
       const page = drivePage()
       // Like a person looking at the screen: a picture of the page goes with what read_page lists (not for the server's own quick checks).
-      if (!args.review_check && window === top) {
+      // Only when it can matter (it costs the model about 1,500 tokens): the first look at a page, a dialog, no fields, errors, an unchosen search
+      // box, a CV box left empty, or the step before did not work. A page that reads cleanly after a step that worked needs no picture.
+      const doubt = Boolean(page.dialog) || !(page.fields || []).length || (page.errors || []).length > 0 || (page.fields || []).some((f) => f.needs_choice) || page.cv_missing === true
+        || page.url !== lastShotUrl || driveLastFailed
+      if (!args.review_check && window === top && doubt) {
+        lastShotUrl = page.url
         const shot = await ask({ type: "drive-shot" }, 8000).catch(() => null)
         if (shot?.image) { driveImageSize = { width: shot.width, height: shot.height, viewportWidth: shot.viewportWidth || innerWidth, viewportHeight: shot.viewportHeight || innerHeight }; return { ...page, screenshot: { image: shot.image, width: shot.width, height: shot.height } } }
       }
@@ -2206,6 +2237,7 @@
       if (!el || !el.isConnected) return { ok: false, error: "button gone, read_page again" }
       const text = controlLabel(el)
       if (DRIVE_DENY.test(text) || finalSubmitControl(el)) return { ok: false, error: "Odds never presses this; it is the person's" }
+      if (noAccountClicks && ACCOUNT_BUTTON.test(text)) return { ok: false, error: "No account is made in this test run: leave it to the person (finish needs_you, reason account)." }
       // Declining the application's own privacy statement ends the registration (Broods took it for a cookie banner's "reject"): it is
       // Accept that goes on, and Broods is told so.
       if (isPrivacyDecline(el)) {
@@ -2229,8 +2261,12 @@
     }
     return { error: `Unknown tool ${cmd.tool}` }
   }
+  /** The page address of the last screenshot sent, and whether the last command failed: a picture goes with the next read when either changes. */
+  let lastShotUrl = ""
+  let driveLastFailed = false
   async function driveCommand(cmd, sendResult) {
     let result = await asOdds(() => driveCommandRaw(cmd, sendResult))
+    if (cmd.tool !== "read_page" && cmd.tool !== "screenshot") driveLastFailed = Boolean(result && (result.ok === false || result.error || (Array.isArray(result.results) && result.results.some((r) => r?.ok === false))))
     if (result && cmd.tool !== "read_page" && cmd.tool !== "screenshot") {
       await sleep(180)
       result = { ...result, page: drivePage() }

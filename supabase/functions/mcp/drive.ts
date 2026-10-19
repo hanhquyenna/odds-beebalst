@@ -241,6 +241,15 @@ async function freshPage(env: Env, run: Json): Promise<Json | null> {
 const LETTER_FIELD = /cover\s*letter|motivation(al)?\s*letter|letter of motivation|motivatiebrief|sollicitatiebrief|lettre de motivation|anschreiben|begeleidende brief/i
 
 /** The page right now, read for the server's own check (no model turn): its required fields that are still empty. [] if it cannot tell. */
+/** What keeps a page from being "filled in": required boxes still empty, a search box with its suggestions open (typed, not chosen), and a CV box nothing was put in. */
+const emptyOf = (page: Json): string[] => {
+  const fields: Json[] = Array.isArray(page?.fields) ? page.fields : []
+  const out = fields
+    .filter((f) => (f?.required && !f?.filled) || f?.needs_choice)
+    .map((f) => `${String(f.label ?? f.id).slice(0, 80)}${f?.needs_choice ? " (suggestions are open: choose one of them)" : ""}`)
+  if (page?.cv_missing === true) out.push("Resume / CV box (attach the CV with upload_cv, required or not)")
+  return out
+}
 async function requiredEmpty(env: Env, run: Json): Promise<string[]> {
   const docGen = typeof run?.doc_gen === "number" ? run.doc_gen : 0
   const [read] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "read_page", args: { review_check: true }, note: "Checking everything is filled before Submit", doc_gen: docGen }) }).catch(() => [null])
@@ -249,8 +258,7 @@ async function requiredEmpty(env: Env, run: Json): Promise<string[]> {
     await sleep(400)
     const row = (await svc(env, `drive_commands?id=eq.${read.id}&select=status,result`).catch(() => null))?.[0]
     if (row?.status === "done") {
-      const fields = Array.isArray(row.result?.fields) ? row.result.fields : []
-      return fields.filter((f: Json) => f?.required && !f?.filled).map((f: Json) => String(f.label ?? f.id).slice(0, 80))
+      return emptyOf(row.result ?? {})
     }
     if (row?.status === "cancelled" || row?.status === "expired") break
   }
@@ -259,8 +267,8 @@ async function requiredEmpty(env: Env, run: Json): Promise<string[]> {
   // went to review this way).
   const last = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&tool=in.(read_page,fill,upload_cv,click)&order=created_at.desc&limit=5&select=result`).catch(() => null)) ?? []
   for (const row of last) {
-    const fields = Array.isArray(row?.result?.fields) ? row.result.fields : Array.isArray(row?.result?.page?.fields) ? row.result.page.fields : null
-    if (fields) return fields.filter((f: Json) => f?.required && !f?.filled).map((f: Json) => String(f.label ?? f.id).slice(0, 80))
+    const page = Array.isArray(row?.result?.fields) ? row.result : Array.isArray(row?.result?.page?.fields) ? row.result.page : null
+    if (page) return emptyOf(page)
   }
   return []
 }
