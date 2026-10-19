@@ -212,7 +212,18 @@ async function afterNavigation(env: Env, runId: string, result: Json, budgetMs =
   while (Date.now() < until) {
     await sleep(400)
     const row = (await svc(env, `drive_commands?id=eq.${read.id}&select=status,result`))?.[0]
-    if (row?.status === "done") return { ...result, page_pending: false, page: row.result }
+    if (row?.status === "done") {
+      // The picture that rides with a page read goes to the model as an image, never as text inside the page (it was ~100 KB of base64 in the
+      // text: tens of thousands of tokens on every call after a click), and the stored row keeps no image.
+      let page = row.result
+      let shot: string | undefined
+      if (typeof page?.screenshot?.image === "string") {
+        shot = page.screenshot.image
+        page = { ...page, screenshot: { width: page.screenshot.width, height: page.screenshot.height, note: "attached as an image" } }
+        void svc(env, `drive_commands?id=eq.${read.id}`, { method: "PATCH", body: JSON.stringify({ result: page }) }).catch(() => undefined)
+      }
+      return { ...result, page_pending: false, page, ...(shot ? { shot_image: shot } : {}) }
+    }
     if (row?.status === "cancelled" || row?.status === "expired") break
   }
   await abandonCommand(env, read.id, "document_changed")
@@ -678,6 +689,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         // Same wall clock — do not stack another full TOOL_WAIT_MS after timeout.
         const left = Math.max(0, deadline - Date.now())
         res = await afterNavigation(env, run.id, res, left)
+        if (typeof res.shot_image === "string") { shotImage = res.shot_image; const { shot_image: _s, ...rest } = res; res = rest }
         await svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: res }) })
       }
       if (name === "screenshot" && typeof res.image === "string") {
@@ -758,7 +770,8 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       // Recipe replays are the server's evidence, not Broods' business.
       const { recipe_attempts: _replayed, ...shown } = res
       if (shown.page?.recipe_attempts) { const { recipe_attempts: _inPage, ...rest } = shown.page; shown.page = rest }
-      return { text: JSON.stringify(shown).slice(0, 30_000), ...(shotImage ? { image: shotImage } : {}) }
+      // Whatever else is a very long string (a stray image, a page dump) never goes into the text the model reads.
+      return { text: JSON.stringify(shown, (_k, v) => (typeof v === "string" && v.length > 20_000 ? "(omitted: too long)" : v)).slice(0, 30_000), ...(shotImage ? { image: shotImage } : {}) }
     }
     if (row?.status === "cancelled" || row?.status === "expired") {
       const kind = row.result?.timeout || row.status
