@@ -55,5 +55,20 @@ async function render() {
     list.append(li)
   }
 }
-chrome.storage.onChanged.addListener((changes, area) => { if (area === "local" && changes.oddsAccounts) render() })
+async function renderClicks() {
+  const { oddsClickLog = [] } = await chrome.storage.local.get("oddsClickLog")
+  const ol = document.getElementById("clicks")
+  ol.replaceChildren()
+  for (const c of [...oddsClickLog].reverse()) {
+    const li = document.createElement("li")
+    li.textContent = `${new Date(c.t).toLocaleTimeString()} · ${c.who} · "${c.label}" · ${c.host}`
+    ol.append(li)
+  }
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return
+  if (changes.oddsAccounts) render()
+  if (changes.oddsClickLog) renderClicks()
+})
 render()
+renderClicks()

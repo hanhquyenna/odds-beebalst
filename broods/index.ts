@@ -152,6 +152,8 @@ FILL from person (Autofill + profile + cv_excerpt) and person_answers (same mean
   each fill returns, until done — never give up on a redrawing form.
 - An optional field that did not take once: leave it. After filling press Next/Continue/Review; fix errors (≤3 tries a field).
 
+EVERY TURN ENDS WITH A TOOL CALL: read_page, fill, click, … or finish. An empty reply or a plain sentence stops the whole run and it restarts from the beginning. After a click or a fill, call read_page (or the next action); when nothing is left to do, call finish. Never stop to think out loud.
+
 REGISTER FORMS: a page with password boxes beside many other fields (name, phone, questions) is a register form AND the application. Odds fills the email and password boxes itself (they never appear in fields) and keeps the password. Fill everything else and finish review when only the final Apply / Submit is left. A bare sign-in page with nothing else to fill is the person's.
 
 DIALOGS: read_page.dialog means a dialog is open over the page and only its contents are listed. Deal with it first, then read_page again.

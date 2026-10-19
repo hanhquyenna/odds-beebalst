@@ -1442,6 +1442,24 @@
   /** While Odds itself fills or clicks (a prefill, a Broods command): the browser's own input/change events after a scripted checkbox
    * click are trusted, and must not read as the person filling in. */
   let oddsActing = 0, oddsActedAt = 0
+  /**
+   * A short log of every click on this page and who made it (Odds acting, the person, or the page itself), kept in this browser: the last 40,
+   * newest last, on the saved logins page under "Activity log". It says what pressed a button such as a site's own "Delete All Data".
+   */
+  const clickAudit = (event) => {
+    try {
+      const el = event.target instanceof Element ? event.target.closest("button, a, input[type=button], input[type=submit], [role=button]") : null
+      const label = el ? (controlLabel(el) || "").slice(0, 70) : ""
+      if (!label) return
+      const who = oddsActing > 0 || Date.now() - oddsActedAt < 400 ? "odds" : event.isTrusted ? "person" : "page"
+      if (/delete|remove|verwijder|supprimer/i.test(label)) console.warn("[odds] click on a delete control:", who, label)
+      chrome.storage.local.get("oddsClickLog").then(({ oddsClickLog = [] }) => {
+        const next = [...oddsClickLog, { t: Date.now(), who, label, host: location.hostname }].slice(-40)
+        return chrome.storage.local.set({ oddsClickLog: next })
+      }).catch(() => undefined)
+    } catch { /* never in the way of the page */ }
+  }
+  document.addEventListener("click", clickAudit, true)
   async function asOdds(work) {
     oddsActing++
     try { return await work() } finally { oddsActing--; oddsActedAt = Date.now() }

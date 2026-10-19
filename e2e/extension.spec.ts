@@ -5669,6 +5669,27 @@ test("the odds tab sits half hidden at the page's edge; a press pulls the panel 
   expect((await box()).right).toBeGreaterThan(1100)
 })
 
+test("every click on a job page is logged with who made it (the person, the page, Odds), so a site's own 'Delete All Data' can be traced", async ({ context, fake }) => {
+  test.setTimeout(60_000)
+  await connect(context)
+  const host = "careers.audit.example-motor.eu"
+  await context.route(`https://${host}/**`, (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><html><body><h1>Marketing Internship</h1><button id='del' onclick=\"window.n=(window.n||0)+1\">Delete All Data</button><button id='scripted'>Next step</button></body></html>" }))
+  fake.kit = { job_id: "paudit", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: {}, remembered: {} }, cv: null }
+  const page = await context.newPage()
+  await page.goto(`https://${host}/job`)
+  const worker = context.serviceWorkers()[0]
+  await worker.evaluate(async (u) => {
+    const [tab] = await chrome.tabs.query({ url: u })
+    await (globalThis as unknown as { injectApplyScripts(tabId: number): Promise<void> }).injectApplyScripts(tab.id!)
+  }, `https://${host}/*`)
+  await page.waitForTimeout(800)
+  await page.click("#del")
+  await page.evaluate(() => (document.getElementById("scripted") as HTMLButtonElement).click())
+  const log = () => worker.evaluate(async () => (((await chrome.storage.local.get("oddsClickLog")).oddsClickLog as unknown) as Array<{ who: string; label: string }> | undefined) ?? [])
+  await expect.poll(async () => (await log()).length, { timeout: 5000 }).toBe(2)
+  expect((await log()).map((c) => `${c.who}:${c.label}`)).toEqual(["person:Delete All Data", "page:Next step"])
+})
+
 test("the saved logins page lists the accounts Odds made: the password is hidden until Show, Forget removes the site", async ({ context }) => {
   test.setTimeout(60_000)
   await connect(context)
