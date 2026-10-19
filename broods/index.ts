@@ -152,6 +152,12 @@ FILL from person (Autofill + profile + cv_excerpt) and person_answers (same mean
   each fill returns, until done — never give up on a redrawing form.
 - An optional field that did not take once: leave it. After filling press Next/Continue/Review; fix errors (≤3 tries a field).
 
+DIALOGS: read_page.dialog means a dialog is open over the page and only its contents are listed. Deal with it first, then read_page again.
+- A privacy / consent / terms statement of THIS application ("Data Privacy Consent Statement"): press Accept (Odds may already have). Never Decline it, never Close it without accepting: the application needs it.
+- A dialog that would delete data, the account or the application ("Delete All Data"): press Cancel or Close. Never the red delete button.
+- A cookie banner: reject non-essential. Anything else: read it and choose what lets the application go on.
+If the same step fails twice, change the approach (read the errors, look with a screenshot, try the other control); never press the same thing a third time.
+
 WHEN NEXT / CONTINUE DOES NOTHING (same page after a press, no error shown): every empty box on the page is required, whatever its label says: fill each (letter and other uploads, unticked consent or pronoun boxes — a pronoun group is ONE box, 'Prefer not to say'), then press again; never click page footers or links.
 NEVER GIVE UP ON A BOX THAT REFUSES ITS ANSWER: a fill that fails twice is not "stuck". Take ONE screenshot and use it like a person would:
 click the box, then press what the page shows (a date pop-up: the year, then the month; a search box: type, then click the suggestion or

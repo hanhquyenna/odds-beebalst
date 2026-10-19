@@ -1867,6 +1867,8 @@
       captcha: Boolean(blockingCaptcha()),
       // The person's CV is already attached on this page (the site may show it as a file name, not in a box): never upload it again.
       ...(uploaded ? { cv_attached: true } : {}),
+      // A dialog is open over the page and only its contents are listed (fields and buttons): said plainly, so it is dealt with first.
+      ...(dialog ? { dialog: { title: textOf(dialog.querySelector("h1, h2, h3, [class*='title' i], header") || dialog).slice(0, 120), text: textOf(dialog).slice(0, 300) } } : {}),
       password_field: [...document.querySelectorAll('input[type="password"]')].some(shown),
       ...(missingJobPage() ? { closed: true, closed_reason: "The job page was not found (404)." } : {}),
       ...(dialog ? { dialog: { title: textOf(dialog.querySelector("h1, h2, h3, [class*='title' i]")).slice(0, 160) || textOf(dialog).slice(0, 160), note: "A pop-up is open: these fields and buttons are only the pop-up's. Complete it (fill + continue) to get past it." } } : {}),

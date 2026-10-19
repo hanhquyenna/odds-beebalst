@@ -430,6 +430,7 @@ async function accountSite(env: Env, run: Json, page: Json): Promise<boolean> {
   if (!host || /(^|\.)(linkedin|indeed|glassdoor)\./i.test(host)) return false
   // One platform, many employers (nxp.wd3.myworkdayjobs.com, shell.wd3…): learned for the platform as a whole.
   if (/\.myworkdayjobs\.com$/i.test(host)) host = "myworkdayjobs.com"
+  if (page.dialog) return false
   const asks = (page.fields ?? []).filter((f: Json) => f?.kind !== "checkbox" && !/e-?mail|password|wachtwoord|search|zoek/i.test(String(f?.label ?? "")))
   if (asks.length >= 2) return false
   const since = encodeURIComponent(new Date(Date.now() - 30 * 86_400_000).toISOString())
@@ -445,7 +446,8 @@ function signInWall(page: Json): boolean {
   const asks = (page.fields ?? []).filter((f: Json) => f?.kind !== "checkbox" && !/e-?mail|user ?name|password|wachtwoord|login|log in|sign in/i.test(String(f?.label ?? "")))
   if (asks.length >= 2) return false
   const says = texts.some((t) => /(please )?(log ?in|sign ?in|inloggen)( first)? to (apply|continue|solliciteren)|login required|sign in with your|log in with your|create an account to (apply|continue)|eu login/i.test(t))
-  return says || (page.password_field === true && asks.length === 0)
+  // A dialog open over the form shows only itself (no fields), so a password box behind it says nothing about the page: not a wall.
+  return says || (!page.dialog && page.password_field === true && asks.length === 0)
 }
 /** Every tool takes the line Broods writes for the person about this step: the tracker shows it live. */
 const SAY = { type: "string", description: "One short line for the person, in plain words: what you are doing now and why (shown live in their tracker), e.g. 'Filling your details from Autofill'." }
@@ -637,6 +639,13 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     const looks = recent.filter((c: Json) => c.tool === "screenshot" || c.tool === "click_at").length
     const failed = recent.some((c: Json) => c.status !== "done" || c.result?.ok === false || (Array.isArray(c.result?.results) && c.result.results.some((r: Json) => r?.ok === false)) || (Array.isArray(c.result?.errors) && c.result.errors.length))
     if (looks >= 4 && !failed) return { text: "No screenshot needed: nothing failed in the last steps. Use the page each action returns (or read_page) and carry on.", error: true }
+  }
+  // The same button three times in the last few steps and the page never changed: pressing it again is not an answer. Said once, plainly.
+  if (name === "click" && typeof args?.id === "string") {
+    const recentClicks = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.click&order=id.desc&limit=6&select=args,status`).catch(() => null)) ?? []
+    if (recentClicks.filter((c: Json) => c?.args?.id === args.id && c.status === "done").length >= 3) {
+      return { text: "You pressed this button 3 times and the page did not move on. Do not press it again. Read what the page says (errors, a dialog, empty required fields), try something else, or finish with the exact thing that blocks it.", error: true }
+    }
   }
   const { run_id: _r, say, ...rest } = args ?? {}
   const note = typeof say === "string" && say.trim() ? say.trim().slice(0, 300) : null
@@ -902,7 +911,7 @@ const COPILOT_GOAL = "The person pressed Fill with Odds on this application (mod
 // "Fill with Odds" (copilot): every page the person moves to resumes the same run, also after a page ended at review (up to 15 pages).
 const resumeRun = (run: Json): boolean => run?.mode === "copilot"
   ? ["needs_you", "stuck", "review"].includes(run?.status) && Date.now() - Date.parse(run.updated_at) < 3 * 3_600_000 && (run.resumes ?? 0) < 15
-  : ["needs_you", "stuck"].includes(run?.status) && Date.now() - Date.parse(run.updated_at) < 30 * 60_000 && (run.resumes ?? 0) < MAX_RESUMES
+  : ["needs_you", "stuck"].includes(run?.status) && Date.now() - Date.parse(run.updated_at) < 30 * 60_000 && (run.resumes ?? 0) < (run?.status === "stuck" ? 2 : MAX_RESUMES)
 const resumePatch = (run: Json): Json => ({ status: "running", reason: null, message: null, resume_pending: true, resumes: (run.resumes ?? 0) + 1, last_note: "Carrying on where it stopped…", expires_at: new Date(Date.now() + 30 * 60_000).toISOString(), updated_at: new Date().toISOString() })
 
 /** /ext/drive-start | drive-next | drive-result for the person's own extension. */
