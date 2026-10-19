@@ -132,7 +132,7 @@ export function JobsPage(): React.JSX.Element {
                 <FunnelIcon className="size-4" aria-hidden="true" /> Preferences
               </button>
             </div>
-            <ul className="flex flex-col gap-1 px-2 pb-3">
+            <ul className="flex flex-col gap-2 px-2 pb-3">
               {top.map((p) => (
                 <JobRow key={p.id} post={p} on={current?.id === p.id} onOpen={() => open(p.id)} pick={selecting ? { checked: chosen.has(p.id), queued: queue.byId.has(p.id), toggle: () => toggleChosen(p.id) } : undefined} />
               ))}
@@ -142,7 +142,7 @@ export function JobsPage(): React.JSX.Element {
         {more.length > 0 ? (
           <section aria-label="More jobs" className="px-2 pt-4 pb-3">
             {top.length > 0 ? <h2 className="px-3 pb-2 text-base font-extrabold">More jobs</h2> : null}
-            <ul className="flex flex-col">
+            <ul className="flex flex-col gap-2">
               {more.slice(0, shown).map((p) => (
                 <JobRow key={p.id} post={p} on={current?.id === p.id} onOpen={() => open(p.id)} pick={selecting ? { checked: chosen.has(p.id), queued: queue.byId.has(p.id), toggle: () => toggleChosen(p.id) } : undefined} />
               ))}
@@ -228,7 +228,7 @@ function JobRow({ post, on, onOpen, pick }: { post: Posting; on: boolean; onOpen
         aria-current={on ? "true" : undefined}
         onClick={pick ? pick.toggle : onOpen}
         aria-pressed={pick ? pick.checked : undefined}
-        className={`flex w-full cursor-pointer items-start gap-3.5 rounded-xl border-[1.5px] px-3 py-3 text-left transition-colors ${on ? "border-brand bg-accent" : "border-transparent hover:bg-secondary"}`}
+        className={`flex w-full cursor-pointer items-start gap-3.5 rounded-xl border-[1.5px] px-3 py-3 text-left transition-colors ${on ? "border-brand bg-accent shadow-sm" : "border-line bg-card shadow-[0_1px_2px_rgba(28,26,24,0.06)] hover:border-foreground/30 hover:bg-secondary"}`}
       >
         {pick ? (
           <span aria-hidden="true" className={`mt-3 flex size-5 shrink-0 items-center justify-center rounded-md border-[1.5px] text-xs font-extrabold ${pick.checked ? "border-brand bg-brand" : "border-line bg-card"}`}>{pick.checked ? "✓" : ""}</span>

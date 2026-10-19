@@ -14,10 +14,10 @@ import {
 } from "@/lib/extension-onboard"
 
 const STEPS = [
-  { n: 1, title: "Download or Add to Chrome", body: "Get Odds for Chrome from Connect, or Add to Chrome when the store listing is live." },
-  { n: 2, title: "Load unpacked / install", body: "Unzip the download. In chrome://extensions turn on Developer mode, press Load unpacked, and pick the folder." },
-  { n: 3, title: "Reload Odds", body: "Come back to this tab and reload so Odds can see the extension." },
-  { n: 4, title: "Connect", body: "Press Connect below. Odds never stores job-board passwords — Chrome keeps your LinkedIn, Indeed, and Glassdoor sessions." },
+  { n: 1, title: "Get the extension", body: "Press Download below and unzip the file you get." },
+  { n: 2, title: "Add it to Chrome", body: "Open chrome://extensions in a new tab. Switch on Developer mode (top right), press Load unpacked, and choose the unzipped folder." },
+  { n: 3, title: "Come back and reload this page", body: "So Odds can find the extension. Already did this? Just reload this page." },
+  { n: 4, title: "Press Connect", body: "That links Chrome to your Odds account. Odds never keeps your job-site passwords: Chrome keeps you signed in." },
 ] as const
 
 /**
@@ -92,7 +92,7 @@ export function ExtensionOnboard({
         <header className="flex flex-col gap-1">
           <h2 className="font-heading text-xl font-semibold tracking-tight">Connect Odds in Chrome</h2>
           <p className="text-sm text-muted-foreground">
-            One-time setup so Apply can fill forms in this browser. Job-board sign-in stays in Chrome — Odds never stores those passwords.
+            One-time setup so Apply with Odds can fill forms in this browser.
           </p>
         </header>
 
@@ -106,14 +106,7 @@ export function ExtensionOnboard({
               allowFullScreen
             />
           </div>
-        ) : (
-          <div
-            className="flex aspect-video items-center justify-center rounded-lg border-[1.5px] border-dashed border-line bg-muted/30 px-4 text-center text-sm text-muted-foreground"
-            data-testid="extension-onboard-poster"
-          >
-            Guided video coming soon — follow the steps below.
-          </div>
-        )}
+        ) : null}
 
         <ol className="flex flex-col gap-3">
           {STEPS.map((s) => (

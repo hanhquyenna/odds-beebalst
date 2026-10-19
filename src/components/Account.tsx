@@ -18,6 +18,7 @@ import { TrackerTable } from "@/components/TrackerTable"
 import { ClaudePromo } from "@/components/ClaudeGuide"
 import { DueNow } from "@/components/DueNow"
 import { ExtensionNotice } from "@/components/ExtensionNotice"
+import { embedded } from "@/lib/embedded"
 import { Insights } from "@/components/Insights"
 import { HeardBack } from "@/components/HeardBack"
 import { Button } from "@/components/ui/button"
@@ -199,7 +200,7 @@ export function Account({ page = "home", onStartLooking, onOpenClaude, onOpenPag
               <SetupCard onJobs={onStartLooking} onOpenTab={onOpenTab} />
             </Suspense>
 
-            <ExtensionNotice onJobs={onStartLooking} />
+            {embedded ? null : <ExtensionNotice onJobs={onStartLooking} />}
 
             <Insights framed />
 

@@ -3,7 +3,7 @@ import { ApplyProgress, type ApplyPhase } from "@/components/ApplyProgress"
 import { ExtensionOnboard } from "@/components/ExtensionOnboard"
 import { Button } from "@/components/ui/button"
 import { useEffect, useState } from "react"
-import { pingExtension, prepareInExtension, useExtensionLink } from "@/lib/extension-connect"
+import { extensionWasLinked, pingExtension, prepareInExtension, useExtensionLink } from "@/lib/extension-connect"
 import { rememberConnectFocus } from "@/lib/connect-focus"
 import { onApplicationSignal, type ApplicationState } from "@/lib/embed"
 import { embedded, extensionParent } from "@/lib/embedded"
@@ -326,7 +326,13 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
       rememberConnectFocus("extension")
       setConnectTour(true)
     }
+    // Connected before and silent now (Chrome was restarted or the extension updated): the page only needs a reload, not the whole setup again.
+    const reloadHint = needsConnectGate && !view && !activeRun && extensionPresent === "no" && extensionWasLinked()
     const press = (): void => {
+      if (reloadHint) {
+        window.location.reload()
+        return
+      }
       if (needsConnectGate && !view && !activeRun) {
         openConnect()
         return
@@ -339,7 +345,7 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
     const tabClosedGate = /application tab was closed|reopen application/i.test(view?.message || "")
     const label = unavailable ? "Applications closed"
       : pending ? "Opening tab…"
-      : gateOnly ? "Connect Odds in Chrome"
+      : gateOnly ? (reloadHint ? "Reload to reconnect Odds" : "Connect Odds in Chrome")
       : tabClosedGate ? "Reopen application tab"
       : phase === "ready" ? "Open tab: review and send"
       : phase === "filling" || activeRun ? (run?.status === "queued" ? "Waiting for Chrome…" : "Open application tab")
@@ -375,6 +381,7 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
         {phase === "ready" ? <div className="flex flex-col gap-2 sm:flex-row">{primary}{cancel}</div> : <ApplicationQuestions inline postingId={post.id} onHasQuestions={setQuestionsOpen} onSaved={answered} aside={primary} empty={<div className="flex flex-col gap-2 sm:flex-row">{primary}{phase === "needs_input" ? null : cancel}</div>} />}
         {phase === "needs_input" && cancel ? <div className="flex">{cancel}</div> : null}
         {gateOnly ? <p className="text-sm text-muted-foreground">Install and Connect Odds for Chrome once — then Apply fills forms in this browser.</p> : null}
+        {reloadHint ? <p className="text-sm text-muted-foreground">Odds was connected in this browser. Chrome lost track of this page, so reload it and it finds Odds again. You do not need to set anything up.</p> : null}
         {!gateOnly && !online && !activeRun && !view && extensionPresent === "no" ? <p className="text-sm text-muted-foreground">Open Chrome on your computer to start, or reload the Odds extension.</p> : null}
         {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
         <ExtensionOnboard

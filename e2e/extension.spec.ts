@@ -2262,7 +2262,7 @@ test("ACCEPT Connect gate: unlinked Apply opens Connect tour — no apply tab", 
   await expect(app.getByRole("button", { name: "Connect Odds in Chrome", exact: true })).toBeVisible({ timeout: 20000 })
   await app.getByRole("button", { name: "Connect Odds in Chrome", exact: true }).click()
   await expect(app.getByRole("dialog", { name: "Connect Odds in Chrome" })).toBeVisible()
-  await expect(app.getByTestId("extension-onboard-poster")).toBeVisible()
+  await expect(app.getByText("Come back and reload this page")).toBeVisible()
   expect(context.pages().length).toBe(pagesBefore)
   await expect(app.getByRole("button", { name: "Apply with Odds", exact: true })).toHaveCount(0)
 })
@@ -6299,8 +6299,9 @@ test("Broods acts by sight when the page tools cannot: screenshot of the tab, a 
     const shot = await cmd("screenshot") as { image?: string; width?: number; height?: number; error?: string }
     shotBytes = (shot.image ?? "").length
     if (!shotBytes) console.log("SHOT", JSON.stringify(shot).slice(0, 300))
-    const dpr = await page.evaluate(() => devicePixelRatio)
-    await cmd("click_at", { x: (200 + 90) * dpr, y: (220 + 24) * dpr })
+    // The coordinates are pixels of the picture it was given (the tool says so): the picture's width over the page's width is the scale.
+    const scale = (shot.width ?? 0) / (await page.evaluate(() => innerWidth))
+    await cmd("click_at", { x: (200 + 90) * scale, y: (220 + 24) * scale })
     const after = await cmd("read_page") as { buttons?: Array<{ text: string; blocked?: boolean }> }
     return (after.buttons ?? []).some((b) => b.blocked && /submit/i.test(b.text))
       ? { status: "review", message: "Everything is filled in. Check it and press Submit yourself." }

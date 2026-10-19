@@ -42,6 +42,12 @@ export function pingExtension(): void {
   window.postMessage({ source: "odds-site", type: "ping" }, window.location.origin)
 }
 
+const WAS_LINKED = "odds:extension-was-linked"
+/** The extension was found linked in this browser before (so a missing answer now usually means the page needs a reload, not a new setup). */
+export const extensionWasLinked = (): boolean => {
+  try { return window.localStorage.getItem(WAS_LINKED) === "1" } catch { return false }
+}
+
 export type ExtensionLinkState = {
   present: "looking" | "yes" | "no"
   /** True when the extension answered and has a saved Odds key (Connect finished). */
@@ -88,6 +94,11 @@ export function useExtensionLink(): ExtensionLinkState {
       window.clearTimeout(timer)
     }
   }, [])
+
+  useEffect(() => {
+    if (!linked) return
+    try { window.localStorage.setItem(WAS_LINKED, "1") } catch { /* blocked storage: the hint is only a convenience */ }
+  }, [linked])
 
   return { present, linked, boards }
 }
