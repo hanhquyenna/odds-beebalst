@@ -67,6 +67,21 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [tabId] }).catch(() => undefined)
 })
 
+/**
+ * A 401 drops the key only when it keeps happening: three refusals at least a minute apart from the first, with no success between.
+ * One refused request (a function restarting mid-deploy) used to wipe the key and turn phone control off without a word, and the
+ * extension went silent until the person connected again.
+ */
+let refusedSince = 0
+let refusals = 0
+async function keyRefused() {
+  refusals += 1
+  refusedSince ||= Date.now()
+  if (refusals >= 3 && Date.now() - refusedSince >= 60_000) { refusals = 0; refusedSince = 0; await chrome.storage.local.remove(KEY) }
+}
+/** Any answer the server gave with the key (not a 401) means the key still works. */
+function keyAccepted(res) { if (res && res.status !== 401) { refusals = 0; refusedSince = 0 } }
+
 async function savedKey() {
   const stored = await chrome.storage.local.get(KEY)
   return typeof stored[KEY] === "string" && KEY_FORMAT.test(stored[KEY]) ? stored[KEY] : null
@@ -85,8 +100,9 @@ async function addJob(url, analyze = false, posting = null) {
   } catch {
     return { status: "error", message: "odds did not answer. Check your connection and try again." }
   }
+  keyAccepted(res)
   if (res.status === 401) {
-    await chrome.storage.local.remove(KEY)
+    await keyRefused()
     return { status: "connect" }
   }
   const body = await res.json().catch(() => ({}))
@@ -107,8 +123,9 @@ async function peekMany(urls) {
   } catch {
     return every({ status: "error", message: "odds did not answer." })
   }
+  keyAccepted(res)
   if (res.status === 401) {
-    await chrome.storage.local.remove(KEY)
+    await keyRefused()
     return every({ status: "connect" })
   }
   const body = await res.json().catch(() => ({}))
@@ -152,8 +169,9 @@ async function ext(route, init = {}) {
   } catch {
     return { status: "error", message: "odds did not answer." }
   }
+  keyAccepted(res)
   if (res.status === 401) {
-    await chrome.storage.local.remove(KEY)
+    await keyRefused()
     return { status: "connect" }
   }
   const body = await res.json().catch(() => ({}))
@@ -256,8 +274,9 @@ async function session() {
   } catch {
     return { status: "error", message: "odds did not answer." }
   }
+  keyAccepted(res)
   if (res.status === 401) {
-    await chrome.storage.local.remove(KEY)
+    await keyRefused()
     return { status: "connect" }
   }
   const body = await res.json().catch(() => ({}))
@@ -274,8 +293,9 @@ async function pool() {
   } catch {
     return { status: "error", message: "odds did not answer." }
   }
+  keyAccepted(res)
   if (res.status === 401) {
-    await chrome.storage.local.remove(KEY)
+    await keyRefused()
     return { status: "connect" }
   }
   const body = await res.json().catch(() => ({}))

@@ -14,7 +14,9 @@ function say(text) {
 }
 
 function toApp(message) {
-  app.contentWindow.postMessage({ source: "odds-extension", ...message }, ODDS)
+  // Before the Odds page has loaded the frame is still this extension's own blank page: the message would be refused (an error on
+  // the extension's card every time the panel opens). The app asks again once it is ready ("need-session", "ready").
+  try { app.contentWindow.postMessage({ source: "odds-extension", ...message }, ODDS) } catch { /* frame not on the Odds page yet */ }
 }
 
 /**

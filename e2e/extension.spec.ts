@@ -892,13 +892,14 @@ test("a failed read is explained in the panel without saving; a missing CV is ex
   await expect(await opened).toHaveURL("https://odds.beeblast.co/profile")
 })
 
-test("a key odds no longer accepts disconnects the extension", async ({ context, fake }) => {
+test("a key odds refuses shows Connect, but one refusal never deletes it (a deploy restarting the server once disconnected the person silently)", async ({ context, fake }) => {
   const worker = context.serviceWorkers()[0]
-  await worker.evaluate((key) => chrome.storage.local.set({ oddsKey: key }), `oddsx_${"cd".repeat(24)}`)
+  const refused = `oddsx_${"cd".repeat(24)}`
+  await worker.evaluate((key) => chrome.storage.local.set({ oddsKey: key }), refused)
   const page = await context.newPage()
   await page.goto(JOB)
   await expect(page.locator("#odds-add")).toHaveAttribute("title", "Connect odds to see your interview chance here")
-  expect(await worker.evaluate(async () => (await chrome.storage.local.get("oddsKey")).oddsKey ?? null)).toBeNull()
+  expect(await worker.evaluate(async () => (await chrome.storage.local.get("oddsKey")).oddsKey ?? null)).toBe(refused)
   expect(fake.calls).toHaveLength(0)
 })
 
