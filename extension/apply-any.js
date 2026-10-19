@@ -1275,7 +1275,9 @@
   function stillEmptyGaps() {
     for (const f of fields()) {
       if (answered(f)) continue
-      if (f.kind === "file" && cv && isResumeAsk(`${f.label} ${f.el.name || ""} ${f.el.id || ""}`)) return true
+      // Once the CV is in one box, another CV-sounding box (Ashby's "Autofill from resume" beside its "Resume") is not a gap: it
+      // turned Broods' "ready" into "Answer the outlined questions" on finished Prosus and Bynder forms.
+      if (f.kind === "file" && cv && !uploaded && isResumeAsk(`${f.label} ${f.el.name || ""} ${f.el.id || ""}`)) return true
       if (f.kind !== "file" && answerFor(f.label)) return true
       if (f.kind !== "checkbox" && required(elOf(f), f.label)) return true
       if (f.kind !== "file" && typeof A.isContactLabel === "function" && A.isContactLabel(f.label)) return true
@@ -1288,7 +1290,7 @@
     const states = fields().map((f) => ({
       label: f.label,
       kind: f.kind,
-      required: f.kind === "file" ? Boolean(cv && isResumeAsk(`${f.label} ${f.el.name || ""}`)) : f.kind !== "checkbox" && required(elOf(f), f.label),
+      required: f.kind === "file" ? Boolean(cv && !uploaded && isResumeAsk(`${f.label} ${f.el.name || ""}`)) : f.kind !== "checkbox" && required(elOf(f), f.label),
       answered: answered(f),
       fillFailed: !answered(f) && f.kind !== "file" && Boolean(answerFor(f.label)),
     }))

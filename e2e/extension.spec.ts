@@ -7229,3 +7229,32 @@ test("a closed react-select dropdown never reads another field's open menu as it
     expect(f?.options ?? []).not.toContain("Female")
   }
 })
+
+test("Ashby's empty 'Autofill from resume' box beside a filled 'Resume' box does not turn Broods' ready into 'Answer the outlined questions' @accept", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const html = `<!doctype html><html><body><h1>Legal Intern @ Bynder</h1><form>
+    <div><label for="auto">Autofill from resume</label><input id="auto" type="file"></div>
+    <label for="nm">Your Name</label><input id="nm" required>
+    <label for="em">Your Email Address</label><input id="em" type="email" required>
+    <div><label for="cv">Your Resume/CV</label><input id="cv" type="file" required></div>
+    <button type="submit">Submit Application</button></form></body></html>`
+  await context.route("https://jobs.example-ashby.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pashby2", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", last_name: "Phung" }, remembered: {} },
+    cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true } }
+  fake.driveScript = async (cmd) => {
+    const r = await cmd("read_page")
+    const fields = r.fields as Array<{ id: string; kind: string; label: string; filled: boolean }>
+    const text = fields.filter((f) => f.kind !== "file" && !f.filled).map((f) => ({ id: f.id, value: /mail/i.test(f.label) ? "kien@example.com" : "Kien Phung" }))
+    if (text.length) await cmd("fill", { fields: text })
+    const cv = fields.find((f) => f.kind === "file" && /Resume\/CV/.test(f.label))!
+    if (!cv.filled) await cmd("upload_cv", { id: cv.id })
+    await cmd("read_page")
+    return { status: "review", message: "Everything is filled in. Check it and press Submit yourself." }
+  }
+  const page = await context.newPage()
+  await page.goto("https://jobs.example-ashby.com/apply")
+  await applyFrom(context, page, "https://jobs.example-ashby.com/apply")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/press Submit/i, { timeout: 30000 })
+  await expect(page.locator(".odds-apply-bar")).not.toContainText(/(outlined|highlighted) questions/i)
+})
