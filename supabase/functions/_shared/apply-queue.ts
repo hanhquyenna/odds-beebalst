@@ -10,7 +10,6 @@ export const QUEUE_PARALLEL = 2
 export const QUEUE_STATES = ["review", "needs_you", "failed", "sent"] as const
 export const QUEUE_REASONS = ["captcha", "account", "questions", "letter", "closed", "email", "other"] as const
 export type QueueState = (typeof QUEUE_STATES)[number]
-export type QueueReason = (typeof QUEUE_REASONS)[number]
 
 const clean = (v: unknown): string => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, 500) : "")
 

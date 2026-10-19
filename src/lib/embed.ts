@@ -34,6 +34,8 @@ export interface PanelInfo {
   status?: { state: string; message: string } | null
   /** At review: the answers on the form Autofill does not have yet. */
   answers?: Array<{ question: string; answer: string; long?: boolean }>
+  /** Rises each time the person opens a job from the page, including the same job again. */
+  selection?: number
 }
 let panelInfo: PanelInfo | null = null
 const panelListeners = new Set<(info: PanelInfo | null) => void>()

@@ -29,7 +29,10 @@ function openJob(id, once = false) {
   } else waiting = id
 }
 
+/** Bumps each time a job is opened from the page, so "My jobs" shows that job again on the next press. */
+let jobSelection = 0
 function viewJob(job) {
+  jobSelection += 1
   // A job added or opened from a page (its % pressed): the apply card for the page in front shows it (job, Apply, insights), never the
   // app's home. While Odds is still reading the job, the card says so and fills in once the job is known.
   jobViewUrl = null
@@ -176,7 +179,7 @@ function sendPanelInfo() {
     else jobViewUrl = null
     lastPageUrl = info?.page?.url || null
     const state = info?.status?.state
-    const send = (answers) => toApp({ type: "panel-info", info: page ? { ...info, answers } : null })
+    const send = (answers) => toApp({ type: "panel-info", info: page ? { ...info, answers, selection: jobSelection } : null })
     // Two-way Autofill: whenever the page has a form or an application under way (not only at review), the answers on it that Autofill
     // does not have yet (written by Odds, or typed by the person) are offered to keep.
     if (page && (page.form || state) && state !== "filling") {

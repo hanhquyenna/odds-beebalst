@@ -27,7 +27,14 @@ export function ApplyPanel(): React.JSX.Element | null {
   const [info, setInfo] = useState<PanelInfo | null>(null)
   const [away, setAway] = useState<string | null>(null)
   const [tab, setTab] = useState<{ tab: JobTab; at: number } | undefined>(undefined)
+  const [seenPick, setSeenPick] = useState(0)
   useEffect(() => onPanelInfo(setInfo), [])
+  // A later press on a job (the same one included) opens it again after My jobs.
+  const selection = info?.selection ?? 0
+  if (selection !== seenPick) {
+    setSeenPick(selection)
+    if (away !== null) setAway(null)
+  }
   // The job's own posting: from the loaded pool, else fetched by id (a job just read from its page is not in the pool yet).
   const jobId = info?.job_id ?? null
   const known = jobId ? data.byId.get(jobId) ?? null : null
@@ -196,7 +203,11 @@ function OddsButton({ info, post }: { info: PanelInfo; post: Posting | null }): 
   const [adding, setAdding] = useState(false)
   const pressGen = useRef(0)
   const state = info.status?.state ?? null
-  useEffect(() => { if (state) setPressed(false) }, [state])
+  const seenState = useRef(state)
+  if (seenState.current !== state) {
+    seenState.current = state
+    if (state && pressed) setPressed(false)
+  }
   const look = "flex min-h-16 w-full cursor-pointer items-center justify-center gap-3 rounded-2xl bg-brand px-4 py-3 text-lg font-bold text-foreground shadow-sm transition hover:brightness-105 disabled:cursor-default disabled:opacity-60"
   const needs = state === "needs_input" || state === "failed" || state === "stuck"
   // The button names the state; the words under it are only for what the person has to do.

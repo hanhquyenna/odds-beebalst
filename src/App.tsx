@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from "react"
+import { Suspense, lazy, useCallback, useEffect, useState } from "react"
 import { JobListSkeleton } from "@/components/Skeleton"
 import { Footer } from "@/components/Footer"
 import type { ShellTab } from "@/components/AppShell"
@@ -127,7 +127,7 @@ export default function App(): React.JSX.Element {
    * view you came from (the job, the documents, the profile) instead of jumping to the account. "replace" is for moves
    * the app makes by itself, which are not somewhere to go back to.
    */
-  function setView(next: View, how: "push" | "replace" = "push"): void {
+  const setView = useCallback((next: View, how: "push" | "replace" = "push"): void => {
     const state = (history.state && typeof history.state === "object" ? history.state : {}) as { idx?: number }
     // In the extension's panel the tab's history is shared with the job site beside it: the app replaces its entry instead of adding to it.
     if (how === "push" && next !== view && !embedded) {
@@ -137,7 +137,7 @@ export default function App(): React.JSX.Element {
     }
     setViewNow(next)
     window.scrollTo(0, 0)
-  }
+  }, [view])
 
   /** A Back button: the entry before this one when the app added it, otherwise the place a first visit would go. */
   function back(fallback: View): void {
@@ -224,7 +224,7 @@ export default function App(): React.JSX.Element {
     }
     window.addEventListener(LIVE_APPLY_EVENT, on)
     return () => window.removeEventListener(LIVE_APPLY_EVENT, on)
-  }, [sharedJobId])
+  }, [sharedJobId, setView])
 
   // A page asking for another one (a tracker card opens its job, a Message button opens People).
   useEffect(() => {

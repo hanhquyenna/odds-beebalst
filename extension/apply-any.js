@@ -837,8 +837,10 @@
     const BLANK = /(cannot|can.?t|must not|should not) be (left )?(blank|empty)|darf nicht leer|ne peut pas être vide|mag niet leeg zijn/i
     let box = el
     for (let n = 0; n < 4 && box?.parentElement && box.parentElement !== document.body; n++) {
-      box = box.parentElement
-      if ([...box.querySelectorAll("input:not([type=hidden]), textarea, select")].length > 1) break
+      const parent = box.parentElement
+      // Stay in this field's own block. A parent that holds another box would make one field's error fail the rest of the form.
+      if ([...parent.querySelectorAll("input:not([type=hidden]), textarea, select")].some((node) => node !== el)) break
+      box = parent
     }
     if (!box) return false
     return [...box.querySelectorAll("*")].some((n) => n.children.length === 0 && shown(n) && n.textContent.length < 120 && BLANK.test(n.textContent) && !n.contains(el))
@@ -1869,13 +1871,38 @@
    * The value is really kept: the visible choice (text, selected option, pressed button, chip, single-value),
    * and the site has not marked it invalid. A search box that only holds the typed query does not count.
    */
+  /** An ISO date the box kept in its own shape (01/2022 or Jan 2022 for 2022-01-31). A year alone does not count. */
+  function dateKept(shown, want) {
+    const iso = String(want).trim().match(/^(\d{4})-(\d{2})(?:-(\d{2}))?$/)
+    if (!iso) return false
+    const y = iso[1]
+    const m = iso[2]
+    const d = iso[3]
+    const text = String(shown).trim()
+    if (!text.includes(y)) return false
+    const nums = text.match(/\d+/g) || []
+    const monthNum = String(Number(m))
+    const hasMonth = nums.includes(m) || (monthNum !== m && nums.includes(monthNum))
+    const name = MONTHS[Number(m) - 1]
+    const hasName = Boolean(name && name.test(text))
+    if (!hasMonth && !hasName) return false
+    if (!d) return true
+    // A month/year picker shows exactly the month and the year, never the day.
+    if (nums.length === 2 && nums.includes(y) && (nums.includes(m) || nums.includes(monthNum))) return true
+    if (hasName && nums.every((n) => n === y)) return true
+    const day = String(Number(d))
+    return nums.includes(d) || (day !== d && nums.includes(day))
+  }
   function valueKept(f, value) {
     if (fieldInvalid(f) || !answered(f)) return false
     const shown = fieldValue(f)
     if (!shown) return false
+    // The site still says the box is empty (its own "cannot be left blank"), so a value Odds wrote does not count.
+    if (blankErrorNear(elOf(f))) return false
     const want = String(value ?? "").replace(/\s+/g, " ").trim()
     if (!want) return true
     if (sameText(shown, want)) return true
+    if (dateKept(shown, want)) return true
     if (["choice", "radio", "select", "listbox", "combobox"].includes(f.kind)) {
       const opts = (f.options || []).map(String)
       const i = typeof A.chooseOption === "function" && opts.length ? A.chooseOption(opts, want, f.label) : -1

@@ -18,23 +18,26 @@ export function Connections({ onSignIn }: { onSignIn: () => void }): React.JSX.E
   const { present, linked, boards } = useExtensionLink()
   const [tourOpen, setTourOpen] = useState(false)
 
+  const [autoTour, setAutoTour] = useState(false)
+  // One-shot read of session storage. The state update is deferred so it is not a synchronous setState in this effect.
   useEffect(() => {
     const next = takeConnectFocus()
     if (!next) return
-    setFocus(next)
-    if (next === "extension") setTourOpen(true)
-    const t = window.setTimeout(() => setFocus(null), 4000)
-    return () => window.clearTimeout(t)
-  }, [])
-
-  const [autoTour, setAutoTour] = useState(false)
-  useEffect(() => {
-    if (autoTour || linked) return
-    if (shouldShowExtensionOnboard({ present, linked })) {
-      setTourOpen(true)
-      setAutoTour(true)
+    const show = window.setTimeout(() => {
+      setFocus(next)
+      if (next === "extension") setTourOpen(true)
+    }, 0)
+    const clear = window.setTimeout(() => setFocus(null), 4000)
+    return () => {
+      window.clearTimeout(show)
+      window.clearTimeout(clear)
     }
-  }, [present, linked, autoTour])
+  }, [])
+  // Open the tour once when the extension is present and not yet linked. Adjusting state here follows the current props.
+  if (!autoTour && !linked && shouldShowExtensionOnboard({ present, linked })) {
+    setAutoTour(true)
+    setTourOpen(true)
+  }
 
   useEffect(() => {
     if (linked) markExtensionOnboardDone()

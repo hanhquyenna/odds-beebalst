@@ -3,6 +3,10 @@ import { handleDriveMcp } from "../../supabase/functions/mcp/drive"
 
 const id = "11111111-2222-3333-4444-555555555555"
 
+function requestBody(body: BodyInit | null | undefined): string {
+  return typeof body === "string" ? body : ""
+}
+
 /** Runs one read_page through the drive MCP and says whether the server ended the run (a PATCH to needs_you / account). */
 async function readPage(page: Record<string, unknown>): Promise<{ ended: boolean; text: string }> {
   const original = globalThis.fetch
@@ -15,7 +19,7 @@ async function readPage(page: Record<string, unknown>): Promise<{ ended: boolean
     if (url.includes("drive_runs?") && !init?.method) result = [{ id, status: "running", steps: 5, url: "https://careers.example.org/job", expires_at: new Date(Date.now() + 60000).toISOString() }]
     if (url.endsWith("drive_commands") && init?.method === "POST") result = [{ id: 7 }]
     if (url.includes("drive_commands?id=eq.7") && !init?.method) result = [{ status: "done", result: page }]
-    if (url.includes("drive_runs?id=eq.") && init?.method === "PATCH" && String(init.body).includes("needs_you")) ended = true
+    if (url.includes("drive_runs?id=eq.") && init?.method === "PATCH" && requestBody(init?.body).includes("needs_you")) ended = true
     return new Response(JSON.stringify(result), { status: 200 })
   }) as typeof fetch
   try {
@@ -51,7 +55,7 @@ test("the same button pressed three times with the page unchanged is refused wit
     let result: unknown = []
     if (url.includes("drive_runs?") && !init?.method) result = [{ id, status: "running", steps: 5, url: "https://careers.example.org/job", expires_at: new Date(Date.now() + 60000).toISOString() }]
     if (url.includes("tool=eq.click") && !init?.method) result = [{ args: { id: "b3" }, status: "done" }, { args: { id: "b3" }, status: "done" }, { args: { id: "b3" }, status: "done" }]
-    if (url.endsWith("drive_commands") && init?.method === "POST") { posted.push(String(init.body)); result = [{ id: 9 }] }
+    if (url.endsWith("drive_commands") && init?.method === "POST") { posted.push(requestBody(init?.body)); result = [{ id: 9 }] }
     if (url.includes("drive_commands?id=eq.9") && !init?.method) result = [{ status: "done", result: { ok: true, page: { url: "https://careers.example.org/job", fields: [{ id: "f0" }], buttons: [] } } }]
     return new Response(JSON.stringify(result), { status: 200 })
   }) as typeof fetch
@@ -83,7 +87,7 @@ test("finishing 'requires signing in' on a register form that also holds the app
     if (url.includes("drive_runs?") && !init?.method) result = [{ id, status: "running", steps: 6, url: page.url, expires_at: new Date(Date.now() + 60000).toISOString() }]
     if (url.includes("tool=eq.guard") && !init?.method) result = guardSeen ? [{ id: 1 }] : []
     if (url.endsWith("drive_commands") && init?.method === "POST") {
-      const body = JSON.parse(String(init.body)) as { tool: string }
+      const body = JSON.parse(requestBody(init?.body)) as { tool: string }
       if (body.tool === "guard") guardSeen = true
       result = [{ id: 11 }]
     }
@@ -114,7 +118,7 @@ test("a click that moves to another page returns that page's screenshot as an im
     let result: unknown = []
     if (url.includes("drive_runs?") && !init?.method) result = [{ id, status: "running", steps: 3, url: "https://careers.example.org/job", expires_at: new Date(Date.now() + 60000).toISOString() }]
     if (url.includes("tool=eq.click") && !init?.method) result = []
-    if (url.endsWith("drive_commands") && init?.method === "POST") result = [{ id: String(init.body).includes("read_page") ? 22 : 21 }]
+    if (url.endsWith("drive_commands") && init?.method === "POST") result = [{ id: requestBody(init?.body).includes("read_page") ? 22 : 21 }]
     if (url.includes("drive_commands?id=eq.21") && !init?.method) result = [{ status: "done", result: { ok: true, page_pending: true } }]
     if (url.includes("drive_commands?id=eq.22") && !init?.method) result = [{ status: "done", result: { url: "https://careers.example.org/apply", fields: [{ id: "f0", label: "Email", kind: "text", filled: true }], buttons: [], screenshot: { image: bigImage, width: 1000, height: 700 } } }]
     return new Response(JSON.stringify(result), { status: 200 })

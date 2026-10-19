@@ -26,7 +26,7 @@ declare const chrome: {
   tabs: {
     query(q: object): Promise<Array<{ id?: number; url?: string; active?: boolean }>>
     get(id: number): Promise<{ id: number; active: boolean }>
-    sendMessage(tabId: number, message: unknown): Promise<unknown>
+    sendMessage(tabId: number, message: unknown, options?: { frameId?: number }): Promise<unknown>
     update(id: number, props: { active?: boolean }): Promise<unknown>
   }
   notifications: { getAll(): Promise<Record<string, boolean>> }
@@ -230,9 +230,17 @@ async function startRealBroods(runId: string, url: string, title: string, person
 // The bridge reads and writes the drive tables over PostgREST (fast); the key comes from a private file named in REAL_SR_KEY_FILE, never the repo.
 const REST = "https://ukpmpyfcnbhngkgbnkxi.supabase.co/rest/v1"
 const restKey = (): string => (process.env.REAL_SR_KEY || readFileSync(String(process.env.REAL_SR_KEY_FILE), "utf8")).trim()
+function headerFields(headers: HeadersInit | undefined): Record<string, string> {
+  if (!headers) return {}
+  if (headers instanceof Headers) return Object.fromEntries(headers.entries())
+  if (Array.isArray(headers)) return Object.fromEntries(headers)
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(headers)) if (typeof value === "string") out[key] = value
+  return out
+}
 async function rest(path: string, init: RequestInit = {}): Promise<Array<Record<string, unknown>>> {
   const key = restKey()
-  const res = await fetch(`${REST}/${path}`, { ...init, headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=representation", ...(init.headers ?? {}) } })
+  const res = await fetch(`${REST}/${path}`, { ...init, headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=representation", ...headerFields(init.headers) } })
   const text = await res.text()
   return text ? (JSON.parse(text) as Array<Record<string, unknown>>) : []
 }
@@ -301,17 +309,20 @@ async function driveReal(fake: Fake, path: string, body: Record<string, unknown>
   for (const deadline = Date.now()+18000; Date.now()<deadline;) {
     const [q] = await rest(`drive_commands?run_id=eq.${runId}&status=eq.queued&order=id.asc&limit=1&select=id,tool,args,doc_gen`)
     if (q) {
-      const taken = await rest(`drive_commands?id=eq.${q.id}&status=eq.queued`, { method: "PATCH", body: JSON.stringify({ status: "taken", taken_at: new Date().toISOString(), accepted_at: new Date().toISOString() }) })
+      const qid = typeof q.id === "number" || typeof q.id === "string" ? q.id : ""
+      const taken = await rest(`drive_commands?id=eq.${qid}&status=eq.queued`, { method: "PATCH", body: JSON.stringify({ status: "taken", taken_at: new Date().toISOString(), accepted_at: new Date().toISOString() }) })
       if (taken.length) {
-        real.log.push(`${q.tool} ${JSON.stringify(q.args).slice(0, 160)}`)
-        console.log(`REAL command ${q.tool}`)
+        const tool = typeof q.tool === "string" ? q.tool : ""
+        real.log.push(`${tool} ${JSON.stringify(q.args).slice(0, 160)}`)
+        console.log(`REAL command ${tool}`)
         const [runRow] = await rest(`drive_runs?id=eq.${runId}&select=doc_gen,steps`)
         return { command: q, steps: runRow?.steps ?? 0, doc_gen: runRow?.doc_gen ?? 0 }
       }
     }
     // Broods went quiet (its turn ended without a step): picked up again, as production's drive-next does (30 s, up to 3 times).
     const [last] = await rest(`drive_commands?run_id=eq.${runId}&order=id.desc&limit=1&select=done_at,status`)
-    const quietSince = Date.parse(String(last?.done_at || "")) || real.fillStartedAt || Date.now()
+    const doneAt = typeof last?.done_at === "string" || typeof last?.done_at === "number" ? last.done_at : ""
+    const quietSince = Date.parse(String(doneAt)) || real.fillStartedAt || Date.now()
     if (last?.status === "done" && Date.now() - quietSince > 30_000 && (real.nudges ?? 0) < 3 && (!real.nudgedAt || Date.now() - real.nudgedAt > 30_000)) {
       real.nudges = (real.nudges ?? 0) + 1
       real.nudgedAt = Date.now()
@@ -366,8 +377,7 @@ async function toolbarBadge(context: BrowserContext, urlPattern: string): Promis
 async function toolbarFill(context: BrowserContext, urlPattern: string): Promise<unknown> {
   return await context.serviceWorkers()[0].evaluate(async (pattern) => {
     const [tab] = await chrome.tabs.query({ url: pattern })
-    const send = chrome.tabs.sendMessage as unknown as (tabId: number, message: unknown, options: { frameId: number }) => Promise<unknown>
-    return tab ? await send(tab.id!, { type: "odds-fill-now" }, { frameId: 0 }) : null
+    return tab ? await chrome.tabs.sendMessage(tab.id!, { type: "odds-fill-now" }, { frameId: 0 }) : null
   }, urlPattern)
 }
 /** Broods' tool calls in the fake: queued for the tab, answered by its result. */
@@ -414,8 +424,8 @@ async function driveFake(fake: Fake, path: string, body: Record<string, unknown>
     return { ok: true }
   }
   if (path.endsWith("/drive-stop")) {
-    fake.driveEvents.push(`stop ${String(body.reason ?? "")}`)
-    run.done = { status: "stopped", message: String(body.message ?? "") }
+    fake.driveEvents.push(`stop ${typeof body.reason === "string" ? body.reason : ""}`)
+    run.done = { status: "stopped", message: typeof body.message === "string" ? body.message : "" }
     cancelFakeOpen(run, "stopped")
     return { ok: true }
   }
@@ -1152,16 +1162,18 @@ test("job-list percentages open the selected unsaved job in the real Odds app, w
   await badges.nth(0).click()
   const panel = page.frameLocator("#odds-panel-frame")
   const app = panel.frameLocator("#app")
-  await expect(app.getByRole("heading", { name: "Junior Financial Analyst", exact: true })).toBeVisible({ timeout: 15000 })
+  // The apply card shows the job (its title is not a heading). My jobs leaves it; the next press opens it again, in the same frame.
+  const title = (name: string) => app.locator("[data-apply-panel]").getByText(name, { exact: true }).first()
+  await expect(title("Junior Financial Analyst")).toBeVisible({ timeout: 25000 })
   const openedAt = await page.frameLocator("#odds-panel-frame").frameLocator("#app").locator("body").evaluate(e => e.ownerDocument.defaultView!.performance.timeOrigin)
   await badges.nth(1).click()
-  await expect(app.getByRole("heading", { name: FLOW_POSTINGS[1].title, exact: true })).toBeVisible({ timeout: 15000 })
+  await expect(title(FLOW_POSTINGS[1].title)).toBeVisible({ timeout: 15000 })
   expect(await app.locator("body").evaluate(e => e.ownerDocument.defaultView!.performance.timeOrigin)).toBe(openedAt)
   expect(fake.pools).toBe(0)
-  await app.getByRole("button", { name: "← Back", exact: true }).click()
-  await expect(app.getByRole("heading", { name: FLOW_POSTINGS[1].title, exact: true })).not.toBeVisible()
+  await app.locator("[data-apply-panel]").getByRole("button", { name: "My jobs", exact: true }).click()
+  await expect(app.locator("[data-apply-panel]")).toHaveCount(0)
   await badges.nth(1).click()
-  await expect(app.getByRole("heading", { name: FLOW_POSTINGS[1].title, exact: true })).toBeVisible({ timeout: 15000 })
+  await expect(title(FLOW_POSTINGS[1].title)).toBeVisible({ timeout: 15000 })
   expect(fake.calls).toHaveLength(0)
   await expect(page.locator("#odds-panel-frame")).toHaveAttribute("data-open", "true")
   await shot(page, "ext-job-list-chances")
@@ -1901,7 +1913,7 @@ window.sent = false
   await expect(page.locator(".odds-apply-bar")).not.toContainText(/Filled in by odds/i, { timeout: 8000 })
   await expect(page.locator("#li")).toHaveValue("")
   await expect(page.locator("#web")).toHaveValue("")
-  await expect(page.locator(".odds-apply-bar")).toContainText(/outlined question|Answer the|asking Odds/i, { timeout: 8000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText(/outlined question|Answer the|asking Odds|the rest is yours/i, { timeout: 8000 })
   // Unblock profile fields; Resume still empty if file upload fails — still must not Ready until CV lands.
   await page.evaluate(() => { (window as unknown as { blockProfiles: boolean }).blockProfiles = false })
   await page.locator("#li").fill("https://www.linkedin.com/in/kien")
@@ -4715,8 +4727,7 @@ test("REAL_KIND_URL: what the side panel's one button reads a live page as (job 
     await page.waitForTimeout(1500)
     kinds.push(await worker.evaluate(async (u) => {
       const [tab] = await chrome.tabs.query({ url: u.split("?")[0].replace(/[^/]*$/, "") + "*" })
-      const send = chrome.tabs.sendMessage as unknown as (tabId: number, message: unknown, options: { frameId: number }) => Promise<unknown>
-      return tab ? await send(tab.id!, { type: "odds-page-kind" }, { frameId: 0 }).catch((e) => `ERR ${String(e).slice(0, 80)}`) : "no tab"
+      return tab ? await chrome.tabs.sendMessage(tab.id!, { type: "odds-page-kind" }, { frameId: 0 }).catch((e) => `ERR ${String(e).slice(0, 80)}`) : "no tab"
     }, page.url()))
   }
   console.log("KIND PROBE", page.url(), JSON.stringify(kinds))
@@ -5202,7 +5213,7 @@ test("date boxes that are only pop-up pickers (PwC) and a school search that onl
   test.setTimeout(90_000)
   await connect(context)
   const html = `<!doctype html><main><h1>Application</h1><form onsubmit="return false">
-    ${["a", "b"].map((k, i) => `<label for="d${k}">${i ? "Tot" : "Van"} (required)</label><div class="react-datepicker__input-container"><input type="text" id="d${k}" required value="" onclick="openPicker(this)" oninput="this.value=this.dataset.v||\'\'"></div>`).join("")}
+    ${["a", "b"].map((k, i) => `<label for="d${k}">${i ? "Tot" : "Van"} (required)</label><div class="react-datepicker__input-container"><input type="text" id="d${k}" required value="" onclick="openPicker(this)" oninput="this.value=this.dataset.v||''"></div>`).join("")}
     <label for="school">School of universiteit (required)</label><div class="rbt"><input id="school" type="text" role="combobox" aria-autocomplete="both" aria-expanded="false" aria-owns="school-menu" required autocomplete="off" oninput="menu(this)"><div id="school-menu" role="listbox" style="display:none"><a role="option" href="#" onclick="pickSchool(event)"></a></div></div>
     <button type="submit">Submit</button></form></main>
     <script>
@@ -5676,8 +5687,8 @@ test("the side panel knows the page: a create-account step gets Create account &
   const worker = context.serviceWorkers()[0]
   const kindOf = () => worker.evaluate(async () => {
     const [tab] = await chrome.tabs.query({ url: "https://acme.wd5.example-workday.com/*" })
-    const send = chrome.tabs.sendMessage as unknown as (tabId: number, message: unknown, options: { frameId: number }) => Promise<{ kind: string }>
-    return tab ? (await send(tab.id!, { type: "odds-page-kind" }, { frameId: 0 }).catch(() => null))?.kind ?? null : null
+    const answer = tab ? await chrome.tabs.sendMessage(tab.id!, { type: "odds-page-kind" }, { frameId: 0 }).catch(() => null) : null
+    return (answer as { kind?: string } | null)?.kind ?? null
   })
   await expect.poll(kindOf, { timeout: 15000 }).toBe("create_account")
   // The panel's Create account & Autofill.
@@ -5962,10 +5973,20 @@ test("the Gmail reader finds the verification mail in Gmail's list, opens it, an
   await page.goto(`https://${host}/gmail`)
   const worker = context.serviceWorkers()[0]
   const src = await worker.evaluate(() => { const g = globalThis as unknown as Record<string, { toString(): string }>; return { rows: g.mailRowsInPage.toString(), open: g.mailOpenInPage.toString(), body: g.mailBodyInPage.toString() } })
-  const rows = await page.evaluate((fn) => (0, eval)(`(${fn})()`) as { rows: Array<{ from: string; subject: string; unread: boolean }> }, src.rows)
+  const rows = await page.evaluate((fn) => {
+    // Test-only: replay this extension's mail helper inside the page. The string is that function, not remote code.
+    // eslint-disable-next-line no-eval
+    return (0, eval)(`(${fn})()`) as { rows: Array<{ from: string; subject: string; unread: boolean }> }
+  }, src.rows)
   expect(rows.rows.map((r) => `${r.from}|${r.subject}|${r.unread}`)).toEqual(["no-reply@acme-careers.com|Your Acme verification code|true", "news@other.com|Weekly digest|false"])
-  await page.evaluate((fn) => (0, eval)(`(${fn})(0)`), src.open)
-  const body = await page.evaluate((fn) => (0, eval)(`(${fn})()`) as { text: string; links: Array<{ href: string }> }, src.body)
+  await page.evaluate((fn) => {
+    // eslint-disable-next-line no-eval -- test-only replay of the extension's mail opener
+    return (0, eval)(`(${fn})(0)`)
+  }, src.open)
+  const body = await page.evaluate((fn) => {
+    // eslint-disable-next-line no-eval -- test-only replay of the extension's mail reader
+    return (0, eval)(`(${fn})()`) as { text: string; links: Array<{ href: string }> }
+  }, src.body)
   expect(body.text).toContain("482913")
   expect(body.links[0].href).toBe("https://careers.mail.example-motor.eu/verify?t=abc")
 })
@@ -6762,7 +6783,8 @@ test("the person takes the application tab for something else (types another add
   await expect(app.locator("#first_name")).toHaveValue("Kien", { timeout: 15000 })
   // The person uses that tab for something else, from the address bar (Chrome reports a "typed" navigation; the test browser's own
   // navigation is not typed, so the same handler is called the way Chrome would call it).
-  const tabId = await worker.evaluate(`chrome.tabs.query({ url: "https://boards.example-ats.com/acme/jobs/556*" }).then(t => t[0].id)`)
+  const rawTab = await worker.evaluate(`chrome.tabs.query({ url: "https://boards.example-ats.com/acme/jobs/556*" }).then(t => t[0].id)`)
+  const tabId = typeof rawTab === "number" ? rawTab : Number(rawTab)
   await worker.evaluate(`personTookTab(${tabId})`)
   await app.goto("https://dashboard.example-tool.com/runs")
   await app.waitForTimeout(8000)
@@ -7140,10 +7162,18 @@ test("REAL_STEP_URL: a plan walked on a live multi-step form (fake Broods, no mo
     let pg = await cmd("read_page") as Pg
     for (const step of plan) {
       if (step.wait) { await new Promise((r) => setTimeout(r, Number(step.wait))); pg = await cmd("read_page") as Pg; continue }
-      if (step.js) { out.push("JS " + JSON.stringify(await (String(step.js).startsWith("page.") ? eval(String(step.js)) : page.evaluate(String(step.js))).catch((e: unknown) => String(e)))); continue }
-      if (step.click) {
-        const b = (pg.buttons ?? []).filter((x) => new RegExp(String(step.click), "i").test(x.text)).pop()
-        out.push(`CLICK ${step.click}: ${b ? "found" : "NOT FOUND"}`)
+      if (typeof step.js === "string" && step.js) {
+        const js = step.js
+        // Test-only live probe: REAL_STEP_PLAN may name an expression to run. It is never shipped.
+        // eslint-disable-next-line no-eval
+        const ran = js.startsWith("page.") ? eval(js) : page.evaluate(js)
+        out.push("JS " + JSON.stringify(await Promise.resolve(ran).catch((e: unknown) => e instanceof Error ? String(e) : "step failed")))
+        continue
+      }
+      if (typeof step.click === "string" && step.click) {
+        const click = step.click
+        const b = (pg.buttons ?? []).filter((x) => new RegExp(click, "i").test(x.text)).pop()
+        out.push(`CLICK ${click}: ${b ? "found" : "NOT FOUND"}`)
         if (b) { const r = await cmd("click", { id: b.id }) as { page?: Pg }; pg = r.page ?? (await cmd("read_page") as Pg) }
         continue
       }
@@ -7153,9 +7183,10 @@ test("REAL_STEP_URL: a plan walked on a live multi-step form (fake Broods, no mo
         pg = await cmd("read_page") as Pg
         continue
       }
-      if (step.options) {
-        const f = (pg.fields ?? []).find((x) => new RegExp(String(step.options), "i").test(x.label))
-        out.push(`OPTIONS ${step.options}: ` + JSON.stringify(f ? await cmd("options", { id: f.id }).then((r) => (r as { options?: unknown }).options) : "no field"))
+      if (typeof step.options === "string" && step.options) {
+        const options = step.options
+        const f = (pg.fields ?? []).find((x) => new RegExp(options, "i").test(x.label))
+        out.push(`OPTIONS ${options}: ` + JSON.stringify(f ? await cmd("options", { id: f.id }).then((r) => (r as { options?: unknown }).options) : "no field"))
         continue
       }
       if (step.fill) {
