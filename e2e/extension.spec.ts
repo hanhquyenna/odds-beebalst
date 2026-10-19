@@ -7197,3 +7197,35 @@ test("QUEUE: three jobs are filled two at a time in the Odds window, each stops 
   await expect(mine.locator("#q")).toHaveValue("")
   expect(context.pages().length).toBeGreaterThan(mineWindowTabs)
 })
+
+test("a closed react-select dropdown never reads another field's open menu as its options (Greenhouse School showed Gender's choices) @accept", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  // Greenhouse's job-board markup: each input sits in a .select__input-container inside the field's .select__container; Gender's menu is open.
+  const select = (id: string, label: string, open: string[]) => `<div class="field"><label for="${id}">${label}</label>
+    <div class="select__container"><div class="select__control"><div class="select__value-container"><div class="select__input-container">
+      <input id="${id}" role="combobox" aria-expanded="${open.length ? "true" : "false"}" ${open.length ? `aria-controls="${id}-menu"` : ""} class="select__input"></div></div></div>
+      ${open.length ? `<div class="select__menu"><div id="${id}-menu" role="listbox">${open.map((o) => `<div role="option">${o}</div>`).join("")}</div></div>` : ""}
+    </div></div>`
+  const html = `<!doctype html><html><body><h1>Apply: Quantitative Trader Intern</h1><form>
+    ${select("gender", "Gender", ["Female", "Male", "Other"])}
+    ${select("school", "School", [])}
+    ${select("degree", "Degree", [])}
+    <button type="submit">Submit application</button></form></body></html>`
+  await context.route("https://careers.example-rs.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "prs", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: {}, remembered: {} } }
+  let read: Record<string, unknown> = {}
+  fake.driveScript = async (cmd) => {
+    read = await cmd("read_page")
+    return { status: "needs_you", reason: "other", message: "test" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://careers.example-rs.com/apply")
+  await applyFrom(context, page, "https://careers.example-rs.com/apply")
+  await expect.poll(() => JSON.stringify(read), { timeout: 30000 }).toContain("School")
+  const fields = read.fields as Array<{ label: string; options?: string[] }>
+  for (const label of ["School", "Degree"]) {
+    const f = fields.find((x) => x.label.startsWith(label))
+    expect(f?.options ?? []).not.toContain("Female")
+  }
+})

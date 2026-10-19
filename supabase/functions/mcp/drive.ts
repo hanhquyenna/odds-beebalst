@@ -1019,7 +1019,7 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
     if (started === "ended") {
       const [fresh, commands] = await Promise.all([
         runOf(env, run.id),
-        svc(env, `drive_commands?run_id=eq.${run.id}&tool=not.in.(recipe,broods,guard)&select=id&limit=1`).catch(() => []),
+        svc(env, `drive_commands?run_id=eq.${run.id}&tool=not.in.(recipe,broods,guard,ext)&select=id&limit=1`).catch(() => []),
       ])
       if (fresh?.status === "running" && (!Array.isArray(commands) || commands.length === 0)) {
         return "Broods ended before it reached the application tab. Press Apply with Odds to try again."
@@ -1067,6 +1067,9 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
   if (route === "drive-start") {
     // What the extension replayed from the playbook on this page (structure only, re-checked here): judged when the run ends.
     const recordAttempts = async (run: Json) => {
+      // Which extension build ran this page: a tab still on an old build explains a trace that does not match the code.
+      const version = typeof body?.ext_version === "string" ? body.ext_version.slice(0, 20) : "unknown"
+      await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "ext", args: {}, status: "done", result: { version }, done_at: new Date().toISOString() }) }).catch(() => undefined)
       for (const attempt of (Array.isArray(body?.recipe_attempts) ? body.recipe_attempts : []).slice(0, 12)) {
         const lesson = sanitizeLesson(attempt?.lesson)
         if (lesson) await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "recipe", args: {}, status: "done", result: { lesson, ok: attempt.ok === true }, done_at: new Date().toISOString() }) }).catch(() => undefined)
@@ -1261,7 +1264,7 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
       // it). Ended without a tool call: pick it up again in the same conversation. Hung: end the run.
       const quietMs = Date.now() - Date.parse(fresh.updated_at)
       if (quietMs > QUIET_MS && !personBusy(fresh)) {
-        const commands = await svc(env, `drive_commands?run_id=eq.${run.id}&tool=not.in.(recipe,broods,guard)&select=id&limit=1`).catch(() => [])
+        const commands = await svc(env, `drive_commands?run_id=eq.${run.id}&tool=not.in.(recipe,broods,guard,ext)&select=id&limit=1`).catch(() => [])
         const decision = quietAction({ turn: await broodsTurn(env, fresh), quietMs, retries: fresh.retries ?? 0, commandCount: Array.isArray(commands) ? commands.length : 0 })
         if (decision === "wait") { await sleep(400); continue }
         if (decision === "retry") {

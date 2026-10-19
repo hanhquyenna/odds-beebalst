@@ -380,8 +380,11 @@
     // when it is the one list open. Taking "the last list on the page" read another dropdown's choices (Greenhouse's School, Degree and
     // hours boxes all showed the month list) and Broods answered from the wrong options.
     const open = (l) => l && shown(l) && [...l.querySelectorAll("[role='option']")].some((o) => o.getAttribute("data-automation-id") !== "selectedItem")
-    const near = input.closest("[class*='container'], div")?.querySelector("[role='listbox']")
-    const anywhere = () => { const all = deepAll("[role='listbox']").filter(open); return all.length === 1 ? all[0] : null }
+    // react-select wraps its input in an "input-container" that holds no list: the field's box is the one above it.
+    const near = input.closest("[class*='container']:not([class*='input-container']), div")?.querySelector("[role='listbox']")
+    // A dropdown that says it is closed owns no open list: the one list open on the page is another field's (Gender's choices were read
+    // into Location, School and Degree).
+    const anywhere = () => { if (input.getAttribute("aria-expanded") === "false") return null; const all = deepAll("[role='listbox']").filter(open); return all.length === 1 ? all[0] : null }
     const listbox = own(input.getAttribute("aria-controls")) || own(input.getAttribute("aria-owns")) || (named && !loose ? null : (open(near) ? near : anywhere() || near))
     let options = [...(listbox?.querySelectorAll("[role='option'], [data-automation-id='promptOption']") || [])].filter((o) => shown(o) && o.getAttribute("data-automation-id") !== "selectedItem" && !/^\s*(searching|loading|zoeken|bezig|laden)\b/i.test(textOf(o)))
     // Workday draws each choice three times (menuItem › promptLeafNode › promptOption): the menu item is the one to press.
