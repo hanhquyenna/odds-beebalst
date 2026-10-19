@@ -2610,7 +2610,9 @@
       return
     }
     // The person went back (browser Back) or paused earlier: stay on their page, push nothing forward, say so in Odds.
-    if (!opts.forced && (intent.paused || await cameBack())) {
+    // (A register / sign-in page reached again by Back is not "the person went back a step": a site that sends the person back after a refused
+    // or declined step puts the same account form on screen again, and Odds carries on with it.)
+    if (!opts.forced && !accountKind() && (intent.paused || await cameBack())) {
       pauseForPerson()
       return
     }
