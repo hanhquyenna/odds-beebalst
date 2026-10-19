@@ -109,6 +109,12 @@ window.addEventListener("message", (event) => {
 })
 
 // Inside a page the cross asks the page to hide the panel; in the browser's own side panel it closes it.
+// Inside a page the arrow beside the cross tucks the panel away and the odds tab rolls back in at the page's edge.
+if (window.parent !== window) {
+  const collapse = document.getElementById("collapse")
+  collapse.hidden = false
+  collapse.onclick = () => window.parent.postMessage({ source: "odds-panel", type: "collapse" }, "*")
+}
 document.getElementById("close").onclick = () => (window.parent !== window ? window.parent.postMessage({ source: "odds-panel", type: "close" }, "*") : window.close())
 // The app announces ready while its script runs, before iframe load fires.
 // Resetting readiness on load loses that handshake and stalls job selection.

@@ -5567,6 +5567,108 @@ test("a register form that also asks for the resume (SuccessFactors): Create acc
   expect(await page.locator("#em2").inputValue()).toBe("kien@example.com")
 })
 
+test("Broods pressing Decline on the application's privacy statement (taking it for a cookie banner) ends in Accept, never in a declined registration", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const host = "careers.privacy.example-motor.eu"
+  const html = `<!doctype html><html><body><h1>Intern Corporate Communications</h1>
+    <label for="fn">First name</label><input id="fn" required>
+    <div id="privacy" role="dialog"><h2>Data Privacy Consent Statement</h2><p>Yamaha Motor Privacy Statement for Job Applicants.</p>
+      <button type="button" id="accept">Accept</button><button type="button" id="decline">Decline</button><button type="button" id="print">Print</button></div>
+    <script>window.accepted = 0; window.declined = 0
+      document.getElementById("accept").onclick = () => { window.accepted++; document.getElementById("privacy").remove() }
+      document.getElementById("decline").onclick = () => { window.declined++ }</script></body></html>`
+  await context.route(`https://${host}/**`, (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "ppriv", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  let note = ""
+  fake.driveScript = async (cmd) => {
+    const page = (await cmd("read_page")) as { buttons?: Array<{ id: string; text: string }> }
+    const decline = (page.buttons ?? []).find((b) => /^decline$/i.test(b.text.trim()))
+    if (decline) note = JSON.stringify(await cmd("click", { id: decline.id }))
+    return { status: "review", message: "Everything is filled in. Check it and press Submit yourself." }
+  }
+  const page = await context.newPage()
+  await page.goto(`https://${host}/apply`)
+  const worker = context.serviceWorkers()[0]
+  await worker.evaluate(async (u) => {
+    const [tab] = await chrome.tabs.query({ url: u })
+    await (globalThis as unknown as { setIntent(tabId: number, intent: unknown): Promise<void> }).setIntent(tab.id!, { job: tab.url, title: "Intern", at: Date.now(), status: "filling", message: "Filling…", copilot: true, here: true })
+    await (globalThis as unknown as { injectApplyScripts(tabId: number): Promise<void> }).injectApplyScripts(tab.id!)
+  }, `https://${host}/*`)
+  await expect.poll(() => page.evaluate(() => (window as unknown as { accepted: number }).accepted), { timeout: 40000 }).toBeGreaterThan(0)
+  expect(await page.evaluate(() => (window as unknown as { declined: number }).declined)).toBe(0)
+  void note
+})
+
+test("a privacy statement open over the form when Broods reads the page is accepted by Odds, so the run reads the form and does not end at the dialog", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const host = "careers.privacy2.example-motor.eu"
+  const html = `<!doctype html><html><body><h1>Intern Corporate Communications</h1>
+    <div id="form"><label for="fn">First name</label><input id="fn" required><label for="ln">Last name</label><input id="ln" required></div>
+    <div id="privacy" role="dialog"><h2>Data Privacy Consent Statement</h2><p>Yamaha Motor Privacy Statement for Job Applicants.</p>
+      <button type="button" id="accept">Accept</button><button type="button" id="decline">Decline</button></div>
+    <script>window.accepted = 0; window.declined = 0
+      document.getElementById("accept").onclick = () => { window.accepted++; document.getElementById("privacy").remove() }
+      document.getElementById("decline").onclick = () => { window.declined++ }</script></body></html>`
+  await context.route(`https://${host}/**`, (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "ppriv2", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  let sawFields = 0
+  fake.driveScript = async (cmd) => {
+    const page = (await cmd("read_page")) as { fields?: unknown[] }
+    sawFields = (page.fields ?? []).length
+    return { status: "review", message: "Everything is filled in. Check it and press Submit yourself." }
+  }
+  const page = await context.newPage()
+  await page.goto(`https://${host}/apply`)
+  const worker = context.serviceWorkers()[0]
+  await worker.evaluate(async (u) => {
+    const [tab] = await chrome.tabs.query({ url: u })
+    await (globalThis as unknown as { setIntent(tabId: number, intent: unknown): Promise<void> }).setIntent(tab.id!, { job: tab.url, title: "Intern", at: Date.now(), status: "filling", message: "Filling…", copilot: true, here: true })
+    await (globalThis as unknown as { injectApplyScripts(tabId: number): Promise<void> }).injectApplyScripts(tab.id!)
+  }, `https://${host}/*`)
+  await expect.poll(() => page.evaluate(() => (window as unknown as { accepted: number }).accepted), { timeout: 40000 }).toBe(1)
+  expect(await page.evaluate(() => (window as unknown as { declined: number }).declined)).toBe(0)
+  await expect.poll(() => sawFields, { timeout: 20000 }).toBeGreaterThan(0)
+})
+
+test("the odds tab sits half hidden at the page's edge; a press pulls the panel out and the tab goes; the arrow beside the cross tucks the panel and the tab rolls back in", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const host = "careers.tab.example-motor.eu"
+  await context.route(`https://${host}/**`, (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><html><body style='margin:0;background:#eef'><h1 style='padding:40px'>Marketing Internship</h1></body></html>" }))
+  fake.kit = { job_id: "ptab", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: {}, remembered: {} }, cv: null }
+  const page = await context.newPage()
+  await page.setViewportSize({ width: 1100, height: 700 })
+  await page.goto(`https://${host}/job`)
+  const worker = context.serviceWorkers()[0]
+  await worker.evaluate(async (u) => {
+    const [tab] = await chrome.tabs.query({ url: u })
+    await (globalThis as unknown as { injectApplyScripts(tabId: number): Promise<void> }).injectApplyScripts(tab.id!)
+  }, `https://${host}/*`)
+  const tab = page.locator("#odds-mascot")
+  await expect(tab).toBeAttached({ timeout: 15000 })
+  const box = async () => (await page.locator("#odds-mascot").evaluate((el) => { const r = (el.shadowRoot!.querySelector(".wrap") as HTMLElement).getBoundingClientRect(); return { left: r.left, right: r.right, op: getComputedStyle(el.shadowRoot!.querySelector(".wrap") as HTMLElement).opacity } }))
+  // Docked: half of it past the right edge of the page.
+  await expect.poll(async () => (await box()).right, { timeout: 5000 }).toBeGreaterThan(1100)
+  await page.screenshot({ path: "test-results/odds-tab-docked.png", clip: { x: 800, y: 380, width: 300, height: 200 } })
+  // A press opens the panel; the tab slips away.
+  await page.locator("#odds-mascot").evaluate((el) => (el.shadowRoot!.querySelector(".roll") as HTMLElement).click())
+  await expect(page.locator("#odds-panel-frame")).toHaveAttribute("data-open", "true", { timeout: 15000 })
+  await expect.poll(async () => (await box()).op, { timeout: 5000 }).toBe("0")
+  await page.waitForTimeout(600)
+  await page.screenshot({ path: "test-results/odds-tab-panel-open.png" })
+  // The arrow beside the cross tucks the panel away, and the tab comes back.
+  const frame = page.frameLocator("#odds-panel-frame")
+  await expect(frame.locator("#collapse")).toBeVisible()
+  await frame.locator("#collapse").click()
+  await expect(page.locator("#odds-panel-frame")).toHaveAttribute("data-open", "false", { timeout: 5000 })
+  await expect.poll(async () => (await box()).op, { timeout: 5000 }).toBe("1")
+  await page.waitForTimeout(900)
+  await page.screenshot({ path: "test-results/odds-tab-tucked-back.png", clip: { x: 800, y: 380, width: 300, height: 200 } })
+  expect((await box()).right).toBeGreaterThan(1100)
+})
+
 test("the saved logins page lists the accounts Odds made: the password is hidden until Show, Forget removes the site", async ({ context }) => {
   test.setTimeout(60_000)
   await connect(context)

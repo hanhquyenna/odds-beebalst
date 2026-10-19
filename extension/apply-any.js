@@ -1957,6 +1957,9 @@
       // A form that rebuilds itself (a field appears, a country is chosen) can empty a contact box Odds filled: put it back before Broods reads, so it is never told a box is done that is empty.
       await prefillContacts(true)
       tickConsents() // (consents and an unanswered pronoun group: the neutral box, before Broods reads what is left)
+      // The application's own privacy statement, open over the form: the page shows nothing but that box, and a form with a password and no
+      // fields looks like an account wall to the server (the run ended there at Yamaha). Odds takes the consent, then Broods reads the form.
+      if (acceptPrivacyStatement()) await sleep(800)
       return drivePage()
     }
     if (["screenshot", "click_at", "type_text", "press_key", "scroll"].includes(cmd.tool)) return driveVision(cmd, sendResult, DRIVE_DENY)
@@ -2163,6 +2166,12 @@
       if (!el || !el.isConnected) return { ok: false, error: "button gone, read_page again" }
       const text = controlLabel(el)
       if (DRIVE_DENY.test(text) || finalSubmitControl(el)) return { ok: false, error: "Odds never presses this; it is the person's" }
+      // Declining the application's own privacy statement ends the registration (Broods took it for a cookie banner's "reject"): it is
+      // Accept that goes on, and Broods is told so.
+      if (isPrivacyDecline(el)) {
+        if (acceptPrivacyStatement()) return { ok: true, clicked: "Accept", note: "That was the application's privacy statement, not cookies: Odds pressed Accept (declining ends the registration). Read the page again." }
+        return { ok: false, error: "That is the application's privacy statement, not a cookie banner: do not decline it. Press Accept." }
+      }
       // Next/Review with empty required fields must not advance — leave Broods on needs_you instead of false Review.
       if (/^(next|continue|review|review your application|continue to next step)$/i.test(text.trim())) {
         const snap = drivePage()
@@ -3448,6 +3457,17 @@
     }
     void carryOnAfterAccount()
     return { ok: true, pressed: Boolean(go) }
+  }
+  /** Whether this is the Decline / Reject of a privacy statement that belongs to the application (its text names no cookies). */
+  function isPrivacyDecline(el) {
+    if (!/^(decline|reject|disagree|weiger\w*|niet akkoord|refuse\w*)$/i.test(controlLabel(el).trim())) return false
+    for (let e = el.parentElement, depth = 0; e && depth < 8; e = e.parentElement, depth++) {
+      const text = textOf(e)
+      if (text.length > 40000) break
+      if (/\bcookies?\b/i.test(text.slice(0, 300))) return false
+      if (/\b(privacy|data protection|gegevensbescherming|datenschutz)\b/i.test(text.slice(0, 600)) && /\b(statement|verklaring|erkl[aä]rung|policy)\b/i.test(text.slice(0, 600))) return true
+    }
+    return false
   }
   /**
    * A privacy / consent statement some sites open after Create account (Yamaha: "Data Privacy Consent Statement", Accept / Decline / Print): Odds

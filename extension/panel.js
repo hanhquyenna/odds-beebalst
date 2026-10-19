@@ -48,7 +48,10 @@ function ensurePanel(then) {
     panelFrame.src = chrome.runtime.getURL("panel.html")
     document.documentElement.append(panelFrame)
     window.addEventListener("message", (event) => {
-      if (event.source === panelFrame.contentWindow && event.origin === PANEL_ORIGIN && event.data && event.data.source === "odds-panel" && event.data.type === "close") closePanel()
+      if (event.source === panelFrame.contentWindow && event.origin === PANEL_ORIGIN && event.data && event.data.source === "odds-panel" && (event.data.type === "close" || event.data.type === "collapse")) {
+        if (event.data.type === "collapse") document.documentElement.dataset.oddsTabFx = "tuck"
+        closePanel()
+      }
     })
     then()
   })

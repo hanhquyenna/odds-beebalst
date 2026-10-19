@@ -51,18 +51,31 @@
     .wrap[data-open="true"] .bar{grid-template-columns:1fr}
     .bar>span{overflow:hidden;white-space:nowrap;min-width:0}
     .msg{display:block;max-width:min(320px,calc(100vw - 150px));overflow:hidden;text-overflow:ellipsis;padding-left:10px}
-    @media (prefers-reduced-motion:reduce){.buddy,.lid,.pupil,.orb{animation:none}.roll[data-roll]{animation:none}.bar,.wrap{transition:none}}
+    /* The idle mascot is a tab on the right edge of the page, half hidden. A press pulls the panel out and the tab slips away; when the panel
+       is tucked back (the arrow beside its cross) the tab rolls back in. */
+    .wrap[data-dock]{height:60px;width:52px;padding:0;border-radius:20px 0 0 20px;background:#fffdfb;border:1.5px solid rgba(238,122,42,.55);border-right:0;box-shadow:-3px 4px 14px rgba(28,26,24,.22);justify-content:flex-start;transform:translateX(24px);transition:transform .28s cubic-bezier(.3,1.4,.5,1),opacity .2s}
+    .wrap[data-dock]:hover,.wrap[data-dock]:focus-within{transform:translateX(0)}
+    .wrap[data-dock] .roll{width:44px;height:44px;margin-left:4px;filter:none}
+    .wrap[data-dock][data-gone]{transform:translateX(90px);opacity:0;pointer-events:none}
+    .wrap[data-dock][data-fx="tuck"]{animation:tabin .75s cubic-bezier(.3,1.3,.5,1) both}
+    .wrap[data-dock][data-fx="plain"]{animation:tabfade .3s ease-out both}
+    @keyframes tabin{0%{transform:translateX(90px) rotate(0);opacity:0}55%{transform:translateX(-8px);opacity:1}75%{transform:translateX(6px)}100%{transform:translateX(24px)}}
+    @keyframes tabfade{from{opacity:0;transform:translateX(60px)}to{opacity:1;transform:translateX(24px)}}
+    @media (prefers-reduced-motion:reduce){.wrap[data-dock]{transition:none;animation:none!important}.buddy,.lid,.pupil,.orb{animation:none}.roll[data-roll]{animation:none}.bar,.wrap{transition:none}}
   `
   const mark = (orb) => `<svg class="buddy" viewBox="0 0 32 32" width="100%" height="100%" aria-hidden="true"><circle cx="15" cy="17" r="13" fill="#2B2825"></circle><g class="lid"><circle cx="15" cy="17" r="8.2" fill="#FFFFFF"></circle><g class="pupil"><circle cx="15" cy="17" r="4.2" fill="#1C1A18"></circle><circle cx="16.4" cy="15.6" r="1.3" fill="#FFFFFF"></circle></g></g><ellipse cx="7.2" cy="22.6" rx="2.2" ry="1.4" fill="#EE7A2A" opacity=".85"></ellipse><ellipse cx="22.8" cy="22.6" rx="2.2" ry="1.4" fill="#EE7A2A" opacity=".85"></ellipse><g class="orb"><circle cx="25.5" cy="6.5" r="4" fill="${orb}" stroke="#2B2825" stroke-width="1.5"></circle></g></svg>`
   const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches
 
   /** A host element in the corner with the mascot (and, when it has words, the bar) drawn inside its shadow root. */
-  function make() {
+  function make(dock = false) {
     const host = document.createElement("div")
-    host.style.cssText = "all:initial!important;position:fixed!important;right:20px!important;bottom:20px!important;z-index:2147483646!important;display:block!important"
+    host.style.cssText = dock
+      ? "all:initial!important;position:fixed!important;right:0!important;bottom:140px!important;z-index:2147483646!important;display:block!important"
+      : "all:initial!important;position:fixed!important;right:20px!important;bottom:20px!important;z-index:2147483646!important;display:block!important"
     const root = host.attachShadow({ mode: "open" })
     root.innerHTML = `<style>${CSS}</style><div class="wrap" data-open="false"><button class="roll" type="button" aria-label="Open Odds" title="Open Odds">${mark("#EE7A2A")}</button><div class="bar"><span><span class="msg" role="status"><slot></slot></span></span></div></div>`
     const wrap = root.querySelector(".wrap")
+    if (dock) wrap.dataset.dock = ""
     const roll = root.querySelector(".roll")
     roll.addEventListener("click", () => {
       if (typeof togglePanel === "function") togglePanel()
@@ -81,23 +94,37 @@
       void roll.offsetWidth
       roll.dataset.roll = dir
     }
-    return { host, set, spin }
+    return { host, set, spin, wrap }
   }
 
   // ---- The idle mascot: always in the corner, hidden while a bar of this page is out, and out of the panel's way while it is open.
   let idle = null
   function showIdle() {
     if (idle || window !== top || !document.documentElement || document.contentType !== "text/html") return
-    idle = make()
+    idle = make(true)
     idle.host.id = "odds-mascot"
     idle.set("filling", false)
     document.documentElement.append(idle.host)
     syncIdle()
   }
+  let idleWasGone = false
   function syncIdle() {
     if (!idle) return
     const panel = document.documentElement.dataset.oddsPanel === "open"
-    idle.host.style.setProperty("right", panel ? "404px" : "20px", "important")
+    // The panel is out: the tab slips away. Tucked back: it comes in again (a roll and a bounce after the arrow, a soft fade after the cross).
+    if (panel) {
+      idle.wrap.dataset.gone = ""
+      delete idle.wrap.dataset.fx
+    } else {
+      delete idle.wrap.dataset.gone
+      if (idleWasGone) {
+        const fx = document.documentElement.dataset.oddsTabFx === "tuck" ? "tuck" : "plain"
+        delete document.documentElement.dataset.oddsTabFx
+        if (!reduced()) { idle.wrap.dataset.fx = fx; idle.spin("back") }
+        window.setTimeout(() => { if (idle) delete idle.wrap.dataset.fx }, 900)
+      }
+    }
+    idleWasGone = panel
     idle.host.style.setProperty("display", bars().length ? "none" : "block", "important")
   }
   const bars = () => [...document.querySelectorAll(".odds-apply-bar[data-odds-mascot]")]

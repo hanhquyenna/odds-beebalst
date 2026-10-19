@@ -4,7 +4,11 @@ header { flex: 0 0 44px; display: flex; align-items: center; gap: 8px; padding: 
 .brand { font-weight: 800; font-size: 20px; letter-spacing: -.045em; }
 .count { padding: 1px 8px; border-radius: 999px; background: rgba(242,128,42,.14); color: #b8570d; font-weight: 600; font-size: 12px; }
 .count.bump { animation: bump .5s ease; }
-#close { all: unset; margin-left: auto; cursor: pointer; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 999px; font-size: 18px; color: #555; }
+#collapse { all: unset; margin-left: auto; cursor: pointer; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 999px; font-size: 20px; font-weight: 700; color: #555; }
+#collapse[hidden] { display: none; }
+#collapse:hover { background: rgba(0,0,0,.07); }
+#close { all: unset; margin-left: 0; cursor: pointer; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 999px; font-size: 18px; color: #555; }
+#collapse[hidden] + #close { margin-left: auto; }
 #close:hover { background: rgba(0,0,0,.07); }
 iframe { flex: 1 1 auto; width: 100%; border: 0; background: #fffdfb; }
 #note { margin: 0; padding: 14px; color: #6b6b6b; }
