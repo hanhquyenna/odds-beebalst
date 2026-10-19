@@ -5801,6 +5801,49 @@ test("read_page does not call a search box filled while its suggestions are open
   expect(file?.section).toBe("Resume")
 })
 
+test("a country-code picker that shows its choice as its own text counts as filled (the run no longer retries it for minutes)", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const host = "careers.phone.example-motor.eu"
+  const html = `<!doctype html><html><body><h1>Internship</h1>
+    <label id="cl">Country code</label>
+    <div id="cc" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="cl" style="border:1px solid #888;padding:8px;width:260px">Select</div>
+    <ul id="list" role="listbox" hidden style="margin:0;padding:0;list-style:none;border:1px solid #888;width:260px">
+      <li role="option">\u{1F1E7}\u{1F1EA} (+32) Belgium</li><li role="option">\u{1F1F3}\u{1F1F1} (+31) Netherlands</li><li role="option">\u{1F1E9}\u{1F1EA} (+49) Germany</li></ul>
+    <label for="ph">Phone</label><input id="ph" type="tel">
+    <script>
+      const cc = document.getElementById("cc"), list = document.getElementById("list")
+      const open = () => { list.hidden = false; cc.setAttribute("aria-expanded", "true") }
+      cc.addEventListener("click", open); cc.addEventListener("mousedown", open)
+      list.querySelectorAll("[role=option]").forEach((o) => o.addEventListener("click", () => { cc.textContent = o.textContent; list.hidden = true; cc.setAttribute("aria-expanded", "false") }))
+    </script></body></html>`
+  await context.route(`https://${host}/**`, (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pphone", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", phone: "+31 626 280 534", answers: { first_name: "Kien", phone: "+31 626 280 534" }, remembered: {} }, cv: null }
+  let fillResult: { results?: Array<{ id: string; ok: boolean; error?: string }> } = {}
+  let after: { fields?: Array<{ label: string; filled: boolean; value: string }> } = {}
+  fake.driveScript = async (cmd) => {
+    const page = (await cmd("read_page")) as { fields?: Array<{ id: string; label: string }> }
+    const picker = (page.fields ?? []).find((f) => /country code/i.test(f.label))
+    if (picker) fillResult = (await cmd("fill", { fields: [{ id: picker.id, value: "Netherlands" }] })) as typeof fillResult
+    after = (await cmd("read_page")) as typeof after
+    return { status: "review", message: "Everything is filled in. Check it and press Submit yourself." }
+  }
+  const page = await context.newPage()
+  await page.goto(`https://${host}/apply`)
+  const worker = context.serviceWorkers()[0]
+  await worker.evaluate(async (u) => {
+    const [tab] = await chrome.tabs.query({ url: u })
+    await (globalThis as unknown as { setIntent(tabId: number, intent: unknown): Promise<void> }).setIntent(tab.id!, { job: tab.url, title: "Intern", at: Date.now(), status: "filling", message: "Filling…", copilot: true, here: true })
+    await (globalThis as unknown as { injectApplyScripts(tabId: number): Promise<void> }).injectApplyScripts(tab.id!)
+  }, `https://${host}/*`)
+  await expect.poll(() => (fillResult.results ?? []).length, { timeout: 40000 }).toBeGreaterThan(0)
+  expect(fillResult.results![0].ok).toBe(true)
+  await expect.poll(() => (after.fields ?? []).length, { timeout: 20000 }).toBeGreaterThan(0)
+  const picker = after.fields!.find((f) => /country code/i.test(f.label))
+  expect(picker?.filled).toBe(true)
+  expect(await page.locator("#cc").innerText()).toContain("Netherlands")
+})
+
 test("the saved logins page lists the accounts Odds made: the password is hidden until Show, Forget removes the site", async ({ context }) => {
   test.setTimeout(60_000)
   await connect(context)

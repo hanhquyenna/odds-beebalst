@@ -334,7 +334,27 @@
     if (chips) return chips
     // An autocomplete that keeps the chosen suggestion in its own box (Ashby's location), once its list has closed.
     if (input.tagName === "INPUT" && /^(list|both)$/.test(input.getAttribute("aria-autocomplete") || "") && input.getAttribute("aria-expanded") !== "true") return String(input.value || "").trim()
+    // Any dropdown input that shows its choice in its own box once its list is closed (a country-code picker showing "(+31) Netherlands").
+    if (input.tagName === "INPUT" && (input.getAttribute("role") === "combobox" || input.hasAttribute("aria-haspopup")) && input.getAttribute("aria-expanded") !== "true") {
+      const own = String(input.value || "").trim()
+      if (own && !PLACEHOLDER.test(own)) return own
+    }
+    // A button that is the dropdown (aria-haspopup=listbox) shows the choice as its own text.
+    if (input.tagName === "BUTTON" && input.getAttribute("aria-expanded") !== "true") {
+      const t = textOf(input)
+      if (t && !PLACEHOLDER.test(t)) return t
+    }
     return ""
+  }
+  /** Whether the dropdown now shows the option that was picked: its visible text (the list closed) holds that option's words, flags and symbols aside. */
+  function choiceShownNear(input, expected) {
+    if (!input?.isConnected || !expected || input.getAttribute?.("aria-expanded") === "true") return false
+    const norm = (t) => String(t).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "")
+    const want = norm(expected)
+    if (want.length < 2) return false
+    const wrap = input.closest("[class*='control' i], [class*='select' i], [class*='dropdown' i], [class*='combo' i], [class*='picker' i], [class*='field' i]") || input.parentElement
+    const seen = norm(`${input.value || ""} ${wrap?.innerText || input.innerText || ""}`)
+    return seen.includes(want)
   }
   /** What a dropdown shows as its choice: a search box's chip, or (a div role=combobox such as MUI's Select) its own text, empty while it shows a prompt. */
   const shownChoice = (input) => {
@@ -2091,8 +2111,11 @@
         await sleep(80)
         // DOM verification: selected value / typed text must stick before we report ok.
         let stuck = fieldValue(f)
+        // A dropdown whose handler picked an option and that now shows it (in its own box, in markup this code does not know) took it.
+        const shownNear = Boolean(result.ok) && ["combobox", "listbox"].includes(f.kind) && typeof result.expectedText === "string" && choiceShownNear(elOf(f), result.expectedText)
+        if (!stuck && shownNear) stuck = String(result.expectedText)
         // The page is the judge: a dropdown that shows exactly the asked choice took it, whatever the widget handler reported.
-        let okDom = (Boolean(result.ok) || (["combobox", "listbox", "select"].includes(f.kind) && sameText(stuck, value))) && answered(f) && (stuck.length > 0 || f.kind === "checkbox")
+        let okDom = (Boolean(result.ok) || (["combobox", "listbox", "select"].includes(f.kind) && sameText(stuck, value))) && (answered(f) || shownNear) && (stuck.length > 0 || f.kind === "checkbox")
         // A place search takes the suggestion that starts with the asked place ("Amsterdam" → "Amsterdam, North Holland, Netherlands").
         if (!okDom && ["combobox", "listbox"].includes(f.kind) && String(value).trim().length >= 3) {
           // "Amsterdam" or "Amsterdam, Netherlands" asked, "Amsterdam, North Holland, Netherlands" chosen: the same place (first part, then the rest in order).
@@ -2142,9 +2165,20 @@
           const hint = `${el?.getAttribute?.("placeholder") || ""} ${el?.getAttribute?.("pattern") || ""} ${stuck || ""} ${f.label}`
           if (/\b(mm|maand|month)\b|\d{2}\s*[/.-]\s*\d{4}|\b(van|tot|from|to|start|end)\b/i.test(hint)) phoneError = "this box wants month and year (MM/YYYY), not a year alone: fill it again with the month from the facts, e.g. 09/2022"
         }
+        // A dropdown that would not take its choice: what it is made of (tags, roles, classes, a short outline; no typed values) goes with the
+        // answer, so the next trace shows the widget and the fix can be made for it.
+        let diag = null
+        if (!okDom && ["combobox", "listbox"].includes(f.kind)) {
+          try {
+            const el = elOf(f)
+            const wrap = el.closest("[class*='control' i], [class*='select' i], [class*='dropdown' i], [class*='combo' i], [class*='picker' i]") || el.parentElement
+            const outline = (n, d = 0) => (d > 3 || !n || n.nodeType !== 1) ? "" : `<${n.tagName.toLowerCase()}${n.getAttribute("role") ? ` role=${n.getAttribute("role")}` : ""}${n.hasAttribute("aria-expanded") ? ` expanded=${n.getAttribute("aria-expanded")}` : ""}${typeof n.className === "string" && n.className ? ` .${n.className.split(/\s+/).slice(0, 3).join(".")}` : ""}>${[...n.children].slice(0, 5).map((c) => outline(c, d + 1)).join("")}`
+            diag = { tag: el.tagName.toLowerCase(), role: el.getAttribute("role") || "", expanded: el.getAttribute("aria-expanded") || "", shows: String(wrap?.innerText || "").replace(/\s+/g, " ").slice(0, 80), outline: outline(wrap || el).slice(0, 500) }
+          } catch { diag = null }
+        }
         // Which contact detail it was (never the value): the server learns where this site wants it.
         const key = okDom ? factKey(value) : null
-        results.push({ id: it.id, ok: okDom, value: stuck, ...(key ? { key } : {}), ...(via ? { via } : {}), ...(shortened ? { note: `this box takes at most ${limit} characters: your ${shortened}-character answer was cut to its last whole sentence` } : {}), ...(okDom ? {} : { error: phoneError || result.error || "no matching option or the site did not keep the value", ...(failedChoices(f) ? { options: failedChoices(f) } : {}) }) })
+        results.push({ id: it.id, ok: okDom, value: stuck, ...(diag ? { diag } : {}), ...(key ? { key } : {}), ...(via ? { via } : {}), ...(shortened ? { note: `this box takes at most ${limit} characters: your ${shortened}-character answer was cut to its last whole sentence` } : {}), ...(okDom ? {} : { error: phoneError || result.error || "no matching option or the site did not keep the value", ...(failedChoices(f) ? { options: failedChoices(f) } : {}) }) })
       }
       const sigAfter = `${pageHref()}|${[...driveFields.values()].map((f) => `${f.label}:${fieldValue(f)}`).join("|")}`
       const unfilled = [...driveFields.entries()]
