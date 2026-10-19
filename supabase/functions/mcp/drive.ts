@@ -348,7 +348,7 @@ const BASE_TOOLS = [
   },
   {
     name: "check_email",
-    description: "Look in the person's Gmail (their own Chrome is signed in) for a mail from the last hour, such as a site's verification code or confirmation link: the tool opens Gmail in another tab, waits up to about 20 seconds for a new message, and returns the recent messages (sender, subject, snippet) and the text and links of the best match. Mail can take one to two minutes: if nothing has come, call it again (up to six times), and do something else useful in between. from / subject narrow the match (e.g. the site's name). Then type a code with fill, or open a link with open_link.",
+    description: "Look in the person's Gmail (their own Chrome is signed in) for a mail from the last hour, such as a site's verification code or confirmation link: the tool opens Gmail in the tab next to the application tab (in the background, the person stays where they are), waits up to about 20 seconds for a new message, and returns the recent messages (sender, subject, snippet) and the text and links of the best match. Mail can take one to two minutes: if nothing has come, call it again (up to six times), and do something else useful in between. from / subject narrow the match (e.g. the site's name). Then type a code with fill, or open a link with open_link.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, from: { type: "string" }, subject: { type: "string" } }, required: ["run_id"] },
   },
   {

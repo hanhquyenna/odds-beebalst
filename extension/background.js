@@ -1793,7 +1793,8 @@ async function readMail(appTabId, hint) {
   let mailTab = mailTabs.get(appTabId) ? await chrome.tabs.get(mailTabs.get(appTabId)).catch(() => null) : null
   if (!mailTab) {
     const app = await chrome.tabs.get(appTabId).catch(() => null)
-    mailTab = await chrome.tabs.create({ url: MAIL_URL, active: false, windowId: app?.windowId })
+    // The tab right next to the application tab, in the background: the person stays on the application, nothing takes the focus.
+    mailTab = await chrome.tabs.create({ url: MAIL_URL, active: false, windowId: app?.windowId, ...(typeof app?.index === "number" ? { index: app.index + 1 } : {}), openerTabId: appTabId })
     mailTabs.set(appTabId, mailTab.id)
   } else {
     await chrome.tabs.update(mailTab.id, { url: MAIL_URL }).catch(() => undefined)

@@ -2205,6 +2205,7 @@
       return { ok: Boolean(f.el.files?.length), value: fieldValue(f) }
     }
     if (cmd.tool === "check_email") {
+      say("Checking your Gmail in the next tab…", "filling")
       const mail = await ask({ type: "drive-mail", from: String(args.from || "").slice(0, 80), subject: String(args.subject || "").slice(0, 80) }, 40000).catch(() => null)
       if (!mail || mail.error) return { ok: false, error: mail?.error || "Could not look in Gmail (is the person signed in to Gmail in this Chrome?)" }
       return { ok: true, ...mail }

@@ -68,7 +68,7 @@ export const oddsBrowser = defineMcp({
   name: "odds-browser",
   url: "https://ukpmpyfcnbhngkgbnkxi.supabase.co/functions/v1/mcp/drive",
   // Listed explicitly: the agent gets exactly these browser tools.
-  allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "write_letter", "click", "back", "open_job", "screenshot", "click_at", "type_text", "press_key", "scroll", "wait", "note_site", "finish"],
+  allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "write_letter", "click", "back", "open_job", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll", "wait", "note_site", "finish"],
 })
 
 const DRIVE_RULES = `DRIVE MODE (message has run_id): apply to the job in the person's own tab with the odds-browser tools. Every call takes run_id and say
