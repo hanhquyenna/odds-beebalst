@@ -835,11 +835,11 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
     const desktops = await svc(env, `application_desktops?user_id=eq.${uid}&last_seen_at=gt.${cutoff}&select=device_id&limit=1`)
     const online = Boolean(desktops?.length)
     if (name === "prepare_application") {
-      if (!online) return text({ started: false, desktop_online: false, next_step: "Open desktop Chrome and the Odds extension, then enable phone control. Ask me to try again once connected.", submitted: false })
       const job = (await svc(env, `postings?id=eq.${encodeURIComponent(args.job_id)}&select=id,closed_at,url`))?.[0]
       if (!job || job.closed_at || !String(job.url ?? "").startsWith("https://")) return failed("This job is closed or has no available application page.")
       const run = await svc(env, "rpc/request_application_for", { method: "POST", body: JSON.stringify({ p_user: uid, p_posting_id: args.job_id }) })
-      return text({ started: true, desktop_online: true, run, submitted: false, next_step: "Chrome checks for requests about every 30 seconds while awake, or immediately when the Odds side panel is open. Check application_status for progress. The person reviews and submits in Chrome." })
+      // Queued whether or not the desktop checked in lately: the extension takes it on its next check (every 30 s while Chrome runs).
+      return text({ started: true, desktop_online: online, run, submitted: false, next_step: online ? "Chrome checks for requests about every 30 seconds while awake. Check application_status for progress. The person reviews and submits in Chrome." : "Queued. Desktop Chrome has not checked in for a while: it starts as soon as Chrome with the Odds extension is open and connected. Check application_status for progress." })
     }
     const run = (await svc(env, `application_runs?user_id=eq.${uid}&posting_id=eq.${encodeURIComponent(args.job_id)}&select=id,posting_id,status,message,expires_at&order=created_at.desc&limit=1`))?.[0] ?? null
     if (run && ["queued", "filling", "needs_input", "ready"].includes(run.status) && Date.parse(run.expires_at) < Date.now()) {
