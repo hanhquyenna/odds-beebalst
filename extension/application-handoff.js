@@ -28,6 +28,10 @@
       const root = box.shadowRoot || box
       if (!shown(box) && !box.shadowRoot) continue
       if (!WORDS.test(box.textContent || root.textContent || "")) continue
+      // A privacy STATEMENT a site shows (Yamaha: "Data Privacy Consent Statement", Accept / Decline / Print) is not a cookie banner: Declining it
+      // ends the registration. It is the person's, or the account step's (apply-any.js acceptPrivacyStatement), never rejected here.
+      const bannerText = String(box.textContent || root.textContent || "")
+      if (!/cookie/i.test(bannerText) && /\b(statement|verklaring|erkl[aä]rung|d[ée]claration)\b/i.test(bannerText.slice(0, 300))) continue
       if (!box.shadowRoot && !bannerLike(box)) continue
       const buttons = deep("button, a[role='button'], [role='button'], input[type='button'], input[type='submit']", root).filter(b => shown(b) && !b.disabled && b.getAttribute("aria-disabled") !== "true" && !cookieAttempts.has(b))
       const button = buttons.find(b => REJECT.test(labelOf(b))) || buttons.find(b => CLOSE.test(labelOf(b)))

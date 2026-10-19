@@ -3436,15 +3436,44 @@
     if (go && !(await realClickEl(go))) go.click()
     // The real click can land on something over the button (Odds' own panel opens by itself on an application): if the step is still
     // exactly there two seconds later, the button is pressed from the page too.
-    else if (go) { await sleep(2000); if (go.isConnected && shown(go) && passwordBoxes().length) go.click() }
+    else if (go) { await sleep(2000); if (!acceptPrivacyStatement() && go.isConnected && shown(go) && passwordBoxes().length && !document.querySelector("[role=dialog], [aria-modal=true], dialog[open]")) go.click() }
+    if (go) for (let i = 0; i < 12; i++) { await sleep(500); if (acceptPrivacyStatement()) break }
+    // A register form that also holds the rest of the application (SuccessFactors: Upload a Resume, then email and password on one page): the
+    // account boxes are not the whole page, so the application is filled here too, now, not only after the account step is gone.
+    if (create && fields().some((f) => f.kind === "file")) {
+      const { intent } = (await ask({ type: "apply-intent" }).catch(() => null)) || {}
+      if (intent) launch(true)
+    }
     void carryOnAfterAccount()
     return { ok: true, pressed: Boolean(go) }
+  }
+  /**
+   * A privacy / consent statement some sites open after Create account (Yamaha: "Data Privacy Consent Statement", Accept / Decline / Print): Odds
+   * takes the consent the same way it ticks consent boxes (the person chose consent yes). Only a box whose text is about privacy or consent and
+   * whose button reads plainly Accept / Agree; never "Accept all" on a cookie banner, never Decline.
+   */
+  function acceptPrivacyStatement() {
+    const BTN = /^(i )?(accept|agree)$|^(ik )?(ga )?akkoord$|^accepteren$|^akzeptieren$|^j'accepte$/i
+    for (const b of deepAll("button, input[type=button], input[type=submit], a[role=button], [role=button], a.btn")) {
+      if (!shown(b) || b.disabled || !BTN.test(controlLabel(b).trim())) continue
+      for (let e = b.parentElement, depth = 0; e && depth < 8; e = e.parentElement, depth++) {
+        const text = textOf(e)
+        if (text.length > 40000) break
+        if (!/\b(privacy|data protection|consent|gegevensbescherming|datenschutz|toestemming)\b/i.test(text.slice(0, 600))) continue
+        if (/\bcookies?\b/i.test(text.slice(0, 300))) break
+        if (!e.querySelector("button, input[type=button], input[type=submit], a[role=button], [role=button], a.btn") || ![...e.querySelectorAll("button, input[type=button], input[type=submit], a[role=button], [role=button], a.btn")].some((o) => /^(decline|reject|disagree|weiger\w*|niet akkoord)$/i.test(controlLabel(o).trim()))) continue
+        b.click()
+        return true
+      }
+    }
+    return false
   }
   /** Once the account step is gone (the site moved on, often without a page load: Workday), Odds fills what follows in this tab. */
   async function carryOnAfterAccount() {
     const end = Date.now() + 5 * 60_000
     while (Date.now() < end) {
       await sleep(1000)
+      if (acceptPrivacyStatement()) continue
       if (passwordBoxes().length) continue
       await sleep(1500)
       if (passwordBoxes().length) continue

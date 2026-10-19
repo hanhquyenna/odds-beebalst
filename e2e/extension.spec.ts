@@ -5530,6 +5530,43 @@ test("while Odds applies in a tab, a create-account step is done by Odds itself:
   expect(JSON.stringify(fake.driveStartBodies ?? [])).not.toContain(made.pw)
 })
 
+test("a register form that also asks for the resume (SuccessFactors): Create account & Autofill fills the account boxes, attaches the CV and accepts the privacy statement that opens", async ({ context, fake }) => {
+  test.setTimeout(120_000)
+  await connect(context)
+  const host = "careers.sf.example-motor.eu"
+  const html = `<!doctype html><html><body><h1>Intern Corporate Communications</h1>
+    <p>Already a registered user? <a href="#">Please sign in</a></p>
+    <label for="cv">Resume</label><input id="cv" type="file" required>
+    <label for="em">Email Address:</label><input id="em" type="email" required>
+    <label for="em2">Retype Email Address:</label><input id="em2" type="email" required>
+    <label for="pw">Choose Password:</label><input id="pw" type="password" required>
+    <button type="button" id="create">Create Account</button>
+    <div id="privacy" role="dialog" hidden><h2>Data Privacy Consent Statement</h2><p>Privacy statement for job applicants.</p>
+      <button type="button" id="accept">Accept</button><button type="button" id="decline">Decline</button><button type="button" id="print">Print</button></div>
+    <script>window.created = null; window.declined = 0
+      document.getElementById("create").onclick = () => { if (document.getElementById("em").value && document.getElementById("pw").value) document.getElementById("privacy").hidden = false }
+      document.getElementById("accept").onclick = () => { window.created = { email: document.getElementById("em").value, cv: document.getElementById("cv").files.length }; document.getElementById("privacy").hidden = true }
+      document.getElementById("decline").onclick = () => { window.declined++ }</script></body></html>`
+  await context.route(`https://${host}/**`, (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "psf", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true } }
+  fake.driveScript = async (cmd) => { await cmd("read_page"); return { status: "review", message: "Everything is filled in. Check it and press Submit yourself." } }
+  const page = await context.newPage()
+  await page.goto(`https://${host}/apply`)
+  const worker = context.serviceWorkers()[0]
+  await worker.evaluate(async (u) => {
+    const [tab] = await chrome.tabs.query({ url: u })
+    await (globalThis as unknown as { injectApplyScripts(tabId: number): Promise<void> }).injectApplyScripts(tab.id!)
+  }, `https://${host}/*`)
+  await page.waitForTimeout(1500)
+  expect(await worker.evaluate(async (u) => {
+    const [tab] = await chrome.tabs.query({ url: u })
+    return await (globalThis as unknown as { accountInTab(tabId: number, create: boolean): Promise<unknown> }).accountInTab(tab.id!, true)
+  }, `https://${host}/*`)).toMatchObject({ ok: true })
+  await expect.poll(() => page.evaluate(() => (window as unknown as { created: { email: string; cv: number } | null }).created), { timeout: 40000 }).toEqual({ email: "kien@example.com", cv: 1 })
+  expect(await page.evaluate(() => (window as unknown as { declined: number }).declined)).toBe(0)
+  expect(await page.locator("#em2").inputValue()).toBe("kien@example.com")
+})
+
 test("the saved logins page lists the accounts Odds made: the password is hidden until Show, Forget removes the site", async ({ context }) => {
   test.setTimeout(60_000)
   await connect(context)
