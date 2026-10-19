@@ -20,16 +20,30 @@ function apiKey(): string {
   return readFileSync(file, "utf8").trim()
 }
 
+/** A fresh quick-tunnel name can stay unresolvable on the router's DNS for minutes while Broods (resolving elsewhere) already reaches it: ask Cloudflare's DNS and pin the answer. */
+async function modelsOkViaCloudflareDns(base: string, headers: Record<string, string>): Promise<boolean> {
+  const host = new URL(base).hostname
+  const doh = await fetch(`https://1.1.1.1/dns-query?name=${host}&type=A`, { headers: { accept: "application/dns-json" }, signal: AbortSignal.timeout(5000) })
+  const ip = ((await doh.json()) as { Answer?: Array<{ type: number; data: string }> }).Answer?.find((a) => a.type === 1)?.data
+  if (!ip) return false
+  const args = ["-sS", "-m", "8", "--resolve", `${host}:443:${ip}`, "-w", "\n%{http_code}", ...Object.entries(headers).flatMap(([k, v]) => ["-H", `${k}: ${v}`]), `${base}/models`]
+  const proc = Bun.spawn(["/usr/bin/curl", ...args], { stdout: "pipe", stderr: "ignore" })
+  const out = await new Response(proc.stdout).text()
+  const cut = out.lastIndexOf("\n")
+  return modelsReachable(Number(out.slice(cut + 1)), out.slice(0, cut))
+}
+
 /** Public models endpoint. 2xx, or 401 with 9router's remote-key message, means the tunnel is up. */
 export async function modelsOk(base: string): Promise<boolean> {
+  // Bun throws ZlibError reading Cloudflare's compressed 401 body, which made every check fail: ask for it uncompressed.
+  const headers: Record<string, string> = { "accept-encoding": "identity" }
+  const key = apiKey()
+  if (key) headers.Authorization = `Bearer ${key}`
   try {
-    const headers: Record<string, string> = {}
-    const key = apiKey()
-    if (key) headers.Authorization = `Bearer ${key}`
     const res = await fetch(`${base}/models`, { headers, signal: AbortSignal.timeout(8000) })
     return modelsReachable(res.status, await res.text())
   } catch {
-    return false
+    return await modelsOkViaCloudflareDns(base, headers).catch(() => false)
   }
 }
 
@@ -105,7 +119,7 @@ function pointBroods(url: string) {
 }
 
 function spawnTunnel() {
-  return Bun.spawn([`${DIR}/bin/cloudflared`, "tunnel", "--no-autoupdate", "--url", "http://127.0.0.1:20129"], { stdout: "inherit", stderr: "pipe" })
+  return Bun.spawn([`${DIR}/bin/cloudflared`, "tunnel", "--no-autoupdate", "--protocol", "http2", "--url", "http://127.0.0.1:20129"], { stdout: "inherit", stderr: "pipe" })
 }
 
 /** One cloudflared process. Resolves with "restart" when logs or the health check say the tunnel is dead. */
