@@ -150,17 +150,16 @@ The AI **plans and checks; the script clicks**. Shared helper: `supabase/functio
 | `APPLY_AGENT_WEBHOOK_URL` | Point at **`…/functions/v1/apply-agent`** (sync). Empty = off. Do **not** point at Broods (async-only). |
 | `APPLY_AGENT_WEBHOOK_SECRET` | Bearer Odds → apply-agent (required on the function). |
 | `APPLY_AGENT_BACKEND` | `webhook` when URL set, or force `none`. |
-| `OPENAI_API_KEY` | Preferred on **apply-agent** (`gpt-4o-mini`). Shared across users; rules + `apply_agent_action_patterns` absorb repeats. |
-| `APPLY_AGENT_MODEL` | Default `gpt-4o-mini`. Keep cheap — do not set a flagship model. |
-| `ANTHROPIC_API_KEY` | Fallback if no OpenAI key (haiku). |
-| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | Optional on **apply-agent** for gaps beyond rules. |
+| `OPENAI_API_KEY` | Not used for apply, fill, or answer decisions. Broods `odds-apply` calls `cx/gpt-6-luna` through 9router (`NINE_ROUTER_BASE_URL`). |
+| `APPLY_AGENT_MODEL` | Removed from the apply ladder. Do not set a mini model for fill or answer decisions. |
+| `ANTHROPIC_API_KEY` | Not used for apply, fill, or answer decisions. |
 | `APPLY_AGENT_FORWARD_URL` | Optional Broods async URL; apply-agent fans out lifecycle pings. |
 | `APPLY_AGENT_BROODS_API_KEY` | Broods runtime key (`bsk_…`) for Apply agents. |
 | `APPLY_AGENT_BROODS_AGENT_ID` | Broods agent id for `apply-stuck` (see `broods/index.ts`, [BROODS-APPLY.md](BROODS-APPLY.md)). |
 | `APPLY_AGENT_BROODS_ROAM_AGENT_ID` | Broods agent id for `apply-roam` free-roam browse. |
 | `APPLY_AGENT_BROODS_BASE_URL` | Default `https://gateway.broods.app`. |
 
-Edge Function `apply-agent` (`supabase/functions/apply-agent`): bearer auth; lifecycle → `200`; `suggest-answers` → rules first (`apply-form`, zoekjaar → no sponsor), then optional LLM; returns `{ answers: [...] }` in the same request.
+Edge Function `apply-agent` (`supabase/functions/apply-agent`): bearer auth; lifecycle → `200`; `suggest-answers` → rules first (`apply-form`, zoekjaar → no sponsor), then Broods (`cx/gpt-6-luna`: apply-stuck, then apply-roam) for the gaps; returns `{ answers: [...] }` in the same request.
 
 Lifecycle (fire-and-forget, 3s timeout): after successful `apply-kit` → `apply.started`; after `application-questions` → `apply.questions`; after `application-report` with `needs_input` / `ready` / `failed` → `apply.status`. Payload includes host, ats, posting_id; never the extension key, full CV, or passwords.
 
@@ -188,7 +187,7 @@ link `node_modules`, run `bunx tsc -b`, `bun test src`, `bunx playwright test` t
 1. Explain and fix the forms that do not start in a long audit run; make `applyFrom` in the tests match the tab by page, not "last tab".
 2. Verify the Workday listbox handling against a real Workday page in the owner's Chrome (up to the password/account step, never past it).
 3. Cover letter upload (a cover letter attached to the job is not uploaded yet), and the Greenhouse "Acknowledge/Confirm" style acknowledgements (these stay the person's).
-4. Deploy `apply-agent` + set secrets: `APPLY_AGENT_WEBHOOK_SECRET`, point `mcp`'s `APPLY_AGENT_WEBHOOK_URL` at `…/functions/v1/apply-agent`, optional `ANTHROPIC_API_KEY` / Broods `APPLY_AGENT_FORWARD_URL`.
+4. Deploy `apply-agent` + set secrets: `APPLY_AGENT_WEBHOOK_SECRET`, point `mcp`'s `APPLY_AGENT_WEBHOOK_URL` at `…/functions/v1/apply-agent`, and optionally set Broods `APPLY_AGENT_FORWARD_URL`. Do not set an OpenAI or Anthropic model for apply decisions.
 5. Apply migrations (`apply_agent_events`), deploy `mcp` + `apply-agent`, push when asked (section 5). Then run the live audit again and record the numbers here.
 
 ## 12. Prompt to give an agent

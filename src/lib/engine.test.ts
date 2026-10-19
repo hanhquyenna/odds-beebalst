@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { cumulative, isInternship, levelOf, mentionsVisaSponsorship, middle, netMonth, point } from "@/lib/engine"
+import { cumulative, displayedChance, isInternship, levelOf, mentionsVisaSponsorship, middle, netMonth, point } from "@/lib/engine"
 import { formatHourly } from "@/lib/format"
 import { payMid, payOf, TRAINEE_PAY } from "@/lib/spec"
 import type { Posting } from "@/lib/types"
@@ -54,6 +54,24 @@ describe("one figure from a range", () => {
     expect(middle(0.02, 0.08)).toBeCloseTo(0.04, 10)
     expect(point(middle(0.0236, 0.054))).toBe("3.6%")
     expect(point(0.123)).toBe("12%")
+  })
+
+  test("one rounding for the ring, the sentence, and the server percent", () => {
+    const same = (p: number) => {
+      const shown = displayedChance(p)
+      expect(point(p)).toBe(shown.label)
+      expect(shown.perHundred.startsWith(shown.label.replace("%", ""))).toBe(true)
+      expect(shown.pct).toBe(Number(shown.label.replace("%", "")))
+    }
+    same(0.0074)
+    same(0.0076)
+    same(0.0045)
+    same(0.123)
+    expect(displayedChance(0.0074).label).toBe("0.7%")
+    expect(displayedChance(0.0076).label).toBe("0.8%")
+    // 0.45% is a binary half-tenth: toFixed used to print 0.4 while Math.round(p*1000)/10 printed 0.5.
+    expect(displayedChance(0.0045)).toEqual({ pct: 0.5, label: "0.5%", perHundred: "0.5 in 100 similar applicants get a call" })
+    expect(displayedChance(0.0055).label).toBe("0.6%")
   })
 })
 

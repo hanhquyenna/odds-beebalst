@@ -6,11 +6,15 @@ Odds Chrome extension = hands (clicks/fills in your logged-in tab). Broods = bra
 
 | Agent | Role | Id (production) |
 | --- | --- | --- |
-| `apply-stuck` | Fast pick from extension snapshot (`gpt-6.1-sol`, medium effort, ~6–8s) | `js74p8xs10efctdq5ynrkm6fmn8gagn5` |
-| `apply-roam` | Free-roam browse (obscura) when snapshot pick is empty (`gpt-6.1-sol`, medium effort; obscura browser in a Lambda sandbox) | `js76rgrnz12qj43ys5qcnfwnm18gadsy` |
+| `apply-stuck` | Fast pick from extension snapshot (`cx/gpt-6-luna` through 9router) | `js74p8xs10efctdq5ynrkm6fmn8gagn5` |
+| `apply-roam` | Free-roam browse when the snapshot pick is empty (`cx/gpt-6-luna` through 9router; Obscura browser in a Lambda sandbox) | `js76rgrnz12qj43ys5qcnfwnm18gadsy` |
 | Sandbox `apply-web` | Obscura browser for roam | `m97d9856v8btgvawps2gkhp9jh8gbtag` |
 
-Ladder: rules → gpt-4o-mini → Broods stuck → Broods roam → human (account/captcha/submit).
+Ladder: extension rules and recoverFill, then Broods odds-apply (`cx/gpt-6-luna`: apply-stuck, then apply-roam), then a person (account, captcha, submit). Apply, fill, and answer decisions do not call an OpenAI mini model.
+
+### OpenAI mini audit
+
+No unrelated runtime OpenAI or mini-model call was found. The remaining repository references are negative ladder tests, historical Broods issue notes, and the word `openai` in the employer-name classifier (`src/lib/tiers.ts` and its generated MCP bundle). The apply deployment script no longer reads, validates, or uploads `OPENAI_API_KEY`.
 
 ## Status
 
@@ -27,7 +31,7 @@ Ladder: rules → gpt-4o-mini → Broods stuck → Broods roam → human (accoun
 ```bash
 cd /Users/kien/Documents/Files/odds-beebalst
 bunx broods login
-# OPENAI_API_KEY in .env.local
+# odds-apply uses cx/gpt-6-luna through 9router (NINE_ROUTER_BASE_URL). Apply decisions do not call OpenAI.
 bunx broods deploy --project odds-apply
 
 bunx supabase login
