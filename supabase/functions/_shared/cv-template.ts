@@ -195,6 +195,7 @@ interface PdfPage {
   drawLine(o: { start: { x: number; y: number }; end: { x: number; y: number }; thickness: number; color: unknown }): void
 }
 interface PdfDoc {
+  getPageCount(): number
   addPage(size: [number, number]): PdfPage
   embedFont(name: string): Promise<PdfFont>
   setTitle(t: string): void
@@ -205,6 +206,8 @@ interface PdfDoc {
 const A4: [number, number] = [595.28, 841.89]
 const MARGIN = 48
 const BODY = 10
+/** The scales tried, in order, when a CV has to fit one page: the layout stays, the type and the spacing shrink a little. */
+const FIT_SCALES = [1, 0.95, 0.9, 0.86, 0.82]
 
 /** Breaks one paragraph into lines that fit the width. A word wider than the line is cut. */
 export function wrap(text: string, width: number, size: number, font: PdfFont): string[] {
@@ -236,6 +239,21 @@ export function wrap(text: string, width: number, size: number, font: PdfFont): 
 
 /** The CV as a PDF: A4, one column, Helvetica, headings in bold capitals with a rule, bullets as hyphens. Several pages when it is long. */
 export async function renderCvPdf(lib: PdfLib, cv: Cv): Promise<Uint8Array> {
+  return (await buildCvPdf(lib, cv, 1)).bytes
+}
+
+/** The same CV on one page: the largest type that fits. `pages` is how many it came to at the smallest size (more than 1: too long). */
+export async function renderCvOnePage(lib: PdfLib, cv: Cv): Promise<{ bytes: Uint8Array; pages: number }> {
+  let made = await buildCvPdf(lib, cv, 1)
+  for (const scale of FIT_SCALES) {
+    made = await buildCvPdf(lib, cv, scale)
+    if (made.pages === 1) break
+  }
+
+  return made
+}
+
+async function buildCvPdf(lib: PdfLib, cv: Cv, scale: number): Promise<{ bytes: Uint8Array; pages: number }> {
   const doc = await lib.PDFDocument.create()
   const regular = await doc.embedFont(lib.StandardFonts.Helvetica)
   const bold = await doc.embedFont(lib.StandardFonts.HelveticaBold)
@@ -252,7 +270,7 @@ export async function renderCvPdf(lib: PdfLib, cv: Cv): Promise<Uint8Array> {
     }
   }
   const write = (text: string, o: { size?: number; font?: PdfFont; color?: unknown; indent?: number; gap?: number } = {}): void => {
-    const size = o.size ?? BODY
+    const size = (o.size ?? BODY) * scale
     const font = o.font ?? regular
     const indent = o.indent ?? 0
     for (const l of wrap(printable(text), width - indent, size, font)) {
@@ -260,14 +278,14 @@ export async function renderCvPdf(lib: PdfLib, cv: Cv): Promise<Uint8Array> {
       y -= size * 1.32
       page.drawText(l, { x: MARGIN + indent, y, size, font, color: o.color ?? ink })
     }
-    y -= o.gap ?? 0
+    y -= (o.gap ?? 0) * scale
   }
   const heading = (text: string): void => {
-    room(34)
-    y -= 12
+    room(34 * scale)
+    y -= 12 * scale
     write(text.toUpperCase(), { size: 10.5, font: bold, gap: 1 })
     page.drawLine({ start: { x: MARGIN, y: y + 1 }, end: { x: A4[0] - MARGIN, y: y + 1 }, thickness: 0.6, color: grey })
-    y -= 3
+    y -= 3 * scale
   }
 
   write(cv.name, { size: 20, font: bold, gap: 2 })
@@ -297,7 +315,7 @@ export async function renderCvPdf(lib: PdfLib, cv: Cv): Promise<Uint8Array> {
       write(`${j.title}, ${j.company}`, { font: bold })
       write([range(j.start, j.end), j.location].filter(Boolean).join("   |   "), { color: grey, gap: 1 })
       for (const b of j.bullets) write(`- ${b}`, { indent: 8 })
-      y -= 5
+      y -= 5 * scale
     }
   }
   if (cv.projects.length > 0) {
@@ -305,7 +323,7 @@ export async function renderCvPdf(lib: PdfLib, cv: Cv): Promise<Uint8Array> {
     for (const p of cv.projects) {
       write([p.name, p.when].filter(Boolean).join("   "), { font: bold })
       for (const b of p.bullets) write(`- ${b}`, { indent: 8 })
-      y -= 5
+      y -= 5 * scale
     }
   }
   if (cv.languages.length > 0) {
@@ -315,7 +333,7 @@ export async function renderCvPdf(lib: PdfLib, cv: Cv): Promise<Uint8Array> {
   doc.setTitle(printable(`${cv.name} CV`))
   doc.setAuthor(printable(cv.name))
 
-  return doc.save()
+  return { bytes: await doc.save(), pages: doc.getPageCount() }
 }
 
 /** A cover letter as a PDF: A4, Helvetica 11, the sender's name on top, paragraphs as given (blank line between them). One page or more. */

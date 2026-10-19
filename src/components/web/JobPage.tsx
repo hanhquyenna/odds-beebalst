@@ -7,6 +7,7 @@ import { JobPeopleTab, peopleCounts, schoolOf, type TabGroup } from "@/component
 import { SourceLine } from "@/components/web/SourceCircle"
 import { useJobModel } from "@/components/web/use-job-model"
 import { JobDocuments } from "@/components/JobDocuments"
+import { TailorFlow } from "@/components/TailorFlow"
 import { LockedPersonal, PayCard, CareerLadder } from "@/components/JobPersonal"
 import { MoreAtEmployer } from "@/components/CompanyInsights"
 import { OddsApply } from "@/components/OddsApply"
@@ -164,7 +165,7 @@ function Overview({ post, model, onTab, onOpenJob }: { post: Posting; model: Ret
         </div>
 
         <aside className="flex min-w-0 flex-col gap-4 xl:sticky xl:top-[5.25rem]">
-          {st ? <ChanceCard post={job} st={st} onTab={onTab} /> : <LockedPersonal onUnlock={() => undefined} />}
+          {st ? <ChanceCard post={job} st={st} /> : <LockedPersonal onUnlock={() => undefined} />}
           <PeopleCard post={post} onTab={onTab} />
         </aside>
       </div>
@@ -288,7 +289,7 @@ function Ring({ value }: { value: number }): React.JSX.Element {
   )
 }
 
-function ChanceCard({ post, st, onTab }: { post: Posting; st: Standing; onTab: (tab: Tab) => void }): React.JSX.Element {
+function ChanceCard({ post, st }: { post: Posting; st: Standing }): React.JSX.Element {
   const known = !st.needsProfile
   const mid = st.rate ? st.rate.mid * 100 : null
   const have = known ? st.checklist.filter((c) => c.have) : []
@@ -345,12 +346,8 @@ function ChanceCard({ post, st, onTab }: { post: Posting; st: Standing; onTab: (
       ) : null}
 
       <div className="flex flex-col gap-2.5">
-        <button type="button" onClick={() => onTab("documents")} className="h-11 w-full cursor-pointer rounded-xl bg-brand text-sm font-extrabold hover:bg-[#E56E1E]">
-          Tailor my CV with AI
-        </button>
-        <button type="button" onClick={() => onTab("documents")} className="h-11 w-full cursor-pointer rounded-xl border-[1.5px] border-brand bg-card text-sm font-extrabold hover:bg-accent">
-          Tailor my cover letter with AI
-        </button>
+        <TailorFlow post={post} kind="cv" solid />
+        <TailorFlow post={post} kind="cover_letter" />
       </div>
     </section>
   )

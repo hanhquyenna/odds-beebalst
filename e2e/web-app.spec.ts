@@ -80,6 +80,47 @@ test.describe("the signed-in web app", () => {
     await expect(page.getByText("Already in your CV")).toBeVisible()
     await shot(page, "web-job-profile")
   })
+
+  test("Tailor my CV with AI: what changed, what is not on the CV, saved as a new CV on the job", async ({ page }) => {
+    const body = "KIEN PHUNG\nFinance intern. Excel and SQL. Financial modelling.\nEXPERIENCE\nExample Corp 2025\nFinance Intern\n• Built reports in Excel and SQL for the finance team"
+    await page.addInitScript(() => localStorage.setItem("careersim.profile", JSON.stringify({ onboarded: true, name: "Test Person", email: "t@example.com", origin: "non_eu", dutch: "basic", cv: "Finance intern. Excel.", positions: [{ Title: "Finance Intern", "Company Name": "Example" }], education: [{ "School Name": "University of Amsterdam", "Degree Name": "BSc", "Field Of Study": "Economics", "End Date": "2026" }], skills: [{ Name: "Excel" }] })))
+    const row = { id: "11111111-1111-4111-8111-111111111111", kind: "cv", name: "My CV", file_name: "My CV.pdf", mime: "application/pdf", size_bytes: 1000, body, is_main: true, created_at: "2026-10-12T10:00:00Z", drive_file_id: null }
+    await page.route("**/rest/v1/documents*", (route) => route.fulfill({ json: route.request().method() === "GET" ? [row] : [] }))
+    let asked: Record<string, unknown> | null = null
+    const bullet = { part: "Finance Intern, Example Corp", kind: "reworded", before: "Built reports in Excel and SQL for the finance team", after: "Built finance team reports in Excel" }
+    await page.route("**/functions/v1/tailor/draft", async (route) => {
+      asked = route.request().postDataJSON()
+      await route.fulfill({
+        json: {
+          kind: "cv",
+          result: {
+            cv: { name: "Kien Phung", contact: { email: "t@example.com" }, experience: [{ title: "Finance Intern", company: "Example Corp", start: "2025", bullets: [bullet.after] }], education: [], skills: [{ label: "Tools", items: ["Excel"] }], projects: [], languages: [] },
+            changes: [bullet, { part: "Skills", kind: "unchanged", before: "SQL", after: "Excel" }],
+            counts: { added: 0, reworded: 1, unchanged: 1, left_out: 0 },
+            added_keywords: ["Excel"],
+            missing: [{ name: "sql", label: "SQL", tier: "must" }, { name: "financial modelling", label: "Financial modelling", tier: "must" }],
+            kept_original: [],
+          },
+        },
+      })
+    })
+    await page.goto("/")
+    await page.getByRole("navigation", { name: "Your account" }).getByRole("button", { name: "Jobs", exact: true }).click()
+    await page.getByRole("button", { name: /Junior Financial Analyst Adyen/ }).first().click()
+    await page.getByRole("button", { name: "Tailor my CV with AI" }).click()
+    await expect(page.getByLabel("Your tailored CV")).toBeVisible()
+    await expect(page.getByText("Not on your CV: add it only if it is true")).toBeVisible()
+    await expect(page.getByText("+ SQL")).toBeVisible()
+    await expect(page.getByText("0 added · 1 reworded · 1 unchanged")).toBeVisible()
+    await expect(page.getByText("Built finance team reports in Excel", { exact: true })).toBeVisible()
+    // The request carries the job's keywords with their tiers, and the CV to work from (the main CV: nothing is attached to this job yet).
+    expect((asked as { document_id?: string } | null)?.document_id).toBe(row.id)
+    const wanted = JSON.stringify((asked as { wanted?: unknown } | null)?.wanted)
+    expect(wanted).toContain("sql")
+    await shot(page, "web-job-tailor")
+    await page.getByRole("button", { name: "Discard" }).click()
+    await expect(page.getByRole("button", { name: "Tailor my CV with AI" })).toBeVisible()
+  })
 })
 
 test.describe("the signed-in web app on a phone-sized screen", () => {

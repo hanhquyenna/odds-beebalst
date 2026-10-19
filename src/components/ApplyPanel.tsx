@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
 import type { JobTab } from "@/components/JobDetail"
 import { sourcesOf } from "@/components/SourceChips"
+import { TailorFlow } from "@/components/TailorFlow"
 import { Button } from "@/components/ui/button"
 import { useData } from "@/lib/data"
 import { fetchKeptPostings } from "@/lib/jobs"
@@ -64,7 +65,7 @@ export function ApplyPanel(): React.JSX.Element | null {
       <OddsButton info={info} post={post} />
       <SaveAnswers info={info} />
       {post ? <ChanceCard post={post} /> : null}
-      <Attach info={info} onTailor={() => open("documents")} />
+      <Attach info={info} post={post} />
       {post ? (
         <Suspense fallback={null}>
           <div className="pt-2"><JobDetail post={post} bare showTab={tab} onBack={() => setAway(page.url)} /></div>
@@ -290,17 +291,8 @@ function ChanceCard({ post }: { post: Posting }): React.JSX.Element | null {
   )
 }
 
-function TailorButton({ label, onTailor, solid = false }: { label: string; onTailor: () => void; solid?: boolean }): React.JSX.Element {
-  return (
-    <button type="button" onClick={onTailor} className={`flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-[1.5px] border-brand font-bold transition ${solid ? "bg-brand hover:brightness-105" : "bg-card hover:bg-brand/10"}`}>
-      <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-hidden="true"><path d="M12 2l1.8 5.4L19 9l-5.2 1.6L12 16l-1.8-5.4L5 9l5.2-1.6zM19 14l.9 2.6L22 17l-2.1.4L19 20l-.9-2.6L16 17l2.1-.4z" /></svg>
-      {label}
-    </button>
-  )
-}
-
 /** What goes with the application: the CV as a file card (change it, or upload one), and the cover letter. */
-function Attach({ info, onTailor }: { info: PanelInfo; onTailor: () => void }): React.JSX.Element {
+function Attach({ info, post }: { info: PanelInfo; post: Posting | null }): React.JSX.Element {
   const go = (): void => window.location.assign("/documents")
   const file = (name: string | null | undefined, empty: string): React.JSX.Element => name ? (
     <button type="button" onClick={go} className="flex w-full cursor-pointer items-center gap-3 rounded-xl border-[1.5px] border-line px-3 py-3 text-left hover:bg-accent/60">
@@ -317,12 +309,12 @@ function Attach({ info, onTailor }: { info: PanelInfo; onTailor: () => void }): 
       <div className="flex flex-col gap-3 rounded-xl border-[1.5px] border-line bg-card p-4">
         <div className="text-base font-bold">Your CV</div>
         {file(info.cv, "Upload your CV")}
-        <TailorButton label="Tailor my CV with AI" onTailor={onTailor} solid />
+        {post ? <TailorFlow post={post} kind="cv" solid compact /> : null}
       </div>
       <div className="flex flex-col gap-3 rounded-xl border-[1.5px] border-line bg-card p-4">
         <div className="text-base font-bold">Your cover letter</div>
         {file(info.letter, "Add a cover letter")}
-        <TailorButton label="Tailor my cover letter with AI" onTailor={onTailor} />
+        {post ? <TailorFlow post={post} kind="cover_letter" compact /> : null}
       </div>
     </>
   )
