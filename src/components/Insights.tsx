@@ -4,6 +4,7 @@ import { insightsOf, type Snapshot } from "@/lib/insights"
 import { INSIGHTS_PERIODS, insightsPeriod, type InsightsPeriod } from "@/lib/insights-period"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { supabase } from "@/lib/supabase"
+import { CalibrationChart } from "@/components/CalibrationChart"
 
 /** The days from applying to a first answer are only kept with the chance recorded at the time: read once, only for a signed-in person. */
 function useSnapshots(): Snapshot[] {
@@ -151,6 +152,8 @@ export function Insights({ framed = false }: { framed?: boolean }): React.JSX.El
       ) : (
         <p className="border-t-[1.5px] pt-4 text-sm text-muted-foreground">No applications recorded for these dates.</p>
       )}
+
+      <CalibrationChart />
     </section>
   )
 }

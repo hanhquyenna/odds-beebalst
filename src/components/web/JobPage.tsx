@@ -15,6 +15,8 @@ import { PostingText } from "@/components/PostingText"
 import { useData } from "@/lib/data"
 import { levelOf, point, type Standing } from "@/lib/engine"
 import { fieldOf } from "@/lib/filters"
+import { callsIn100 } from "@/lib/calibration"
+import { useCalibration } from "@/lib/use-calibration"
 import { formatAge, placeOf, stripMarkup } from "@/lib/format"
 import { workplaceOf } from "@/lib/job-facts"
 import { parsePosting } from "@/lib/job-sections"
@@ -292,6 +294,8 @@ function ChanceCard({ post, st, onTab }: { post: Posting; st: Standing; onTab: (
   const have = known ? st.checklist.filter((c) => c.have) : []
   const missing = known ? st.checklist.filter((c) => !c.have) : []
   // What the posting insists on and the CV lacks first; a posting that does not rank its words lists every missing one.
+  const everyone = useCalibration().everyone
+  const calls = st.rate && known ? callsIn100(everyone, st.rate.mid) : null
   const insists = missing.filter((c) => (post.tiers?.[c.skill] ?? "must") === "must" || post.tiers?.[c.skill] === "strong")
   const lacking = (insists.length > 0 ? insists : missing).slice(0, 8)
 
@@ -313,6 +317,7 @@ function ChanceCard({ post, st, onTab }: { post: Posting; st: Standing; onTab: (
         </div>
       </div>
 
+          {calls !== null ? <p className="text-[0.8125rem] leading-snug text-muted-foreground">Applications like this one got a call about {calls} in 100 times in Odds' data. A check, not a promise.</p> : null}
       {have.length > 0 ? (
         <div className="flex flex-col gap-2">
           <h3 className="text-[0.7rem] font-extrabold tracking-[0.08em] text-good-foreground uppercase">Already in your CV</h3>
