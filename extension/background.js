@@ -160,8 +160,8 @@ function peek(url) {
 }
 
 /** A request to one of the extension's own routes on odds with the key; { status: "connect" } without one. */
-async function ext(route, init = {}) {
-  const key = await savedKey()
+async function ext(route, init = {}, keyOverride = null) {
+  const key = keyOverride || await savedKey()
   if (!key) return { status: "connect" }
   let res
   try {
@@ -1682,8 +1682,9 @@ async function applicationDevice() {
   await chrome.storage.local.set({ oddsDesktopId: id })
   return id
 }
-async function reportApplication(run, status, message) {
-  return ext("application-report", { method: "POST", body: JSON.stringify({ device_id: await applicationDevice(), id: run.id, status, message }) })
+/** `key`: the key just removed on a disconnect, so the server still hears that this desktop gave its queued runs up. */
+async function reportApplication(run, status, message, key = null) {
+  return ext("application-report", { method: "POST", body: JSON.stringify({ device_id: await applicationDevice(), id: run.id, status, message }) }, key)
 }
 let applicationWrites = Promise.resolve()
 /** Run → tab map in local storage so an extension reload still finds the tab Continue should resume. */
@@ -1715,8 +1716,8 @@ async function pollApplications() {
   pollingApplications = true
   let claimed = null
   try {
-    const { oddsPhoneControl } = await chrome.storage.local.get("oddsPhoneControl")
-    if (!oddsPhoneControl || !await savedKey()) return
+    // Connected is enough: the desktop takes the applications queued for it (from the phone, the app or Claude) with no setting to tick.
+    if (!await savedKey()) return
     const runs = await updateApplicationRuns(() => {})
     const answer = await ext("application-poll", { method: "POST", body: JSON.stringify({ device_id: await applicationDevice(), ids: Object.keys(runs), id: Object.keys(runs)[0] }) })
     if (answer.status !== "ok") return
@@ -1745,7 +1746,7 @@ async function pollApplications() {
     const task = answer.task
     if (!task || runs[task.id]) return
     claimed = task
-    if (!(await chrome.storage.local.get("oddsPhoneControl")).oddsPhoneControl || !await savedKey()) return
+    if (!await savedKey()) return
     if (task.status !== "filling" || !/^https:\/\//.test(task.url)) return
     // Phone/desktop queue: fill in the background; surface the tab only at needs_input/ready.
     const applyUrl = preferEnglishApplyUrl(task.url)
@@ -1832,13 +1833,13 @@ chrome.tabs.onRemoved.addListener(tabId => {
   })
 })
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes.oddsPhoneControl?.newValue) pollApplications().catch(() => undefined)
-  if (area === "local" && (changes.oddsKey || changes.oddsPhoneControl?.newValue === false)) {
-    if (changes.oddsKey) chrome.storage.local.set({ oddsPhoneControl: false })
+  if (area === "local" && changes.oddsKey?.newValue) pollApplications().catch(() => undefined)
+  // Disconnected (the key removed): the queued applications this desktop held are given up; a new key alone keeps them.
+  if (area === "local" && changes.oddsKey && !changes.oddsKey.newValue) {
     updateApplicationRuns(() => {}).then(async runs => {
       await updateApplicationRuns(current => { for (const id of Object.keys(runs)) delete current[id] })
       for (const run of Object.values(runs)) {
-        await reportApplication(run, "failed", "Phone control was disconnected. Your open application remains on your desktop.").catch(() => undefined)
+        await reportApplication(run, "failed", "Odds was disconnected on this desktop. Your open application remains on your desktop.", changes.oddsKey.oldValue || null).catch(() => undefined)
         // Preserve filled forms and documents; disconnecting must not discard someone's work.
       }
     })

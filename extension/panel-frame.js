@@ -138,9 +138,6 @@ if (window.parent === window) {
   })
 }
 
-const phoneControl = document.getElementById("phone-control")
-chrome.storage.local.get("oddsPhoneControl").then(v => { phoneControl.checked = v.oddsPhoneControl === true })
-phoneControl.addEventListener("change", () => chrome.storage.local.set({ oddsPhoneControl: phoneControl.checked }))
 // Poll immediately on opening and every five seconds while the panel is visible.
 const pollPhone = () => chrome.runtime.sendMessage({ type: "application-poll" }, () => void chrome.runtime.lastError)
 const syncApplyChips = () => chrome.runtime.sendMessage({ type: "application-statuses" }, (answer) => {

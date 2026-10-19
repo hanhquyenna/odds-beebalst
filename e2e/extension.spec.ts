@@ -2761,7 +2761,7 @@ test("phone preparation is opt-in, opens one dedicated desktop tab, reports read
   await worker.evaluate("pollApplications()")
   expect(context.pages()).toHaveLength(before)
   const opened = context.waitForEvent("page")
-  await worker.evaluate(() => chrome.storage.local.set({ oddsPhoneControl: true }))
+  await worker.evaluate("pollApplications()")
   const application = await opened
   await application.waitForURL(fake.remoteTask.url)
   await expect(application.getByRole("textbox", { name: "Full name" })).toHaveValue("Test Person", { timeout: 15000 })
@@ -2798,7 +2798,7 @@ test("phone to desktop end-to-end: request, autofill, progress on phone, and dis
   await phone.goto(`${APP_ORIGIN}/job/${post.id}`)
   await phone.getByRole("button", { name: "Apply with Odds" }).click()
   const worker = context.serviceWorkers()[0]
-  await worker.evaluate(() => chrome.storage.local.set({ oddsPhoneControl: true }))
+  await worker.evaluate("pollApplications()")
   const desktop = await appTab(context, "https://careers.example.org/")
   await expect(desktop.getByRole("textbox", { name: "Full name" })).toHaveValue("Test Person", { timeout: 10000 })
   await expect(desktop.getByRole("textbox", { name: "Describe your most relevant project" })).toHaveValue("")
@@ -2806,7 +2806,7 @@ test("phone to desktop end-to-end: request, autofill, progress on phone, and dis
   // Apply with Odds jumps the app to the Tracker; the job's own page shows how its application is going.
   await phone.goto(`${APP_ORIGIN}/job/${post.id}`)
   await expect(phone.getByRole("status").filter({ hasText: /Needs your answer|Your turn/ }).filter({ hasText: /outlined question|your answer/i })).toBeVisible({ timeout: 10000 })
-  await worker.evaluate(() => chrome.storage.local.set({ oddsPhoneControl: false }))
+  await worker.evaluate('chrome.storage.local.remove("oddsKey")')
   expect(desktop.isClosed()).toBe(false)
   await expect.poll(() => fake.remoteTask?.status).toBe("failed")
 })
@@ -2818,7 +2818,7 @@ test("phone preparation pauses at a login form: the email from the profile is fi
   await context.route("https://careers.example.org/**", route => route.fulfill({ contentType: "text/html", body: '<title>Sign in</title><h1>Sign in</h1><form><label>Email<input name="email" type="email"></label><label>Password<input type="password"></label><button>Sign in</button></form>' }))
   const worker = context.serviceWorkers()[0]
   const opened = context.waitForEvent("page")
-  await worker.evaluate(() => chrome.storage.local.set({ oddsPhoneControl: true }))
+  await worker.evaluate("pollApplications()")
   const page = await opened
   await expect.poll(() => fake.reports.some(r => r.status === "needs_input")).toBe(true)
   // Sign-in pages get the email from the person's profile (one less thing to type); the password is always theirs.
@@ -3140,7 +3140,7 @@ test("two phone requests prepare independent tabs without finishing the first; c
   await context.route("https://careers.example.org/**", route => route.fulfill({ contentType: "text/html", body: '<h1>Application</h1><form><label>Full name<input name="full_name" required></label><label>Unknown question<input name="unknown" required></label><button type="submit">Submit</button></form>' }))
   const worker = context.serviceWorkers()[0]
   const firstOpened = context.waitForEvent("page")
-  await worker.evaluate(() => chrome.storage.local.set({ oddsPhoneControl: true }))
+  await worker.evaluate("pollApplications()")
   const first = await firstOpened
   await expect(first.getByRole("textbox", { name: "Full name" })).toHaveValue("Test Person")
   const secondOpened = context.waitForEvent("page")
@@ -3198,7 +3198,7 @@ test("a closed LinkedIn job reports the real blocker instead of leaving a phone 
   await context.route("https://www.linkedin.com/jobs/view/4470891508/**", route => route.fulfill({ contentType: "text/html", body: '<main class="jobs-details__main-content"><h1>Investment Banking Internship</h1><div class="artdeco-inline-feedback"><span>No longer accepting applications</span></div></main>' }))
   const worker = context.serviceWorkers()[0]
   const opened = context.waitForEvent("page")
-  await worker.evaluate(() => chrome.storage.local.set({ oddsPhoneControl: true }))
+  await worker.evaluate("pollApplications()")
   const page = await opened
   await expect(page.locator(".odds-apply-bar")).toContainText("no longer accepting applications")
   await expect.poll(() => fake.reports.some(r => r.status === "failed" && r.message?.includes("no longer accepting"))).toBe(true)
@@ -3485,7 +3485,7 @@ test("one-click learning loop: phone answers an employer question, desktop advan
   await phone.setViewportSize({ width: 390, height: 844 })
   await phone.goto(`${APP_ORIGIN}/job/${post.id}`)
   const worker = context.serviceWorkers()[0]
-  await worker.evaluate(() => chrome.storage.local.set({ oddsPhoneControl: true }))
+  await worker.evaluate("pollApplications()")
   await phone.getByRole("button", { name: "Apply with Odds" }).click()
   await worker.evaluate("pollApplications()")
   const desktop = await appTab(context, "https://careers.example.org/")
@@ -4669,7 +4669,7 @@ test("a job queued from the phone is driven by Broods in the Odds window, not st
   fake.remoteTask = { id: "c1111111-1111-4111-8111-111111111111", url: real || "https://boards.example-ats.com/acme/jobs/779", status: "filling" }
   const worker = context.serviceWorkers()[0]
   const opened = context.waitForEvent("page", { predicate: (p) => p.url() !== own.url() })
-  await worker.evaluate(() => chrome.storage.local.set({ oddsPhoneControl: true }))
+  await worker.evaluate("pollApplications()")
   await worker.evaluate("pollApplications()")
   const application = await opened
   await expect.poll(() => fake.drives.size, { timeout: 30_000 }).toBeGreaterThan(0)
