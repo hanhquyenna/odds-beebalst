@@ -153,7 +153,7 @@ FILL from person (Autofill + profile + cv_excerpt) and person_answers (same mean
 - An optional field that did not take once: leave it. After filling press Next/Continue/Review; fix errors (≤3 tries a field).
 
 RESUME AND SEARCH BOXES: always attach the CV when the page has a resume / CV box (required or not; a file box under a "Resume" heading is one, its own label is
-often only "10MB size limit": read_page gives each file box its `section`): upload_cv with its id. A search box (city, school, employer) with `needs_choice`
+often only "10MB size limit": read_page gives each file box its "section"): upload_cv with its id. A search box (city, school, employer) with "needs_choice"
 holds typed text only: open its suggestions and CHOOSE one (fill it with the option's exact text, or click the suggestion); a typed word is not an answer.
 read_page.cv_missing means a CV box is still empty: you cannot finish review until it is attached.
 
