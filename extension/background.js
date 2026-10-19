@@ -952,6 +952,8 @@ chrome.runtime.onInstalled.addListener(() => { void chrome.storage.local.remove(
 // the run, so it never works on a page they opened. Odds' own clicks and the site's redirects keep the application.
 chrome.webNavigation?.onCommitted.addListener((d) => {
   if (d.frameId !== 0) return
+  // Chrome's own hidden loads (the address bar warming up a search, a prerendered page) are not the person opening anything.
+  if (d.documentLifecycle === "prerender" || /^https:\/\/www\.google\.[a-z.]+\/search\/warmup\.html/.test(d.url || "")) return
   const q = d.transitionQualifiers || []
   // Back/Forward is handled by the pause (the person went back a step), not here.
   if (q.includes("forward_back")) return

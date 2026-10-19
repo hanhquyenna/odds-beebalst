@@ -4,6 +4,8 @@
 // form. odds never sends the form: the person checks it and submits it. On a job board's page that is not the form yet, odds presses its Apply.
 ;(() => {
   const A = globalThis.oddsApply
+  // Chrome loads a hidden page behind the address bar (google.com/search/warmup.html) and prerenders pages: nothing is ever driven there.
+  if (document.prerendering || /^\/search\/warmup\.html/.test(location.pathname)) return
   const APPLY_BUILD = "2026-10-16-drive-speed-v1"
   const portalHost = host => /(^|\.)(greenhouse\.io|lever\.co|ashbyhq\.com|myworkdayjobs\.com|smartrecruiters\.com|successfactors\.eu|successfactors\.com|icims\.com)$/.test(host)
   // A form drawn in a blank frame of the page (HubSpot, Framer, Webflow embeds): Odds is put there on purpose (see blankFrameForm) and drives it.
