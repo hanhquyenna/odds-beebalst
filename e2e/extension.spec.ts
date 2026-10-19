@@ -1147,7 +1147,7 @@ test("job-list percentages open the selected unsaved job in the real Odds app, w
   await page.goto("https://www.linkedin.com/jobs/search/?keywords=intern")
   const badges = page.locator(".odds-job-chance")
   await expect(badges).toHaveCount(2)
-  await expect(badges.nth(0)).toContainText("12.3%")
+  await expect(badges.nth(0)).toContainText("12%")
   await expect(badges.nth(1)).toContainText("7.8%")
   await badges.nth(0).click()
   const panel = page.frameLocator("#odds-panel-frame")
@@ -1175,11 +1175,11 @@ test("a recycled job card receives the new job's percentage and never opens the 
   const page = await context.newPage()
   await page.goto("https://www.linkedin.com/jobs/search/")
   const card = page.locator('[data-job-id="4470000101"]')
-  await expect(card.locator(".odds-job-chance")).toContainText("12.3%")
+  await expect(card.locator(".odds-job-chance")).toContainText("12%")
   await card.locator("a").evaluate((link) => link.setAttribute("href", "/jobs/view/4470000103/"))
   fake.answersByUrl["https://www.linkedin.com/jobs/view/4470000103/"] = { known: true, saved: true, chance_pct: 23.4, job: { id: "third", title: "Third job" } }
   await expect(card.locator(".odds-job-chance")).toHaveAttribute("data-job-id", "4470000103")
-  await expect(card.locator(".odds-job-chance")).toContainText("23.4%")
+  await expect(card.locator(".odds-job-chance")).toContainText("23%")
   await card.locator(".odds-job-chance").click()
   await expect(page.locator("#odds-panel-frame")).toHaveAttribute("data-open", "true")
   await expect(page.frameLocator("#odds-panel-frame").locator("#note")).toContainText("Third job")
@@ -1248,13 +1248,13 @@ test("general search displays chances on whole-card links immediately, including
   await page.goto("https://www.linkedin.com/search/results/all/?keywords=jobs")
   const badges = page.locator(".odds-job-chance")
   await expect(badges).toHaveCount(1)
-  await expect(badges).toContainText("12.3%")
+  await expect(badges).toContainText("12%")
   await page.evaluate(() => {
     history.pushState({}, "", "/search/results/all/?keywords=intern")
     document.querySelector("main")!.insertAdjacentHTML("beforeend", '<a href="/jobs/search/?currentJobId=4470000102"><p>Marketing Intern</p><button>Save</button></a>')
   })
   await expect(badges).toHaveCount(2)
-  await expect(badges.nth(1)).toContainText("12.3%")
+  await expect(badges.nth(1)).toContainText("12%")
   expect(fake.calls).toHaveLength(0)
 })
 
@@ -1265,7 +1265,7 @@ test("job badges show only the percentage and fit beside Save without overflowin
   const page = await context.newPage()
   await page.goto("https://www.linkedin.com/search/results/all/?keywords=jobs")
   const badge = page.locator(".odds-job-chance")
-  await expect(badge).toHaveText("12.3%")
+  await expect(badge).toHaveText("12%")
   expect(await badge.evaluate(el => el.nextElementSibling?.textContent)).toBe("Save")
   const bounds = await badge.evaluate(el => ({pill:el.getBoundingClientRect().width,card:el.closest("a")!.getBoundingClientRect().width,height:el.getBoundingClientRect().height,save:el.nextElementSibling!.getBoundingClientRect().height}))
   expect(bounds.pill).toBeLessThan(bounds.card)
@@ -1552,7 +1552,7 @@ test("Magnet.me and any job page that says what it is: the button beside its Sav
   const page = await context.newPage()
   await page.goto(`${MAGNET_JOB}?utm_source=newsletter`)
   const pill = page.locator("#odds-add")
-  await expect(pill).toContainText("11.5%")
+  await expect(pill).toContainText("12%")
   // One more row under Like, as tall, as round and as far below it as Like is below Apply, but compact: never stretched to the site's button.
   await expect(pill).toHaveAttribute("data-where", "stack")
   await page.screenshot({ path: "test-results/ext-stack-badge.png", clip: { x: 0, y: 0, width: 900, height: 520 } })
@@ -2125,7 +2125,7 @@ test("LinkedIn's newer job page: no badge on the job's own chips, and odds apply
   const page = await context.newPage()
   await page.goto("https://www.linkedin.com/jobs/view/4470000302/")
   // One button, beside Save; none on "On-site" or "Full-time".
-  await expect(page.locator("#odds-add")).toContainText("14.1%")
+  await expect(page.locator("#odds-add")).toContainText("14%")
   await page.waitForTimeout(800)
   await expect(page.locator(".odds-job-chance")).toHaveCount(0)
   await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4470000302")
@@ -4799,6 +4799,73 @@ test("a required pronoun group is answered by Odds itself with Prefer not to say
   await page.locator("body").click({ position: { x: 3, y: 3 } })
   await page.waitForTimeout(500)
   await expect(page.locator("#school")).toHaveValue("Vrije Universiteit Amsterdam")
+})
+
+test("a country list that draws only the rows in view (dsm-firmenich) is scrolled until the country is drawn, then picked", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const html = `<!doctype html><main><h1>Application</h1><form onsubmit="return false">
+    <label for="cr">Country of Residence *</label><div style="position:relative"><input id="cr" role="combobox" aria-expanded="false" aria-controls="cr-list" readonly placeholder="Select" required>
+    <div id="cr-list" role="listbox" style="display:none;position:absolute;top:40px;left:0;width:300px;height:240px;overflow-y:auto;background:#fff;border:1px solid #888"></div></div>
+    <button type="submit">Submit</button></form></main>
+    <script>
+      const all = ["Afghanistan","Albania","Algeria","Argentina","Australia","Austria","Belgium","Brazil","Canada","Chile","China","Denmark","Egypt","Finland","France","Germany","Greece","India","Ireland","Italy","Japan","Kenya","Mexico","Netherlands","Norway","Poland","Portugal","Spain","Sweden","Switzerland","Vietnam"]
+      const list = document.getElementById("cr-list"), input = document.getElementById("cr")
+      const ROW = 40
+      // Draws only the rows in view: scrolling redraws them (a virtualized list).
+      function draw() {
+        const top = Math.floor(list.scrollTop / ROW)
+        list.innerHTML = '<div style="height:' + (all.length * ROW) + 'px;position:relative"></div>'
+        const box = list.firstChild
+        for (let i = top; i < Math.min(all.length, top + 8); i++) { const o = document.createElement("div"); o.setAttribute("role", "option"); o.textContent = all[i]; o.style.cssText = "position:absolute;left:0;right:0;height:40px;top:" + (i * ROW) + "px"; o.onmousedown = () => { input.value = all[i]; list.style.display = "none"; input.setAttribute("aria-expanded", "false") }; box.appendChild(o) }
+      }
+      list.addEventListener("scroll", draw)
+      input.addEventListener("click", () => { list.style.display = "block"; input.setAttribute("aria-expanded", "true"); draw() })
+    </script>`
+  await context.route("https://jobs.example-country.com/apply**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pcountry", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  let sent: unknown = null
+  fake.driveScript = async (cmd) => {
+    const page = await cmd("read_page") as { fields?: Array<{ id: string; label: string; kind: string }> }
+    const country = page.fields!.find((f) => /^Country/.test(f.label))!
+    sent = await cmd("fill", { fields: [{ id: country.id, value: "Netherlands" }] })
+    return { status: "stuck", message: "probe done" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://jobs.example-country.com/apply")
+  await applyFrom(context, page, "https://jobs.example-country.com/apply")
+  await expect.poll(() => sent, { timeout: 45_000 }).not.toBeNull()
+  await expect(page.locator("#cr")).toHaveValue("Netherlands")
+})
+
+test("a box that shows the text but whose site still says 'cannot be left blank' is typed again with real input", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  // The site only learns a value from a real keystroke: a programmatic value shows but leaves its own state (and its error) empty.
+  const html = `<!doctype html><main><h1>Application</h1><form onsubmit="return false">
+    <div class="f"><label for="ad">Address *</label><input id="ad" required><span id="ad-e" style="color:#a33">Error: Address cannot be left blank.</span></div>
+    <div class="f"><label for="pc">Postal Code *</label><input id="pc" required></div>
+    <div class="f"><label for="fn">First name *</label><input id="fn" required></div>
+    <button type="submit">Submit</button></form></main>
+    <script>
+      document.getElementById("ad").addEventListener("keydown", (e) => { if (e.isTrusted) document.getElementById("ad-e").style.display = "none" })
+    </script>`
+  await context.route("https://jobs.example-blank.com/apply**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pblank", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  let sent: { results?: Array<{ ok: boolean; via?: string }> } | null = null
+  fake.driveScript = async (cmd) => {
+    const page = await cmd("read_page") as { fields?: Array<{ id: string; label: string }> }
+    const ad = page.fields!.find((f) => /^Address/.test(f.label))!
+    sent = await cmd("fill", { fields: [{ id: ad.id, value: "Amsterdam, Netherlands" }] }) as typeof sent
+    return { status: "stuck", message: "probe done" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://jobs.example-blank.com/apply")
+  await applyFrom(context, page, "https://jobs.example-blank.com/apply")
+  await expect.poll(() => sent, { timeout: 45_000 }).not.toBeNull()
+  await expect(page.locator("#ad")).toHaveValue("Amsterdam, Netherlands")
+  expect(sent!.results![0].via).toBe("real_input")
+  await expect(page.locator("#ad-e")).toBeHidden()
 })
 
 test("while the browser's side panel is open the page draws no second panel, and it may again once that panel is closed", async ({ context }) => {

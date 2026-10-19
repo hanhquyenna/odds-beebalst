@@ -451,6 +451,23 @@
       return i
     }
     let i = choose(texts)
+    // A long list that draws only the part in view (a country list that shows Afghanistan to Cayman Islands first): scrolled a page at a time
+    // until the wanted choice is drawn, then picked. Typing in such a box often does nothing, so this comes before typing.
+    if (i < 0 && answer !== null && options.length >= 6) {
+      let box = options[0].parentElement
+      while (box && box !== document.body && !(box.scrollHeight > box.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement
+      if (box && box !== document.body) {
+        box.scrollTop = 0
+        for (let step = 0; step < 80 && i < 0; step++) {
+          const before = box.scrollTop
+          box.scrollTop = before + Math.max(80, box.clientHeight * 0.8)
+          await sleep(120)
+          ;({ options, texts } = listed(input))
+          i = choose(texts)
+          if (box.scrollTop === before) break
+        }
+      }
+    }
     // Some lists open only for typing, or draw their choices from a search: the answer is typed and the match picked.
     // Typing searches the list; only for questions whose answer is a name to look up (a place, a school, a field, a language). A yes/no or legal
     // question is only ever answered with one of its own options — never with a city typed into it ("Amsterdam" in a non-compete question).
@@ -792,6 +809,25 @@
     await sleep(200)
     const got = String(el.value || "")
     return got.includes(String(year)) && (got.includes(String(month + 1).padStart(2, "0")) || MONTHS[month].test(got.replace(/^[^a-z]*/i, "")))
+  }
+  /** Leaves the box and waits a moment: true when the site then still says it holds nothing. */
+  async function siteSaysBlank(el) {
+    if (!el?.isConnected) return false
+    el.dispatchEvent(new Event("blur", { bubbles: false }))
+    el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }))
+    await sleep(300)
+    return blankErrorNear(el)
+  }
+  /** A visible "cannot be left blank / is required" message in the field's own block (the site's own verdict that it holds nothing). */
+  function blankErrorNear(el) {
+    const BLANK = /(cannot|can.?t|must not|should not) be (left )?(blank|empty)|darf nicht leer|ne peut pas être vide|mag niet leeg zijn/i
+    let box = el
+    for (let n = 0; n < 4 && box?.parentElement && box.parentElement !== document.body; n++) {
+      box = box.parentElement
+      if ([...box.querySelectorAll("input:not([type=hidden]), textarea, select")].length > 1) break
+    }
+    if (!box) return false
+    return [...box.querySelectorAll("*")].some((n) => n.children.length === 0 && shown(n) && n.textContent.length < 120 && BLANK.test(n.textContent) && !n.contains(el))
   }
   /** Until when the events on the page are Odds' own real input (watchPerson ignores them). */
   let realInputUntil = 0
@@ -2136,6 +2172,11 @@
         let via = ""
         const fieldStarted = Date.now()
         const fallbackTime = () => Date.now() - fillStarted < 15000 && Date.now() - fieldStarted < 5000
+        // The box shows the text but the site still says it is blank (a form whose state was not told: "Address cannot be left blank" under
+        // "Amsterdam, Netherlands"): that fill did not count, so it goes through real typing like any refused one.
+        if (okDom && ["text", "textarea", "tel", "number"].includes(f.kind) && value.trim() && !secretField(f)) {
+          if (await siteSaysBlank(elOf(f))) okDom = false
+        }
         // Learned for this platform: this kind of field only takes real input. Go there first (no rounds of Odds' own events).
         if (!okDom && driveTactics[f.kind] === "real_input" && value.trim() && !secretField(f)) {
           if (await realRetry(f, value).catch(() => false)) { okDom = true; via = "real_input"; stuck = fieldValue(f) }
@@ -2146,7 +2187,7 @@
             await typeLikePerson(elOf(f), alt)
             await sleep(120)
             stuck = fieldValue(f)
-            if (stuck && answered(f) && stuck.replace(/\D/g, "").length >= Math.min(2, alt.replace(/\D/g, "").length)) { okDom = true; via = "own_format"; break }
+            if (stuck && answered(f) && stuck.replace(/\D/g, "").length >= Math.min(2, alt.replace(/\D/g, "").length) && !(await siteSaysBlank(elOf(f)))) { okDom = true; via = "own_format"; break }
           }
         }
         // Still refused: the same answer once more through real mouse and keyboard (Chrome's debugger), as a person would give it.
