@@ -66,10 +66,3 @@ export function useApplyQueue(signedIn: boolean): QueueView {
 
   return current
 }
-
-/** Test hook: forget what was read. */
-export function resetQueueForTests(): void {
-  items = []
-  loaded = false
-  emit()
-}

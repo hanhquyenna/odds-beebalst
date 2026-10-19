@@ -1,0 +1,313 @@
+{
+  "version": 1,
+  "note": "Real public job pages checked by bun run apply:live. Submit is never pressed.",
+  "jobs": [
+    {
+      "id": "greenhouse-1",
+      "ats": "greenhouse",
+      "title": "Account Executive - France",
+      "url": "https://job-boards.greenhouse.io/gitlab/jobs/8860302002",
+      "expect": "open"
+    },
+    {
+      "id": "greenhouse-2",
+      "ats": "greenhouse",
+      "title": "AI Transformation Owner, CRO",
+      "url": "https://job-boards.greenhouse.io/gitlab/jobs/8638232002",
+      "expect": "open"
+    },
+    {
+      "id": "greenhouse-3",
+      "ats": "greenhouse",
+      "title": "AI Transformation Owner, Product & Design",
+      "url": "https://job-boards.greenhouse.io/gitlab/jobs/8716179002",
+      "expect": "open"
+    },
+    {
+      "id": "greenhouse-4",
+      "ats": "greenhouse",
+      "title": "Associate Renewals Manager",
+      "url": "https://job-boards.greenhouse.io/gitlab/jobs/8785825002",
+      "expect": "open"
+    },
+    {
+      "id": "greenhouse-5",
+      "ats": "greenhouse",
+      "title": "Associate Renewals Manager   ",
+      "url": "https://job-boards.greenhouse.io/gitlab/jobs/8857185002",
+      "expect": "open"
+    },
+    {
+      "id": "greenhouse-6",
+      "ats": "greenhouse",
+      "title": "Associate Renewals Manager, India",
+      "url": "https://job-boards.greenhouse.io/gitlab/jobs/8857611002",
+      "expect": "open"
+    },
+    {
+      "id": "greenhouse-7",
+      "ats": "greenhouse",
+      "title": "Associate Legal Counsel, Japan",
+      "url": "https://careers.airbnb.com/positions/7789554?gh_jid=7789554",
+      "expect": "open"
+    },
+    {
+      "id": "greenhouse-8",
+      "ats": "greenhouse",
+      "title": "Associate Principal, Procurement Innovation Supplier Programs",
+      "url": "https://careers.airbnb.com/positions/8231416?gh_jid=8231416",
+      "expect": "open"
+    },
+    {
+      "id": "greenhouse-9",
+      "ats": "greenhouse",
+      "title": "Business Development Manager",
+      "url": "https://careers.airbnb.com/positions/7995153?gh_jid=7995153",
+      "expect": "open"
+    },
+    {
+      "id": "greenhouse-10",
+      "ats": "greenhouse",
+      "title": "Business Operations and Growth Lead, Asia",
+      "url": "https://careers.airbnb.com/positions/8242459?gh_jid=8242459",
+      "expect": "open"
+    },
+    {
+      "id": "greenhouse-11",
+      "ats": "greenhouse",
+      "title": "Abuse Investigator",
+      "url": "https://stripe.com/jobs/search?gh_jid=8172508",
+      "expect": "open"
+    },
+    {
+      "id": "greenhouse-12",
+      "ats": "greenhouse",
+      "title": "Abuse Investigator",
+      "url": "https://stripe.com/jobs/search?gh_jid=8172510",
+      "expect": "open"
+    },
+    {
+      "id": "greenhouse-13",
+      "ats": "greenhouse",
+      "title": "Abuse Investigator",
+      "url": "https://stripe.com/jobs/search?gh_jid=8172487",
+      "expect": "open"
+    },
+    {
+      "id": "greenhouse-14",
+      "ats": "greenhouse",
+      "title": "Abuse Research Engineer",
+      "url": "https://stripe.com/jobs/search?gh_jid=8172503",
+      "expect": "open"
+    },
+    {
+      "id": "lever-15",
+      "ats": "lever",
+      "title": "Art Director - Mexico",
+      "url": "https://jobs.lever.co/spotify/223f9722-3579-4ff2-b123-e4cc7b0c1a64",
+      "expect": "open"
+    },
+    {
+      "id": "lever-16",
+      "ats": "lever",
+      "title": "Artist & Label Partnerships Contractor, Vietnam",
+      "url": "https://jobs.lever.co/spotify/d87833d0-fb78-4794-b45d-3fe5c8274bc8",
+      "expect": "open"
+    },
+    {
+      "id": "lever-17",
+      "ats": "lever",
+      "title": "Artist Label Partnerships Manager, Taiwan",
+      "url": "https://jobs.lever.co/spotify/77526d53-3811-4336-9c0d-72f6ac0242c7",
+      "expect": "open"
+    },
+    {
+      "id": "lever-18",
+      "ats": "lever",
+      "title": "Associate \u2013 Audiobook Licensing & Author Partnerships",
+      "url": "https://jobs.lever.co/spotify/4310f31c-90e1-4e8d-bdcf-dce39c145b8c",
+      "expect": "open"
+    },
+    {
+      "id": "lever-19",
+      "ats": "lever",
+      "title": "Audiobook Licensing & Partnerships Manager - Japan",
+      "url": "https://jobs.lever.co/spotify/9838a290-bd6a-4233-acc3-bc5e4e6fa9c4",
+      "expect": "open"
+    },
+    {
+      "id": "lever-20",
+      "ats": "lever",
+      "title": "Administrative Business Partner",
+      "url": "https://jobs.lever.co/palantir/6ed76ce8-4156-4b60-b120-403538bd66cd",
+      "expect": "open"
+    },
+    {
+      "id": "lever-21",
+      "ats": "lever",
+      "title": "Administrative Business Partner",
+      "url": "https://jobs.lever.co/palantir/ac978161-6f46-4f6b-ad9e-a258e642751c",
+      "expect": "open"
+    },
+    {
+      "id": "lever-22",
+      "ats": "lever",
+      "title": "Administrative Business Partner - ShipOS",
+      "url": "https://jobs.lever.co/palantir/a237973c-cb29-41fe-9c80-416e6f42e087",
+      "expect": "open"
+    },
+    {
+      "id": "lever-23",
+      "ats": "lever",
+      "title": "Administrative Business Partner - ShipOS",
+      "url": "https://jobs.lever.co/palantir/a5f93bb6-4f13-4451-80a4-f63090830269",
+      "expect": "open"
+    },
+    {
+      "id": "ashby-24",
+      "ats": "ashby",
+      "title": "Engineering Manager - EU",
+      "url": "https://jobs.ashbyhq.com/ashby/7458d4e9-da2e-47bd-98cb-adfda43d42b2",
+      "expect": "open"
+    },
+    {
+      "id": "ashby-25",
+      "ats": "ashby",
+      "title": "Product Manager, Onboarding and Growth",
+      "url": "https://jobs.ashbyhq.com/ashby/390e266b-4b6c-4490-ad74-05ff5e0bb36a",
+      "expect": "open"
+    },
+    {
+      "id": "ashby-26",
+      "ats": "ashby",
+      "title": "Mid Market Account Executive - EMEA (French Speaking)",
+      "url": "https://jobs.ashbyhq.com/ashby/86a60834-ba64-484d-9658-afa1bc97a957",
+      "expect": "open"
+    },
+    {
+      "id": "ashby-27",
+      "ats": "ashby",
+      "title": "Senior Product Designer",
+      "url": "https://jobs.ashbyhq.com/ashby/f40ef345-82a8-4956-9150-193b4fdf8183",
+      "expect": "open"
+    },
+    {
+      "id": "ashby-28",
+      "ats": "ashby",
+      "title": "Engineering Manager - UK",
+      "url": "https://jobs.ashbyhq.com/ashby/d573471b-2005-482c-9fbf-d1df9550cb57",
+      "expect": "open"
+    },
+    {
+      "id": "ashby-29",
+      "ats": "ashby",
+      "title": " Security Engineer, Cloud",
+      "url": "https://jobs.ashbyhq.com/ramp/34413f8d-26bf-4bbc-8ade-eb309a0e2245",
+      "expect": "open"
+    },
+    {
+      "id": "ashby-30",
+      "ats": "ashby",
+      "title": "Mobile Engineer, Android",
+      "url": "https://jobs.ashbyhq.com/ramp/f564dcf9-9390-4a3f-896f-8047a5086040",
+      "expect": "open"
+    },
+    {
+      "id": "ashby-31",
+      "ats": "ashby",
+      "title": "Software Engineer, Frontend",
+      "url": "https://jobs.ashbyhq.com/ramp/4e64ab86-4e30-403b-b1b9-41dc052570ce",
+      "expect": "open"
+    },
+    {
+      "id": "ashby-32",
+      "ats": "ashby",
+      "title": "Credit Risk Associate",
+      "url": "https://jobs.ashbyhq.com/ramp/4745807e-82f4-4b1a-857c-dc8dadc73076",
+      "expect": "open"
+    },
+    {
+      "id": "linkedin-33",
+      "ats": "linkedin",
+      "title": "Traineeship Change & AI Adoption @ ASML",
+      "url": "https://www.linkedin.com/jobs/view/4477162060",
+      "expect": "open",
+      "notes": "The stored LinkedIn posting for the Ormit case. Guest HTML does not expose Easy Apply; a fetch must not treat it as closed."
+    },
+    {
+      "id": "company-34",
+      "ats": "company",
+      "title": "Traineeship Change & AI Adoption @ ASML",
+      "url": "https://ormittalent.nl/nl/traineeships/traineeship-change-ai-adoption-asml/",
+      "expect": "open",
+      "notes": "Live posting. The /en-US/ path is not a real link."
+    },
+    {
+      "id": "company-35",
+      "ats": "company",
+      "title": "Ormit derived English path",
+      "url": "https://ormittalent.nl/en-US/traineeships/traineeship-change-ai-adoption-asml/",
+      "expect": "unknown",
+      "posting_url": "https://ormittalent.nl/nl/traineeships/traineeship-change-ai-adoption-asml/",
+      "notes": "404 created by the old locale rewrite. Must not close the posting."
+    },
+    {
+      "id": "lever-36",
+      "ats": "lever",
+      "title": "Missing Lever job",
+      "url": "https://jobs.lever.co/spotify/00000000-0000-0000-0000-000000000000",
+      "expect": "closed",
+      "notes": "The posting URL itself returns 404. A missing Greenhouse job redirects to the board with HTTP 200, so that page is not closed evidence."
+    },
+    {
+      "id": "workday-40",
+      "ats": "workday",
+      "title": "Workday locale query stays on the same path",
+      "url": "https://acme.wd3.myworkdayjobs.com/en-US/careers/job/Amsterdam/Example_R1?locale=nl_NL",
+      "expect": "rewrite_only",
+      "notes": "No live fetch required; the harness checks the locale query rewrite."
+    },
+    {
+      "id": "smartrecruiters-37",
+      "ats": "smartrecruiters",
+      "title": "Supervisor de producci\u00f3n",
+      "url": "https://jobs.smartrecruiters.com/BoschGroup/744000156385859",
+      "expect": "open"
+    },
+    {
+      "id": "smartrecruiters-38",
+      "ats": "smartrecruiters",
+      "title": "Duaal- of deeltijdstudent \u2013 Aftersales ",
+      "url": "https://jobs.smartrecruiters.com/BoschGroup/744000156355492",
+      "expect": "open"
+    },
+    {
+      "id": "smartrecruiters-39",
+      "ats": "smartrecruiters",
+      "title": "Electronic Supplier Quality Engineer",
+      "url": "https://jobs.smartrecruiters.com/BoschGroup/744000156356979",
+      "expect": "open"
+    },
+    {
+      "id": "smartrecruiters-40",
+      "ats": "smartrecruiters",
+      "title": "Duaal- of deeltijdstudent \u2013 Productmanagement  ",
+      "url": "https://jobs.smartrecruiters.com/BoschGroup/744000156348596",
+      "expect": "open"
+    },
+    {
+      "id": "greenhouse-41",
+      "ats": "greenhouse",
+      "title": "\u30c7\u30ea\u30d0\u30ea\u30fc\u30bd\u30ea\u30e5\u30fc\u30b7\u30e7\u30f3\u30a2\u30fc\u30ad\u30c6\u30af\u30c8",
+      "url": "https://databricks.com/company/careers/open-positions/job?gh_jid=8805655002",
+      "expect": "open"
+    },
+    {
+      "id": "greenhouse-42",
+      "ats": "greenhouse",
+      "title": "Account Executive ",
+      "url": "https://databricks.com/company/careers/open-positions/job?gh_jid=6918763002",
+      "expect": "open"
+    }
+  ]
+}

@@ -19,6 +19,7 @@
     "perf": "bun scripts/check-bundles.mjs",
     "preview": "vite preview",
     "test": "bun test src",
+    "apply:live": "bun scripts/apply-live.ts",
     "broods:dev": "broods dev",
     "broods:deploy": "broods deploy",
     "broods:whoami": "broods whoami"
@@ -52,6 +53,7 @@
     "broods": "^0.50.0",
     "knip": "^6.39.0",
     "oxlint": "^1.81.0",
+    "playwright": "^1.63.0",
     "oxlint-tsgolint": "^7.0.2003",
     "pdf-lib": "^1.17.1",
     "typescript": "~6.0.2",

@@ -837,8 +837,10 @@
     const BLANK = /(cannot|can.?t|must not|should not) be (left )?(blank|empty)|darf nicht leer|ne peut pas être vide|mag niet leeg zijn/i
     let box = el
     for (let n = 0; n < 4 && box?.parentElement && box.parentElement !== document.body; n++) {
-      box = box.parentElement
-      if ([...box.querySelectorAll("input:not([type=hidden]), textarea, select")].length > 1) break
+      const parent = box.parentElement
+      // Stay in this field's own block. A parent that holds another box would make one field's error fail the rest of the form.
+      if ([...parent.querySelectorAll("input:not([type=hidden]), textarea, select")].some((node) => node !== el)) break
+      box = parent
     }
     if (!box) return false
     return [...box.querySelectorAll("*")].some((n) => n.children.length === 0 && shown(n) && n.textContent.length < 120 && BLANK.test(n.textContent) && !n.contains(el))
@@ -1399,8 +1401,8 @@
         if (a.origin === b.origin && a.pathname.replace(/\/$/, "") === b.pathname.replace(/\/$/, "")) {
           await ask({ type: "apply-follow" })
           el.click()
-        } else await ask({ type: "apply-go", url: h })
-      } catch { await ask({ type: "apply-go", url: h }) }
+        } else await goToPage(h)
+      } catch { await goToPage(h) }
     } else {
       await ask({ type: "apply-follow" })
       el.click()
@@ -1468,7 +1470,7 @@
     if (link) {
       await note({ label: textOf(link).slice(0, 120) })
       say(`Found “${jobTitle}” — opening it…`, "filling")
-      await ask({ type: "apply-go", url: link.href })
+      await goToPage(link.href)
       return "moved"
     }
     say(`This page lists other jobs, not “${jobTitle}” — looking for it (try ${hunt.tries + 1} of 3)…`, "filling")
@@ -1486,7 +1488,7 @@
     if (el) {
       await note({ label: want })
       const a = el.closest("a")
-      if (a && /^https:/.test(a.href) && a.href.split("#")[0] !== here) await ask({ type: "apply-go", url: a.href })
+      if (a && /^https:/.test(a.href) && a.href.split("#")[0] !== here) await goToPage(a.href)
       else { await ask({ type: "apply-follow" }); el.click() }
       return "moved"
     }
@@ -1869,13 +1871,38 @@
    * The value is really kept: the visible choice (text, selected option, pressed button, chip, single-value),
    * and the site has not marked it invalid. A search box that only holds the typed query does not count.
    */
+  /** An ISO date the box kept in its own shape (01/2022 or Jan 2022 for 2022-01-31). A year alone does not count. */
+  function dateKept(shown, want) {
+    const iso = String(want).trim().match(/^(\d{4})-(\d{2})(?:-(\d{2}))?$/)
+    if (!iso) return false
+    const y = iso[1]
+    const m = iso[2]
+    const d = iso[3]
+    const text = String(shown).trim()
+    if (!text.includes(y)) return false
+    const nums = text.match(/\d+/g) || []
+    const monthNum = String(Number(m))
+    const hasMonth = nums.includes(m) || (monthNum !== m && nums.includes(monthNum))
+    const name = MONTHS[Number(m) - 1]
+    const hasName = Boolean(name && name.test(text))
+    if (!hasMonth && !hasName) return false
+    if (!d) return true
+    // A month/year picker shows exactly the month and the year, never the day.
+    if (nums.length === 2 && nums.includes(y) && (nums.includes(m) || nums.includes(monthNum))) return true
+    if (hasName && nums.every((n) => n === y)) return true
+    const day = String(Number(d))
+    return nums.includes(d) || (day !== d && nums.includes(day))
+  }
   function valueKept(f, value) {
     if (fieldInvalid(f) || !answered(f)) return false
     const shown = fieldValue(f)
     if (!shown) return false
+    // The site still says the box is empty (its own "cannot be left blank"), so a value Odds wrote does not count.
+    if (blankErrorNear(elOf(f))) return false
     const want = String(value ?? "").replace(/\s+/g, " ").trim()
     if (!want) return true
     if (sameText(shown, want)) return true
+    if (dateKept(shown, want)) return true
     if (["choice", "radio", "select", "listbox", "combobox"].includes(f.kind)) {
       const opts = (f.options || []).map(String)
       const i = typeof A.chooseOption === "function" && opts.length ? A.chooseOption(opts, want, f.label) : -1
@@ -1946,6 +1973,36 @@
       && !document.querySelector("[data-automation-id='jobPostingHeader'], [data-automation-id='jobPostingDescription'], [data-automation-id='adventureButton'], input:not([type=hidden])")
       && ![...document.querySelectorAll("a, button")].some((b) => shown(b) && /\b(apply|solliciteer)/i.test(controlLabel(b)))) return true
     return false
+  }
+  function languageAlternates() {
+    return [...document.querySelectorAll('link[rel="alternate"][hreflang], a[hreflang]')].map((el) => el.href).filter((href) => /^https:\/\//.test(href)).slice(0, 20)
+  }
+  function goToPage(url) {
+    const links = [...document.querySelectorAll("a[href], link[rel='alternate'][hreflang]")].map((el) => el.href).filter((href) => /^https:\/\//.test(href))
+    const target = String(url).split("#")[0]
+    const seen = [...new Set([location.href, ...links.filter((href) => href.split("#")[0] === target), ...links])].slice(0, 40)
+    return ask({ type: "apply-go", url, seen, alternates: languageAlternates() })
+  }
+  /** A 404 on the stored job page can close it. A 404 on a page Odds derived returns to the original URL once. */
+  async function settleMissingPage(intent) {
+    if (!missingJobPage()) return false
+    const posting = typeof intent?.job === "string" ? intent.job : ""
+    const page = pageHref()
+    const action = globalThis.oddsNav?.page404Action(page, posting, sessionStorage.getItem("odds404Return") === "1") || "unknown"
+    if (action === "return") {
+      sessionStorage.setItem("odds404Return", "1")
+      say("This page was not found. Odds is returning to the original job page to try again.", "filling")
+      if (/^https:\/\//.test(posting)) location.assign(posting)
+      else history.back()
+      return true
+    }
+    if (action !== "close" || !globalThis.oddsNav?.jobClosedAllowed(page, posting)) {
+      say("Odds could not confirm that this job is closed, so it was not marked closed.", "ask")
+      return true
+    }
+    say("This job page is no longer available. No application was submitted.", "problem")
+    await ask({ type: "job-closed", url: posting, page_url: page })
+    return true
   }
   /** The question a checkbox answers when it is one choice of a group ("Work permit": "I am an EU citizen" / "I need sponsorship"...). */
   const groupOf = (el) => {
@@ -2493,8 +2550,11 @@
     if (cmd.tool === "open_link") {
       const url = String(args.url || "")
       if (!/^https:\/\//.test(url) || url.length > 2000) return { ok: false, error: "an https link is needed" }
+      const seen = [...document.querySelectorAll("a[href]")].map((el) => el.href).filter((href) => /^https:\/\//.test(href))
+      const next = globalThis.oddsNav?.destinationForApply(url, { seen, jobUrls: [driveJobUrl].filter(Boolean), alternates: languageAlternates() })
+      if (!next) return { ok: false, error: "Odds will not open a link that is not on this page or in the job record." }
       await sendResult({ ok: true, note: "opening the link; read_page next" })
-      location.href = url
+      location.href = next
       return null
     }
     if (cmd.tool === "open_job") {
@@ -2703,7 +2763,7 @@
           endedReason = next.reason || ""
           // One tab's word closes a job for everyone, so a board's own search page (Glassdoor sends a listing there for many reasons) is
           // never enough: the person is told, the posting is left as it is.
-          if (next.reason === "closed" && !landedOnBoardSearch()) await ask({ type: "job-closed", url: driveJobUrl || pageHref() })
+          if (next.reason === "closed" && !landedOnBoardSearch() && globalThis.oddsNav?.jobClosedAllowed(pageHref(), driveJobUrl || "")) await ask({ type: "job-closed", url: driveJobUrl, page_url: pageHref() })
           const [text, state] = driveEndText(next)
           say(text, state)
         }
@@ -3036,11 +3096,7 @@
     // A page brought back from the browser's memory (Back) runs no new script: pause the same way.
     window.addEventListener("pageshow", (event) => { if (event.persisted && applicationJob) pauseForPerson() })
     }
-    if (missingJobPage()) {
-      say("This job page is no longer available. No application was submitted.", "problem")
-      await ask({type:"job-closed",url:intent.job || pageHref()})
-      return
-    }
+    if (await settleMissingPage(intent)) return
     // Indeed / Glassdoor guest: tell the person to sign in — do not hang on Filling / Looking for Apply.
     if (!(await ensureBoardSignedIn())) return
     // Broods drives (switch on in Odds, the default): it reads this tab and applies from the person's profile and Autofill; the extension only acts.
@@ -3299,9 +3355,14 @@
         return
       }
       if (listingGone()) {
+        const posting = intent.job || ""
+        if (!globalThis.oddsNav?.jobClosedAllowed(pageHref(), posting)) {
+          say("Odds could not confirm that this job is closed, so it was not marked closed.", "ask")
+          return
+        }
         say("This job is no longer available. No application was submitted.", "problem")
         document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")
-        await ask({ type: "job-closed", url: intent.job || pageHref() }).catch(() => null)
+        await ask({ type: "job-closed", url: posting, page_url: pageHref() }).catch(() => null)
         return
       }
       if (pageBroken()) {
@@ -3341,7 +3402,7 @@
         if (again) {
           const a = again.closest("a") || (again.tagName === "A" ? again : null)
           const h = a && "href" in a ? String(a.href || "") : ""
-          if (/^https:\/\//i.test(h) && !sameJobUrl(h)) await ask({ type: "apply-go", url: h })
+          if (/^https:\/\//i.test(h) && !sameJobUrl(h)) await goToPage(h)
           else { await ask({ type: "apply-follow" }); again.click() }
           await sleep(800)
           continue
@@ -3454,7 +3515,7 @@
           const h = a && "href" in a ? String(a.href || "") : ""
           return /^https:\/\//i.test(h) ? h : null
         })()
-        if (href && !sameJobUrl(href)) await ask({ type: "apply-go", url: href })
+        if (href && !sameJobUrl(href)) await goToPage(href)
         else {
           await ask({ type: "apply-follow" })
           go.click()
@@ -3599,7 +3660,7 @@
             const h = a && "href" in a ? String(a.href || "") : ""
             return /^https:\/\//i.test(h) ? h : null
           })()
-          if (href && !sameJobUrl(href)) await ask({ type: "apply-go", url: href })
+          if (href && !sameJobUrl(href)) await goToPage(href)
           else {
             await ask({ type: "apply-follow" })
             boardApply.click()

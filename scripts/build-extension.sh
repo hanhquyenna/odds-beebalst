@@ -5,5 +5,5 @@
 set -e
 cd "$(dirname "$0")/.."
 bun build scripts/extension-sites.ts --format=iife --target=browser --outfile extension/job-sites.js >/dev/null
-sum=$(cat supabase/functions/_shared/job-sites.ts supabase/functions/_shared/apply-form.ts supabase/functions/_shared/apply-censor.ts scripts/extension-sites.ts | shasum -a 256 | cut -c1-16)
-printf '%s\n%s\n' "// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts, apply-form.ts and apply-censor.ts (sources ${sum}). Do not edit." "$(cat extension/job-sites.js)" > extension/job-sites.js
+sum=$(cat supabase/functions/_shared/job-sites.ts supabase/functions/_shared/apply-form.ts supabase/functions/_shared/apply-censor.ts supabase/functions/_shared/apply-navigation.ts scripts/extension-sites.ts | shasum -a 256 | cut -c1-16)
+printf '%s\n%s\n' "// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts, apply-form.ts, apply-censor.ts and apply-navigation.ts (sources ${sum}). Do not edit." "$(cat extension/job-sites.js)" > extension/job-sites.js

@@ -118,8 +118,8 @@ export function Account({ page = "home", onStartLooking, onOpenClaude, onOpenPag
 
     // Jobs you kept that have closed since are still here, marked closed.
     // Live Apply pins also show even if save state races behind the Tracker jump.
-    return [...data.postings, ...data.keptExtra].filter((post) => data.saved.has(post.id) || applied.has(post.id) || isLiveApply(applyActivityOf(post.id)))
-    // applyTick: re-include rows when Apply activity starts/stops
+    // applyTick changes when a live apply starts or stops. The filter reads activity from a store, so the tick has to be named here or the list would stay stale.
+    return [...data.postings, ...data.keptExtra].filter((post) => applyTick >= 0 && (data.saved.has(post.id) || applied.has(post.id) || isLiveApply(applyActivityOf(post.id))))
   }, [data.postings, data.keptExtra, data.saved, data.applications, applyTick])
   // The open view's filters: the usual job filters, then the ones on your own search (status, follow-up due, closed).
   const shown = useMemo(

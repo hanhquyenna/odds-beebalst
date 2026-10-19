@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs"
 // extension/queue.js is a plain script for the worker; its pure part is loaded here the way the worker would (the rest needs Chrome).
 const source = readFileSync("extension/queue.js", "utf8")
 const pure = source.slice(0, source.indexOf("globalThis.oddsQueueLogic"))
+// Test-only: load the extension worker's own pure helpers. The string is this repo's queue.js, not remote code.
+// eslint-disable-next-line no-new-func, no-implied-eval
 const logic = new Function(`${pure}; return { queueReasonOf, queueOutcomeOf, QUEUE_PARALLEL }`)() as {
   queueReasonOf: (m: string) => string
   queueOutcomeOf: (i: { status: string; message?: string } | null, now?: number, startedAt?: number) => { state: string; reason?: string; message: string } | null

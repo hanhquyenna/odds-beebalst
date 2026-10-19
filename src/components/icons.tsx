@@ -72,6 +72,5 @@ export {
   GraduationCap as GraduationCapIcon,
   ShieldCheck as ShieldCheckIcon,
   TrendUp as TrendUpIcon,
-  ArrowUpRight as ArrowUpRightIcon,
   WifiHigh as WifiIcon,
 } from "@phosphor-icons/react"

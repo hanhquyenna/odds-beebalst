@@ -990,7 +990,7 @@
     say(document.body, "This job is no longer accepting applications on LinkedIn. No application was submitted.", "problem")
     document.body.querySelector(".odds-apply-bar")?.classList.add("odds-apply-float")
     await ask({ type: "apply-started" }).catch(() => null)
-    await ask({ type: "job-closed", url: intent.job || location.href }).catch(() => null)
+    await ask({ type: "job-closed", url: intent.job || location.href, page_url: location.href }).catch(() => null)
   }
 
   /** True once Easy Apply modal is up or we left this LinkedIn job (employer tab/nav). Never treat a dead Apply click as success. */
@@ -1032,7 +1032,7 @@
       await ask({ type: "apply-started" })
       if (/easy apply/i.test(want)) { el.click(); return true }
       const there = await offsiteUrl(wanted)
-      if (there) { await ask({ type: "apply-go", url: there }); return true }
+      if (there) { await ask({ type: "apply-go", url: there, seen: [location.href, there] }); return true }
       await ask({ type: "apply-follow" })
       // Inactive Apply tabs block window.open — arm briefly so the employer tab can open.
       const arm = await ask({ type: "apply-arm-offsite" }).catch(() => null)
@@ -1161,7 +1161,7 @@
         const there = await offsiteUrl(wanted)
         if (there) {
           say(document.body, "Opening the employer’s application…", "filling")
-          return ask({ type: "apply-go", url: there })
+          return ask({ type: "apply-go", url: there, seen: [location.href, there] })
         }
         say(document.body, "Opening the employer’s application…", "filling")
         await ask({ type: "apply-follow" })

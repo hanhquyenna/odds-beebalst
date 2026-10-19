@@ -102,6 +102,8 @@ export function ExtensionOnboard({
               title="How to connect Odds for Chrome"
               src={video}
               className="size-full border-0"
+              // Optional embed. Scripts may play the video; they cannot read the Odds page.
+              sandbox="allow-scripts allow-presentation allow-popups allow-popups-to-escape-sandbox"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
             />

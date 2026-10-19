@@ -32,6 +32,7 @@ ARGS=(
 )
 [[ -n "$ROAM_ID" ]] && ARGS+=("APPLY_AGENT_BROODS_ROAM_AGENT_ID=$ROAM_ID")
 
+bun scripts/apply-score-gate.ts
 bunx supabase secrets set "${ARGS[@]}" --project-ref "$PROJECT_REF"
 
 bunx supabase functions deploy apply-agent --project-ref "$PROJECT_REF" --use-api

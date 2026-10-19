@@ -13,12 +13,12 @@ const runs = /^[0-9a-f-]{36}$/.test(arg)
 for (const r of runs) {
   const secs = Math.round((Date.parse(String(r.updated_at)) - Date.parse(String(r.created_at))) / 1000)
   const fillMs = r.fill_ended_at ? Math.round((Date.parse(String(r.fill_ended_at)) - Date.parse(String(r.created_at))) / 1000) : null
-  console.log(`\n## ${r.status} · ${r.steps} steps · ${secs}s wall · fill ${fillMs ?? "—"}s · gen ${r.doc_gen ?? 0} · tab ${r.tab_id ?? "—"} · ${r.url}\n   ${r.message ?? ""}`)
-  const cmds = q(`select tool, round(extract(epoch from (taken_at - created_at))::numeric,1) pickup, round(extract(epoch from (done_at - taken_at))::numeric,1) work, status, doc_gen, left(args::text,140) a, left(coalesce(result::text,''),180) res from public.drive_commands where run_id='${r.id}' order by id`)
+  console.log(`\n## ${String(r.status)} · ${String(r.steps)} steps · ${secs}s wall · fill ${fillMs ?? "—"}s · gen ${String(r.doc_gen ?? 0)} · tab ${String(r.tab_id ?? "—")} · ${String(r.url)}\n   ${String(r.message ?? "")}`)
+  const cmds = q(`select tool, round(extract(epoch from (taken_at - created_at))::numeric,1) pickup, round(extract(epoch from (done_at - taken_at))::numeric,1) work, status, doc_gen, left(args::text,140) a, left(coalesce(result::text,''),180) res from public.drive_commands where run_id='${String(r.id)}' order by id`)
   for (const c of cmds) {
     const res = String(c.res ?? "")
     const flag = /"ok": false|"error"|"abandoned"|"cancelled"|"stale"/.test(res) ? " ⚠" : ""
-    console.log(`   ${String(c.tool).padEnd(10)} gen ${String(c.doc_gen ?? "-").padStart(2)} pickup ${String(c.pickup ?? "-").padStart(5)}s work ${String(c.work ?? "-").padStart(5)}s ${c.status}${flag}  ${c.a}`)
+    console.log(`   ${String(c.tool).padEnd(10)} gen ${String(c.doc_gen ?? "-").padStart(2)} pickup ${String(c.pickup ?? "-").padStart(5)}s work ${String(c.work ?? "-").padStart(5)}s ${String(c.status)}${flag}  ${String(c.a)}`)
     if (flag) console.log(`              -> ${res}`)
   }
 }
