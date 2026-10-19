@@ -9,7 +9,7 @@ const OPEN = /^(why|what|how|describe|tell us|explain|share|give|please (describ
 const APPLIED = /\b(applied (to|at|for|before|here|previously)|previously applied|prior application|application before|have you applied|worked (at|for|here)|employed (at|by)|been employed|work(ed)? (at|for|here))\b/i
 
 /** Told to Broods when a question is sent back: the fact to use, never a guess. */
-export const FACT_QUESTION_HINT = "worked at / employed by this employer → worked_at_this_employer_before; applied to this employer before → applied_to_this_employer_before (No unless that fact is Yes). Do not invent either."
+export const FACT_QUESTION_HINT = "worked at / employed by this employer → worked_at_this_employer_before; applied to this employer before → applied_to_this_employer_before (No unless that fact is Yes). Sponsorship → needs_sponsorship; right to work in the Netherlands → right_to_work_nl. Those two come only from the person's permit and study status. If one is absent, ask once; do not guess from work_permit prose."
 
 /** Questions the rules and facts already cover. Pronouns stay in (prefer not to say). Personal plans and pay stay out. */
 export function ownQuestions(questions: string[]): string[] {
@@ -19,6 +19,58 @@ export function ownQuestions(questions: string[]): string[] {
     if (PERSONAL.test(text)) return false
     return OWN.test(text) || OPEN.test(text) || APPLIED.test(text)
   })
+}
+
+export type PermitWorkFacts = { needs_sponsorship?: "Yes" | "No"; right_to_work_nl?: "Yes" | "No" }
+
+/**
+ * Sponsorship and right to work, only from the permit code plus whether they are studying.
+ * Missing or unclear → the key is omitted (ask once). Never inferred from nationality prose.
+ * other_non_eu needs sponsorship. Right to work is Yes only while enrolled (school internship agreement), No when not enrolled.
+ * hsm may already work; whether a new employer must sponsor is unclear, so that key is omitted.
+ */
+export function permitWorkAnswers(permit: string | null | undefined, studying: boolean | null): PermitWorkFacts {
+  const code = String(permit ?? "").trim()
+  if (code === "eu" || code === "orientation_year") return { needs_sponsorship: "No", right_to_work_nl: "Yes" }
+  if (code === "hsm") return { right_to_work_nl: "Yes" }
+  if (code === "other_non_eu") {
+    if (studying === true) return { needs_sponsorship: "Yes", right_to_work_nl: "Yes" }
+    if (studying === false) return { needs_sponsorship: "Yes", right_to_work_nl: "No" }
+    return { needs_sponsorship: "Yes" }
+  }
+  return {}
+}
+
+/** Profile studying (boolean or yes/no) wins; otherwise the saved study_status answer. Null when neither was said. */
+export function studyingFrom(profileStudying: unknown, studyStatus: unknown): boolean | null {
+  if (typeof profileStudying === "boolean") return profileStudying
+  if (typeof profileStudying === "string") {
+    if (/^\s*yes\b/i.test(profileStudying)) return true
+    if (/^\s*no\b/i.test(profileStudying)) return false
+  }
+  if (typeof studyStatus === "string") {
+    if (/^\s*yes\b/i.test(studyStatus)) return true
+    if (/^\s*no\b/i.test(studyStatus)) return false
+  }
+  return null
+}
+
+const WORK_Q = /\b(sponsor\w*|visa|parrainage|right to work|authori[sz]ed to work|legally (authori[sz]ed|allowed)|eligible to work|allowed to work|work permit|werkvergunning)\b/i
+
+export const isWorkAuthQuestion = (question: string): boolean => WORK_Q.test(String(question || ""))
+
+/** The hard Yes/No for one question, or null when this is not a work question or the permit does not decide it. */
+export function workFactForQuestion(question: string, facts: PermitWorkFacts): { answer: "Yes" | "No"; fact: "needs_sponsorship" | "right_to_work_nl" } | null {
+  const q = String(question || "")
+  if (!WORK_Q.test(q)) return null
+  const asksSponsor = /\b(sponsor\w*|visa|parrainage)\b/i.test(q)
+  const asksRight = /\b(right to work|authori[sz]ed to work|legally|eligible to work|allowed to work|werkvergunning|work permit)\b/i.test(q)
+  const withoutSponsor = /\bwithout\b/i.test(q) && asksSponsor
+  if (withoutSponsor || (asksRight && !asksSponsor)) {
+    return facts.right_to_work_nl ? { answer: facts.right_to_work_nl, fact: "right_to_work_nl" } : null
+  }
+  if (asksSponsor) return facts.needs_sponsorship ? { answer: facts.needs_sponsorship, fact: "needs_sponsorship" } : null
+  return facts.right_to_work_nl ? { answer: facts.right_to_work_nl, fact: "right_to_work_nl" } : null
 }
 
 /**
@@ -107,7 +159,7 @@ export function widgetAttemptGuard(opts: {
     if (prior >= 1) return { accept: true }
     return {
       accept: false,
-      text: "Not done: a field or button that does not respond is yours, not the person's. read_page again (one scroll to the bottom already ran when Next was missing), then fill the field a second, different way. Only then finish.",
+      text: "Not done: a field or button that does not respond is yours, not the person's. read_page again (one scroll to the bottom already ran when Next was missing), then try another method, or take one screenshot and use click_at, type_text, or press_key. Do not finish stuck or needs_you for this yet.",
     }
   }
   const short = targets.filter((f) => distinctAttempts(opts.fills, String(f.id)) < 2)
@@ -115,6 +167,6 @@ export function widgetAttemptGuard(opts: {
   const labels = short.map((f) => String(f.label || f.id)).slice(0, 8)
   return {
     accept: false,
-    text: `Not done: these fields need another fill before a stop (each failing field needs 2 different attempts): ${labels.join("; ")}. fill them again a different way (Odds retries the box's own format, key-by-key typing, typeahead, the choice button, then keyboard). A widget that does not keep its value is yours, not the person's.`,
+    text: `Not done: these fields need another fill before a stop (each failing field needs 2 different attempts, a different via or value): ${labels.join("; ")}. Try another method (the box's own format, key-by-key typing, typeahead, the choice button, or keyboard). If that still fails, take one screenshot and use click_at, type_text, or press_key. Do not finish stuck or needs_you for this yet.`,
   }
 }

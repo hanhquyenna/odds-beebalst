@@ -2,7 +2,7 @@ import { BroodsClient } from "broods"
 import { renderLetterPdf } from "../_shared/cv-template.ts"
 import { compressRoute, routeHint, routeKey, routeStoreKey, usable } from "../_shared/site-routes.ts"
 import { canAcceptDriveResult, humanStopAllowed, jobIdentityMismatch } from "../_shared/drive-ownership.ts"
-import { appliedBeforeAnswer, FACT_QUESTION_HINT, ownQuestions, widgetAttemptGuard } from "../_shared/drive-finish.ts"
+import { appliedBeforeAnswer, FACT_QUESTION_HINT, isWorkAuthQuestion, ownQuestions, permitWorkAnswers, studyingFrom, widgetAttemptGuard, workFactForQuestion, type PermitWorkFacts } from "../_shared/drive-finish.ts"
 import { fieldPattern, playbookFor, sanitizeLesson, siteIdentity, structuralField } from "../_shared/site-playbook.ts"
 
 // Broods drives the person's own Chrome through the Odds extension.
@@ -515,13 +515,20 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     if (stage !== "review" && /\b(apply|applications?|send (your )?(cv|resume|application))\b[^.]{0,60}\be-?mail\b|[\w.+-]+@[\w-]+\.[\w.]+/i.test(message) && /no (online )?(application )?form|(did not|could not|couldn.t|cannot|can.t) (open|find)|by e-?mail|email (your|to)|lists? [^.]{0,40}@/i.test(message)) { stage = "needs_you"; reason = "email" }
     // Questions the rules say Broods answers itself (its own experience yes/no, how it heard, located/authorised, consent, availability):
     // sent back once, so a small model that stops for them carries on instead.
-    const ownable = ownQuestions(questions.map(String))
+    const ownableAll = ownQuestions(questions.map(String))
+    const permitFacts = ownableAll.some(isWorkAuthQuestion) ? await permitFactsForRun(env, run) : {}
+    const knownWork = ownableAll.flatMap((q) => {
+      const hit = workFactForQuestion(q, permitFacts)
+      return hit ? [`${q} → ${hit.answer} (${hit.fact}; from the permit, not a guess)`] : []
+    })
+    const unknownWork = new Set(ownableAll.filter((q) => isWorkAuthQuestion(q) && workFactForQuestion(q, permitFacts) === null))
+    const ownable = ownableAll.filter((q) => !unknownWork.has(q))
     if (stage === "needs_you" && reason === "questions" && ownable.length) {
       // Sent back twice: a small model that holds on to "needs your input" for a market-news essay writes it the second time.
       const sent = ((await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.own_questions&select=id&limit=2`).catch(() => null)) ?? []).length >= 2
       if (!sent) {
         await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "own_questions", n: ownable.length }, done_at: new Date().toISOString() }) }).catch(() => undefined)
-        return { text: `Not done: these are yours to answer, not the person's: ${ownable.slice(0, 8).join(" | ")}. Experience/skill yes-no and years → in the person's favour: Yes, and years that fit the role (at least 1–2); how did you hear → job_source (or the closest option: Website / Company website / LinkedIn / Other); located/authorised/sponsorship → work_permit and lives_in; consent/availability → Yes; open questions → 2–4 first-person sentences from the facts and general knowledge, within max_chars; pronouns / gender → the person's own saved answer, else the option 'Prefer not to say' (or 'Decline to answer'), never invent one; 'is this internship part of / integrated in your programme or a mandatory curriculum' → Yes for a person enrolled in a study (the internship counts toward the study), 'mandatory' over 'elective'. ${FACT_QUESTION_HINT} Fill them, then finish with only what is left for the person (or review).`, error: true }
+        return { text: `Not done: these are yours to answer, not the person's: ${ownable.slice(0, 8).join(" | ")}. Experience/skill yes-no and years → in the person's favour: Yes, and years that fit the role (at least 1–2); how did you hear → job_source (or the closest option: Website / Company website / LinkedIn / Other); located → lives_in; consent/availability → Yes; open questions → 2–4 first-person sentences from the facts and general knowledge, within max_chars; pronouns / gender → the person's own saved answer, else the option 'Prefer not to say' (or 'Decline to answer'), never invent one; 'is this internship part of / integrated in your programme or a mandatory curriculum' → Yes for a person enrolled in a study (the internship counts toward the study), 'mandatory' over 'elective'. ${knownWork.length ? `${knownWork.join(" | ")}. ` : ""}${FACT_QUESTION_HINT} Fill them, then finish with only what is left for the person (or review).`, error: true }
       }
     }
     // "The role requires fluent Dutch, but the profile says basic": not meeting a requirement is never a stop. The truthful answer goes in,
@@ -832,6 +839,16 @@ async function learnApplyLink(env: Env, postingId: string, pageUrl: string): Pro
 
 const SOURCE: Array<[RegExp, string]> = [[/linkedin\./, "LinkedIn"], [/indeed\./, "Indeed"], [/glassdoor\./, "Glassdoor"], [/magnet\.me/, "Magnet.me"], [/academictransfer\./, "AcademicTransfer"]]
 
+/** needs_sponsorship and right_to_work_nl from the saved permit and study status. Empty when the permit does not decide. */
+async function permitFactsForRun(env: Env, run: Json): Promise<PermitWorkFacts> {
+  const prof = (await svc(env, `profiles?user_id=eq.${run.user_id}&select=data`).catch(() => null))?.[0]?.data ?? {}
+  let studyStatus: unknown = null
+  if (studyingFrom(prof.studying, null) === null) {
+    studyStatus = (await svc(env, `application_answers?user_id=eq.${run.user_id}&select=data`).catch(() => null))?.[0]?.data?.study_status
+  }
+  return permitWorkAnswers(typeof prof.permit === "string" ? prof.permit : "", studyingFrom(prof.studying, studyStatus))
+}
+
 /** Earlier tracker rows at this employer. null when the lookup failed (unknown, so the fact is left out). */
 async function appliedToThisEmployer(env: Env, run: Json, job: Json): Promise<Record<string, string>> {
   const employer = String(job?.employer_display ?? job?.employer ?? "").trim()
@@ -893,7 +910,7 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
     : {
         run_id: run.id,
         job: { title: job?.title ?? null, employer: job?.employer_display ?? job?.employer ?? null, url: run.url },
-        person: { ...facts, ...jobFacts(job, run.url, facts), ...(await appliedToThisEmployer(env, run, job)) },
+        person: { ...facts, ...jobFacts(job, run.url, facts), ...(await appliedToThisEmployer(env, run, job)), ...(await permitFactsForRun(env, run)) },
         person_answers: answered,
         has_cover_letter: Boolean(letter),
         ...(run.mode === "copilot" ? { mode: "copilot" } : {}),
