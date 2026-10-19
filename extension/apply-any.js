@@ -2321,7 +2321,9 @@
       return { id: args.id, options: (await readChoices(f)) || f.options || [] }
     }
     if (cmd.tool === "fill") {
-      const items = Array.isArray(args.fields) ? args.fields.slice(0, 40) : []
+      // Quick boxes first, dropdowns last: one slow dropdown (seconds each) must not leave the text boxes and ticks "not tried".
+      const slow = (it) => (driveFields.get(it?.id)?.kind === "combobox" ? 1 : 0)
+      const items = (Array.isArray(args.fields) ? args.fields.slice(0, 40) : []).map((it, i) => ({ it, i })).sort((a, b) => slow(a.it) - slow(b.it) || a.i - b.i).map(({ it }) => it)
       const results = []
       const sigBefore = `${pageHref()}|${[...driveFields.values()].map((f) => `${f.label}:${fieldValue(f)}`).join("|")}`
       const besideCountry = countryPickerSet([...driveFields.values()])
@@ -2336,8 +2338,8 @@
           results.push({ id: it.id, ok: true, value: fieldValue(f), note: "kept: this is the person's own saved answer (or Odds' consent / decline rule); never change it" })
           continue
         }
-        // The step answers within ~20 s whatever happens (the server stops waiting soon after): fields left over are said to be left over.
-        if (Date.now() - fillStarted > 19000) { results.push({ id: it.id, ok: false, error: "not tried: out of time in this step; fill it again in a new fill call" }); continue }
+        // The step answers within ~40 s whatever happens (the server waits 45 s for a fill): fields left over are said to be left over.
+        if (Date.now() - fillStarted > 40000) { results.push({ id: it.id, ok: false, error: "not tried: out of time in this step; fill it again in a new fill call" }); continue }
         // Longer than the box takes: cut at a whole sentence here (the site would cut mid-word) and say so, so Broods can rewrite if needed.
         const limit = charLimit(elOf(f))
         const shortened = limit && value.length > limit ? value.length : 0
@@ -2751,9 +2753,9 @@
         if (!sent && result !== null) await sendResult(result)
         if (["click", "click_at", "back", "open_job"].includes(cmd.tool) && !(result && result.page)) await sleep(1500)
       } else {
-        // The server answered and Broods sent nothing. Two minutes of that is a dead model, not a slow form.
+        // The server answered and Broods sent nothing. Three minutes of that is a dead model, not a slow form (the server ends a hung turn at two).
         idleSince ||= Date.now()
-        if (Date.now() - idleSince >= 120000) {
+        if (Date.now() - idleSince >= 180000) {
           say("Broods' model is unreachable. The fill stopped. Press Apply with Odds to try again.", "ask")
           return
         }

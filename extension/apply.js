@@ -745,7 +745,7 @@
       } else {
         // A healthy edge response without a command is not transport loss. Bound it just like the generic application driver.
         idleSince ||= Date.now()
-        if (Date.now() - idleSince >= 120000) return say(modal, "Broods' model is unreachable. The fill stopped. Press Apply with Odds to try again.", "ask")
+        if (Date.now() - idleSince >= 180000) return say(modal, "Broods' model is unreachable. The fill stopped. Press Apply with Odds to try again.", "ask")
       }
     }
   }

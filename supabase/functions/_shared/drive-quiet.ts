@@ -42,3 +42,26 @@ export function driveRunExpired(status: string | null | undefined, expiresAt: st
   const expires = Date.parse(expiresAt)
   return Number.isFinite(expires) && expires <= now
 }
+
+/** A Broods turn still thinking this long after the run's last step is hung, not slow (p99 model think time is ~35 s). */
+export const HUNG_MS = 120_000
+
+export type BroodsTurn = "live" | "over" | "unknown"
+
+/** Whether the run's Broods turn is still working (a new message would only queue behind it) or has ended. */
+export function broodsTurnState(status: { status?: string | null } | null | undefined): BroodsTurn {
+  const name = String(status?.status || "")
+  if (["accepted", "queued", "applied", "processing"].includes(name)) return "live"
+  if (["completed", "failed", "expired", "not_found", "awaiting_input", "awaiting_approval"].includes(name)) return "over"
+  return "unknown"
+}
+
+/**
+ * What to do when a running run has sent no step for a while. A turn that is still working is left alone (picking it up again would
+ * only stack a message behind it); a hung one ends the run, so a fresh press starts a new run that the hung turn can never touch.
+ * A turn that ended without a tool call is picked up again in the same conversation (quietGiveUp).
+ */
+export function quietAction(input: { turn: BroodsTurn; quietMs: number; retries: number; commandCount: number }): "wait" | "stuck_hung" | QuietDecision {
+  if (input.turn === "live") return input.quietMs >= HUNG_MS ? "stuck_hung" : "wait"
+  return quietGiveUp({ retries: input.retries, commandCount: input.commandCount, quiet: true })
+}

@@ -14,41 +14,9 @@ export default defineBroods({
   stages: { dev: "development", deploy: "production" },
 })
 
-const applyPickSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    stage: {
-      type: "string",
-      description: "account | captcha | form | review | stuck",
-    },
-    action: {
-      type: "string",
-      description: "click | fill | wait_human | none",
-    },
-    text: {
-      type: ["string", "null"],
-      description: "Exact button label from the buttons list, or null",
-    },
-    answers: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          key: { type: "string" },
-          answer: { type: "string" },
-        },
-        required: ["key", "answer"],
-      },
-    },
-    reason: { type: "string" },
-  },
-  required: ["stage", "action", "text", "answers", "reason"],
-} as const
-
-const PICK_RULES = `Return one apply_pick, as the bare JSON object {"stage","action","text","answers","reason"} and nothing else (the model route may not enforce the schema):
-- stage=account or captcha → action=wait_human (person only).
+const PICK_RULES = `Return one apply_pick as plain text: the bare JSON object {"stage":string,"action":string,"text":string|null,"answers":[{"key","answer"}],"reason":string} and nothing else.
+- stage: account | captcha | form | review | stuck. action: click | fill | wait_human | none. text: an exact label from buttons[], or null.
+- stage=account or captcha → action=wait_human (a pick cannot make an account; in drive mode you do, see ACCOUNTS).
 - Cookie banners FIRST when present: Functional only / Necessary only / Reject / Reject non-essential / Reject all — even if Easy Apply is also listed. Never Accept all.
 - Then progress: Easy Apply / Apply / Apply now / Apply for this job → Next → Continue → Save and Continue → Review.
 - If buttons[] contains Next OR Continue OR Review OR any Apply* (and not only Submit), you MUST action=click with that EXACT buttons[] string. stage=form. Do not return action=none when those exist.
@@ -59,7 +27,7 @@ const PICK_RULES = `Return one apply_pick, as the bare JSON object {"stage","act
 - Open questions (why this role, motivation, reasons, what you bring) → 1–3 plain sentences in the first person from role_values, notes, experience, education and cv_excerpt, tied to the employer/job title. Always answer these when there is a profile.
 - Voluntary EEO (gender, age group, ethnicity, disability, veteran) → "Prefer not to say"/"Decline" when offered. Consent/privacy/data retention → Yes. Salary expectation → expected_salary, else "In line with your standard internship allowance". Visa/sponsorship → from work_permit.
 - Never answer religion, family, salary history, criminal/legal declarations, passwords or captchas — skip them (the person answers those).
-- Never Submit, Send application, Submit Application, login, sign up, Accept all cookies, or password fields.
+- Never Submit, Send application, Submit Application, Accept all cookies, or password fields; in a pick also never login or sign up.
 - Job closed / no longer available / expired / position filled → stage=stuck, action=none, reason=listing_gone.
 - Only action=none when NO safe Apply/Next/Continue/Review/cookie control exists in buttons[].`
 
@@ -75,8 +43,8 @@ const DRIVE_RULES = `DRIVE MODE (message has run_id): apply to the job in the pe
 (one short plain line shown live to the person: what you do and why; never an email/phone value).
 LOOP: read_page once → act → use the page the action returns (fill, click, click_at, scroll, back, open_job, uploads, typing all return it); read_page
 again only when page is absent or after a resume. One fill per step with every empty field. Fields with by:"odds" are already filled: never redo.
-Never end a turn without a tool call or finish: in drive mode every reply is a tool call until finish (an apply_pick reply before finish
-ends the application half-way). Up to 80 steps.
+Never end a turn without a tool call or finish: in drive mode every reply is a tool call until finish (plain text or JSON before finish
+ends the application half-way). Never write an apply_pick in drive mode. Up to 80 steps.
 GOAL: reach the employer's form, fill ALL of it, finish review when only Submit/Send is left (never press it).
 RESUME ("resume" in the message): read_page, carry on from where the tab is; fill person_answers. A field the person filled is theirs: never change it.
 "The person is filling in" → wait, then read_page.
@@ -104,6 +72,7 @@ FILL from person (Autofill + profile + cv_excerpt) and person_answers (same mean
 - Choices: exact option text (a cut list with options_total: just give the choice). Dates YYYY-MM-DD (month+year → last day). Phone: always
   the full number with its country code (+31612345678), also beside a country-code picker: Odds sets the picker and the format. CV file field or CV button without a file field → upload_cv (never type into file fields);
   if that fails and a LinkedIn URL box exists, fill it; else needs_you other "Attach your CV in the tab".
+- A checkbox takes "yes" (tick) or "no" (untick). Consent, privacy, terms, data retention and talent-pool boxes are always "yes": never send "no" to one.
 - Checkboxes with a group are the choices of that one question (fill "yes" on the right one(s), leave the rest): work-permit choices →
   the one matching work_permit/nationality_group; language level → from languages/dutch_level; setup/terms agreements → the "agree" one.
 - Phone in one box: digits with the country code and no spaces (+31612345678); if the page rejects it or strips the "+", give the national
@@ -159,7 +128,7 @@ read_page.cv_missing means a CV box is still empty: you cannot finish review unt
 
 EVERY TURN ENDS WITH A TOOL CALL: read_page, fill, click, … or finish. An empty reply or a plain sentence stops the whole run and it restarts from the beginning. After a click or a fill, call read_page (or the next action); when nothing is left to do, call finish. Never stop to think out loud.
 
-ACCOUNTS AND E-MAIL ARE YOURS TO DO. When an application needs an account, press Create account / Register / Sign up and go on: Odds fills the e-mail and
+ACCOUNTS AND E-MAIL ARE YOURS TO DO. A result with sign_in_wall is your one try: do what its "next" says (Create account / Register link first, else Sign in with the login Odds saved), then read_page. When an application needs an account, press Create account / Register / Sign up and go on: Odds fills the e-mail and
 password boxes itself (they never appear in fields) and keeps the password for the person. When the site says it sent a code or a link, call check_email
 (it opens the person's Gmail and waits up to 20 seconds per call; mail can take one to two minutes, so call it again, up to six times), then type the code
 with fill or open the link with open_link, and read_page. Only a captcha or a person-only declaration is not yours.
@@ -185,8 +154,7 @@ FINISH: review ("Everything is filled in. Check it and press Submit yourself.") 
 questions (listed), letter (only if write_letter failed), email (no online form: the page asks for applications by email — say the address
 in message, e.g. "Apply by email to jobs@company.com"; at once, never stuck) | stuck: other (what blocks, after 5+ tries incl. sight) or closed (404/page not found/
 read_page.closed: at once; a network error or captcha is not closed). Blocked buttons are refused: a blocked button labelled Apply/Submit/Send/Apply now IS the final submit, so with every required field filled
-that means finish review (never stuck). Never ask in chat. After finish, output an
-apply_pick with action none.`
+that means finish review (never stuck). Never ask in chat. After finish, stop: reply with one short line, no JSON.`
 
 /** The one Odds Apply agent: drives the person's tab (drive mode) or gives a quick pick (pick mode). */
 export const oddsApply = defineAgent({
@@ -200,11 +168,6 @@ export const oddsApply = defineAgent({
     modelId: process.env.ODDS_APPLY_MODEL || "cx/gpt-6-luna",
     reasoning: "medium",
     maxOutputTokens: 4000,
-    output: {
-      type: "object",
-      name: "apply_pick",
-      schema: applyPickSchema,
-    },
   },
   // Keyed by the MCP server's config-plane id (by name it is silently not attached: the agent then has no tools).
   // The secret header belongs here (resolved from the Broods env var at sync), not on defineMcp.
@@ -215,7 +178,7 @@ export const oddsApply = defineAgent({
 
 ${DRIVE_RULES}
 
-PICK MODE (no run_id: the extension sent a page snapshot or questions): answer at once with one apply_pick, no tools.
+PICK MODE (no run_id: the extension sent a page snapshot or questions): answer at once with one apply_pick, no tools. These rules are for pick mode only: with a run_id, DRIVE MODE rules win.
 ${PICK_RULES}
 
 Examples (pick mode):

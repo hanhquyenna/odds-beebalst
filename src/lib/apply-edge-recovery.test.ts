@@ -48,7 +48,7 @@ describe("Apply recovery wiring", () => {
   test("LinkedIn Easy Apply surfaces a healthy but commandless Broods run", () => {
     const driveModal = linkedInApply.slice(linkedInApply.indexOf("async function driveModal"), linkedInApply.indexOf("async function run(modal)"))
     expect(driveModal).toContain("let idleSince = 0")
-    expect(driveModal).toContain("Date.now() - idleSince >= 120000")
+    expect(driveModal).toContain("Date.now() - idleSince >= 180000")
     expect(driveModal).toContain("Broods' model is unreachable.")
   })
 })

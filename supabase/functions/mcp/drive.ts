@@ -3,7 +3,7 @@ import { renderLetterPdf } from "../_shared/cv-template.ts"
 import { compressRoute, routeHint, routeKey, routeStoreKey, usable } from "../_shared/site-routes.ts"
 import { canAcceptDriveResult, humanStopAllowed, jobIdentityMismatch } from "../_shared/drive-ownership.ts"
 import { appliedBeforeAnswer, FACT_QUESTION_HINT, isWorkAuthQuestion, ownQuestions, permitWorkAnswers, studyingFrom, widgetAttemptGuard, workFactForQuestion, type PermitWorkFacts } from "../_shared/drive-finish.ts"
-import { broodsStartOutcome, driveRunExpired, MODEL_UNREACHABLE, quietGiveUp, type BroodsStartOutcome } from "../_shared/drive-quiet.ts"
+import { broodsStartOutcome, broodsTurnState, driveRunExpired, MODEL_UNREACHABLE, quietAction, type BroodsStartOutcome, type BroodsTurn } from "../_shared/drive-quiet.ts"
 import { fieldPattern, playbookFor, sanitizeLesson, siteIdentity, structuralField } from "../_shared/site-playbook.ts"
 
 // Broods drives the person's own Chrome through the Odds extension.
@@ -26,6 +26,8 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 }
 const TOOL_WAIT_MS = 25_000
+/** A fill works through every field it was given (dropdowns take seconds each): the tab gets 40 s, the server waits a little longer. */
+const FILL_WAIT_MS = 45_000
 const NEXT_WAIT_MS = 20_000
 const MAX_STEPS = 120
 /** No step from Broods for this long while the run says running (a step takes seconds): its turn ended without finish. */
@@ -685,7 +687,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     body: JSON.stringify({ run_id: run.id, tool: name, args: rest, note, doc_gen: docGen, tab_id: run.tab_id ?? null }),
   })
   await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ steps: run.steps + 1, ...(note ? { last_note: note } : {}), updated_at: new Date().toISOString() }) })
-  const deadline = Date.now() + TOOL_WAIT_MS
+  const deadline = Date.now() + (name === "fill" ? FILL_WAIT_MS : TOOL_WAIT_MS)
   while (Date.now() < deadline) {
     await sleep(400)
     const row = (await svc(env, `drive_commands?id=eq.${cmd.id}&select=status,result,taken_at`))?.[0]
@@ -709,10 +711,10 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...res, image: "(sent)" } }) }).catch(() => undefined)
         return { text: JSON.stringify({ width: res.width, height: res.height, note: res.note }), image: res.image }
       }
-      // A fill that ran out of its time window (a slow dropdown) leaves the rest "not tried": Odds sends those fields again itself, up to
-      // two more times, so Broods gets one answer for the whole fill and never gives up on fields nobody tried.
+      // A fill that ran out of its time window (a slow dropdown) leaves the rest "not tried": Odds sends those fields again itself, once more, so Broods gets one answer for the whole fill and never gives up on fields nobody tried.
       if (name === "fill" && Array.isArray(res.results) && Array.isArray(rest.fields)) {
-        for (let round = 0; round < 2; round++) {
+        // One more round at most: two 45 s rounds stay well inside the function's wall clock.
+        for (let round = 0; round < 1; round++) {
           const untried = new Set(res.results.filter((r: Json) => /^not tried: out of time/.test(String(r?.error ?? ""))).map((r: Json) => r.id))
           if (!untried.size) break
           const fields = rest.fields.filter((f: Json) => untried.has(f?.id))
@@ -720,7 +722,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
           const [again] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "fill", args: { ...rest, fields }, note: "Filling the rest", doc_gen: docGen, tab_id: run.tab_id ?? null }) }).catch(() => [null])
           if (!again) break
           let more: Json | null = null
-          for (const until = Date.now() + TOOL_WAIT_MS; Date.now() < until;) {
+          for (const until = Date.now() + FILL_WAIT_MS; Date.now() < until;) {
             await sleep(400)
             const r2 = (await svc(env, `drive_commands?id=eq.${again.id}&select=status,result`).catch(() => null))?.[0]
             if (r2?.status === "done") { more = r2.result ?? {}; break }
@@ -751,13 +753,21 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         return { text: JSON.stringify({ ok: false, run_ended: true, closed: true, error: "The job is closed: Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
       }
       // A sign-in wall with nothing to apply to: the page says "log in to apply" (EU JRC), or it is a sign-in form and nothing else
-      // (EU Login, Workday's account page). That is the person's, at once. "Log in to save your progress" (Cornerstone) is optional: no wall.
+      // (EU Login, Workday's account page). "Log in to save your progress" (Cornerstone) is optional: no wall.
+      // Broods gets one go at it first: Odds fills a saved login on a sign-in page and a new account on a register page itself, so pressing
+      // Sign in, or a Create account / Register link, often gets through. Only the second wall in a run is the person's.
       if (page && Array.isArray(page.fields) && signInWall(page)) {
-        const now = new Date().toISOString()
-        const message = "This site wants you to sign in. Do it in the tab, then press Auto apply again."
-        await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "account", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
-        await cancelOpenCommands(env, run.id, "account")
-        return { text: JSON.stringify({ ok: false, run_ended: true, account: true, error: "Sign-in wall: Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
+        const tried = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.sign_in_wall&select=id&limit=1`).catch(() => null))?.[0]
+        if (!tried) {
+          await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "sign_in_wall" }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+          res = { ...res, sign_in_wall: true, next: "This page asks to sign in. Try to get past it yourself, once: press Create account / Register / Sign up / Continue as guest if the page (or a link on it) offers one, and Odds fills the e-mail and password; otherwise press Sign in / Log in, and Odds fills the login it saved for this site. Then read_page. If it is still a sign-in page after that, finish needs_you reason account." }
+        } else {
+          const now = new Date().toISOString()
+          const message = "This site wants you to sign in. Do it in the tab, then press Auto apply again."
+          await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "account", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
+          await cancelOpenCommands(env, run.id, "account")
+          return { text: JSON.stringify({ ok: false, run_ended: true, account: true, error: "Sign-in wall: Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
+        }
       }
       // Through a job board to the employer's own form: remembered for this job, so the next run opens the form directly.
       if (run.posting_id && typeof page?.url === "string" && Array.isArray(page.fields) && page.fields.length >= 2) void learnApplyLink(env, run.posting_id, page.url)
@@ -928,13 +938,38 @@ function jobFacts(job: Json, url: string, facts: Record<string, string>): Record
   return out
 }
 
+/** A Broods client acting for the run's person, or null when Broods is not set up on the server. */
+async function broodsClient(run: Json): Promise<BroodsClient | null> {
+  const key = (Deno.env.get("APPLY_AGENT_BROODS_API_KEY") ?? "").trim()
+  const secret = (Deno.env.get("APPLY_AGENT_BROODS_USER_TOKEN_SECRET") ?? "").trim()
+  if (!key || !secret) return null
+  const base = ((Deno.env.get("APPLY_AGENT_BROODS_BASE_URL") ?? "https://gateway.broods.app").trim() || "https://gateway.broods.app").replace(/\/$/, "")
+  return new BroodsClient({ apiKey: key, baseUrl: base, userToken: await signUserToken(run.user_id, secret) })
+}
+
+/** Asked at most every 10 s per run while it is quiet (drive-next loops every 400 ms). */
+const turnChecks = new Map<string, { at: number; turn: BroodsTurn }>()
+/** Whether the run's latest Broods turn is still working. Unknown when Odds cannot tell (no turn id kept, Broods not answering). */
+async function broodsTurn(env: Env, run: Json): Promise<BroodsTurn> {
+  const held = turnChecks.get(run.id)
+  if (held && Date.now() - held.at < 10_000) return held.turn
+  let turn: BroodsTurn = "unknown"
+  try {
+    const row = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.broods&order=id.desc&limit=1&select=result`))?.[0]
+    const id = row?.result?.broods_run_id
+    const client = typeof id === "string" ? await broodsClient(run) : null
+    if (client && typeof id === "string") turn = broodsTurnState(await client.getAsyncStatus(id))
+  } catch { /* unknown */ }
+  turnChecks.set(run.id, { at: Date.now(), turn })
+  return turn
+}
+
 /** Start the Broods agent on a run with the person's own context; it then drives through the tools. Reads the stream in the background. */
 async function startBroods(env: Env, run: Json, job: Json, facts: Record<string, string>, resume?: string, oddsFilled?: Json): Promise<string | null> {
   const key = (Deno.env.get("APPLY_AGENT_BROODS_API_KEY") ?? "").trim()
   const agentId = (Deno.env.get("ODDS_DRIVE_AGENT_ID") ?? "").trim()
   const secret = (Deno.env.get("APPLY_AGENT_BROODS_USER_TOKEN_SECRET") ?? "").trim()
   if (!key || !agentId || !secret) return "Broods is not set up on the server."
-  const base = ((Deno.env.get("APPLY_AGENT_BROODS_BASE_URL") ?? "https://gateway.broods.app").trim() || "https://gateway.broods.app").replace(/\/$/, "")
   // Whether Odds holds this job's own cover / motivation letter (upload_letter), else the person is asked for one.
   const letter = run.posting_id ? (await svc(env, `job_documents?user_id=eq.${run.user_id}&posting_id=eq.${encodeURIComponent(run.posting_id)}&kind=eq.cover_letter&select=document_id&limit=1`).catch(() => null))?.[0] : null
   // What the person answered in Odds since (Broods' own questions included): Broods fills those in when it carries on.
@@ -958,23 +993,23 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
   const [playbook, route] = await Promise.all([sitePlaybook(env, run.url), siteRoute(env, run.url)])
   Object.assign(task, { site_playbook: playbook, ...(route ? { route } : {}), ...(oddsFilled && typeof oddsFilled === "object" ? { odds_filled: { filled: Number(oddsFilled.filled) || 0, left: Number(oddsFilled.left) || 0, only_submit_left: oddsFilled.only_submit_left === true } } : {}) })
   try {
-    const client = new BroodsClient({ apiKey: key, baseUrl: base, userToken: await signUserToken(run.user_id, secret) })
-    // A pick-up (the model call hung, the person carried on) is a new conversation: Broods runs one conversation's turns in order, so a
-    // turn stuck on a hung model request would otherwise hold the pick-up behind it until the run was given up. The task carries what
-    // the new turn needs; it reads the page first.
-    // The first time a run goes quiet (the model ended a turn without a tool call), the same conversation is asked to go on: it keeps what it
-    // already did and saw, so nothing starts over. Only a second silence (a hung model call would hold the same conversation) opens a new one.
-    const quietNudge = Boolean(resume) && (Number(run.retries) || 0) === 1 && (Number(run.resumes) || 0) === 0
-    const turn = resume && !quietNudge ? (Number(run.retries) || 0) + (Number(run.resumes) || 0) : 0
-    if (quietNudge) Object.assign(task, { nudge: "You ended your last turn without calling a tool, so the run went quiet. Carry on from where you are: call read_page, then the next action; every turn ends with a tool call or finish." })
-    const accepted = await client.runAsync({ agentId, eventId: crypto.randomUUID(), conversationKey: turn > 0 ? `odds-drive-${run.id}-${turn}` : `odds-drive-${run.id}`, input: JSON.stringify(task) })
+    const client = await broodsClient(run)
+    if (!client) return "Broods is not set up on the server."
+    // One conversation per run, always: a second conversation is a second agent driving the same tab. A pick-up joins the same
+    // conversation (Broods steers it into a live turn, or runs it next), and keeps everything the agent already did and saw.
+    // The quiet check below only picks a run up once its turn has ended; a hung turn ends the run instead.
+    if (resume && (Number(run.retries) || 0) > 0) Object.assign(task, { nudge: "You ended your last turn without calling a tool, so the run went quiet. Carry on from where you are: call read_page, then the next action; every turn ends with a tool call or finish." })
+    const accepted = await client.runAsync({ agentId, eventId: crypto.randomUUID(), conversationKey: `odds-drive-${run.id}`, input: JSON.stringify(task) })
+    // The turn's Broods id, so the quiet check can ask whether it is still working before picking the run up again.
+    const broodsRunId = (accepted as { runId?: unknown })?.runId
+    if (typeof broodsRunId === "string") await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "broods", args: {}, status: "done", result: { broods_run_id: broodsRunId }, done_at: new Date().toISOString() }) }).catch(() => undefined)
     // 202 only means Broods queued the run. A dead tunnel fails the model in well under a second and leaves the run "running".
     const started = await broodsInvocationState(client, accepted)
     if (started === "unreachable") return MODEL_UNREACHABLE
     if (started === "ended") {
       const [fresh, commands] = await Promise.all([
         runOf(env, run.id),
-        svc(env, `drive_commands?run_id=eq.${run.id}&tool=neq.recipe&select=id&limit=1`).catch(() => []),
+        svc(env, `drive_commands?run_id=eq.${run.id}&tool=not.in.(recipe,broods,guard)&select=id&limit=1`).catch(() => []),
       ])
       if (fresh?.status === "running" && (!Array.isArray(commands) || commands.length === 0)) {
         return "Broods ended before it reached the application tab. Press Apply with Odds to try again."
@@ -1212,10 +1247,13 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
         }
         return json(200, { done: true, status: fresh?.status ?? "failed", reason: fresh?.reason ?? null, message: fresh?.message ?? "The run ended." })
       }
-      // Broods has sent nothing for 30 s (not waiting on the person): it ended without saying so. Retry once by itself; only then say it.
-      if (Date.now() - Date.parse(fresh.updated_at) > QUIET_MS && !personBusy(fresh)) {
-        const commands = await svc(env, `drive_commands?run_id=eq.${run.id}&tool=neq.recipe&select=id&limit=1`).catch(() => [])
-        const decision = quietGiveUp({ retries: fresh.retries ?? 0, commandCount: Array.isArray(commands) ? commands.length : 0, quiet: true })
+      // Broods has sent nothing for 30 s (not waiting on the person). Still thinking: leave it alone (a pick-up would only queue behind
+      // it). Ended without a tool call: pick it up again in the same conversation. Hung: end the run.
+      const quietMs = Date.now() - Date.parse(fresh.updated_at)
+      if (quietMs > QUIET_MS && !personBusy(fresh)) {
+        const commands = await svc(env, `drive_commands?run_id=eq.${run.id}&tool=not.in.(recipe,broods,guard)&select=id&limit=1`).catch(() => [])
+        const decision = quietAction({ turn: await broodsTurn(env, fresh), quietMs, retries: fresh.retries ?? 0, commandCount: Array.isArray(commands) ? commands.length : 0 })
+        if (decision === "wait") { await sleep(400); continue }
         if (decision === "retry") {
           await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, {
             method: "PATCH",
@@ -1226,6 +1264,8 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
         const now = new Date().toISOString()
         const message = decision === "stuck_unreachable"
           ? MODEL_UNREACHABLE
+          : decision === "stuck_hung"
+          ? "Broods stopped answering on this application. Finish it in the tab, or press Apply with Odds to start again."
           : "Broods could not carry on with this application. Finish it in the tab, or press Apply with Odds to start again."
         await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, {
           method: "PATCH",
@@ -1238,7 +1278,7 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
             updated_at: now,
           }),
         }).catch(() => undefined)
-        await cancelOpenCommands(env, run.id, decision === "stuck_unreachable" ? "quiet:unreachable" : "quiet:stuck")
+        await cancelOpenCommands(env, run.id, `quiet:${decision === "stuck_unreachable" ? "unreachable" : decision === "stuck_hung" ? "hung" : "stuck"}`)
         return json(200, { done: true, status: "stuck", reason: "other", message, steps: run.steps })
       }
       await sleep(400)

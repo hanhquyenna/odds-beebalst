@@ -4,7 +4,7 @@ import { handleDriveMcp } from "../../supabase/functions/mcp/drive"
 const id = "11111111-2222-3333-4444-555555555555"
 
 /** Runs one read_page through the drive MCP and says whether the server ended the run (a PATCH to needs_you / account). */
-async function readPage(page: Record<string, unknown>): Promise<{ ended: boolean; text: string }> {
+async function readPage(page: Record<string, unknown>, wallTriedBefore = false): Promise<{ ended: boolean; text: string }> {
   const original = globalThis.fetch
   const deno = (globalThis as unknown as { Deno?: unknown }).Deno
   let ended = false
@@ -15,6 +15,7 @@ async function readPage(page: Record<string, unknown>): Promise<{ ended: boolean
     if (url.includes("drive_runs?") && !init?.method) result = [{ id, status: "running", steps: 5, url: "https://careers.example.org/job", expires_at: new Date(Date.now() + 60000).toISOString() }]
     if (url.endsWith("drive_commands") && init?.method === "POST") result = [{ id: 7 }]
     if (url.includes("drive_commands?id=eq.7") && !init?.method) result = [{ status: "done", result: page }]
+    if (url.includes("returned=eq.sign_in_wall") && !init?.method) result = wallTriedBefore ? [{ id: 3 }] : []
     if (url.includes("drive_runs?id=eq.") && init?.method === "PATCH" && String(init.body).includes("needs_you")) ended = true
     return new Response(JSON.stringify(result), { status: 200 })
   }) as typeof fetch
@@ -36,8 +37,15 @@ test("a dialog open over a form with a password box is not a sign-in wall: the r
   expect(out.text).toContain("Data Privacy Consent Statement")
 })
 
-test("the same page without a dialog (a password box and nothing to fill) is still a sign-in wall", async () => {
+test("the first sign-in wall in a run is Broods' to try: the run goes on and the result says how", async () => {
   const out = await readPage(base)
+  expect(out.ended).toBe(false)
+  expect(out.text).toContain("sign_in_wall")
+  expect(out.text).toContain("Create account")
+})
+
+test("a second sign-in wall in the same run (a password box and nothing to fill) is the person's", async () => {
+  const out = await readPage(base, true)
   expect(out.ended).toBe(true)
 })
 

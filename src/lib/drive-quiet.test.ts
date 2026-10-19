@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
-import { broodsStartFailed, broodsStartOutcome, driveRunExpired, MODEL_UNREACHABLE, quietGiveUp } from "../../supabase/functions/_shared/drive-quiet"
+import { broodsStartFailed, broodsStartOutcome, broodsTurnState, driveRunExpired, HUNG_MS, MODEL_UNREACHABLE, quietAction, quietGiveUp } from "../../supabase/functions/_shared/drive-quiet"
 import { driveIdleGiveUp, DRIVE_IDLE_MS } from "@/lib/drive-idle"
 import { panelFillExpired, PANEL_FILL_MS } from "@/lib/panel-fill"
 
@@ -38,8 +39,32 @@ describe("quiet give-up", () => {
   })
 })
 
+describe("quiet pick-up never starts a second agent", () => {
+  test("a turn still working is left alone until it is hung", () => {
+    expect(broodsTurnState({ status: "processing" })).toBe("live")
+    expect(broodsTurnState({ status: "queued" })).toBe("live")
+    expect(broodsTurnState({ status: "completed" })).toBe("over")
+    expect(broodsTurnState({ status: "failed" })).toBe("over")
+    expect(broodsTurnState(null)).toBe("unknown")
+    expect(quietAction({ turn: "live", quietMs: 45_000, retries: 0, commandCount: 3 })).toBe("wait")
+    expect(quietAction({ turn: "live", quietMs: HUNG_MS, retries: 0, commandCount: 3 })).toBe("stuck_hung")
+  })
+
+  test("a turn that ended without a tool call is picked up, then given up as before", () => {
+    expect(quietAction({ turn: "over", quietMs: 31_000, retries: 0, commandCount: 3 })).toBe("retry")
+    expect(quietAction({ turn: "unknown", quietMs: 31_000, retries: 3, commandCount: 0 })).toBe("stuck_unreachable")
+    expect(quietAction({ turn: "over", quietMs: 31_000, retries: 3, commandCount: 4 })).toBe("stuck_generic")
+  })
+
+  test("every Broods turn of a run uses the run's one conversation", () => {
+    const drive = readFileSync("supabase/functions/mcp/drive.ts", "utf8")
+    const keys = [...drive.matchAll(/conversationKey: ([^,]+),/g)].map((m) => m[1].trim())
+    expect(keys).toEqual(["`odds-drive-${run.id}`"])
+  })
+})
+
 describe("extension idle and panel press", () => {
-  test("two minutes of idle with no command gives up", () => {
+  test("three minutes of idle with no command gives up", () => {
     expect(driveIdleGiveUp(DRIVE_IDLE_MS - 1)).toBe(false)
     expect(driveIdleGiveUp(DRIVE_IDLE_MS)).toBe(true)
   })
