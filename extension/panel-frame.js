@@ -197,6 +197,9 @@ window.addEventListener("message", (event) => {
   if (d.type === "panel-account" && typeof d.tabId === "number") chrome.runtime.sendMessage({ type: "panel-account", tabId: d.tabId, create: d.create === true }, () => { void chrome.runtime.lastError; sendPanelInfo() })
   if (d.type === "panel-open-logins") chrome.runtime.sendMessage({ type: "panel-open-logins" }, () => void chrome.runtime.lastError)
   if (d.type === "panel-add-job" && typeof d.url === "string") chrome.runtime.sendMessage({ type: "panel-add-job", url: d.url }, () => { void chrome.runtime.lastError; sendPanelInfo() })
+  if (d.type === "panel-chance" && typeof d.tabId === "number" && typeof d.pct === "number") {
+    chrome.runtime.sendMessage({ type: "panel-chance", tabId: d.tabId, url: typeof d.url === "string" ? d.url : "", pct: d.pct, label: typeof d.label === "string" ? d.label : `${d.pct}%` }, () => { void chrome.runtime.lastError })
+  }
   if (d.type === "panel-keep-answers" && typeof d.tabId === "number" && Array.isArray(d.questions)) {
     chrome.runtime.sendMessage({ type: "panel-keep-answers", tabId: d.tabId, url: null, questions: d.questions }, () => { void chrome.runtime.lastError; lastAnswers = { tabId: null, at: 0, items: [] } })
   }

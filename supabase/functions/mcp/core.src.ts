@@ -1,7 +1,7 @@
 // Source for core.js: the app's own job rules, bundled so the MCP server answers exactly as the app does: which jobs are in the
 // pool, the filters, the interview chance (odds-v2 inside engine.ts), "Jobs tailored to you" and "Most likely to hear back".
 // Rebuild after changing any of them: scripts/build-mcp-core.sh. No database access here: index.ts loads the rows and passes them in.
-import { computeShares, hasCvData, LEVELS, standing, type Level } from "@/lib/engine"
+import { computeShares, displayedChance, hasCvData, LEVELS, standing, type Level } from "@/lib/engine"
 import { DEFAULT_FILTERS, FIELD_OPTIONS, applyFilters, fieldOf, type JobFilters } from "@/lib/filters"
 import { fitFilters, withFitLanguage } from "@/lib/fit-filters"
 import { profileFields } from "@/lib/field"
@@ -196,7 +196,7 @@ export function chanceFor(post: Posting, profile: Profile, ref: Reference, share
   const st = standing(post, profile, ref, shares)
   if (!st.rate) return null
   const v2 = oddsV2(post, profile, {})
-  const pct = (x: number): number => Math.round(x * 1000) / 10
+  const pct = (x: number): number => displayedChance(x).pct
 
   return {
     chance_pct: pct(st.rate.mid),
@@ -240,7 +240,7 @@ export function tailoredFor(pool: Posting[], ref: Reference, signals: Record<str
   const rows = tailor({ candidates, fitting, saved: opts.saved ?? [], chanceOf, profiles: {}, liftOf, own, fieldOrder, fitOf })
   const tags = hearBackFor(pool, profile, new Set(), () => null)
 
-  return rows.slice(0, Math.min(opts.limit ?? 15, 50)).map((r) => ({ ...jobLine(r.post, ref), chance_pct: Math.round(r.chance * 1000) / 10, why: r.note, most_likely_to_hear_back: tags.has(r.post.id) }))
+  return rows.slice(0, Math.min(opts.limit ?? 15, 50)).map((r) => ({ ...jobLine(r.post, ref), chance_pct: displayedChance(r.chance).pct, why: r.note, most_likely_to_hear_back: tags.has(r.post.id) }))
 }
 
 export interface SimilarLine extends JobLine {

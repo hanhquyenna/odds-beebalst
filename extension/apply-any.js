@@ -6,7 +6,7 @@
   const A = globalThis.oddsApply
   // Chrome loads a hidden page behind the address bar (google.com/search/warmup.html) and prerenders pages: nothing is ever driven there.
   if (document.prerendering || /^\/search\/warmup\.html/.test(location.pathname)) return
-  const APPLY_BUILD = "2026-10-19-fill-verify-merge"
+  const APPLY_BUILD = "2026-10-19-fill-verify-broods-ladder"
   const portalHost = host => /(^|\.)(greenhouse\.io|lever\.co|ashbyhq\.com|myworkdayjobs\.com|smartrecruiters\.com|successfactors\.eu|successfactors\.com|icims\.com)$/.test(host)
   // A form drawn in a blank frame of the page (HubSpot, Framer, Webflow embeds): Odds is put there on purpose (see blankFrameForm) and drives it.
   // A frame of this same page with no address of its own (about:blank, srcdoc, or written by the page's script); a frame from another site has
@@ -1349,12 +1349,12 @@
 
   let agentActionTries = 0
   let agentActionUrl = ""
-  /** Labels already clicked with no page change — next ask forces LLM and skips these. */
+  /** Labels already clicked with no page change. The next ask sets force_llm and skips these. */
   const agentFailedLabels = []
   const AGENT_ACTION_MAX = 3
   /** All "which button?" asks in one application, across pages (kept on the run): a hard stop, never minutes of the same question. */
   const AGENT_RUN_MAX = 12
-  /** When stuck: rules first, then force LLM with exclude so it can take over and finish. Fresh budget per URL. */
+  /** When stuck: rules first, then Broods (apply-stuck, then apply-roam) with exclude. Fresh budget per URL. */
   async function tryAgentClick(status, opts = {}) {
     if (pageHref() !== agentActionUrl) {
       agentActionUrl = pageHref()
@@ -1370,7 +1370,7 @@
     void ask({ type: "apply-hunt", op: "note", agent: true })
     agentActionTries += 1
     const forceLlm = opts.forceLlm === true || agentActionTries > 1 || agentFailedLabels.length > 0
-    say(forceLlm ? "Asking Odds (LLM) how to unblock this step…" : "Asking Odds how to reach the application form…", "filling")
+    say(forceLlm ? "Asking Broods how to unblock this step…" : "Asking Odds how to reach the application form…", "filling")
     const before = `${pageHref()}|${textOf(document.querySelector("h1, h2")).slice(0, 80)}|${fields().map((f) => f.label).slice(0, 8).join("|")}`
     const res = await ask({
       type: "suggest-action",
@@ -2646,6 +2646,7 @@
       return
     }
     let lostSince = 0
+    let idleSince = 0
     let fresh = true
     // Ended for the person (captcha, sign-in, questions, a letter, stuck): Odds keeps watching the tab for 30 minutes and carries on by
     // itself once they handled it. Broods going quiet is decided by the server (retried once, then said), never by a silent timer here.
@@ -2662,6 +2663,7 @@
       }
       // The person is filling in the form themselves: Broods waits (no step handed out) and picks up 20 s after they stop.
       if (!endedAt && Date.now() - person.at < PERSON_QUIET_MS) {
+        idleSince = 0
         say("You're filling in — Broods waits, then carries on around what you entered.", "filling")
         await ask({ type: "drive", op: "next", run_id: runId, hold: true }, 15000).catch(() => null)
         await sleep(3000)
@@ -2682,6 +2684,7 @@
       const next = await ask({ type: "drive", op: "next", run_id: runId, fresh }, 35000).catch(() => null)
       // No answer at all is the connection, not Broods: say so and keep trying for 5 minutes, then carry on where the run is.
       if (!next || next.status === "error") {
+        idleSince = 0
         lostSince ||= Date.now()
         if (Date.now() - lostSince > 300000) {
           say("Odds lost its connection while Broods was applying. Press Apply with Odds again to carry on from here.", "ask")
@@ -2694,6 +2697,7 @@
       fresh = false
       if (lostSince) { lostSince = 0; say("Broods is applying in this tab…", "filling") }
       if (next.done) {
+        idleSince = 0
         if (!endedAt) {
           endedAt = Date.now()
           endedReason = next.reason || ""
@@ -2717,6 +2721,7 @@
       }
       if (endedAt) { endedAt = 0; say("Broods is carrying on…", "filling") }
       if (next.command) {
+        idleSince = 0
         const cmd = next.command
         const note = typeof cmd.note === "string" && cmd.note.trim() ? cmd.note.trim() : ""
         if (note) say(`Broods: ${note}`, "filling")
@@ -2745,6 +2750,13 @@
         // and Broods waits ~25 s for nothing).
         if (!sent && result !== null) await sendResult(result)
         if (["click", "click_at", "back", "open_job"].includes(cmd.tool) && !(result && result.page)) await sleep(1500)
+      } else {
+        // The server answered and Broods sent nothing. Two minutes of that is a dead model, not a slow form.
+        idleSince ||= Date.now()
+        if (Date.now() - idleSince >= 120000) {
+          say("Broods' model is unreachable. The fill stopped. Press Apply with Odds to try again.", "ask")
+          return
+        }
       }
     }
   }
@@ -2771,6 +2783,7 @@
   /** What the bar says when a Broods run ends, by why it ended. */
   function driveEndText(next) {
     const m = next.message || ""
+    if (/model is unreachable/i.test(m)) return [m, "ask"]
     if (next.status === "review") return [m || "Filled in by Broods. Check everything, then send it yourself.", "done"]
     if (next.status === "submitted") return ["You sent it.", "done"]
     if (next.status === "stopped") return [m || "Broods stopped. Continue from the tracker, or finish it yourself.", "ask"]

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react"
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
 import { BriefcaseIcon, BuildingsIcon, ChevronRightIcon, GraduationCapIcon, PeopleIcon } from "@/components/icons"
 import type { JobTab } from "@/components/JobDetail"
@@ -9,7 +9,8 @@ import { useData } from "@/lib/data"
 import { fetchKeptPostings } from "@/lib/jobs"
 import { applySourceOf } from "@/lib/apply-source"
 import { onPanelInfo, toExtension, type PanelInfo } from "@/lib/embed"
-import { chanceSentence, NO_WHAT_IF, point, standing } from "@/lib/engine"
+import { displayedChance, NO_WHAT_IF, standing } from "@/lib/engine"
+import { PANEL_FILL_MS } from "@/lib/panel-fill"
 import { formatAge } from "@/lib/format"
 import type { Posting } from "@/lib/types"
 import { useJobProfile, useJobStrength } from "@/lib/use-documents"
@@ -65,7 +66,7 @@ export function ApplyPanel(): React.JSX.Element | null {
       <JobCard info={info} post={post} onInsights={post ? () => open("overview") : undefined} />
       <OddsButton info={info} post={post} />
       <SaveAnswers info={info} />
-      {post ? <ChanceCard post={post} /> : null}
+      {post ? <ChanceCard post={post} tabId={page.tabId} url={page.url} /> : null}
       <Attach info={info} post={post} />
       {post ? (
         <Suspense fallback={null}>
@@ -193,6 +194,7 @@ function OddsButton({ info, post }: { info: PanelInfo; post: Posting | null }): 
   const page = info.page!
   const [pressed, setPressed] = useState(false)
   const [adding, setAdding] = useState(false)
+  const pressGen = useRef(0)
   const state = info.status?.state ?? null
   useEffect(() => { if (state) setPressed(false) }, [state])
   const look = "flex min-h-16 w-full cursor-pointer items-center justify-center gap-3 rounded-2xl bg-brand px-4 py-3 text-lg font-bold text-foreground shadow-sm transition hover:brightness-105 disabled:cursor-default disabled:opacity-60"
@@ -241,7 +243,12 @@ function OddsButton({ info, post }: { info: PanelInfo; post: Posting | null }): 
   }
   if (page.form || state) {
     return (
-      <button type="button" disabled={busy} onClick={() => { setPressed(true); toExtension({ type: "panel-fill", tabId: page.tabId }) }} className={`${look} ${!state && !busy ? "odds-fill-pulse" : ""}`}>
+      <button type="button" disabled={busy} onClick={() => {
+        const gen = ++pressGen.current
+        setPressed(true)
+        toExtension({ type: "panel-fill", tabId: page.tabId })
+        window.setTimeout(() => { if (pressGen.current === gen) setPressed(false) }, PANEL_FILL_MS)
+      }} className={`${look} ${!state && !busy ? "odds-fill-pulse" : ""}`}>
         <Face label={busy ? "Filling…" : ready ? "Ready to send" : needs ? "Carry on with Odds" : state === "submitted" ? "Applied" : state ? "Apply again" : "Apply with Odds"} sub={sub} />
       </button>
     )
@@ -280,16 +287,23 @@ function OddsButton({ info, post }: { info: PanelInfo; post: Posting | null }): 
 }
 
 /** Like a resume score, but the interview chance: the ring, then the recommendations that raise it (tick one and the chance moves). */
-function ChanceCard({ post }: { post: Posting }): React.JSX.Element | null {
+function ChanceCard({ post, tabId, url }: { post: Posting; tabId: number; url: string }): React.JSX.Element | null {
   const data = useData()
   const profile = useJobProfile(post.id)
   const strength = useJobStrength(post)
   const referral = data.referrals.has(post.id)
   const st = useMemo(() => (data.reference && data.shares ? standing(post, profile, data.reference, data.shares, NO_WHAT_IF, referral, strength) : null), [post, profile, data.reference, data.shares, referral, strength])
+  const mid = st && !st.needsProfile ? st.rate?.mid ?? null : null
+  const shown = mid !== null ? displayedChance(mid) : null
+  const chancePct = shown?.pct
+  const chanceLabel = shown?.label
+  useEffect(() => {
+    if (chancePct == null || !chanceLabel) return
+    toExtension({ type: "panel-chance", tabId, url, pct: chancePct, label: chanceLabel })
+  }, [chancePct, chanceLabel, tabId, url])
   if (!st || st.needsProfile) return null
-  const mid = st.rate?.mid ?? null
   // The ring is the chance itself: 14% fills 14% of it (never a full circle for a small number).
-  const fill = mid !== null ? Math.min(100, mid * 100) : 0
+  const fill = shown ? Math.min(100, shown.pct) : 0
 
   const R = 42
   const C = 2 * Math.PI * R
@@ -305,10 +319,10 @@ function ChanceCard({ post }: { post: Posting }): React.JSX.Element | null {
             <circle cx="50" cy="50" r={R} fill="none" stroke="var(--secondary)" strokeWidth="10" />
             <circle cx="50" cy="50" r={R} fill="none" stroke="var(--brand)" strokeWidth="10" strokeLinecap="round" strokeDasharray={`${(C * Math.max(fill, 1.5)) / 100} ${C}`} className="transition-[stroke-dasharray] duration-500" />
           </svg>
-          <span className="relative text-3xl font-extrabold tracking-tight tabular-nums">{mid !== null ? point(mid) : "–"}</span>
+          <span className="relative text-3xl font-extrabold tracking-tight tabular-nums">{shown ? shown.label : "–"}</span>
         </div>
         <span className="text-base font-bold">Interview chance</span>
-        {mid !== null ? <span className="text-sm text-muted-foreground">{chanceSentence(mid)}</span> : null}
+        {mid !== null ? <span className="text-sm text-muted-foreground">{shown?.perHundred}</span> : null}
       </div>
       {have.length ? (
         <div className="flex flex-col gap-2">

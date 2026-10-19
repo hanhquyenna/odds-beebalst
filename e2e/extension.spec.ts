@@ -1945,7 +1945,7 @@ test("Broods suggest-answers accepted[] is applied (not dropped as .answers)", a
   await expect(page.locator("#why")).toHaveValue(/brand and content/i, { timeout: 12000 })
 })
 
-test("stuck listing: suggest-action multi-step unblocks cookie then Apply (Broods/mini path)", async ({ context, fake }) => {
+test("stuck listing: suggest-action multi-step unblocks cookie then Apply (Broods path)", async ({ context, fake }) => {
   await connect(context)
   let stage = 0
   await context.route("https://careers.example.org/**", async (route) => {

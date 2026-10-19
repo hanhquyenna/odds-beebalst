@@ -1327,7 +1327,7 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     void logApplyAgentEvent(env, me.id, "apply.questions", held.id, { n: questions.length, labels: questions.map((q: ApplyQuestion) => q.label).slice(0, 20) })
     return json(200, { status: "ok" })
   }
-  // Stuck: rules → shared ATS pattern → LLM (force_llm after a dead click so rules cannot loop the same CTA).
+  // Stuck: rules, then a shared ATS pattern, then Broods (force_llm skips a dead rule label and asks Broods).
   if (route === "suggest-action" && req.method === "POST") {
     const body = await req.json().catch(() => null)
     const buttons = Array.isArray(body?.buttons)
@@ -1369,7 +1369,7 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
         force_llm: forceLlm || pick.action === "none",
         exclude,
       })
-      source = pick.reason?.startsWith("llm") || pick.reason === "llm_hands" ? "llm" : pick.action === "click" ? (forceLlm ? "llm_or_rules" : "webhook") : "none"
+      source = pick.reason?.startsWith("broods") ? "broods" : pick.reason?.startsWith("llm") || pick.reason === "llm_hands" ? "llm" : pick.action === "click" ? (forceLlm ? "broods_or_rules" : "webhook") : "none"
       if (pick.action === "click" && pick.text && host && !forceLlm) {
         const fp = await sha256hex(actionButtonsFingerprint(buttons))
         void svc(env, "apply_agent_action_patterns?on_conflict=host,buttons_fp", {
@@ -1408,7 +1408,7 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     // Re-validate click against snapshot buttons when present.
     const buttons = Array.isArray(snapshot.buttons) ? snapshot.buttons.filter((b: unknown) => typeof b === "string") : []
     if (scan.action === "click" && scan.text && buttons.length) {
-      const ok = acceptActionPick(buttons, scan.text, "llm_scan")
+      const ok = acceptActionPick(buttons, scan.text, "broods_scan")
       if (ok.action !== "click") scan = { ...scan, action: "none", text: null, reason: "llm_not_on_page" }
     }
     // Answers from a page scan pass the same checks as suggest-answers: a known field, never a legal/personal question, one of its own options.

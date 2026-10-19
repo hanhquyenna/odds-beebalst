@@ -71,7 +71,7 @@ const DENY = /\b(gender|genre|divulgation volontaire|identit\w* de genre|race|et
 
 const CONFIDENCE_FLOOR = 0.55
 const MAX_ANSWER = 500
-// Broods (gpt-6.1-sol, medium) takes ~6–8s for a quick pick and up to ~25s more when it browses; a short wait threw its replies away.
+// Broods through 9router takes several seconds for a quick pick and up to ~25s more when it browses; a short wait threw its replies away.
 // The extension waits a little longer than each of these.
 const SUGGEST_TIMEOUT_MS = 32000
 const SCAN_TIMEOUT_MS = 42000
@@ -199,8 +199,8 @@ export function notifyApplyAgent(env: ApplyAgentEnv, event: ApplyAgentEvent): vo
 }
 
 /**
- * Ask the sync webhook which visible control to click (rules + optional LLM hands).
- * `force_llm` / `exclude`: after a dead click, skip the same rule pick and let the LLM choose another.
+ * Ask the sync webhook which visible control to click (rules, then Broods).
+ * `force_llm` / `exclude`: after a dead click, skip the same rule pick and let Broods choose another.
  * Falls back to local pickSuggestAction when webhook is off / slow / invalid.
  */
 export async function requestSuggestAction(

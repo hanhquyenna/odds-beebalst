@@ -446,6 +446,21 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return true
   }
   // The side panel: add the page's job to the person's Odds jobs; read the new answers on the form (Save to Autofill).
+  if (message?.type === "panel-chance" && typeof message.tabId === "number" && typeof message.pct === "number") {
+    const label = typeof message.label === "string" ? message.label : `${message.pct}%`
+    chrome.tabs.sendMessage(message.tabId, { type: "odds-chance", pct: message.pct, label, url: typeof message.url === "string" ? message.url : "" }).catch(() => undefined)
+    if (typeof message.url === "string") {
+      savedKey().then((key) => {
+        if (!key) return
+        const id = `${key}:${message.url}`
+        const cached = chanceCache.get(id)
+        const answer = cached?.answer && typeof cached.answer === "object" ? { ...cached.answer, chance_pct: message.pct } : { status: "ok", known: true, chance_pct: message.pct }
+        remember(id, answer)
+      }).catch(() => undefined)
+    }
+    reply({ ok: true })
+    return true
+  }
   if (message?.type === "panel-add-job" && typeof message.url === "string") {
     addJob(message.url).then((res) => { kits.delete(message.url); reply(res) }).catch(() => reply({ status: "error" }))
     return true
@@ -944,10 +959,17 @@ function changeIntents(change) {
 }
 // An application starting in a tab that already shows an account step (Auto apply pressed there) gets the same account step as one that reaches it.
 function setIntent(tabId, intent) { return changeIntents((all) => { all[tabId] = intent }).then((r) => { void autoAccount(tabId, pageKinds.get(tabId) || null); return r }) }
+/** Extension/browser restart invalidates old content-script ports. Stop their server runs before dropping tab ownership. */
+async function stopAndClearApplyIntents(message) {
+  const { oddsApplyIntents = {} } = await chrome.storage.local.get("oddsApplyIntents")
+  const runs = [...new Set(Object.values(oddsApplyIntents).map((it) => it?.driveRun).filter((id) => typeof id === "string"))]
+  await Promise.allSettled(runs.map((run_id) => ext("drive-stop", { method: "POST", body: JSON.stringify({ run_id, message }) })))
+  await chrome.storage.local.remove("oddsApplyIntents")
+}
 // Tab ids are reused once the browser restarts: an application is only remembered across a reload of the extension.
-chrome.runtime.onStartup.addListener(() => chrome.storage.local.remove("oddsApplyIntents"))
+chrome.runtime.onStartup.addListener(() => { void stopAndClearApplyIntents("Chrome restarted while Odds was applying. Press Apply with Odds to carry on.") })
 // Reloaded or updated: every application record from before is dropped, so no tab the person is using stays attached to an old run.
-chrome.runtime.onInstalled.addListener(() => { void chrome.storage.local.remove("oddsApplyIntents") })
+chrome.runtime.onInstalled.addListener(() => { void stopAndClearApplyIntents("The Odds extension was updated while applying. Press Apply with Odds to carry on.") })
 // The person takes an application tab for themselves (types an address, a bookmark, the address bar): Odds lets go of that tab and pauses
 // the run, so it never works on a page they opened. Odds' own clicks and the site's redirects keep the application.
 chrome.webNavigation?.onCommitted.addListener((d) => {
@@ -1078,12 +1100,21 @@ async function continueInTab(tabId, { reveal = false } = {}) {
   if (reveal) await revealApplicationTab(tabId, true)
   const ping = () => chrome.tabs.sendMessage(tabId, { type: "application-ping" }).then(() => true).catch(() => false)
   if (!await ping()) {
-    await injectApplyScripts(tabId)
+    const injected = await injectApplyScripts(tabId)
     // Content script must attach its Continue listener before we ping it (reload / reinject).
     await new Promise((r) => setTimeout(r, 400))
+    if (!injected || !await ping()) {
+      const message = "Odds could not reconnect to the application page. Reload it, then press Apply with Odds again."
+      await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], status: "failed", message, at: Date.now() } }).catch(() => undefined)
+      return false
+    }
   }
-  await chrome.tabs.sendMessage(tabId, { type: "application-continue" }).catch(() => undefined)
-  return true
+  const delivered = await chrome.tabs.sendMessage(tabId, { type: "application-continue" }).then(() => true).catch(() => false)
+  if (!delivered) {
+    const message = "Odds could not reconnect to the application page. Reload it, then press Apply with Odds again."
+    await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], status: "failed", message, at: Date.now() } }).catch(() => undefined)
+  }
+  return delivered
 }
 /** Find the open apply tab for a phone/desktop run after a reload (session map gone; intents in local still hold). */
 async function tabForApplicationRun(runId, postingId) {
@@ -1283,8 +1314,8 @@ function openApplication(url, from, opts = {}) {
         if (!intent.paused) void continueInTab(tab.id, { reveal: false })
         return { ok: true, resumed: true }
       }
-      await continueInTab(tab.id, { reveal: false })
-      return { ok: true, resumed: true }
+      const continued = await continueInTab(tab.id, { reveal: false })
+      return continued ? { ok: true, resumed: true } : { ok: false, message: "Odds could not reconnect to the application page. Reload it, then press Apply with Odds again." }
     }
     // New application: in the Odds window — a separate Chrome window, opened without focus, where Broods works in the open (the person can
     // glance at it) while their own window is never touched. Its tab is the visible one in that window, which is what lets Broods see it.
@@ -1305,7 +1336,12 @@ function openApplication(url, from, opts = {}) {
     // Where this application was found last time (the employer's real form), straight away; the job's own link otherwise.
     // Where this application was found before, here or by anyone (the server's apply link): past the board's captcha and sign-in walls.
     const learned = await learnedApplyUrl(postingId, applyUrl) || await directApplyUrl(applyUrl)
-    await oddsGo(tabId, learned || applyUrl, { active: reveal || personWindow !== null }).catch(() => undefined)
+    const moved = await oddsGo(tabId, learned || applyUrl, { active: reveal || personWindow !== null }).then(() => true).catch(() => false)
+    if (!moved) {
+      const message = "Odds could not open the application page. Press Apply with Odds to try again."
+      await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], status: "failed", message, at: Date.now() } })
+      return { ok: false, message }
+    }
     // Person asked to look: bring the new tab's window forward too.
     if (reveal) await revealApplicationTab(tabId, true)
     // Applying keeps the job in the person's tracker, in the same click.
@@ -1321,13 +1357,22 @@ function openApplication(url, from, opts = {}) {
  */
 async function applyHere(tabId, url, postingId) {
   if (!await savedKey()) return { ok: false, message: "Connect Odds from the extension icon first." }
+  const present = await chrome.tabs.get(tabId).catch(() => null)
+  if (!present) return { ok: false, message: "The application tab is no longer open." }
   const applyUrl = preferEnglishApplyUrl(url)
   await setIntent(tabId, { job: applyUrl, postingId, at: Date.now(), status: "filling", message: "Opening the application…", copilot: true, here: true })
   const learned = await learnedApplyUrl(postingId, applyUrl) || await directApplyUrl(applyUrl)
   const target = learned || applyUrl
   const tab = await chrome.tabs.get(tabId).catch(() => null)
   if (tab?.url && tab.url.split("#")[0] === target.split("#")[0]) await continueInTab(tabId)
-  else await oddsGo(tabId, target, { active: true }).catch(() => undefined)
+  else {
+    const moved = await oddsGo(tabId, target, { active: true }).then(() => true).catch(() => false)
+    if (!moved) {
+      const message = "Odds could not open the application page. Press Apply with Odds to try again."
+      await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], status: "failed", message, at: Date.now() } })
+      return { ok: false, message }
+    }
+  }
   addJob(applyUrl).catch(() => undefined)
   return { ok: true }
 }
@@ -1473,9 +1518,13 @@ async function accountInTab(tabId, create, press = true) {
   // The tab holds the application from here: once the account step is past, Odds fills every page up to Submit.
   const held = await intentOf(tabId)
   if (!held) await setIntent(tabId, { job: tab.url, title: String(tab.title || "").slice(0, 200), at: Date.now(), status: "filling", message: create ? "Creating your account…" : "Signing in…", copilot: true, here: true })
-  else await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], copilot: true, here: true, paused: false, driveRun: undefined, at: Date.now() } })
+  else await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], copilot: true, here: true, paused: false, at: Date.now() } })
   if (!held) addJob(tab.url).catch(() => undefined)
   const res = await chrome.tabs.sendMessage(tabId, { type: "odds-account", email: account?.email || email, password: account?.password || "", create, press }, { frameId: 0 }).catch(() => null)
+  if (!res?.ok) {
+    const message = res?.message || "Odds could not use the account form on this page. Finish this step yourself, then press Apply with Odds again."
+    await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], status: "needs_input", message, at: Date.now() } })
+  }
   return { ok: Boolean(res?.ok), pressed: Boolean(res?.pressed) }
 }
 /** A new tab's first real address (window.open often starts at about:blank). */
@@ -1500,11 +1549,19 @@ chrome.tabs.onCreated.addListener((tab) => {
   if (from.here && typeof opener === "number") {
     void (async () => {
       const url = await firstUrlOf(tabId)
-      if (!url) return
+      if (!url) {
+        const message = "The employer opened a new tab that did not finish loading. Open that tab, then press Apply with Odds again."
+        await changeIntents((all) => { if (all[opener]) all[opener] = { ...all[opener], status: "needs_input", message, at: Date.now() } })
+        return
+      }
       followFrom.delete(opener)
       await setIntent(opener, { ...from, at: Date.now(), followed: true, status: "filling", message: "Opening the employer’s application…" })
       await chrome.tabs.remove(tabId).catch(() => undefined)
-      await oddsGo(opener, url, { active: true }).catch(() => undefined)
+      const moved = await oddsGo(opener, url, { active: true }).then(() => true).catch(() => false)
+      if (!moved) {
+        const message = "Odds could not move the employer’s application into this tab. Open the new tab, then press Apply with Odds again."
+        await changeIntents((all) => { if (all[opener]) all[opener] = { ...all[opener], status: "needs_input", message, at: Date.now() } })
+      }
     })()
     return
   }
@@ -1556,7 +1613,14 @@ async function fillTab(tabId) {
     await new Promise((r) => setTimeout(r, 400))
     res = await tell().catch(() => null)
   }
-  return Boolean(res?.ok)
+  if (res?.ok) return true
+  const message = "Odds could not run on this page. Reload the page, then press Apply with Odds again."
+  const tab = await chrome.tabs.get(tabId).catch(() => null)
+  await changeIntents((all) => {
+    const held = all[tabId]
+    all[tabId] = { ...(held || { job: tab?.url || "", postingId: null }), at: Date.now(), status: "failed", message, copilot: true, here: true }
+  }).catch(() => undefined)
+  return false
 }
 
 /** Tabs whose page holds an application form: the toolbar icon pulses an orange "Fill" there for a few seconds, then stays. */
