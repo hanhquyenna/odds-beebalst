@@ -5468,6 +5468,68 @@ test("the side panel knows the page: a create-account step gets Create account &
   await expect(page.locator("#odds-panel-frame")).toHaveAttribute("data-open", "true", { timeout: 15000 })
 })
 
+/** A Workday-like create-account step (email, password twice, agreement) that draws the application after it. */
+const AUTO_ACCOUNT_HTML = `<!doctype html><html><body><h1>Marketing Internship</h1>
+  <section id="acct"><h2>Create Account</h2><label for="em">Email Address</label><input id="em" type="email" required>
+    <label for="pw">Password</label><input id="pw" type="password" required><label for="pw2">Verify New Password</label><input id="pw2" type="password" required>
+    <input type="checkbox" id="agree" required><label for="agree">I agree to the terms</label><button type="button" id="create">Create Account</button></section>
+  <script>window.created = null; document.getElementById("create").onclick = () => {
+    const pw = document.getElementById("pw").value
+    if (!document.getElementById("agree").checked || pw !== document.getElementById("pw2").value || pw.length < 8) return
+    window.created = { email: document.getElementById("em").value, pw }
+    document.getElementById("acct").remove() }</script></body></html>`
+
+test("while Odds applies in a tab, a create-account step is done by Odds itself: email, its own password, the agreement, the site's button; nothing on a tab the person is only browsing, nothing when switched off", async ({ context, fake }) => {
+  test.setTimeout(120_000)
+  await connect(context)
+  const host = "acme.wd5.example-workday.com"
+  await context.route(`https://${host}/**`, (route) => route.fulfill({ contentType: "text/html", body: AUTO_ACCOUNT_HTML }))
+  fake.kit = { job_id: "pauto", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  fake.driveScript = async (cmd) => { await cmd("read_page"); return { status: "review", message: "Everything is filled in. Check it and press Submit yourself." } }
+  const worker = context.serviceWorkers()[0]
+  const created = (p: import("@playwright/test").Page) => p.evaluate(() => (window as unknown as { created: { email: string; pw: string } | null }).created)
+  // This host is not one Odds' script is on from the start: putting the script on it makes it report (as it does on Workday's own hosts).
+  const askKind = (p: import("@playwright/test").Page) => worker.evaluate(async (u) => {
+    const [tab] = await chrome.tabs.query({ url: u })
+    await (globalThis as unknown as { injectApplyScripts(tabId: number): Promise<void> }).injectApplyScripts(tab.id!)
+  }, `https://${host}/*`).then(() => p.waitForTimeout(500))
+  const applyIn = (url: string) => worker.evaluate(async (u) => {
+    const [tab] = await chrome.tabs.query({ url: u })
+    await (globalThis as unknown as { setIntent(tabId: number, intent: unknown): Promise<void> }).setIntent(tab.id!, { job: tab.url, title: "Marketing Internship", at: Date.now(), status: "filling", message: "Filling…", copilot: true, here: true })
+  }, url)
+
+  // 1. Only browsing (no application running in the tab): nothing is created.
+  const browsing = await context.newPage()
+  await browsing.goto(`https://${host}/browse`)
+  await askKind(browsing)
+  await browsing.waitForTimeout(5000)
+  expect(await created(browsing)).toBeNull()
+  expect(await browsing.locator("#pw").inputValue()).toBe("")
+
+  // 2. Switched off: nothing is created, even while applying.
+  await worker.evaluate(() => chrome.storage.local.set({ oddsAutoAccount: false }))
+  await applyIn(`https://${host}/browse`)
+  await browsing.waitForTimeout(5000)
+  expect(await created(browsing)).toBeNull()
+  await browsing.close()
+
+  // 3. Applying, switch on (the default): Odds creates the account by itself.
+  await worker.evaluate(() => chrome.storage.local.set({ oddsAutoAccount: true }))
+  const page = await context.newPage()
+  await page.goto(`https://${host}/apply`)
+  await askKind(page)
+  await page.waitForTimeout(2500) // its report: this tab shows an account step
+  await applyIn(`https://${host}/apply`) // Auto apply pressed here
+  await expect.poll(() => created(page), { timeout: 30000 }).not.toBeNull()
+  const made = (await created(page))!
+  expect(made.email).toBe("kien@example.com")
+  expect(made.pw).toMatch(/^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{16}$/)
+  // The password stays in this Chrome only.
+  const kept = await worker.evaluate(async (h) => ((await chrome.storage.local.get("oddsAccounts")).oddsAccounts as Record<string, { password: string }> | undefined)?.[h]?.password, host)
+  expect(kept).toBe(made.pw)
+  expect(JSON.stringify(fake.driveStartBodies ?? [])).not.toContain(made.pw)
+})
+
 test("a box that keeps its value only on its own blur (Workday, React's focusout) keeps what Odds typed, even while the person is in the side panel", async ({ context, fake }) => {
   test.setTimeout(90_000)
   await connect(context)
@@ -5935,12 +5997,23 @@ for (const job of REAL_JOBS) {
     fake.realBroods = { title: job.title, person: TEST_PERSON, log: [] }
     let shots = 0
     context.on("page",p=>p.on("pageerror",e=>console.log("REAL page error:",e.message.slice(0,180))))
+    { const dbg=(p:typeof page)=>p.on("console",m=>{ if(process.env.REAL_DEBUG && /\[odds-/.test(m.text())) console.log("DBG",Date.now()%100000,m.text()) }); context.pages().forEach(dbg); context.on("page",dbg) }
     fake.realBroods.shot = async (label) => { await page.screenshot({ path: `test-results/real-${job.name}/${String(++shots).padStart(2, "0")}-step${label}.png` }) }
     fake.kit = { job_id: `preal-${job.name}`, broods_drive: true, facts: { job_country: "NL", job_source: /linkedin/.test(job.url) ? "LinkedIn" : "Company website", dutch: "basic", adult: true, never_worked_here: true, applied_before: false, name: "Test Applicant", email: TEST_PERSON.email, phone: TEST_PERSON.phone, answers: { ...TEST_PERSON, city:"Amsterdam",country:"Netherlands",first_name: "Test", last_name: "Applicant", email: TEST_PERSON.email, phone: TEST_PERSON.phone, university: "Vrije Universiteit Amsterdam", degree: "Master's degree", field_of_study: "Business Analytics", graduation_date: "August 2027", study_start: "September 2025", study_year: "1st year", study_status: "Yes, enrolled", current_job_title: "Data Analyst", current_company: "Shopee", nationality: "Vietnamese", work_authorization: "Orientation year (zoekjaar) permit: may work in the Netherlands without sponsorship", expected_salary: "In line with your standard internship allowance", notice_period: "None", relocation: "Yes", onsite_ok: "Yes", gender: "Male" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Test_Applicant_CV", file_name: "Test_Applicant_CV.pdf", for_this_job: true } }
     // The employer's own form for a board listing, as production's apply-kit sends it (posting_apply_links): Odds opens it straight away.
     const postingId = /-(p[0-9a-f]{8,})$/.exec(job.name)?.[1]
     const direct = postingId ? (await rest(`posting_apply_links?posting_id=eq.${postingId}&select=apply_url`).catch(() => []))[0]?.apply_url : null
     if (typeof direct === "string") Object.assign(fake.kit, { apply_url: direct })
+    // REAL_WARM=1: the browser already holds the person's details and this site's recipes, as after one earlier application or a panel open.
+    if (process.env.REAL_WARM === "1") {
+      const worker = context.serviceWorkers()[0]
+      await worker.evaluate(async (u) => {
+        const g = globalThis as unknown as { kitFor?: (u: string) => Promise<unknown>; playbookFor?: (u: string) => Promise<unknown> }
+        await g.kitFor?.(u); await g.playbookFor?.(u)
+        await new Promise((r) => setTimeout(r, 300))
+      }, (fake.kit as { apply_url?: string }).apply_url || job.url)
+    }
+    let firstValueMs: number | null = null
     let submits = 0
     await context.exposeBinding("oddsTestSubmitAttempt",()=>{submits++})
     await context.addInitScript(()=>{
@@ -5976,6 +6049,18 @@ for (const job of REAL_JOBS) {
     } else {
       // Where production opens the application (background openApplication): the employer's own form when Odds knows it, else the job's link.
       const start = (fake.kit as { apply_url?: string }).apply_url || job.url
+      // Page ready → first text box holding a value, watched from outside the extension (works for any extension copy).
+      const watchT0 = Date.now()
+      const watching = (async () => {
+        for (let i = 0; i < 1200; i++) {
+          for (const frame of page.frames()) {
+            const hit = await frame.evaluate(() => [...document.querySelectorAll("input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file]):not([type=password]), textarea")].some((e) => (e as HTMLInputElement).value.trim() !== "" && (e as HTMLInputElement).offsetParent !== null)).catch(() => false)
+            if (hit) { firstValueMs = Date.now() - watchT0; return }
+          }
+          await page.waitForTimeout(40)
+        }
+      })()
+      void watching
       await page.goto(start, { waitUntil: "domcontentloaded" })
       await applyFrom(context, page, start)
     }
@@ -5997,23 +6082,12 @@ for (const job of REAL_JOBS) {
     const pageSnap = await last.evaluate(() => {
       const inputs = [...document.querySelectorAll("input, textarea, select")].filter((el) => {
         const s = getComputedStyle(el)
-    { const dbg=(p:typeof page)=>p.on("console",m=>{ if(process.env.REAL_DEBUG && /\[odds-/.test(m.text())) console.log("DBG",Date.now()%100000,m.text()) }); context.pages().forEach(dbg); context.on("page",dbg) }
         return s.display !== "none" && s.visibility !== "hidden"
       }) as HTMLInputElement[]
       const requiredEmpty = inputs.filter((el) => el.required && !el.disabled && !(el.type === "checkbox" || el.type === "radio" ? el.checked : (el.type === "file" ? (el.files?.length ?? 0) > 0 : String(el.value || "").trim()))).map((el) => el.name || el.id || el.getAttribute("aria-label") || el.type)
       const fileName = (document.querySelector('input[type="file"]') as HTMLInputElement | null)?.files?.[0]?.name ?? ""
       const filled = inputs.filter((el) => el.type !== "hidden" && el.type !== "password" && (el.type === "file" ? (el.files?.length ?? 0) > 0 : String(el.value || "").trim())).length
       return { url: location.href, requiredEmpty, fileName, filled, title: document.title }
-    // REAL_WARM=1: the browser already holds the person's details and this site's recipes, as after one earlier application or a panel open.
-    if (process.env.REAL_WARM === "1") {
-      const worker = context.serviceWorkers()[0]
-      await worker.evaluate(async (u) => {
-        const g = globalThis as unknown as { kitFor?: (u: string) => Promise<unknown>; playbookFor?: (u: string) => Promise<unknown> }
-        await g.kitFor?.(u); await g.playbookFor?.(u)
-        await new Promise((r) => setTimeout(r, 300))
-      }, (fake.kit as { apply_url?: string }).apply_url || job.url)
-    }
-    let firstValueMs: number | null = null
     }).catch(() => ({ url: last.url(), requiredEmpty: [] as string[], fileName: "", filled: 0, title: "" }))
     const humanEvidence =
       outcome === "signin" ||
@@ -6049,18 +6123,6 @@ for (const job of REAL_JOBS) {
         await expect(last.locator(".odds-apply-bar")).toBeVisible({ timeout: UI_MS })
       }
       await last.screenshot({ path: testInfo.outputPath("application-opened-for-review.png") })
-      // Page ready → first text box holding a value, watched from outside the extension (works for any extension copy).
-      const watchT0 = Date.now()
-      const watching = (async () => {
-        for (let i = 0; i < 1200; i++) {
-          for (const frame of page.frames()) {
-            const hit = await frame.evaluate(() => [...document.querySelectorAll("input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file]):not([type=password]), textarea")].some((e) => (e as HTMLInputElement).value.trim() !== "" && (e as HTMLInputElement).offsetParent !== null)).catch(() => false)
-            if (hit) { firstValueMs = Date.now() - watchT0; return }
-          }
-          await page.waitForTimeout(40)
-        }
-      })()
-      void watching
       fake.realBroods!.uiEndedAt = Date.now()
       ui_ms = fake.realBroods!.uiEndedAt - uiT0
     }
@@ -6072,6 +6134,8 @@ for (const job of REAL_JOBS) {
       message,
       steps: modelSteps,
       fill_ms,
+      first_fill_ms: fake.realBroods?.firstFillMs ?? null,
+      first_value_ms: firstValueMs,
       ui_ms,
       tab_url: pageSnap.url,
       postingId: (fake.kit as { job_id?: string }).job_id,
@@ -6134,8 +6198,6 @@ test("STRESS: six applications at once, each in its own tab, none mixing with an
   await mine.goto("https://dashboard.example-tool.com/runs")
   const worker = context.serviceWorkers()[0]
   const jobs = [
-      first_fill_ms: fake.realBroods?.firstFillMs ?? null,
-      first_value_ms: firstValueMs,
     "https://boards.example-ats.com/stress/jobs/1",
     "https://boards.example-ats.com/stress/jobs/2",
     "https://boards.example-ats.com/stress/jobs/3",

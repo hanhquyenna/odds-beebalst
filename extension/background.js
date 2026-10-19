@@ -486,6 +486,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   // What the page in front is (job / create_account / sign_in / captcha / form), for the side panel's one button.
   if (message?.type === "page-kind" && sender.tab && typeof sender.tab.id === "number" && sender.frameId === 0) {
     pageKinds.set(sender.tab.id, message.kind || null)
+    void autoAccount(sender.tab.id, message.kind || null)
     reply({ ok: true })
     return true
   }
@@ -644,9 +645,9 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
         const held = (await intentOf(tabId))?.driveRun
         if (typeof held === "string") body.run_id = held
       }
-      const res = await ext(`drive-${message.op}`, { method: "POST", body: JSON.stringify(body) })
       // Site recipes change slowly: the copy kept for this host answers at once and is refreshed for the next page.
       if (message.op === "playbook") return playbookFor(body.page)
+      const res = await ext(`drive-${message.op}`, { method: "POST", body: JSON.stringify(body) })
       // The run follows the tab across page loads: the next page resumes it instead of starting another.
       if (message.op === "start" && typeof res?.run_id === "string") await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], driveRun: res.run_id } })
       // ext() separates transport status from the application stage. Restore the
@@ -750,12 +751,12 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   }
   // Applying: what the form needs, the person's own answers kept, the job marked applied, their CV for the upload.
   if (message?.type === "apply-kit" && typeof message.url === "string") {
-    // Always an answer: a failed fetch is "error" (the page retries), never silence the page would read as "not connected".
     // The local copy, answered at once; a refresh starts in the background for the next page.
     if (message.cached === true) {
       cachedKit().then((kit) => { if (kit) void kitFor(message.url).catch(() => undefined); reply(kit ? { ...kit, cached: true } : { status: "none" }) })
       return true
     }
+    // Always an answer: a failed fetch is "error" (the page retries), never silence the page would read as "not connected".
     kitFor(message.url).then(reply).catch(() => { kits.delete(message.url); reply({ status: "error", message: "odds did not answer." }) })
     return true
   }
@@ -840,11 +841,11 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return true
   }
   // A press on the odds button on a page: open the browser's side panel on that tab at once (it must happen inside the press), allowing odds to be framed there first.
-  if (message?.type === "open-side-panel" && sender.tab && typeof sender.tab.id === "number") {
   if (message?.type === "native-panel-open") {
     reply({ open: sidePanels.size > 0 })
     return false
   }
+  if (message?.type === "open-side-panel" && sender.tab && typeof sender.tab.id === "number") {
     const tabId = sender.tab.id
     if (panelInPageOnly) {
       reply({ ok: false, why: "in-page only" })
@@ -926,7 +927,8 @@ function changeIntents(change) {
   intentWrites = next
   return next
 }
-function setIntent(tabId, intent) { return changeIntents((all) => { all[tabId] = intent }) }
+// An application starting in a tab that already shows an account step (Auto apply pressed there) gets the same account step as one that reaches it.
+function setIntent(tabId, intent) { return changeIntents((all) => { all[tabId] = intent }).then((r) => { void autoAccount(tabId, pageKinds.get(tabId) || null); return r }) }
 // Tab ids are reused once the browser restarts: an application is only remembered across a reload of the extension.
 chrome.runtime.onStartup.addListener(() => chrome.storage.local.remove("oddsApplyIntents"))
 // Reloaded or updated: every application record from before is dropped, so no tab the person is using stays attached to an old run.
@@ -1404,6 +1406,37 @@ function makePassword() {
 async function siteAccount(host) {
   const { oddsAccounts = {} } = await chrome.storage.local.get("oddsAccounts")
   return oddsAccounts[host] || null
+}
+/** Account steps Odds already tried in a tab (tab + host + kind), so a site that refuses is not hit again and again. */
+const autoAccountTried = new Map()
+/**
+ * While Odds applies in a tab (never on a page the person is only browsing): a sign-in for a site Odds already made an account on, or a
+ * create-account step for one it has not, is done by Odds, once per tab and site. Switch it off with chrome.storage.local oddsAutoAccount = false.
+ * A captcha, a refusal or a mail to confirm stays with the person (the run ends needs_you with its reason).
+ */
+async function autoAccount(tabId, kind) {
+  if (kind !== "create_account" && kind !== "sign_in") return
+  const { oddsAutoAccount } = await chrome.storage.local.get("oddsAutoAccount")
+  if (oddsAutoAccount === false) return
+  const tab = await chrome.tabs.get(tabId).catch(() => null)
+  if (!tab?.url || !/^https:/.test(tab.url)) return
+  if (!(await intentOf(tabId))) return
+  const host = new URL(tab.url).hostname
+  const key = `${tabId}|${host}|${kind}`
+  if (Date.now() - (autoAccountTried.get(key) || 0) < 120_000) return
+  const saved = await siteAccount(host)
+  // Sign in with what was saved; or create the account when none exists. A sign-in with nothing saved, or a create step for a site that
+  // already has an account here, is the person's.
+  if ((kind === "sign_in" && !saved) || (kind === "create_account" && saved)) return
+  autoAccountTried.set(key, Date.now())
+  await new Promise((r) => setTimeout(r, 1500)) // the page finishes drawing its boxes
+  // A click on the site's button can be lost while the page is still drawing or Odds is starting: while the same step is still on screen,
+  // press again (same email and password), up to three times.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await accountInTab(tabId, kind === "create_account").catch(() => undefined)
+    await new Promise((r) => setTimeout(r, 4000))
+    if ((await pageKindOf(tabId).catch(() => null)) !== kind) return
+  }
 }
 async function accountInTab(tabId, create) {
   const tab = await chrome.tabs.get(tabId).catch(() => null)

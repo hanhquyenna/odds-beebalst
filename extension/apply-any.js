@@ -3434,6 +3434,9 @@
     const scope = passwordBoxes()[0]?.closest("form, [role=dialog], section, main") || document
     const go = password ? pick([...scope.querySelectorAll("button, input[type=submit], [role=button]")]) || pick([...document.querySelectorAll("button, input[type=submit], [role=button]")]) : null
     if (go && !(await realClickEl(go))) go.click()
+    // The real click can land on something over the button (Odds' own panel opens by itself on an application): if the step is still
+    // exactly there two seconds later, the button is pressed from the page too.
+    else if (go) { await sleep(2000); if (go.isConnected && shown(go) && passwordBoxes().length) go.click() }
     void carryOnAfterAccount()
     return { ok: true, pressed: Boolean(go) }
   }
