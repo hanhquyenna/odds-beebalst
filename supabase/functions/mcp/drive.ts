@@ -265,7 +265,17 @@ const emptyOf = (page: Json): string[] => {
   if (page?.cv_missing === true) out.push("Resume / CV box (attach the CV with upload_cv, required or not)")
   return out
 }
+/** The run tried to attach the CV and it never went in: a CV box the page does not call one ("Attach" on Greenhouse) is still empty. */
+export function cvNeverAttached(uploads: Json[]): boolean {
+  const done = uploads.filter((u) => u && typeof u.result === "object" && u.result !== null)
+  return done.some((u) => u.result.ok === false && u.result.cv_attached !== true) && !done.some((u) => u.result.ok === true || u.result.cv_attached === true)
+}
 async function requiredEmpty(env: Env, run: Json): Promise<string[]> {
+  const uploads = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.upload_cv&status=eq.done&select=result`).catch(() => null)) ?? []
+  const cv = cvNeverAttached(uploads) ? ["Resume / CV (Odds could not attach it: finish needs_you, saying why)"] : []
+  return [...await pageEmpty(env, run), ...cv]
+}
+async function pageEmpty(env: Env, run: Json): Promise<string[]> {
   const docGen = typeof run?.doc_gen === "number" ? run.doc_gen : 0
   const [read] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "read_page", args: { review_check: true }, note: "Checking everything is filled before Submit", doc_gen: docGen }) }).catch(() => [null])
   if (!read) return []

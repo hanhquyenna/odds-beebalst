@@ -139,3 +139,11 @@ test("a click that moves to another page returns that page's screenshot as an im
     Object.assign(globalThis, { Deno: deno })
   }
 })
+
+test("review is refused when the run tried to attach the CV and it never went in, whatever the page calls the box", async () => {
+  const { cvNeverAttached } = await import("../../supabase/functions/mcp/drive")
+  expect(cvNeverAttached([{ result: { ok: false, value: "", file_name: "" } }])).toBe(true)
+  expect(cvNeverAttached([{ result: { ok: false } }, { result: { ok: true, file_name: "CV.pdf" } }])).toBe(false)
+  expect(cvNeverAttached([{ result: { ok: false, cv_attached: true } }])).toBe(false)
+  expect(cvNeverAttached([])).toBe(false)
+})

@@ -167,7 +167,8 @@ async function cvFile(doc) {
   if (!key || !/^[0-9a-f-]{36}$/.test(doc)) return { status: "error" }
   try {
     const res = await fetch(`${await apiBase()}/ext/file?doc=${doc}`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(30000) })
-    if (!res.ok) return { status: "error" }
+    // The server's reason ("The file is in Google Drive, and odds can no longer reach it.") goes with the failure, so the person hears it.
+    if (!res.ok) return { status: "error", message: String((await res.json().catch(() => null))?.error || `The CV file did not load (${res.status}).`).slice(0, 200) }
     const bytes = new Uint8Array(await res.arrayBuffer())
     if (bytes.length > 8_000_000) return { status: "error" }
     let text = ""

@@ -376,7 +376,13 @@
     // (a Workday field's chosen chips sit in a listbox of their own: never the open list)
     const own = (id) => (id ? (input.getRootNode().getElementById?.(id) ?? document.getElementById(id)) : null)
     const named = input.getAttribute("aria-controls") || input.getAttribute("aria-owns")
-    const listbox = own(input.getAttribute("aria-controls")) || own(input.getAttribute("aria-owns")) || (named && !loose ? null : (deepAll("[role='listbox']").filter((l) => shown(l) && [...l.querySelectorAll("[role='option']")].some((o) => o.getAttribute("data-automation-id") !== "selectedItem")).pop() || input.closest("[class*='container'], div")?.querySelector("[role='listbox']")))
+    // Without its own id: the list inside this field's own box first (react-select draws its menu there); a list elsewhere on the page only
+    // when it is the one list open. Taking "the last list on the page" read another dropdown's choices (Greenhouse's School, Degree and
+    // hours boxes all showed the month list) and Broods answered from the wrong options.
+    const open = (l) => l && shown(l) && [...l.querySelectorAll("[role='option']")].some((o) => o.getAttribute("data-automation-id") !== "selectedItem")
+    const near = input.closest("[class*='container'], div")?.querySelector("[role='listbox']")
+    const anywhere = () => { const all = deepAll("[role='listbox']").filter(open); return all.length === 1 ? all[0] : null }
+    const listbox = own(input.getAttribute("aria-controls")) || own(input.getAttribute("aria-owns")) || (named && !loose ? null : (open(near) ? near : anywhere() || near))
     let options = [...(listbox?.querySelectorAll("[role='option'], [data-automation-id='promptOption']") || [])].filter((o) => shown(o) && o.getAttribute("data-automation-id") !== "selectedItem" && !/^\s*(searching|loading|zoeken|bezig|laden)\b/i.test(textOf(o)))
     // Workday draws each choice three times (menuItem › promptLeafNode › promptOption): the menu item is the one to press.
     if (options.some((o) => o.getAttribute("data-automation-id") === "menuItem")) options = options.filter((o) => o.getAttribute("data-automation-id") === "menuItem")
@@ -413,9 +419,11 @@
     if (!dropdownChoices.has(f.el)) {
       let seen = []
       await pickOption(f.el, null, f.label, (list) => { seen = list; return -1 })
-      dropdownChoices.set(f.el, seen.filter((o) => o && !PLACEHOLDER.test(o)).slice(0, 300))
+      const read = seen.filter((o) => o && !PLACEHOLDER.test(o)).slice(0, 300)
+      // Nothing read (another list was open, the menu was slow): not kept, so the next look tries again.
+      if (read.length) dropdownChoices.set(f.el, read)
     }
-    const options = dropdownChoices.get(f.el)
+    const options = dropdownChoices.get(f.el) || []
     if (options.length) f.options = options
     return f.options
   }
@@ -548,6 +556,8 @@
     if (want.length < 4) return false
     return deepAll("span, p, div, li, a, button, label, strong, td").some((e) => e.children.length === 0 && shown(e) && norm(textOf(e)).includes(want))
   }
+  /** Why the CV file could not be had (the server's words), for the upload step's answer to Broods. */
+  let cvLoadError = ""
   async function uploadCv(f, known = false) {
     const around = `${f.label} ${f.el.name || ""} ${f.el.id || ""} ${f.el.getAttribute("aria-label") || ""}`
     // On a resume-only step, accept any file input even when the button says "Sélectionner un fichier".
@@ -555,7 +565,7 @@
       || (f.kind === "file" && fields().filter((x) => x.kind !== "file").every((x) => answered(x) || !required(elOf(x), x.label)))
     if (uploaded || !cv || (!isResumeAsk(around) && !resumeStep)) return false
     const file = await ask({ type: "cv-file", doc: cv.id }, 15000)
-    if (file?.status !== "ok") return false
+    if (file?.status !== "ok") { cvLoadError = file?.message || "The CV file did not load."; return false }
     const bytes = Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))
     const transfer = new DataTransfer()
     transfer.items.add(new File([bytes], file.name, { type: file.type }))
@@ -2456,7 +2466,8 @@
         }
         if (!input) return { ok: false, error: "this button opened no file picker; attach the CV by sight or finish needs_you" }
         const ok = await uploadCv({ el: input, kind: "file", label: `CV ${controlLabel(button)}` }, true)
-        return { ok: Boolean(ok) && Boolean(input.files?.length), value: input.files?.[0]?.name || "", file_name: input.files?.[0]?.name || "" }
+        const took = Boolean(ok) && Boolean(input.files?.length)
+        return { ok: took, value: input.files?.[0]?.name || "", file_name: input.files?.[0]?.name || "", ...(!took && cvLoadError ? { error: `${cvLoadError} The person must fix this in Odds (Documents); finish needs_you reason other with these words.` } : {}) }
       }
       const f = driveFields.get(args.id)
       if (!f || f.kind !== "file" || !elOf(f)?.isConnected) return { ok: false, error: "not a file field (read_page again)" }
@@ -2467,7 +2478,7 @@
       await pageSettled()
       await prefillContacts(true)
       const name = fieldValue(f) || (ok ? cv?.file_name || "CV attached" : "")
-      return { ok: Boolean(ok), value: name, file_name: name }
+      return { ok: Boolean(ok), value: name, file_name: name, ...(!ok && cvLoadError ? { error: `${cvLoadError} The person must fix this in Odds (Documents); finish needs_you reason other with these words.` } : {}) }
     }
     if (cmd.tool === "upload_letter") {
       const f = driveFields.get(args.id)

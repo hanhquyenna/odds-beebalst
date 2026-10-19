@@ -16,7 +16,7 @@ export default defineBroods({
 
 const PICK_RULES = `Return one apply_pick as plain text: the bare JSON object {"stage":string,"action":string,"text":string|null,"answers":[{"key","answer"}],"reason":string} and nothing else.
 - stage: account | captcha | form | review | stuck. action: click | fill | wait_human | none. text: an exact label from buttons[], or null.
-- stage=account or captcha → action=wait_human (a pick cannot make an account; in drive mode you do, see ACCOUNTS).
+- stage=account or captcha → action=wait_human (a pick cannot make an account).
 - Cookie banners FIRST when present: Functional only / Necessary only / Reject / Reject non-essential / Reject all — even if Easy Apply is also listed. Never Accept all.
 - Then progress: Easy Apply / Apply / Apply now / Apply for this job → Next → Continue → Save and Continue → Review.
 - If buttons[] contains Next OR Continue OR Review OR any Apply* (and not only Submit), you MUST action=click with that EXACT buttons[] string. stage=form. Do not return action=none when those exist.
@@ -27,7 +27,7 @@ const PICK_RULES = `Return one apply_pick as plain text: the bare JSON object {"
 - Open questions (why this role, motivation, reasons, what you bring) → 1–3 plain sentences in the first person from role_values, notes, experience, education and cv_excerpt, tied to the employer/job title. Always answer these when there is a profile.
 - Voluntary EEO (gender, age group, ethnicity, disability, veteran) → "Prefer not to say"/"Decline" when offered. Consent/privacy/data retention → Yes. Salary expectation → expected_salary, else "In line with your standard internship allowance". Visa/sponsorship → from work_permit.
 - Never answer religion, family, salary history, criminal/legal declarations, passwords or captchas — skip them (the person answers those).
-- Never Submit, Send application, Submit Application, Accept all cookies, or password fields; in a pick also never login or sign up.
+- Never Submit, Send application, Submit Application, login, sign up, Accept all cookies, or password fields.
 - Job closed / no longer available / expired / position filled → stage=stuck, action=none, reason=listing_gone.
 - Only action=none when NO safe Apply/Next/Continue/Review/cookie control exists in buttons[].`
 
@@ -156,7 +156,7 @@ in message, e.g. "Apply by email to jobs@company.com"; at once, never stuck) | s
 read_page.closed: at once; a network error or captcha is not closed). Blocked buttons are refused: a blocked button labelled Apply/Submit/Send/Apply now IS the final submit, so with every required field filled
 that means finish review (never stuck). Never ask in chat. After finish, stop: reply with one short line, no JSON.`
 
-/** The one Odds Apply agent: drives the person's tab (drive mode) or gives a quick pick (pick mode). */
+/** Odds Apply: drives the person's tab through the odds-browser tools until only Submit is left. */
 export const oddsApply = defineAgent({
   name: "odds-apply",
   description: "Applies to jobs in the person's own Chrome through the Odds extension (MCP), from their Autofill and profile. Never submits.",
@@ -174,16 +174,36 @@ export const oddsApply = defineAgent({
   mcp: { [ids.mcp["odds-browser"]]: { enabled: true, headers: { "x-odds-drive-key": "${ODDS_DRIVE_SECRET}" } } },
   agent: {
     maxTurn: 90,
-    system: `You are Odds Apply. Two modes.
+    system: `You are Odds Apply. You apply to one job in the person's own tab with the odds-browser tools.
 
-${DRIVE_RULES}
+${DRIVE_RULES}`,
+  },
+  publicAccess: true,
+})
 
-PICK MODE (no run_id: the extension sent a page snapshot or questions): answer at once with one apply_pick, no tools. These rules are for pick mode only: with a run_id, DRIVE MODE rules win.
+/**
+ * Odds Pick: one quick structured answer for the extension or the apply-agent function (a page snapshot or questions → apply_pick).
+ * No tools at all: given the browser tools, a pick tried to read a page that has no run ("Unknown run_id") instead of answering.
+ */
+export const oddsPick = defineAgent({
+  name: "odds-pick",
+  description: "Answers one apply_pick (which button, which answers) for an Odds page snapshot or question list. No tools.",
+  provider: { custom: { apiKey: env("NINE_ROUTER_API_KEY"), baseURL: env("NINE_ROUTER_BASE_URL"), name: "ninerouter" } },
+  model: {
+    provider: "custom",
+    modelId: process.env.ODDS_APPLY_MODEL || "cx/gpt-6-luna",
+    reasoning: "low",
+    maxOutputTokens: 1500,
+  },
+  agent: {
+    maxTurn: 1,
+    system: `You are Odds Pick. You get a page snapshot (buttons, fields) or a list of questions with the person's facts, and you answer at once with one apply_pick. You have no tools.
 ${PICK_RULES}
 
-Examples (pick mode):
+Examples:
 - buttons=["Review","Submit application","Back"] → {"stage":"form","action":"click","text":"Review","answers":[],"reason":"progress"}
 - buttons=["Allow all","Necessary only","Manage"] → {"stage":"form","action":"click","text":"Necessary only","answers":[],"reason":"cookies"}
+- buttons=["Next"], an empty field the facts cannot answer → {"stage":"form","action":"click","text":"Next","answers":[],"reason":"progress"}
 - title has captcha → stage=captcha action=wait_human; password field or Sign in wall → stage=account action=wait_human
 - NEVER use reason=listing_gone unless title/headings/errors say the job is closed, expired, filled, or no longer available.`,
   },

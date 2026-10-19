@@ -2,14 +2,17 @@
 
 Odds Chrome extension = hands (clicks/fills in your logged-in tab). Broods = brain (structured `apply_pick`). Never Submit / password / captcha — those stay human.
 
-## Agent
+## Agents
 
-One agent, `odds-apply` (`broods/index.ts`, `cx/gpt-6-luna` through 9router), in two modes:
+Two agents (`broods/index.ts`, both `cx/gpt-6-luna` through 9router):
 
-| Mode | When | How it answers |
-| --- | --- | --- |
-| Drive | the message has a `run_id` (`ODDS_DRIVE_AGENT_ID`, started by `mcp/drive.ts`) | odds-browser MCP tool calls in the person's tab until `finish` |
-| Pick | no `run_id` (`APPLY_AGENT_BROODS_AGENT_ID`, from `apply-agent`) | one `apply_pick` JSON object as plain text, parsed by `parseBroodsPick` |
+| Agent | Id (production) | Secret | How it answers |
+| --- | --- | --- | --- |
+| `odds-apply` (drive) | `js76teefba050scj7h6wp8n04x8ga3ac` | `ODDS_DRIVE_AGENT_ID` | odds-browser MCP tool calls in the person's tab until `finish` |
+| `odds-pick` (pick) | `js7eds7fk7cs8neha7bnrdbbgs8gkk83` | `APPLY_AGENT_BROODS_AGENT_ID` | one `apply_pick` JSON object as plain text, no tools, parsed by `parseBroodsPick` |
+
+Pick used to be a mode of `odds-apply`; with the browser tools attached it tried `read_page` on pages with no run ("Unknown run_id").
+`odds-pick` has no tools: 32/32 on `scripts/verify-broods-apply.ts` (odds-apply in pick mode: 29/32), 1.6 s average.
 
 There is no forced output schema: the 9router model does not support one (Broods logged "JSON response format schema is only supported
 with structuredOutputs" on almost every step, and "No object generated" ended turns), and in drive mode it pushed the model to answer
