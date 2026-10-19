@@ -419,26 +419,6 @@ async function siteTactics(env: Env, url: string): Promise<Record<string, string
   }
   return out
 }
-/**
- * Learned from the runs themselves: a site whose last runs all ended at a sign-in / create-account page (Workday's tenants, Unilever's
- * Eightfold) needs an account for every application. The next run stops at its first page instead of clicking 4–6 pages to find out.
- * Only with 3+ recent runs, all ending at an account, and only while the page has no application questions of its own.
- */
-async function accountSite(env: Env, run: Json, page: Json): Promise<boolean> {
-  let host = ""
-  try { host = new URL(String(page.url || run.url)).hostname.replace(/^www\./, "") } catch { return false }
-  if (!host || /(^|\.)(linkedin|indeed|glassdoor)\./i.test(host)) return false
-  // One platform, many employers (nxp.wd3.myworkdayjobs.com, shell.wd3…): learned for the platform as a whole.
-  if (/\.myworkdayjobs\.com$/i.test(host)) host = "myworkdayjobs.com"
-  if (page.dialog) return false
-  const asks = (page.fields ?? []).filter((f: Json) => f?.kind !== "checkbox" && !/e-?mail|password|wachtwoord|search|zoek/i.test(String(f?.label ?? "")))
-  if (asks.length >= 2) return false
-  const since = encodeURIComponent(new Date(Date.now() - 30 * 86_400_000).toISOString())
-  const recent = (await svc(env, `drive_runs?url=ilike.*${encodeURIComponent(host)}*&id=neq.${run.id}&status=neq.running&created_at=gte.${since}&order=created_at.desc&limit=5&select=status,reason`).catch(() => null)) ?? []
-  // A closed job or a stopped run says nothing about accounts.
-  const ended = recent.filter((r: Json) => !["stopped", "failed"].includes(String(r.status)) && r.reason !== "closed")
-  return ended.length >= 3 && ended.every((r: Json) => r.status === "needs_you" && r.reason === "account")
-}
 /** The page is a sign-in wall: it says so ("log in to apply"), or it is a sign-in form with no application questions on it. */
 function signInWall(page: Json): boolean {
   const texts = [...(page.headings ?? []), ...(page.buttons ?? []).map((b: Json) => b?.text ?? "")].map((t: unknown) => (typeof t === "string" ? t : ""))
@@ -714,7 +694,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       }
       // A sign-in wall with nothing to apply to: the page says "log in to apply" (EU JRC), or it is a sign-in form and nothing else
       // (EU Login, Workday's account page). That is the person's, at once. "Log in to save your progress" (Cornerstone) is optional: no wall.
-      if (page && Array.isArray(page.fields) && (signInWall(page) || (run.steps <= 2 && name === "read_page" && page.closed !== true && await accountSite(env, run, page)))) {
+      if (page && Array.isArray(page.fields) && signInWall(page)) {
         const now = new Date().toISOString()
         const message = "This site wants you to sign in. Do it in the tab, then press Auto apply again."
         await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "account", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
