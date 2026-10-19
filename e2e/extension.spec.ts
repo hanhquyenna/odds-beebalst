@@ -5738,6 +5738,36 @@ test("the Gmail reader finds the verification mail in Gmail's list, opens it, an
   expect(body.links[0].href).toBe("https://careers.mail.example-motor.eu/verify?t=abc")
 })
 
+test("a long privacy statement that mentions cookies far down is still not a cookie banner: Odds never presses its Decline (which opens the site's Delete All Data), it accepts", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const host = "careers.privacy3.example-motor.eu"
+  const filler = "We keep your application data for the time the law allows. ".repeat(12)
+  const html = `<!doctype html><html><body><h1>Intern Corporate Communications</h1>
+    <div id="form"><label for="fn">First name</label><input id="fn" required><label for="ln">Last name</label><input id="ln" required></div>
+    <div id="privacy" role="dialog" style="position:fixed;top:20px;left:20px;right:20px;background:#fff;border:1px solid #888;padding:12px"><h2>Data Privacy Consent Statement</h2>
+      <p>Yamaha Motor Privacy Statement for Job Applicants. ${filler} Our website also uses cookies, described in the cookie policy.</p>
+      <button type="button" id="accept">Accept</button><button type="button" id="decline">Decline</button><button type="button" id="print">Print</button></div>
+    <div id="deleteAll" role="dialog" hidden><h2>Delete All Data</h2><button type="button">Delete All Data</button><button type="button">Cancel</button></div>
+    <script>window.accepted = 0; window.declined = 0
+      document.getElementById("accept").onclick = () => { window.accepted++; document.getElementById("privacy").remove() }
+      document.getElementById("decline").onclick = () => { window.declined++; document.getElementById("deleteAll").hidden = false }</script></body></html>`
+  await context.route(`https://${host}/**`, (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "ppriv3", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  fake.driveScript = async (cmd) => { await cmd("read_page"); return { status: "review", message: "Everything is filled in. Check it and press Submit yourself." } }
+  const page = await context.newPage()
+  await page.goto(`https://${host}/apply`)
+  const worker = context.serviceWorkers()[0]
+  await worker.evaluate(async (u) => {
+    const [tab] = await chrome.tabs.query({ url: u })
+    await (globalThis as unknown as { setIntent(tabId: number, intent: unknown): Promise<void> }).setIntent(tab.id!, { job: tab.url, title: "Intern", at: Date.now(), status: "filling", message: "Filling…", copilot: true, here: true })
+    await (globalThis as unknown as { injectApplyScripts(tabId: number): Promise<void> }).injectApplyScripts(tab.id!)
+  }, `https://${host}/*`)
+  await expect.poll(() => page.evaluate(() => (window as unknown as { accepted: number }).accepted), { timeout: 40000 }).toBe(1)
+  expect(await page.evaluate(() => (window as unknown as { declined: number }).declined)).toBe(0)
+  await expect(page.locator("#deleteAll")).toBeHidden()
+})
+
 test("the saved logins page lists the accounts Odds made: the password is hidden until Show, Forget removes the site", async ({ context }) => {
   test.setTimeout(60_000)
   await connect(context)
