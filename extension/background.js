@@ -395,6 +395,21 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return true
   }
   // The side panel: add the page's job to the person's Odds jobs; read the new answers on the form (Save to Autofill).
+  if (message?.type === "panel-chance" && typeof message.tabId === "number" && typeof message.pct === "number") {
+    const label = typeof message.label === "string" ? message.label : `${message.pct}%`
+    chrome.tabs.sendMessage(message.tabId, { type: "odds-chance", pct: message.pct, label, url: typeof message.url === "string" ? message.url : "" }).catch(() => undefined)
+    if (typeof message.url === "string") {
+      savedKey().then((key) => {
+        if (!key) return
+        const id = `${key}:${message.url}`
+        const cached = chanceCache.get(id)
+        const answer = cached?.answer && typeof cached.answer === "object" ? { ...cached.answer, chance_pct: message.pct } : { status: "ok", known: true, chance_pct: message.pct }
+        remember(id, answer)
+      }).catch(() => undefined)
+    }
+    reply({ ok: true })
+    return true
+  }
   if (message?.type === "panel-add-job" && typeof message.url === "string") {
     addJob(message.url).then((res) => { kits.delete(message.url); reply(res) }).catch(() => reply({ status: "error" }))
     return true

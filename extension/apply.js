@@ -395,8 +395,8 @@
   }
 
   /**
-   * Stuck on Easy Apply: force required consents, one page-scan LLM, then stop if still stuck.
-   * Never loops the LLM.
+   * Stuck on Easy Apply: force required consents, one Broods page scan, then stop if still stuck.
+   * Never loops the scan.
    */
   let scannedSig = ""
   async function assistStuckStep(modal) {

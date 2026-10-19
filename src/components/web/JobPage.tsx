@@ -13,7 +13,7 @@ import { OddsApply } from "@/components/OddsApply"
 import { PastHires } from "@/components/JobCompany"
 import { PostingText } from "@/components/PostingText"
 import { useData } from "@/lib/data"
-import { levelOf, point, type Standing } from "@/lib/engine"
+import { displayedChance, levelOf, type Standing } from "@/lib/engine"
 import { fieldOf } from "@/lib/filters"
 import { formatAge, placeOf, stripMarkup } from "@/lib/format"
 import { workplaceOf } from "@/lib/job-facts"
@@ -267,19 +267,20 @@ function Summary({ body, requirements }: { body: string; requirements: Requireme
 
 // ---------------------------------------------------------------- the chance, the keywords, the people
 
-/** The interview chance as a ring: the number out of 100 inside it. */
-function Ring({ value }: { value: number }): React.JSX.Element {
+/** The interview chance as a ring: the same figure as the side panel and the page badge. */
+function Ring({ rate }: { rate: number }): React.JSX.Element {
   const r = 42
   const c = 2 * Math.PI * r
+  const shown = displayedChance(rate)
 
   return (
     <div className="relative grid size-[88px] shrink-0 place-items-center">
       <svg viewBox="0 0 100 100" className="absolute inset-0 -rotate-90" aria-hidden="true">
         <circle cx="50" cy="50" r={r} fill="none" stroke="#F0E9DF" strokeWidth="12" />
-        <circle cx="50" cy="50" r={r} fill="none" stroke="#EE7A2A" strokeWidth="12" strokeLinecap="round" strokeDasharray={`${Math.max(0.02, Math.min(1, value / 100)) * c} ${c}`} />
+        <circle cx="50" cy="50" r={r} fill="none" stroke="#EE7A2A" strokeWidth="12" strokeLinecap="round" strokeDasharray={`${Math.max(0.02, Math.min(1, shown.pct / 100)) * c} ${c}`} />
       </svg>
       <span className="relative flex flex-col items-center leading-none">
-        <span className="text-[1.6rem] font-extrabold tracking-tight tabular-nums">{value >= 9.5 ? Math.round(value) : value.toFixed(1)}</span>
+        <span className="text-[1.6rem] font-extrabold tracking-tight tabular-nums">{shown.label.replace("%", "")}</span>
         <span className="mt-0.5 text-[0.65rem] font-bold text-muted-foreground">in 100</span>
       </span>
     </div>
@@ -288,7 +289,7 @@ function Ring({ value }: { value: number }): React.JSX.Element {
 
 function ChanceCard({ post, st, onTab }: { post: Posting; st: Standing; onTab: (tab: Tab) => void }): React.JSX.Element {
   const known = !st.needsProfile
-  const mid = st.rate ? st.rate.mid * 100 : null
+  const mid = st.rate?.mid ?? null
   const have = known ? st.checklist.filter((c) => c.have) : []
   const missing = known ? st.checklist.filter((c) => !c.have) : []
   // What the posting insists on and the CV lacks first; a posting that does not rank its words lists every missing one.
@@ -299,7 +300,7 @@ function ChanceCard({ post, st, onTab }: { post: Posting; st: Standing; onTab: (
     <section aria-label="Interview chance" className={`${card} flex flex-col gap-4 p-5`}>
       <div className="flex items-center gap-4">
         {mid !== null && known ? (
-          <Ring value={mid} />
+          <Ring rate={mid} />
         ) : (
           <button type="button" onClick={known ? undefined : openLinkedInImport} title={known ? undefined : "Import your LinkedIn or upload your CV to see your chance"} className="grid size-[88px] shrink-0 cursor-pointer place-items-center rounded-full border-[12px] border-[#F0E9DF] text-2xl font-extrabold">
             ?
@@ -308,7 +309,7 @@ function ChanceCard({ post, st, onTab }: { post: Posting; st: Standing; onTab: (
         <div className="flex min-w-0 flex-col gap-0.5">
           <h2 className="text-lg font-extrabold">Interview chance</h2>
           <p className="text-[0.8125rem] leading-snug text-muted-foreground">
-            {mid !== null && known ? `${point(st.rate!.mid).replace("%", "")} in 100 similar applicants get a call` : known ? "Too few similar jobs to give a number we would stand behind" : "Add your CV to see it"}
+            {mid !== null && known ? displayedChance(mid).perHundred : known ? "Too few similar jobs to give a number we would stand behind" : "Add your CV to see it"}
           </p>
         </div>
       </div>

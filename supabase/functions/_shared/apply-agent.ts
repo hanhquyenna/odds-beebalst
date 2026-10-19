@@ -199,8 +199,8 @@ export function notifyApplyAgent(env: ApplyAgentEnv, event: ApplyAgentEvent): vo
 }
 
 /**
- * Ask the sync webhook which visible control to click (rules + optional LLM hands).
- * `force_llm` / `exclude`: after a dead click, skip the same rule pick and let the LLM choose another.
+ * Ask the sync webhook which visible control to click (rules, then Broods).
+ * `force_llm` / `exclude`: after a dead click, skip the same rule pick and let Broods choose another.
  * Falls back to local pickSuggestAction when webhook is off / slow / invalid.
  */
 export async function requestSuggestAction(

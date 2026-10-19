@@ -167,7 +167,7 @@ function familyOfTitleFresh(text, sure) {
   const best = post.indexOf(Math.max(...post));
   return post[best] >= sure ? M.families[best] : null;
 }
-var skillTokens = (skills) => [...skills].map((s) => `skill:${s.toLowerCase()}`);
+var skillTokens = (skills) => (skills && typeof skills[Symbol.iterator] === "function" ? [...skills] : []).filter((s) => typeof s === "string").map((s) => `skill:${s.toLowerCase()}`);
 var cache = new WeakMap;
 function itemsOf(profile) {
   const hit = cache.get(profile);
@@ -839,12 +839,12 @@ function strengthParts(post, profile, ctx = {}) {
   const myDegree = ctx.assumeDegree ? Math.max(rank[base.degree] ?? 0, 2) : rank[base.degree] ?? 0;
   if (post.degree_asked && myDegree < rank[post.degree_asked])
     parts.push({ key: "degreeBelowAsked", label: `Asks for a ${post.degree_asked}`, z: step(EFFECTS.degreeBelowAsked), source: "GEMM underqualified, halved" });
-  if (post.skills.length >= 3) {
+  if ((post.skills ?? []).length >= 3) {
     const have = new Set([...base.skills, ...ctx.extraSkills ?? []].map((x) => x.toLowerCase()));
     const weight = { must: 1, strong: 0.7, optional: 0.4, nice: 0.2, unspecified: 0.6 };
     let got = 0;
     let all = 0;
-    for (const sk of post.skills) {
+    for (const sk of post.skills ?? []) {
       const w = weight[post.tiers?.[sk] ?? "unspecified"] ?? 0.6;
       all += w;
       if (have.has(sk.toLowerCase()))
@@ -1373,6 +1373,20 @@ function computeShares(postings) {
   return out;
 }
 var NO_WHAT_IF = { dutch: false, years: 0, skills: [], referral: false, tailor: null, degree: false, student: false };
+function displayedChance(p) {
+  const x = p * 100;
+  if (!Number.isFinite(x) || x <= 0) {
+    return { pct: 0, label: "0.0%", perHundred: "0.0 in 100 similar applicants get a call" };
+  }
+  if (x >= 9.5) {
+    const n = Math.round(x);
+    return { pct: n, label: `${n}%`, perHundred: `${n} in 100 similar applicants get a call` };
+  }
+  const tenths = Math.floor(x * 10 + 0.5 + 0.000000001);
+  const pct = tenths / 10;
+  const figure = pct.toFixed(1);
+  return { pct, label: `${figure}%`, perHundred: `${figure} in 100 similar applicants get a call` };
+}
 var DEGREE_ORDER = { unknown: 0, bachelor: 1, master: 2, phd: 3 };
 var DUTCH_ORDER = { none: 0, basic: 1, professional: 2, native: 3 };
 function hasCvData(profile) {
@@ -2272,6 +2286,7 @@ function formatPlace(region) {
   }
   return region.split(/[;|]/)[0].replace(/, Netherlands$/i, "").trim() || "Location not stated";
 }
+var accented = Object.fromEntries([["acute", "́"], ["grave", "̀"], ["circ", "̂"], ["uml", "̈"], ["tilde", "̃"], ["ring", "̊"]].flatMap(([name, mark]) => "aeiouyAEIOUY".split("").map((letter) => [`${letter}${name}`, `${letter}${mark}`.normalize("NFC")]).filter(([, ch]) => ch.length === 1)));
 function formatHourly(text) {
   if (!text || !/(per\s+(hour|uur|hr)|\/\s*(hour|hr|uur|h)\b|an hour|p\.?u\.?\b)/i.test(text)) {
     return null;
@@ -3254,6 +3269,7 @@ var NO_TRACKER_FILTER = { status: [], followUp: false, hideClosed: false };
 
 // src/lib/saved-views.ts
 var FIT_SEED_VIEWS = [{ id: "fit", name: "Best fit", layout: "table", filters: { ...DEFAULT_FILTERS }, tracker: NO_TRACKER_FILTER }];
+var RETIRED_SEED_IDS = new Set(["pipeline", "calendar"]);
 
 // src/lib/types.ts
 var DEFAULT_PROFILE = {
@@ -3425,8 +3441,16 @@ function freshForLists(post, today) {
   return post.days_open !== null && post.days_open !== undefined && post.days_open <= LIST_MAX_AGE_DAYS;
 }
 var TAILORED_MAX_AGE_DAYS = 7;
-function freshForTailored(post) {
-  return post.days_open !== null && post.days_open !== undefined && post.days_open <= TAILORED_MAX_AGE_DAYS;
+var TAILORED_MIN_ROWS = 20;
+var TAILORED_TOP_UP_DAYS = [14, 30];
+function ageTier(post) {
+  const d = post.days_open;
+  if (d === null || d === undefined)
+    return null;
+  if (d <= TAILORED_MAX_AGE_DAYS)
+    return 0;
+  const i = TAILORED_TOP_UP_DAYS.findIndex((m) => d <= m);
+  return i < 0 ? null : i + 1;
 }
 function pastDeadline(post, today) {
   if (!post.valid_through)
@@ -3452,7 +3476,8 @@ function tailor({ candidates, fitting, saved, chanceOf, profiles, liftOf, own = 
   const ownSets = own.map(titleWords);
   const scored = [];
   for (const post of candidates) {
-    if (pastDeadline(post, today) || !freshForTailored(post))
+    const tier = ageTier(post);
+    if (pastDeadline(post, today) || tier === null)
       continue;
     const pf = fitOf?.(post);
     if (pf?.blocked)
@@ -3471,10 +3496,17 @@ function tailor({ candidates, fitting, saved, chanceOf, profiles, liftOf, own = 
     const note = best ? `Similar to your saved job at ${shortName(best.s.employer_display)}` : mine.share > 0 ? `Like your work as ${shortTitle(own[mine.title])}` : lift ? `Matches your background: ${lift}` : "Matches what you asked for";
     const why = !best && mine.share === 0 && pf && pf.reasons.length > 0 ? `Matches your profile: ${pf.reasons.slice(0, 2).join("; ")}` : pf && pf.reasons.length > 0 && !/visa sponsor/.test(pf.reasons[0]) ? `${note} · ${pf.reasons[0]}` : note;
     const at = fieldOrder.length > 0 ? fieldOrder.indexOf(fieldOf(post) ?? "") : -1;
-    scored.push({ post, chance: chanceOf(post), note: why, interest, fresh: freshness(post), rank: at < 0 ? fieldOrder.length : at, fit: pf?.score == null ? 3 : Math.floor(pf.score * 10) });
+    scored.push({ post, chance: chanceOf(post), note: why, interest, fresh: freshness(post), tier, rank: at < 0 ? fieldOrder.length : at, fit: pf?.score == null ? 3 : Math.floor(pf.score * 10) });
   }
-  const sorted = scored.sort((x, y) => x.rank - y.rank || y.interest - x.interest || y.fit - x.fit || x.fresh - y.fresh || y.chance - x.chance || (x.post.days_open ?? 1e9) - (y.post.days_open ?? 1e9)).map(({ post, chance, note }) => ({ post, chance, note }));
-  return spread(dedupe(sorted));
+  const order = (x, y) => x.rank - y.rank || y.interest - x.interest || y.fit - x.fit || x.fresh - y.fresh || y.chance - x.chance || (x.post.days_open ?? 1e9) - (y.post.days_open ?? 1e9);
+  let out = [];
+  for (let tier = 0;tier <= TAILORED_TOP_UP_DAYS.length; tier++) {
+    const rows = scored.filter((r) => r.tier === tier).sort(order).map(({ post, chance, note }) => ({ post, chance, note }));
+    out = dedupe([...out, ...rows]);
+    if (out.length >= TAILORED_MIN_ROWS)
+      break;
+  }
+  return spread(out);
 }
 var same = (p) => `${p.employer}|${[...titleWords(p.title)].sort().join(" ")}|${city(p)}`;
 function dedupe(rows) {
@@ -3878,7 +3910,7 @@ function chanceFor(post, profile, ref, shares) {
   if (!st.rate)
     return null;
   const v2 = oddsV2(post, profile, {});
-  const pct = (x) => Math.round(x * 1000) / 10;
+  const pct = (x) => displayedChance(x).pct;
   return {
     chance_pct: pct(st.rate.mid),
     range_pct: [pct(st.rate.low), pct(st.rate.high)],
@@ -3909,7 +3941,7 @@ function tailoredFor(pool, ref, signals, shares, profile, opts) {
   const own = [...profile.positions.map((p) => p.Title ?? ""), profile.headline].filter((t) => t.trim() !== "");
   const rows = tailor({ candidates, fitting, saved: opts.saved ?? [], chanceOf, profiles: {}, liftOf, own, fieldOrder, fitOf });
   const tags = hearBackFor(pool, profile, new Set, () => null);
-  return rows.slice(0, Math.min(opts.limit ?? 15, 50)).map((r) => ({ ...jobLine(r.post, ref), chance_pct: Math.round(r.chance * 1000) / 10, why: r.note, most_likely_to_hear_back: tags.has(r.post.id) }));
+  return rows.slice(0, Math.min(opts.limit ?? 15, 50)).map((r) => ({ ...jobLine(r.post, ref), chance_pct: displayedChance(r.chance).pct, why: r.note, most_likely_to_hear_back: tags.has(r.post.id) }));
 }
 function similarToSaved(pool, ref, shares, profile, saved, opts) {
   const engine = createFitEngine({ postings: pool, profile, reference: ref, shares, stages: opts.stages });

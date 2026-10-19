@@ -3,6 +3,7 @@ import { renderLetterPdf } from "../_shared/cv-template.ts"
 import { compressRoute, routeHint, routeKey, routeStoreKey, usable } from "../_shared/site-routes.ts"
 import { canAcceptDriveResult, humanStopAllowed, jobIdentityMismatch } from "../_shared/drive-ownership.ts"
 import { appliedBeforeAnswer, FACT_QUESTION_HINT, isWorkAuthQuestion, ownQuestions, permitWorkAnswers, studyingFrom, widgetAttemptGuard, workFactForQuestion, type PermitWorkFacts } from "../_shared/drive-finish.ts"
+import { broodsStartFailed, MODEL_UNREACHABLE, quietGiveUp } from "../_shared/drive-quiet.ts"
 import { fieldPattern, playbookFor, sanitizeLesson, siteIdentity, structuralField } from "../_shared/site-playbook.ts"
 
 // Broods drives the person's own Chrome through the Odds extension.
@@ -927,9 +928,29 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
     // turn stuck on a hung model request would otherwise hold the pick-up behind it until the run was given up. The task carries what
     // the new turn needs; it reads the page first.
     const turn = resume ? (Number(run.retries) || 0) + (Number(run.resumes) || 0) : 0
-    await client.runAsync({ agentId, eventId: crypto.randomUUID(), conversationKey: turn > 0 ? `odds-drive-${run.id}-${turn}` : `odds-drive-${run.id}`, input: JSON.stringify(task) })
+    const accepted = await client.runAsync({ agentId, eventId: crypto.randomUUID(), conversationKey: turn > 0 ? `odds-drive-${run.id}-${turn}` : `odds-drive-${run.id}`, input: JSON.stringify(task) })
+    // 202 only means Broods queued the run. A dead tunnel fails the model in well under a second and leaves the run "running".
+    if (await broodsInvocationFailed(client, accepted)) return MODEL_UNREACHABLE
   } catch { return "Broods did not start. Try again from Odds." }
   return null
+}
+
+/** Poll the async session for a few seconds. A failed, expired, or unresolvable model is a start failure; a live status is not. */
+async function broodsInvocationFailed(client: { getAsyncStatus?: (status: unknown) => Promise<{ status?: string; error?: string | null }> }, accepted: unknown): Promise<boolean> {
+  if (typeof client.getAsyncStatus !== "function") return false
+  const deadline = Date.now() + 2500
+  while (Date.now() < deadline) {
+    try {
+      const status = await client.getAsyncStatus(accepted)
+      if (broodsStartFailed(status)) return true
+      const name = String(status?.status || "")
+      if (["processing", "applied", "completed", "awaiting_input", "awaiting_approval"].includes(name)) return false
+    } catch (err) {
+      if (broodsStartFailed({ status: "failed", error: String((err as Error)?.message || err) })) return true
+    }
+    await sleep(400)
+  }
+  return false
 }
 
 // ---------------------------------------------------------------- extension routes
@@ -994,7 +1015,8 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
     await recordAttempts(run)
     const problem = await startBroods(env, run, job, await ctx.facts().catch(() => ({})), undefined, body?.odds_filled)
     if (problem) {
-      await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ status: "failed", message: problem }) }).catch(() => undefined)
+      const now = new Date().toISOString()
+      await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ status: "stuck", reason: "other", message: problem, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
       return json(200, { error: problem })
     }
     return json(200, { run_id: run.id, resumed: false, tactics: await siteTactics(env, run.url).catch(() => ({})) })
@@ -1123,27 +1145,32 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
       if (!fresh || !live(fresh)) return json(200, { done: true, status: fresh?.status ?? "failed", reason: fresh?.reason ?? null, message: fresh?.message ?? "The run ended." })
       // Broods has sent nothing for 100 s (not waiting on the person): it ended without saying so. Retry once by itself; only then say it.
       if (Date.now() - Date.parse(fresh.updated_at) > QUIET_MS && !personBusy(fresh)) {
-        if ((fresh.retries ?? 0) < 3) {
+        const commands = await svc(env, `drive_commands?run_id=eq.${run.id}&select=id&limit=1`).catch(() => [])
+        const decision = quietGiveUp({ retries: fresh.retries ?? 0, commandCount: Array.isArray(commands) ? commands.length : 0, quiet: true })
+        if (decision === "retry") {
           await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, {
             method: "PATCH",
             body: JSON.stringify({ retries: (fresh.retries ?? 0) + 1, resume_pending: true, last_note: "Picking up again…", updated_at: new Date().toISOString() }),
           }).catch(() => undefined)
-        } else {
-          const now = new Date().toISOString()
-          await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, {
-            method: "PATCH",
-            body: JSON.stringify({
-              status: "stuck",
-              reason: "other",
-              message: "Broods could not carry on with this application. Finish it in the tab, or press Apply with Odds to start again.",
-              fill_ended_at: now,
-              agent_finished_at: now,
-              updated_at: now,
-            }),
-          }).catch(() => undefined)
-          await cancelOpenCommands(env, run.id, "quiet:stuck")
+          return json(200, { idle: true, steps: run.steps })
         }
-        return json(200, { idle: true, steps: run.steps })
+        const now = new Date().toISOString()
+        const message = decision === "stuck_unreachable"
+          ? MODEL_UNREACHABLE
+          : "Broods could not carry on with this application. Finish it in the tab, or press Apply with Odds to start again."
+        await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            status: "stuck",
+            reason: "other",
+            message,
+            fill_ended_at: now,
+            agent_finished_at: now,
+            updated_at: now,
+          }),
+        }).catch(() => undefined)
+        await cancelOpenCommands(env, run.id, decision === "stuck_unreachable" ? "quiet:unreachable" : "quiet:stuck")
+        return json(200, { done: true, status: "stuck", reason: "other", message, steps: run.steps })
       }
       await sleep(400)
     }

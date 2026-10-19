@@ -10,7 +10,7 @@ Odds Chrome extension = hands (clicks/fills in your logged-in tab). Broods = bra
 | `apply-roam` | Free-roam browse (obscura) when snapshot pick is empty (`gpt-6.1-sol`, medium effort; obscura browser in a Lambda sandbox) | `js76rgrnz12qj43ys5qcnfwnm18gadsy` |
 | Sandbox `apply-web` | Obscura browser for roam | `m97d9856v8btgvawps2gkhp9jh8gbtag` |
 
-Ladder: rules → gpt-4o-mini → Broods stuck → Broods roam → human (account/captcha/submit).
+Ladder: extension rules and recoverFill, then Broods odds-apply (`cx/gpt-6-luna`: apply-stuck, then apply-roam), then a person (account, captcha, submit). Apply, fill, and answer decisions do not call an OpenAI mini model.
 
 ## Status
 
@@ -27,7 +27,7 @@ Ladder: rules → gpt-4o-mini → Broods stuck → Broods roam → human (accoun
 ```bash
 cd /Users/kien/Documents/Files/odds-beebalst
 bunx broods login
-# OPENAI_API_KEY in .env.local
+# odds-apply uses cx/gpt-6-luna through 9router (NINE_ROUTER_BASE_URL). Apply decisions do not call OpenAI.
 bunx broods deploy --project odds-apply
 
 bunx supabase login

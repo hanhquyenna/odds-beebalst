@@ -32,6 +32,27 @@ function draw(state, label, title, note) {
 
 const percent = (n) => (typeof n === "number" ? `${n}%` : "Check")
 
+/** The side panel's figure for this page, until the open job changes. Same rounding as the panel ring. */
+let panelChance = null
+function chanceFor(url, serverPct) {
+  if (panelChance && panelChance.url === url && typeof panelChance.pct === "number") return panelChance.pct
+  return serverPct
+}
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type !== "odds-chance" || typeof message.pct !== "number") return
+  const url = typeof message.url === "string" ? message.url : current.url
+  panelChance = { url, pct: message.pct }
+  if (!message.url || current.url === url) {
+    current = { ...current, chance: message.pct, ...(current.phase === "peeking" ? { phase: "ready", known: true } : {}) }
+    show()
+  }
+  for (const [id, held] of cardJobs) {
+    if (held?.job?.url !== url) continue
+    const prev = cardResults.get(id) || {}
+    cardResult(id, { ...prev, status: "ok", known: true, chance_pct: message.pct, loading: false })
+  }
+})
+
 /** Draws the button for whatever is known about the open job. */
 function show() {
   if (!button) return
@@ -135,7 +156,7 @@ function receiveChance(job, answer) {
     if (!answer) current = { ...current, phase: "error" }
     else if (answer.status === "connect") current = { ...current, phase: "connect" }
     else if (answer.status !== "ok") current = { ...current, phase: "error", message: answer.message }
-    else current = { ...current, phase: "ready", known: Boolean(answer.known), closed: Boolean(answer.closed), saved: Boolean(answer.saved), chance: typeof answer.chance_pct === "number" ? answer.chance_pct : null, needsProfile: Boolean(answer.needs_profile), job: answer.job || (answer.id ? { id: answer.id } : null) }
+    else current = { ...current, phase: "ready", known: Boolean(answer.known), closed: Boolean(answer.closed), saved: Boolean(answer.saved), chance: chanceFor(job.url, typeof answer.chance_pct === "number" ? answer.chance_pct : null), needsProfile: Boolean(answer.needs_profile), job: answer.job || (answer.id ? { id: answer.id } : null) }
     show()
 }
 
@@ -333,7 +354,8 @@ function sync() {
   // Another job opened in the same page (job sites do not reload): look it up, after a short pause so flicking through a list asks once.
   if (current.id !== job.id) {
     const firstJob = !current.id
-    current = { id: job.id, url: job.url, phase: "peeking", chance: null, saved: false, known: false, closed: false, needsProfile: false }
+    if (panelChance && panelChance.url !== job.url) panelChance = null
+    current = { id: job.id, url: job.url, phase: "peeking", chance: chanceFor(job.url, null), saved: false, known: false, closed: false, needsProfile: false }
     show()
     window.clearTimeout(waiting)
     waiting = window.setTimeout(() => {
