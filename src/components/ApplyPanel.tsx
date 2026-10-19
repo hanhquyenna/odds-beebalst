@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
+import { BriefcaseIcon, BuildingsIcon, ChevronRightIcon, GraduationCapIcon, PeopleIcon } from "@/components/icons"
 import type { JobTab } from "@/components/JobDetail"
 import { sourcesOf } from "@/components/SourceChips"
 import { TailorFlow } from "@/components/TailorFlow"
@@ -163,13 +164,20 @@ function JobCard({ info, post, onInsights }: { info: PanelInfo; post: Posting | 
       {onInsights ? (
         <button type="button" onClick={onInsights} className="flex w-full cursor-pointer items-center gap-2 border-t-[1.5px] border-line px-3 py-3 text-left hover:bg-accent/60">
           <span className="flex-1 text-sm font-semibold">See job insights</span>
-          {people.length ? (
-            <span className="flex -space-x-2">
-              {people.slice(0, 3).map((p) => p.photo
-                ? <img key={p.id} src={p.photo} alt={p.name} className="size-7 rounded-full border-2 border-card object-cover" />
-                : <span key={p.id} title={p.name} className="flex size-7 items-center justify-center rounded-full border-2 border-card bg-accent text-xs font-semibold">{p.name.charAt(0)}</span>)}
-            </span>
-          ) : <span aria-hidden="true">›</span>}
+          {/* What the insights hold: the job, who got hired there before, the company, the people (with a few faces when some are known). */}
+          <span className="flex items-center gap-1.5 text-muted-foreground" aria-hidden="true" data-insight-icons>
+            <BriefcaseIcon className="size-[18px]" />
+            <GraduationCapIcon className="size-[18px]" />
+            <BuildingsIcon className="size-[18px]" />
+            {people.length ? (
+              <span className="flex -space-x-2">
+                {people.slice(0, 3).map((p) => p.photo
+                  ? <img key={p.id} src={p.photo} alt="" className="size-6 rounded-full border-2 border-card object-cover" />
+                  : <span key={p.id} className="flex size-6 items-center justify-center rounded-full border-2 border-card bg-accent text-[0.6875rem] font-semibold text-foreground">{p.name.charAt(0)}</span>)}
+              </span>
+            ) : <PeopleIcon className="size-[18px]" />}
+            <ChevronRightIcon className="size-4" />
+          </span>
         </button>
       ) : null}
     </div>
