@@ -146,7 +146,7 @@ export function JobCompanyTab({ post }: { post: Posting }): React.JSX.Element {
 
       {rating !== null || reviews.length > 0 ? (
         <section aria-label="Glassdoor reviews" className={card}>
-          <Head title="Glassdoor reviews" sources={<SourceLine names={["Glassdoor"]} />} />
+          <Head title="Glassdoor reviews" sources={<SourceLine names={["Glassdoor"]} />} aside={reviews.length > 2 ? <button type="button" onClick={() => setAllReviews(!allReviews)} className="cursor-pointer text-sm font-extrabold text-brand-ink">{allReviews ? "Fewer" : "See all ›"}</button> : null} />
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             {rating !== null ? <span className="text-5xl font-extrabold tracking-tight tabular-nums">{rating.toFixed(1)}</span> : null}
             <span className="text-sm text-muted-foreground">
@@ -162,11 +162,6 @@ export function JobCompanyTab({ post }: { post: Posting }): React.JSX.Element {
             </ul>
           ) : null}
           <div className="mt-3 flex flex-wrap items-center gap-4">
-            {reviews.length > 2 ? (
-              <button type="button" onClick={() => setAllReviews(!allReviews)} className="cursor-pointer text-sm font-extrabold text-brand-ink">
-                {allReviews ? "Fewer reviews" : "See all ›"}
-              </button>
-            ) : null}
             {g?.url ? (
               <a href={g.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm font-bold text-brand-ink underline underline-offset-4">
                 <SourceCircle name="Glassdoor" /> Read on Glassdoor

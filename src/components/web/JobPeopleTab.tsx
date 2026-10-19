@@ -7,15 +7,16 @@ import { PlusIcon, UndoIcon } from "@/components/icons"
 import { useData } from "@/lib/data"
 import { departmentOf } from "@/lib/field"
 import { saved } from "@/lib/saved"
+import { inRole } from "@/lib/role-match"
 import { PEOPLE_GROUPS, linkedinSearches, moreIn, openIn, whyThisPerson, type PeopleGroup, type Suggestion } from "@/lib/suggest"
 import { goTo } from "@/lib/web-nav"
 import { stamp } from "@/lib/outreach-stage"
 import { CONTACT_STATUSES, type ContactStatus, type PastSearch, type Person, type Posting } from "@/lib/types"
 
 /** The groups on the tab, in the order they were drawn. "Department leads" is what we can say: a stored title that points to a lead in the job's department, not a confirmed hiring manager. */
-export type TabGroup = PeopleGroup | "alumni"
-const TITLES: Record<TabGroup, string> = { manager: "Department leads", team: "Same team", alumni: "Alumni from your university", other: "Other" }
-const ORDER: ReadonlyArray<TabGroup> = ["manager", "team", "alumni", "other"]
+export type TabGroup = PeopleGroup | "alumni" | "role"
+const TITLES: Record<TabGroup, string> = { role: "Got this job", manager: "Department leads", team: "Same team", alumni: "Alumni from your university", other: "Other" }
+const ORDER: ReadonlyArray<TabGroup> = ["role", "manager", "team", "alumni", "other"]
 
 /** The school the person studied at, as they wrote it on their profile; null when none. */
 export function schoolOf(education: ReadonlyArray<Record<string, string>>): string | null {
@@ -29,16 +30,18 @@ function fromSchool(s: Suggestion, school: string): boolean {
   return text.includes(school.toLowerCase())
 }
 
-/** The people found for a job, sorted into the four groups. Each person is in one group; alumni are taken out of the others. */
-export function groupPeople(rec: PastSearch | null, family: string | null | undefined, school: string | null): Record<TabGroup, { shown: Suggestion[]; more: boolean }> {
-  const out: Record<TabGroup, { shown: Suggestion[]; more: boolean }> = { manager: { shown: [], more: false }, team: { shown: [], more: false }, alumni: { shown: [], more: false }, other: { shown: [], more: false } }
+/** The people found for a job, sorted into the five groups. Each person is in one group; alumni are taken out of the others. */
+export function groupPeople(rec: PastSearch | null, family: string | null | undefined, school: string | null, job?: { title: string; employer: string }): Record<TabGroup, { shown: Suggestion[]; more: boolean }> {
+  const out: Record<TabGroup, { shown: Suggestion[]; more: boolean }> = { role: { shown: [], more: false }, manager: { shown: [], more: false }, team: { shown: [], more: false }, alumni: { shown: [], more: false }, other: { shown: [], more: false } }
   if (!rec) return out
   const alumni = new Set(school ? rec.pool.filter((p) => fromSchool(p, school)).map((p) => p.url) : [])
+  const role = new Set(job ? rec.pool.filter((p) => inRole(p, job.title, job.employer)).map((p) => p.url) : [])
   for (const g of PEOPLE_GROUPS) {
-    out[g.key].shown = openIn(rec, g.key, family).filter((p) => !alumni.has(p.url))
+    out[g.key].shown = openIn(rec, g.key, family).filter((p) => !alumni.has(p.url) && !role.has(p.url))
     out[g.key].more = moreIn(rec, g.key, family)
   }
-  out.alumni.shown = rec.pool.filter((p) => alumni.has(p.url))
+  out.role.shown = rec.pool.filter((p) => role.has(p.url))
+  out.alumni.shown = rec.pool.filter((p) => alumni.has(p.url) && !role.has(p.url))
 
   return out
 }
@@ -49,7 +52,7 @@ export function JobPeopleTab({ post }: { post: Posting }): React.JSX.Element {
   const find = useFindPeople(post)
   const family = post.family ?? null
   const school = schoolOf(data.profile.education)
-  const groups = groupPeople(find.rec, family, school)
+  const groups = groupPeople(find.rec, family, school, { title: post.title, employer: post.employer_display })
   const started = useRef<boolean>(false)
   const [panel, setPanel] = useState<Suggestion | null>(null)
   useEffect(() => {
@@ -110,13 +113,13 @@ export function JobPeopleTab({ post }: { post: Posting }): React.JSX.Element {
 
       {ORDER.filter((key) => key !== "alumni" || school !== null).map((key) => {
         const g = groups[key]
-        const search = key === "alumni" ? { url: `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(`${post.employer_display} ${school ?? ""}`)}` } : (searches.find((s) => s.label === PEOPLE_GROUPS.find((x) => x.key === key)?.search) ?? searches[0])
+        const search = key === "role" ? { url: `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(`${post.employer_display} ${post.title}`)}` } : key === "alumni" ? { url: `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(`${post.employer_display} ${school ?? ""}`)}` } : (searches.find((s) => s.label === PEOPLE_GROUPS.find((x) => x.key === key)?.search) ?? searches[0])
 
         return (
           <section key={key} aria-label={TITLES[key]} className="rounded-[18px] border-[1.5px] border-line bg-card p-5">
             <div className="mb-1 flex items-center justify-between gap-3">
               <h3 className="text-xs font-extrabold tracking-[0.08em] text-muted-foreground uppercase">{TITLES[key]}</h3>
-              {key !== "alumni" && g.more ? (
+              {key !== "alumni" && key !== "role" && g.more ? (
                 <button type="button" onClick={() => find.more(key as PeopleGroup)} aria-label={`Find another: ${TITLES[key]}`} className="flex h-8 cursor-pointer items-center gap-1 rounded-full px-2 text-xs font-extrabold text-brand-ink hover:bg-accent">
                   <PlusIcon className="size-3.5" aria-hidden="true" /> Find another
                 </button>
@@ -177,11 +180,11 @@ export function JobPeopleTab({ post }: { post: Posting }): React.JSX.Element {
 }
 
 /** How many people each group of the job holds: the counts on the Overview card. Null until the people have been looked up. */
-export function peopleCounts(rec: PastSearch | null, family: string | null | undefined, school: string | null): Record<TabGroup, number> | null {
+export function peopleCounts(rec: PastSearch | null, family: string | null | undefined, school: string | null, job?: { title: string; employer: string }): Record<TabGroup, number> | null {
   if (!rec) return null
-  const g = groupPeople(rec, family, school)
+  const g = groupPeople(rec, family, school, job)
 
-  return { manager: g.manager.shown.length, team: g.team.shown.length, alumni: g.alumni.shown.length, other: g.other.shown.length }
+  return { role: g.role.shown.length, manager: g.manager.shown.length, team: g.team.shown.length, alumni: g.alumni.shown.length, other: g.other.shown.length }
 }
 
 

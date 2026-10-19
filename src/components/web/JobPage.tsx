@@ -15,10 +15,10 @@ import { QueueButton } from "@/components/web/QueueButton"
 import { PastHires } from "@/components/JobCompany"
 import { PostingText } from "@/components/PostingText"
 import { useData } from "@/lib/data"
-import { levelOf, point, type Standing } from "@/lib/engine"
-import { fieldOf } from "@/lib/filters"
 import { callsIn100 } from "@/lib/calibration"
 import { useCalibration } from "@/lib/use-calibration"
+import { levelOf, point, type Standing } from "@/lib/engine"
+import { fieldOf } from "@/lib/filters"
 import { formatAge, placeOf, stripMarkup } from "@/lib/format"
 import { workplaceOf } from "@/lib/job-facts"
 import { parsePosting } from "@/lib/job-sections"
@@ -294,11 +294,11 @@ function Ring({ value }: { value: number }): React.JSX.Element {
 function ChanceCard({ post, st }: { post: Posting; st: Standing }): React.JSX.Element {
   const known = !st.needsProfile
   const mid = st.rate ? st.rate.mid * 100 : null
+  const everyone = useCalibration().everyone
+  const calls = st.rate && known ? callsIn100(everyone, st.rate.mid) : null
   const have = known ? st.checklist.filter((c) => c.have) : []
   const missing = known ? st.checklist.filter((c) => !c.have) : []
   // What the posting insists on and the CV lacks first; a posting that does not rank its words lists every missing one.
-  const everyone = useCalibration().everyone
-  const calls = st.rate && known ? callsIn100(everyone, st.rate.mid) : null
   const insists = missing.filter((c) => (post.tiers?.[c.skill] ?? "must") === "must" || post.tiers?.[c.skill] === "strong")
   const lacking = (insists.length > 0 ? insists : missing).slice(0, 8)
 
@@ -317,10 +317,10 @@ function ChanceCard({ post, st }: { post: Posting; st: Standing }): React.JSX.El
           <p className="text-[0.8125rem] leading-snug text-muted-foreground">
             {mid !== null && known ? `${point(st.rate!.mid).replace("%", "")} in 100 similar applicants get a call` : known ? "Too few similar jobs to give a number we would stand behind" : "Add your CV to see it"}
           </p>
+          {calls !== null ? <p className="text-[0.8125rem] leading-snug text-muted-foreground">Applications like this one got a call about {calls} in 100 times in Odds' data. A check, not a promise.</p> : null}
         </div>
       </div>
 
-          {calls !== null ? <p className="text-[0.8125rem] leading-snug text-muted-foreground">Applications like this one got a call about {calls} in 100 times in Odds' data. A check, not a promise.</p> : null}
       {have.length > 0 ? (
         <div className="flex flex-col gap-2">
           <h3 className="text-[0.7rem] font-extrabold tracking-[0.08em] text-good-foreground uppercase">Already in your CV</h3>
@@ -356,9 +356,11 @@ function ChanceCard({ post, st }: { post: Posting; st: Standing }): React.JSX.El
 }
 
 const ROWS: Array<{ key: TabGroup; title: string }> = [
+  { key: "role", title: "Got this job" },
   { key: "manager", title: "Department leads" },
   { key: "team", title: "Same team" },
   { key: "alumni", title: "Alumni from your university" },
+  { key: "other", title: "Other" },
 ]
 
 function PeopleCard({ post, onTab }: { post: Posting; onTab: (tab: Tab) => void }): React.JSX.Element {
@@ -366,8 +368,8 @@ function PeopleCard({ post, onTab }: { post: Posting; onTab: (tab: Tab) => void 
   const school = schoolOf(data.profile.education)
   const past = readPast(data.profile.peopleFound?.[post.id])
   const rec = past?.open && past.peopleVersion === PEOPLE_DATA_VERSION ? past : null
-  const counts = peopleCounts(rec, post.family ?? null, school)
-  const icons: Record<string, React.ReactNode> = { manager: <BriefcaseIcon className="size-[18px]" aria-hidden="true" />, team: <PeopleIcon className="size-[18px]" aria-hidden="true" />, alumni: <GraduationCapIcon className="size-[18px]" aria-hidden="true" /> }
+  const counts = peopleCounts(rec, post.family ?? null, school, { title: post.title, employer: post.employer_display })
+  const icons: Record<string, React.ReactNode> = { manager: <BriefcaseIcon className="size-[18px]" aria-hidden="true" />, team: <PeopleIcon className="size-[18px]" aria-hidden="true" />, alumni: <GraduationCapIcon className="size-[18px]" aria-hidden="true" />, role: <BriefcaseIcon className="size-[18px]" aria-hidden="true" />, other: <PeopleIcon className="size-[18px]" aria-hidden="true" /> }
 
   return (
     <section aria-label={`People at ${post.employer_display}`} className={`${card} flex flex-col gap-3 p-5`}>
@@ -376,7 +378,7 @@ function PeopleCard({ post, onTab }: { post: Posting; onTab: (tab: Tab) => void 
         <SourceLine names={["LinkedIn"]} />
       </div>
       <ul className="flex flex-col gap-2.5">
-        {ROWS.filter((r) => r.key !== "alumni" || school !== null).map((r) => (
+        {ROWS.filter((r) => (r.key !== "alumni" || school !== null) && (r.key !== "other" && r.key !== "role" || (counts?.[r.key] ?? 0) > 0)).map((r) => (
           <li key={r.key}>
             <button type="button" onClick={() => onTab("people")} className="flex w-full cursor-pointer items-center gap-3 rounded-xl border-[1.5px] border-line px-3.5 py-3 text-left hover:border-foreground/40">
               <span className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-accent text-[#B4561A]">{icons[r.key]}</span>
