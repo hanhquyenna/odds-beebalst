@@ -171,7 +171,7 @@ async function broodsRunPick(
   }
 }
 
-/** Stuck pick (~6–8s; gpt-6.1-sol, medium effort). */
+/** Stuck pick through odds-apply on 9router. */
 async function broodsStuckPick(userPayload: Record<string, unknown>, timeoutMs = 15000): Promise<BroodsScanPick | null> {
   const agentId = (Deno.env.get("APPLY_AGENT_BROODS_AGENT_ID") ?? "").trim()
   return broodsRunPick(agentId, userPayload, timeoutMs)

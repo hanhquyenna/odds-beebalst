@@ -3,7 +3,8 @@
 // Restarts cloudflared when it logs "Tunnel not found" / "Register tunnel error", or when <url>/v1/models stays unreachable for ~60s.
 // HTTP 401 "API key required for remote API access" counts as reachable (9router requires a key remotely). A local key, when present, is sent.
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
-import { healthGaveUp, HEALTH_FAIL_MS, logNeedsRestart, modelsReachable } from "./tunnel-health.ts"
+import { networkInterfaces } from "node:os"
+import { healthGaveUp, HEALTH_FAIL_MS, logNeedsRestart, modelsReachable, networkChanged, WAKE_GAP_MS, wokeFromSleep } from "./tunnel-health.ts"
 
 const DIR = "/Users/kien/.odds-9router"
 const REPO = "/Users/kien/Documents/Files/odds-beebalst"
@@ -32,21 +33,75 @@ export async function modelsOk(base: string): Promise<boolean> {
   }
 }
 
-async function pointBroods(url: string) {
-  const base = `${url}/v1`
-  if (existsSync(SAVED) && readFileSync(SAVED, "utf8").trim() === base) return log(`tunnel ${base} (Broods already uses it)`)
+let wantedBase = ""
+let pointing: Promise<void> | null = null
+
+/** Addresses that identify the current Mac network without including loopback or transient interface order. */
+function networkFingerprint(): string {
+  const addresses = Object.entries(networkInterfaces())
+    .flatMap(([name, addresses]) => (addresses ?? [])
+      .filter((a) => !a.internal)
+      .map((a) => ({ name, family: String(a.family), address: a.address })))
+  // Prefer IPv4 so a rotating temporary IPv6 privacy address does not restart a healthy tunnel.
+  const stable = addresses.some((a) => a.family === "IPv4" || a.family === "4")
+    ? addresses.filter((a) => a.family === "IPv4" || a.family === "4")
+    : addresses.filter((a) => !/^fe80:/i.test(a.address))
+  return stable.map((a) => `${a.name}:${a.family}:${a.address}`).sort()
+    .join("|")
+}
+
+/** Set and deploy only the newest healthy URL. Serializing prevents an old tunnel's slower deploy from winning a restart race. */
+async function pointLatestBroods() {
+  while (wantedBase) {
+    const base = wantedBase
+    if (existsSync(SAVED) && readFileSync(SAVED, "utf8").trim() === base) {
+      log(`tunnel ${base} (Broods already uses it)`)
+      return
+    }
   // The new hostname takes a few seconds to resolve; wait until 9router answers through it.
-  for (let i = 0; i < 30; i++) {
-    if (await modelsOk(base)) break
-    await Bun.sleep(2000)
+    let reachable = false
+    for (let i = 0; i < 30 && wantedBase === base; i++) {
+      if (await modelsOk(base)) { reachable = true; break }
+      await Bun.sleep(2000)
+    }
+    // Never point Broods at a URL that did not pass the public check.
+    if (!reachable || wantedBase !== base) {
+      if (!reachable && wantedBase === base) log(`tunnel ${base} never became reachable; Broods keeps its previous URL`)
+      if (wantedBase !== base) continue
+      return
+    }
+    log(`tunnel moved to ${base}: updating Broods`)
+    const set = Bun.spawn([BUN, "./node_modules/.bin/broods", "env", "set", "NINE_ROUTER_BASE_URL"], { cwd: REPO, stdin: new Blob([`${base}\n`]), stdout: "inherit", stderr: "inherit" })
+    if ((await set.exited) !== 0) {
+      log("broods env set failed; retrying in 30s")
+      await Bun.sleep(30_000)
+      continue
+    }
+    if (wantedBase !== base || !(await modelsOk(base))) continue
+    const deploy = Bun.spawn([BUN, "./node_modules/.bin/broods", "deploy", "--project", "odds-apply"], { cwd: REPO, stdout: "inherit", stderr: "inherit" })
+    if ((await deploy.exited) !== 0) {
+      log("broods deploy failed; retrying in 30s")
+      await Bun.sleep(30_000)
+      continue
+    }
+    if (wantedBase !== base || !(await modelsOk(base))) continue
+    writeFileSync(SAVED, base)
+    log("Broods now uses the new tunnel")
+    return
   }
-  log(`tunnel moved to ${base}: updating Broods`)
-  const set = Bun.spawn([BUN, "./node_modules/.bin/broods", "env", "set", "NINE_ROUTER_BASE_URL"], { cwd: REPO, stdin: new Blob([`${base}\n`]), stdout: "inherit", stderr: "inherit" })
-  if ((await set.exited) !== 0) return log("broods env set failed")
-  const deploy = Bun.spawn([BUN, "./node_modules/.bin/broods", "deploy", "--project", "odds-apply"], { cwd: REPO, stdout: "inherit", stderr: "inherit" })
-  if ((await deploy.exited) !== 0) return log("broods deploy failed")
-  writeFileSync(SAVED, base)
-  log("Broods now uses the new tunnel")
+}
+
+function pointBroods(url: string) {
+  wantedBase = `${url}/v1`
+  if (!pointing) {
+    const startedFor = wantedBase
+    pointing = pointLatestBroods()
+      .catch((e) => log(`update failed: ${e}`))
+      .finally(() => {
+        pointing = null
+        if (wantedBase && wantedBase !== startedFor) pointBroods(wantedBase.replace(/\/v1$/, ""))
+      })
+  }
 }
 
 function spawnTunnel() {
@@ -60,6 +115,8 @@ async function runOnce(): Promise<"restart" | "exit"> {
   let buf = ""
   let restart = false
   let unhealthySince = 0
+  let lastTick = Date.now()
+  let network = networkFingerprint()
   const kill = () => { try { tunnel.kill() } catch { /* already gone */ } }
 
   const stderrTask = (async () => {
@@ -78,7 +135,7 @@ async function runOnce(): Promise<"restart" | "exit"> {
         url = found[0]
         buf = ""
         unhealthySince = 0
-        pointBroods(url).catch((e) => log(`update failed: ${e}`))
+        pointBroods(url)
       }
     }
   })()
@@ -86,6 +143,23 @@ async function runOnce(): Promise<"restart" | "exit"> {
   const healthTask = (async () => {
     while (tunnel.exitCode === null && !restart) {
       await Bun.sleep(5000)
+      const now = Date.now()
+      if (wokeFromSleep(lastTick, now, WAKE_GAP_MS)) {
+        log("Mac woke from sleep, restarting cloudflared for a fresh quick tunnel")
+        restart = true
+        kill()
+        return
+      }
+      lastTick = now
+      const nextNetwork = networkFingerprint()
+      if (networkChanged(network, nextNetwork)) {
+        log("Mac network changed, restarting cloudflared for a fresh quick tunnel")
+        restart = true
+        kill()
+        return
+      }
+      // Remember an offline interval so returning to the same Wi-Fi still refreshes the quick tunnel.
+      network = nextNetwork
       if (!url || restart) continue
       if (await modelsOk(`${url}/v1`)) {
         unhealthySince = 0

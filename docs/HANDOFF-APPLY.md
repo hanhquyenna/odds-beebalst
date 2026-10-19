@@ -187,7 +187,7 @@ link `node_modules`, run `bunx tsc -b`, `bun test src`, `bunx playwright test` t
 1. Explain and fix the forms that do not start in a long audit run; make `applyFrom` in the tests match the tab by page, not "last tab".
 2. Verify the Workday listbox handling against a real Workday page in the owner's Chrome (up to the password/account step, never past it).
 3. Cover letter upload (a cover letter attached to the job is not uploaded yet), and the Greenhouse "Acknowledge/Confirm" style acknowledgements (these stay the person's).
-4. Deploy `apply-agent` + set secrets: `APPLY_AGENT_WEBHOOK_SECRET`, point `mcp`'s `APPLY_AGENT_WEBHOOK_URL` at `…/functions/v1/apply-agent`, optional `ANTHROPIC_API_KEY` / Broods `APPLY_AGENT_FORWARD_URL`.
+4. Deploy `apply-agent` + set secrets: `APPLY_AGENT_WEBHOOK_SECRET`, point `mcp`'s `APPLY_AGENT_WEBHOOK_URL` at `…/functions/v1/apply-agent`, and optionally set Broods `APPLY_AGENT_FORWARD_URL`. Do not set an OpenAI or Anthropic model for apply decisions.
 5. Apply migrations (`apply_agent_events`), deploy `mcp` + `apply-agent`, push when asked (section 5). Then run the live audit again and record the numbers here.
 
 ## 12. Prompt to give an agent

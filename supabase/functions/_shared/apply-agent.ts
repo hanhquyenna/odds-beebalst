@@ -71,7 +71,7 @@ const DENY = /\b(gender|genre|divulgation volontaire|identit\w* de genre|race|et
 
 const CONFIDENCE_FLOOR = 0.55
 const MAX_ANSWER = 500
-// Broods (gpt-6.1-sol, medium) takes ~6–8s for a quick pick and up to ~25s more when it browses; a short wait threw its replies away.
+// Broods through 9router takes several seconds for a quick pick and up to ~25s more when it browses; a short wait threw its replies away.
 // The extension waits a little longer than each of these.
 const SUGGEST_TIMEOUT_MS = 32000
 const SCAN_TIMEOUT_MS = 42000

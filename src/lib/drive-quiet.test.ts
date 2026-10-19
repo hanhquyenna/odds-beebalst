@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { broodsStartFailed, MODEL_UNREACHABLE, quietGiveUp } from "../../supabase/functions/_shared/drive-quiet"
+import { broodsStartFailed, broodsStartOutcome, driveRunExpired, MODEL_UNREACHABLE, quietGiveUp } from "../../supabase/functions/_shared/drive-quiet"
 import { driveIdleGiveUp, DRIVE_IDLE_MS } from "@/lib/drive-idle"
 import { panelFillExpired, PANEL_FILL_MS } from "@/lib/panel-fill"
 
@@ -12,6 +12,13 @@ describe("broods start", () => {
     expect(broodsStartFailed({ status: "accepted" })).toBe(false)
     expect(MODEL_UNREACHABLE).not.toContain("—")
   })
+
+  test("a turn that completes before sending a tool is checked for zero commands", () => {
+    expect(broodsStartOutcome({ status: "accepted" })).toBe("wait")
+    expect(broodsStartOutcome({ status: "processing" })).toBe("live")
+    expect(broodsStartOutcome({ status: "failed", error: "getaddrinfo ENOTFOUND" })).toBe("unreachable")
+    expect(broodsStartOutcome({ status: "completed" })).toBe("ended")
+  })
 })
 
 describe("quiet give-up", () => {
@@ -20,6 +27,14 @@ describe("quiet give-up", () => {
     expect(quietGiveUp({ retries: 2, commandCount: 0, quiet: true })).toBe("retry")
     expect(quietGiveUp({ retries: 3, commandCount: 0, quiet: true })).toBe("stuck_unreachable")
     expect(quietGiveUp({ retries: 3, commandCount: 4, quiet: true })).toBe("stuck_generic")
+  })
+
+  test("an expired running lease is terminal even when the row still says running", () => {
+    const now = Date.parse("2026-10-19T19:00:00Z")
+    expect(driveRunExpired("running", "2026-10-19T18:59:59Z", now)).toBe(true)
+    expect(driveRunExpired("running", "2026-10-19T19:00:01Z", now)).toBe(false)
+    expect(driveRunExpired("review", "2026-10-19T18:59:59Z", now)).toBe(false)
+    expect(driveRunExpired("running", null, now)).toBe(false)
   })
 })
 

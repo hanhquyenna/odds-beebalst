@@ -2,7 +2,9 @@
 
 `run-tunnel.ts` keeps a Cloudflare quick tunnel in front of 9router (`http://127.0.0.1:20129`) and points Broods project `odds-apply` at the public `/v1` base (`NINE_ROUTER_BASE_URL`, then `broods deploy`).
 
-It restarts `cloudflared` when stderr contains `Tunnel not found` or `Register tunnel error`, or when `https://<tunnel>/v1/models` stays unreachable for about 60 seconds. HTTP 401 with the body `API key required for remote API access` counts as reachable. If `NINE_ROUTER_API_KEY` is set, or `~/.odds-9router/api-key` exists, that key is sent on the health check.
+It restarts `cloudflared` when stderr contains `Tunnel not found` or `Register tunnel error`, when `https://<tunnel>/v1/models` stays unreachable for about 60 seconds, immediately after a Mac sleep/wake timer gap, when active network addresses change, or when a usable network returns after an offline interval. HTTP 401 with the body `API key required for remote API access` counts as reachable. If `NINE_ROUTER_API_KEY` is set, or `~/.odds-9router/api-key` exists, that key is sent on the health check.
+
+Broods is updated only after the new public URL passes the models check. URL updates are serialized so a slow deployment for an old quick tunnel cannot overwrite a newer one. Failed Broods environment updates or deploys retry every 30 seconds while that URL remains current. If no new URL becomes healthy, Broods keeps the previous URL; new application runs still surface `Broods' model is unreachable` through the drive start/status checks instead of remaining on Filling.
 
 ## Install
 

@@ -1,5 +1,7 @@
 /** How long a public tunnel may fail its models check before cloudflared is restarted. */
 export const HEALTH_FAIL_MS = 60_000
+/** A five-second monitor tick delayed this long means the Mac slept or the process was paused. */
+export const WAKE_GAP_MS = 20_000
 
 /**
  * cloudflared quick tunnels die with "Tunnel not found" / "Register tunnel error" and keep the old process.
@@ -21,4 +23,17 @@ export function modelsReachable(status: number, body: string): boolean {
 /** True once unhealthy checks have lasted about a minute. */
 export function healthGaveUp(unhealthyMs: number, limit = HEALTH_FAIL_MS): boolean {
   return unhealthyMs >= limit
+}
+
+/** Sleep/wake pauses timers. Restart the quick tunnel immediately after a large monitor gap. */
+export function wokeFromSleep(previousTick: number, currentTick: number, limit = WAKE_GAP_MS): boolean {
+  return previousTick > 0 && currentTick - previousTick >= limit
+}
+
+/**
+ * A network fingerprint changes when Wi-Fi/Ethernet addresses or interfaces change.
+ * Empty means offline and is ignored until a usable network returns.
+ */
+export function networkChanged(previous: string, current: string): boolean {
+  return Boolean(current && previous !== current)
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { healthGaveUp, HEALTH_FAIL_MS, logNeedsRestart, modelsReachable } from "../../scripts/launchd/tunnel-health"
+import { healthGaveUp, HEALTH_FAIL_MS, logNeedsRestart, modelsReachable, networkChanged, WAKE_GAP_MS, wokeFromSleep } from "../../scripts/launchd/tunnel-health"
 
 describe("tunnel health", () => {
   test("Tunnel not found and register errors restart cloudflared", () => {
@@ -18,5 +18,18 @@ describe("tunnel health", () => {
   test("health gives up after about 60 seconds", () => {
     expect(healthGaveUp(HEALTH_FAIL_MS - 1)).toBe(false)
     expect(healthGaveUp(HEALTH_FAIL_MS)).toBe(true)
+  })
+
+  test("a sleep gap restarts immediately after wake", () => {
+    expect(wokeFromSleep(10_000, 10_000 + WAKE_GAP_MS - 1)).toBe(false)
+    expect(wokeFromSleep(10_000, 10_000 + WAKE_GAP_MS)).toBe(true)
+    expect(wokeFromSleep(0, 100_000)).toBe(false)
+  })
+
+  test("a usable network change or return from offline restarts", () => {
+    expect(networkChanged("en0:IPv4:192.0.2.1", "en0:IPv4:192.0.2.2")).toBe(true)
+    expect(networkChanged("en0:IPv4:192.0.2.1", "en0:IPv4:192.0.2.1")).toBe(false)
+    expect(networkChanged("en0:IPv4:192.0.2.1", "")).toBe(false)
+    expect(networkChanged("", "en0:IPv4:192.0.2.1")).toBe(true)
   })
 })

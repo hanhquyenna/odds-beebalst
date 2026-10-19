@@ -3,7 +3,7 @@ import { renderLetterPdf } from "../_shared/cv-template.ts"
 import { compressRoute, routeHint, routeKey, routeStoreKey, usable } from "../_shared/site-routes.ts"
 import { canAcceptDriveResult, humanStopAllowed, jobIdentityMismatch } from "../_shared/drive-ownership.ts"
 import { appliedBeforeAnswer, FACT_QUESTION_HINT, isWorkAuthQuestion, ownQuestions, permitWorkAnswers, studyingFrom, widgetAttemptGuard, workFactForQuestion, type PermitWorkFacts } from "../_shared/drive-finish.ts"
-import { broodsStartFailed, MODEL_UNREACHABLE, quietGiveUp } from "../_shared/drive-quiet.ts"
+import { broodsStartOutcome, driveRunExpired, MODEL_UNREACHABLE, quietGiveUp, type BroodsStartOutcome } from "../_shared/drive-quiet.ts"
 import { fieldPattern, playbookFor, sanitizeLesson, siteIdentity, structuralField } from "../_shared/site-playbook.ts"
 
 // Broods drives the person's own Chrome through the Odds extension.
@@ -930,27 +930,37 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
     const turn = resume ? (Number(run.retries) || 0) + (Number(run.resumes) || 0) : 0
     const accepted = await client.runAsync({ agentId, eventId: crypto.randomUUID(), conversationKey: turn > 0 ? `odds-drive-${run.id}-${turn}` : `odds-drive-${run.id}`, input: JSON.stringify(task) })
     // 202 only means Broods queued the run. A dead tunnel fails the model in well under a second and leaves the run "running".
-    if (await broodsInvocationFailed(client, accepted)) return MODEL_UNREACHABLE
+    const started = await broodsInvocationState(client, accepted)
+    if (started === "unreachable") return MODEL_UNREACHABLE
+    if (started === "ended") {
+      const [fresh, commands] = await Promise.all([
+        runOf(env, run.id),
+        svc(env, `drive_commands?run_id=eq.${run.id}&tool=neq.recipe&select=id&limit=1`).catch(() => []),
+      ])
+      if (fresh?.status === "running" && (!Array.isArray(commands) || commands.length === 0)) {
+        return "Broods ended before it reached the application tab. Press Apply with Odds to try again."
+      }
+    }
   } catch { return "Broods did not start. Try again from Odds." }
   return null
 }
 
 /** Poll the async session for a few seconds. A failed, expired, or unresolvable model is a start failure; a live status is not. */
-async function broodsInvocationFailed(client: { getAsyncStatus?: (status: unknown) => Promise<{ status?: string; error?: string | null }> }, accepted: unknown): Promise<boolean> {
-  if (typeof client.getAsyncStatus !== "function") return false
+async function broodsInvocationState(client: { getAsyncStatus?: (status: unknown) => Promise<{ status?: string; error?: string | null }> }, accepted: unknown): Promise<BroodsStartOutcome> {
+  if (typeof client.getAsyncStatus !== "function") return "wait"
   const deadline = Date.now() + 2500
   while (Date.now() < deadline) {
     try {
       const status = await client.getAsyncStatus(accepted)
-      if (broodsStartFailed(status)) return true
-      const name = String(status?.status || "")
-      if (["processing", "applied", "completed", "awaiting_input", "awaiting_approval"].includes(name)) return false
+      const outcome = broodsStartOutcome(status)
+      if (outcome !== "wait") return outcome
     } catch (err) {
-      if (broodsStartFailed({ status: "failed", error: String((err as Error)?.message || err) })) return true
+      const outcome = broodsStartOutcome({ status: "failed", error: String((err as Error)?.message || err) })
+      if (outcome !== "wait") return outcome
     }
     await sleep(400)
   }
-  return false
+  return "wait"
 }
 
 // ---------------------------------------------------------------- extension routes
@@ -1142,10 +1152,22 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
         if (Array.isArray(taken) && taken.length) return json(200, { command: queued, steps: run.steps, doc_gen: run.doc_gen ?? 0 })
       }
       const fresh = await runOf(env, run.id)
-      if (!fresh || !live(fresh)) return json(200, { done: true, status: fresh?.status ?? "failed", reason: fresh?.reason ?? null, message: fresh?.message ?? "The run ended." })
-      // Broods has sent nothing for 100 s (not waiting on the person): it ended without saying so. Retry once by itself; only then say it.
+      if (!fresh || !live(fresh)) {
+        if (fresh && driveRunExpired(fresh.status, fresh.expires_at)) {
+          const now = new Date().toISOString()
+          const message = "The application run expired before Broods finished. Press Apply with Odds to carry on."
+          await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, {
+            method: "PATCH",
+            body: JSON.stringify({ status: "stuck", reason: "other", message, resume_pending: false, fill_ended_at: now, agent_finished_at: now, updated_at: now }),
+          }).catch(() => undefined)
+          await cancelOpenCommands(env, run.id, "expired")
+          return json(200, { done: true, status: "stuck", reason: "other", message })
+        }
+        return json(200, { done: true, status: fresh?.status ?? "failed", reason: fresh?.reason ?? null, message: fresh?.message ?? "The run ended." })
+      }
+      // Broods has sent nothing for 30 s (not waiting on the person): it ended without saying so. Retry once by itself; only then say it.
       if (Date.now() - Date.parse(fresh.updated_at) > QUIET_MS && !personBusy(fresh)) {
-        const commands = await svc(env, `drive_commands?run_id=eq.${run.id}&select=id&limit=1`).catch(() => [])
+        const commands = await svc(env, `drive_commands?run_id=eq.${run.id}&tool=neq.recipe&select=id&limit=1`).catch(() => [])
         const decision = quietGiveUp({ retries: fresh.retries ?? 0, commandCount: Array.isArray(commands) ? commands.length : 0, quiet: true })
         if (decision === "retry") {
           await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, {
