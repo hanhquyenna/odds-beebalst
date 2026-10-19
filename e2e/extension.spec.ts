@@ -5473,6 +5473,26 @@ test("Fill with Odds from the toolbar: the icon lights up \"Fill\" on a page wit
   expect(fake.driveStartBodies?.[0]?.odds_filled).toMatchObject({ filled: expect.any(Number), left: expect.any(Number) })
 })
 
+test("Fill with Odds pressed again on a run that ended stuck starts Broods again at once", async ({ context, fake }) => {
+  test.setTimeout(120_000)
+  await connect(context)
+  const html = `<!doctype html><html><body><h1>Apply</h1><form><label for="fn">First name</label><input id="fn" required>
+    <label for="em">Email</label><input id="em" type="email" required><label for="ph">Phone</label><input id="ph" type="tel">
+    <button type="submit">Submit application</button></form></body></html>`
+  await context.route("https://jobs.example-again.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pagain", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  let rounds = 0
+  fake.driveScript = async (cmd) => { rounds++; await cmd("read_page"); return { status: "stuck", message: "The country list did not take it.", reason: "other" } }
+  const page = await context.newPage()
+  await page.goto("https://jobs.example-again.com/apply")
+  await expect.poll(() => toolbarBadge(context, "https://jobs.example-again.com/*"), { timeout: 15000 }).toBe("Fill")
+  expect(await toolbarFill(context, "https://jobs.example-again.com/*")).toMatchObject({ ok: true })
+  await expect(page.locator(".odds-apply-bar")).toContainText(/couldn.t finish this one/i, { timeout: 40000 })
+  await page.waitForTimeout(4000)
+  expect(await toolbarFill(context, "https://jobs.example-again.com/*")).toMatchObject({ ok: true })
+  await expect.poll(() => rounds, { timeout: 40000 }).toBe(2)
+})
+
 test("Fill with Odds: one press on a form the person opened themselves fills the whole application, page after page, and stops before Submit", async ({ context, fake }) => {
   test.setTimeout(120_000)
   await connect(context)
