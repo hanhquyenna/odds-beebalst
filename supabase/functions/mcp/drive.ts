@@ -458,6 +458,19 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         message = message || `Cannot stop for the person without clear evidence (${gate.reason}).`
       }
     }
+    // "This application requires signing in": on a page that is a register form AND the application (password boxes beside many other fields),
+    // the password boxes are Odds' own to fill (create account), never a reason to stop. Sent back once, with the page read fresh.
+    if (stage !== "review" && ["account", "other"].includes(String(reason)) && /\b(sign(ing)? in|log ?in|account|password)\b/i.test(message)) {
+      const sentForm = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.register_form&select=id&limit=1`).catch(() => null))?.[0]
+      if (!sentForm) {
+        const page = await freshPage(env, run)
+        const others = Array.isArray(page?.fields) ? page.fields.filter((f: Json) => f?.kind !== "checkbox").length : 0
+        if (page && page.dialog == null && page.password_field === true && others >= 3 && !signInWall({ ...page, password_field: false })) {
+          await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "register_form" }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+          return { text: "Not a sign-in wall: this page is a register form AND the application. Odds fills the email and password boxes itself (they are not in the field list). Fill every other empty field, check the page for errors, and finish review when only the final Apply / Submit is left. Stop for an account only if the form cannot be reached at all.", error: true }
+        }
+      }
+    }
     // Closed only when the page itself says so (read_page.closed). A Workday page read before it finished drawing looks empty, and a model
     // calls that "page not found": the page is read again, and a page with a form or an Apply button is never closed. Sent back once.
     if (reason === "closed") {

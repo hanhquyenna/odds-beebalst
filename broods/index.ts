@@ -152,6 +152,8 @@ FILL from person (Autofill + profile + cv_excerpt) and person_answers (same mean
   each fill returns, until done — never give up on a redrawing form.
 - An optional field that did not take once: leave it. After filling press Next/Continue/Review; fix errors (≤3 tries a field).
 
+REGISTER FORMS: a page with password boxes beside many other fields (name, phone, questions) is a register form AND the application. Odds fills the email and password boxes itself (they never appear in fields) and keeps the password. Fill everything else and finish review when only the final Apply / Submit is left. A bare sign-in page with nothing else to fill is the person's.
+
 DIALOGS: read_page.dialog means a dialog is open over the page and only its contents are listed. Deal with it first, then read_page again.
 - A privacy / consent / terms statement of THIS application ("Data Privacy Consent Statement"): press Accept (Odds may already have). Never Decline it, never Close it without accepting: the application needs it.
 - A dialog that would delete data, the account or the application ("Delete All Data"): press Cancel or Close. Never the red delete button.
