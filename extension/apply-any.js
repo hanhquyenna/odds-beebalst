@@ -2423,6 +2423,9 @@
         await sleep(3000)
         continue
       }
+      // The person pressed Apply / Fill with Odds again on a run that has ended (stuck, needs you): that press starts a fresh run, it never
+      // sits behind the old one for the 30 minutes the tab is watched.
+      if (endedAt && wantContinue) return
       // Waiting for the person: once they acted here and went quiet, or the captcha is gone, the same run carries on — no button needed.
       if (endedAt && resumedFor !== endedAt) {
         const handled = (person.at > endedAt && Date.now() - person.at >= PERSON_QUIET_MS) || (endedReason === "captcha" && !blockingCaptcha())
