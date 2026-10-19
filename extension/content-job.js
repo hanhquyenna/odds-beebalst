@@ -30,7 +30,9 @@ function draw(state, label, title, note) {
   button.setAttribute("aria-label", title)
 }
 
-const percent = (n) => (typeof n === "number" ? `${n}%` : "Check")
+// Same rule as the app (point in engine.ts): from 9.5% up a whole number, below it one decimal, so a badge and the panel never disagree.
+const shownPct = (n) => (n >= 9.5 ? `${Math.round(n)}%` : `${(Math.round(n * 10) / 10).toFixed(1)}%`)
+const percent = (n) => (typeof n === "number" ? shownPct(n) : "Check")
 
 /** Draws the button for whatever is known about the open job. */
 function show() {
@@ -370,7 +372,7 @@ function renderCard(badge, result) {
     return
   }
   const unknown = result.status === "ok" && result.known === false
-  const label = result.needs_profile ? "Add CV" : typeof result.chance_pct === "number" ? `${result.chance_pct}%` : unknown ? "Check" : "Retry"
+  const label = result.needs_profile ? "Add CV" : typeof result.chance_pct === "number" ? shownPct(result.chance_pct) : unknown ? "Check" : "Retry"
   const title = result.needs_profile ? "Import your LinkedIn profile or add a CV in Odds to calculate your interview chance" : typeof result.chance_pct === "number" ? `Your interview chance: ${result.chance_pct}%. Open this job in Odds.` : result.status === "connect" ? "Connect Odds to see your interview chance" : result.closed ? "This job is closed" : unknown ? "Odds does not have this job yet. Open the job details while Odds reads this job." : result.message || "Open this job in Odds"
   const aria = `${label}. ${result.job?.title || "Open this job in Odds"}`
   const state = result.status === "ok" ? "ready" : "problem"
