@@ -490,6 +490,11 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     reply({ ok: true })
     return true
   }
+  // The saved logins page (the accounts Odds made, with Show / Copy / Forget): an extension page, so the passwords never reach a web page.
+  if (message?.type === "panel-open-logins") {
+    chrome.tabs.create({ url: chrome.runtime.getURL("logins.html") }).then(() => reply({ ok: true })).catch(() => reply({ ok: false }))
+    return true
+  }
   // Create account & Autofill / Sign in & Autofill from the side panel: the person's email and a password Odds makes for this site
   // (kept in this Chrome only), then the application is filled in this tab once the account step is past.
   if (message?.type === "panel-account" && typeof message.tabId === "number") {

@@ -72,6 +72,7 @@ export function ApplyPanel(): React.JSX.Element | null {
         </Suspense>
       ) : null}
       <Button variant="ghost" size="sm" className="self-center" onClick={() => setAway(page.url)}>My jobs</Button>
+      <Button variant="ghost" size="sm" className="self-center" onClick={() => toExtension({ type: "panel-open-logins" })}>Saved logins</Button>
     </div>
   )
 }

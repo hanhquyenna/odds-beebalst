@@ -5530,6 +5530,42 @@ test("while Odds applies in a tab, a create-account step is done by Odds itself:
   expect(JSON.stringify(fake.driveStartBodies ?? [])).not.toContain(made.pw)
 })
 
+test("the saved logins page lists the accounts Odds made: the password is hidden until Show, Forget removes the site", async ({ context }) => {
+  test.setTimeout(60_000)
+  await connect(context)
+  const worker = context.serviceWorkers()[0]
+  const id = new URL(worker.url()).host
+  // Test values only (made up here, not a real login).
+  const secret = "Aa1!test-only-pass"
+  await worker.evaluate((pw) => chrome.storage.local.set({ oddsAccounts: {
+    "acme.wd5.example-workday.com": { email: "kien@example.com", password: pw, at: Date.parse("2026-10-18") },
+    "careers.other.example": { email: "kien@example.com", password: "Zz9?other-pass-xx", at: Date.parse("2026-10-10") },
+  } }), secret)
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: `chrome-extension://${id}` }).catch(() => undefined)
+  const page = await context.newPage()
+  await page.goto(`chrome-extension://${id}/logins.html`)
+  const rows = page.locator("li[data-host]")
+  await expect(rows).toHaveCount(2)
+  // Newest first, the email shown, the password hidden (not anywhere in the page text).
+  await expect(rows.first()).toContainText("acme.wd5.example-workday.com")
+  await expect(rows.first()).toContainText("kien@example.com")
+  expect(await page.locator("body").innerText()).not.toContain(secret)
+  await rows.first().getByRole("button", { name: "Show" }).click()
+  await expect(rows.first()).toContainText(secret)
+  await rows.first().getByRole("button", { name: "Hide" }).click()
+  expect(await page.locator("body").innerText()).not.toContain(secret)
+  // Forget removes only that site, from storage too.
+  page.on("dialog", (d) => void d.accept())
+  await rows.first().getByRole("button", { name: "Forget" }).click()
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText("careers.other.example")
+  const left = await worker.evaluate(async () => Object.keys(((await chrome.storage.local.get("oddsAccounts")).oddsAccounts as unknown as Record<string, unknown>) ?? {}))
+  expect(left).toEqual(["careers.other.example"])
+  // Nothing saved: a plain empty state.
+  await worker.evaluate(() => chrome.storage.local.set({ oddsAccounts: {} }))
+  await expect(page.getByText("Nothing saved yet.")).toBeVisible()
+})
+
 test("a box that keeps its value only on its own blur (Workday, React's focusout) keeps what Odds typed, even while the person is in the side panel", async ({ context, fake }) => {
   test.setTimeout(90_000)
   await connect(context)

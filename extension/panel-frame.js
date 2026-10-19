@@ -189,6 +189,7 @@ window.addEventListener("message", (event) => {
   if (d.type === "panel-fill" && typeof d.tabId === "number") chrome.runtime.sendMessage({ type: "fill-tab", tabId: d.tabId }, () => { void chrome.runtime.lastError; sendPanelInfo() })
   if (d.type === "apply-here" && typeof d.tabId === "number" && typeof d.url === "string") chrome.runtime.sendMessage({ type: "apply-here", tabId: d.tabId, url: d.url, postingId: typeof d.postingId === "string" ? d.postingId : null }, () => { void chrome.runtime.lastError; sendPanelInfo() })
   if (d.type === "panel-account" && typeof d.tabId === "number") chrome.runtime.sendMessage({ type: "panel-account", tabId: d.tabId, create: d.create === true }, () => { void chrome.runtime.lastError; sendPanelInfo() })
+  if (d.type === "panel-open-logins") chrome.runtime.sendMessage({ type: "panel-open-logins" }, () => void chrome.runtime.lastError)
   if (d.type === "panel-add-job" && typeof d.url === "string") chrome.runtime.sendMessage({ type: "panel-add-job", url: d.url }, () => { void chrome.runtime.lastError; sendPanelInfo() })
   if (d.type === "panel-keep-answers" && typeof d.tabId === "number" && Array.isArray(d.questions)) {
     chrome.runtime.sendMessage({ type: "panel-keep-answers", tabId: d.tabId, url: null, questions: d.questions }, () => { void chrome.runtime.lastError; lastAnswers = { tabId: null, at: 0, items: [] } })
