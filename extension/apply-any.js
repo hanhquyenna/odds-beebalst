@@ -366,10 +366,11 @@
     return PLACEHOLDER.test(t) ? "" : t
   }
   /** The options a dropdown shows now: the list that belongs to it, else the visible one on the page. */
-  function listed(input) {
+  function listed(input, loose = true) {
     // (a Workday field's chosen chips sit in a listbox of their own: never the open list)
     const own = (id) => (id ? (input.getRootNode().getElementById?.(id) ?? document.getElementById(id)) : null)
-    const listbox = own(input.getAttribute("aria-controls")) || own(input.getAttribute("aria-owns")) || deepAll("[role='listbox']").filter((l) => shown(l) && [...l.querySelectorAll("[role='option']")].some((o) => o.getAttribute("data-automation-id") !== "selectedItem")).pop() || input.closest("[class*='container'], div")?.querySelector("[role='listbox']")
+    const named = input.getAttribute("aria-controls") || input.getAttribute("aria-owns")
+    const listbox = own(input.getAttribute("aria-controls")) || own(input.getAttribute("aria-owns")) || (named && !loose ? null : (deepAll("[role='listbox']").filter((l) => shown(l) && [...l.querySelectorAll("[role='option']")].some((o) => o.getAttribute("data-automation-id") !== "selectedItem")).pop() || input.closest("[class*='container'], div")?.querySelector("[role='listbox']")))
     let options = [...(listbox?.querySelectorAll("[role='option'], [data-automation-id='promptOption']") || [])].filter((o) => shown(o) && o.getAttribute("data-automation-id") !== "selectedItem" && !/^\s*(searching|loading|zoeken|bezig|laden)\b/i.test(textOf(o)))
     // Workday draws each choice three times (menuItem › promptLeafNode › promptOption): the menu item is the one to press.
     if (options.some((o) => o.getAttribute("data-automation-id") === "menuItem")) options = options.filter((o) => o.getAttribute("data-automation-id") === "menuItem")
@@ -435,7 +436,12 @@
       }
     }
     await sleep(150)
-    let { options, texts } = listed(input)
+    // A list that is drawn a moment after the press (dsm-firmenich: ~600 ms): waited for, and only the box's own list counts meanwhile.
+    let { options, texts } = listed(input, false)
+    if (input.getAttribute("aria-controls") || input.getAttribute("aria-owns")) {
+      for (let waited = 0; texts.length === 0 && waited < 1200; waited += 100) { await sleep(100); ;({ options, texts } = listed(input, false)) }
+      if (texts.length === 0) ({ options, texts } = listed(input))
+    } else ({ options, texts } = listed(input))
     if (!button && texts.length === 0) {
       input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true }))
       await sleep(250)

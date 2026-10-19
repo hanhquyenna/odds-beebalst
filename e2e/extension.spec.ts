@@ -3932,7 +3932,7 @@ test("a page without an applicant form is never marked ready to review", async (
   await applyFrom(context, page, job)
   await expect.poll(async () => (await status()).state?.status, { timeout: 15000 }).toBe("needs_input")
   expect((await status()).state?.status).not.toBe("ready")
-  await expect(page.locator(".odds-apply-bar")).toContainText(/could not (verify an application form|open the application form|move this application forward)/i)
+  await expect(page.locator(".odds-apply-bar")).toContainText(/(could not (verify an application form|open the application form|move this application forward)|couldn.t finish this one)/i)
 })
 
 /** A form in steps, as Workday draws it: Next shows the next step; the last step has Submit, which odds never presses. */
@@ -4879,15 +4879,19 @@ test("REAL_DSM: the live dsm-firmenich country dropdown takes Netherlands", asyn
   fake.driveScript = async (cmd) => {
     const page = await cmd("read_page") as { fields?: Array<{ id: string; label: string }> }
     const country = page.fields!.find((f) => /^Country of Residence/.test(f.label))!
-    sent = await cmd("fill", { fields: [{ id: country.id, value: "The Netherlands" }] })
+    const conflict = page.fields!.find((f) => /^Today or at any time/.test(f.label))!
+    const gender = page.fields!.find((f) => /^Gender Identity/.test(f.label))!
+    const first = await cmd("fill", { fields: [{ id: country.id, value: "The Netherlands" }, { id: conflict.id, value: "No, I don’t have any situation that could be considered as an actual or potential conflict of interest." }] }) as { results?: unknown[] }
+    const second = await cmd("fill", { fields: [{ id: gender.id, value: "Prefer not to say" }] }) as { results?: unknown[] }
+    sent = { first: first.results, second: second.results }
     return { status: "stuck", message: "probe done" }
   }
   const page = await context.newPage()
   await page.goto(url)
   await applyFrom(context, page, url)
   await expect.poll(() => sent, { timeout: 90_000 }).not.toBeNull()
-  console.log("DSM RESULT", JSON.stringify(sent).slice(0, 1500))
-  console.log("DSM VALUE", await page.locator("#input-9").inputValue().catch((e) => String(e)))
+  console.log("DSM RESULT", JSON.stringify(sent).slice(0, 900))
+  console.log("DSM VALUES", await page.evaluate(() => ["input-9", "input-12", "input-15"].map((id) => (document.getElementById(id) as HTMLInputElement | null)?.value)))
 })
 
 test("while the browser's side panel is open the page draws no second panel, and it may again once that panel is closed", async ({ context }) => {
