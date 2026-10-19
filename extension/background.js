@@ -182,6 +182,20 @@ async function cvFile(doc) {
 const PREPARED_MS = 120_000
 const kits = new Map()
 const cvFiles = new Map()
+/** The last apply kit (the person's details, CV and saved answers) kept in this browser, so the first fill of a page does not wait for the server.
+ * It is refreshed by every kit that arrives; a page fills from it at once and takes the fresh kit when it comes. */
+const KIT_CACHE = "oddsKitCache"
+const KIT_CACHE_MAX_MS = 24 * 3_600_000
+async function cachedKit() {
+  try {
+    const { [KIT_CACHE]: hit } = await chrome.storage.local.get(KIT_CACHE)
+    return hit && hit.kit?.status === "ok" && Date.now() - hit.at < KIT_CACHE_MAX_MS ? hit.kit : null
+  } catch { return null }
+}
+function keepKit(kit) {
+  if (kit?.status !== "ok" || !kit.facts) return
+  chrome.storage.local.set({ [KIT_CACHE]: { at: Date.now(), kit } }).catch(() => undefined)
+}
 function kitFor(url, fresh = false, hints = {}) {
   const hit = kits.get(url)
   if (!fresh && hit && Date.now() - hit.at < PREPARED_MS) return hit.promise
@@ -189,6 +203,7 @@ function kitFor(url, fresh = false, hints = {}) {
   const promise = ext("apply-kit", { method: "POST", body: JSON.stringify({ url, ...hints }) })
   kits.set(url, { at: Date.now(), promise })
   promise.then((kit) => {
+    keepKit(kit)
     const doc = kit?.cv?.id
     if (typeof doc === "string" && !cvFiles.has(doc)) cvFileFor(doc)
   }).catch(() => kits.delete(url))
@@ -201,6 +216,33 @@ function cvFileFor(doc) {
   cvFiles.set(doc, { at: Date.now(), promise })
   promise.then((file) => { if (file?.status !== "ok") cvFiles.delete(doc) })
   return promise
+}
+
+const PLAYBOOK_CACHE = "oddsPlaybooks"
+const PLAYBOOK_FRESH_MS = 6 * 3_600_000
+async function playbookFor(page) {
+  let host = ""
+  try { host = new URL(page).hostname.toLowerCase() } catch { return ext("drive-playbook", { method: "POST", body: JSON.stringify({ page }) }) }
+  const load = async () => {
+    const res = await ext("drive-playbook", { method: "POST", body: JSON.stringify({ page }) })
+    if (res?.playbook) {
+      try {
+        const { [PLAYBOOK_CACHE]: all = {} } = await chrome.storage.local.get(PLAYBOOK_CACHE)
+        const keep = Object.entries({ ...all, [host]: { at: Date.now(), playbook: res.playbook } }).sort((a, b) => b[1].at - a[1].at).slice(0, 60)
+        await chrome.storage.local.set({ [PLAYBOOK_CACHE]: Object.fromEntries(keep) })
+      } catch { /* storage blocked: the next page asks again */ }
+    }
+    return res
+  }
+  try {
+    const { [PLAYBOOK_CACHE]: all = {} } = await chrome.storage.local.get(PLAYBOOK_CACHE)
+    const hit = all[host]
+    if (hit?.playbook) {
+      if (Date.now() - hit.at > PLAYBOOK_FRESH_MS) void load().catch(() => undefined)
+      return { playbook: hit.playbook, cached: true }
+    }
+  } catch { /* no local copy */ }
+  return load()
 }
 
 /** A sign-in for the odds app inside the panel, made by odds from the extension's key. */
@@ -257,6 +299,8 @@ chrome.storage.onChanged.addListener(changes => {
   if (!changes[KEY]) return
   chanceCache.clear()
   chrome.storage.session.remove("oddsChanceCache")
+  // A new key is another person: their details and site recipes are fetched again.
+  chrome.storage.local.remove(["oddsKitCache", "oddsPlaybooks"])
 })
 /** A posting a page sent: plain text fields only (the server checks it again). */
 function postingOf(message) {
@@ -601,6 +645,8 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
         if (typeof held === "string") body.run_id = held
       }
       const res = await ext(`drive-${message.op}`, { method: "POST", body: JSON.stringify(body) })
+      // Site recipes change slowly: the copy kept for this host answers at once and is refreshed for the next page.
+      if (message.op === "playbook") return playbookFor(body.page)
       // The run follows the tab across page loads: the next page resumes it instead of starting another.
       if (message.op === "start" && typeof res?.run_id === "string") await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], driveRun: res.run_id } })
       // ext() separates transport status from the application stage. Restore the
@@ -705,6 +751,11 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   // Applying: what the form needs, the person's own answers kept, the job marked applied, their CV for the upload.
   if (message?.type === "apply-kit" && typeof message.url === "string") {
     // Always an answer: a failed fetch is "error" (the page retries), never silence the page would read as "not connected".
+    // The local copy, answered at once; a refresh starts in the background for the next page.
+    if (message.cached === true) {
+      cachedKit().then((kit) => { if (kit) void kitFor(message.url).catch(() => undefined); reply(kit ? { ...kit, cached: true } : { status: "none" }) })
+      return true
+    }
     kitFor(message.url).then(reply).catch(() => { kits.delete(message.url); reply({ status: "error", message: "odds did not answer." }) })
     return true
   }
@@ -790,6 +841,10 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   }
   // A press on the odds button on a page: open the browser's side panel on that tab at once (it must happen inside the press), allowing odds to be framed there first.
   if (message?.type === "open-side-panel" && sender.tab && typeof sender.tab.id === "number") {
+  if (message?.type === "native-panel-open") {
+    reply({ open: sidePanels.size > 0 })
+    return false
+  }
     const tabId = sender.tab.id
     if (panelInPageOnly) {
       reply({ ok: false, why: "in-page only" })
@@ -841,10 +896,6 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   }
   if (message?.type === "disconnect") {
     chrome.storage.local.remove(KEY).then(() => reply({ connected: false }))
-  if (message?.type === "native-panel-open") {
-    reply({ open: sidePanels.size > 0 })
-    return false
-  }
     return true
   }
   // The key comes only from the odds site itself (content-site.js on odds.beeblast.co), after the person is signed in there and allows it.

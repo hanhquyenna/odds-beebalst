@@ -21,6 +21,13 @@ describe("site playbook privacy and promotion", () => {
     expect(playbookFor([{lessons:{apply:{...evidence(5),failures:1,last_failure:new Date(now).toISOString()}}}],now).recipes).toHaveLength(0)
     expect(assessLesson({...evidence(20),failures:3},now).retired).toBe(true)
   })
+  test("a recipe with a long clean record comes back a day after one old failure, not after two weeks", () => {
+    const day = 86_400_000
+    const proven = (failedAgo: number) => ({ ...evidence(30), failures: 1, last_failure: new Date(now - failedAgo).toISOString() })
+    expect(playbookFor([{ lessons: { apply: proven(3 * day) } }], now).recipes).toHaveLength(1)
+    expect(playbookFor([{ lessons: { apply: proven(day / 2) } }], now).recipes).toHaveLength(0)
+    expect(playbookFor([{ lessons: { apply: { ...evidence(6), failures: 1, last_failure: new Date(now - 3 * day).toISOString() } } }], now).recipes).toHaveLength(0)
+  })
   test("age decays confidence; host and ATS copies never double-count evidence", () => {
     expect(assessLesson({...evidence(5),last_success:"2025-01-01"},now).active).toBe(false)
     expect(playbookFor([{lessons:{a:evidence(5)}},{lessons:{b:evidence(5)}}],now).recipes).toHaveLength(1)

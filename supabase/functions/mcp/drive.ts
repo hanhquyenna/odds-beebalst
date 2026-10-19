@@ -690,7 +690,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       // A captcha wall and nothing to fill: that is the person's, and it is clear at once. The run ends here without more model turns.
       if (page?.captcha === true && Array.isArray(page.fields) && page.fields.filter((f: Json) => f?.kind !== "checkbox").length === 0) {
         const now = new Date().toISOString()
-        const message = "A human-verification check is in the way. Tick it in the tab and Odds carries on by itself."
+        const message = "A check is in the way. Tick it in the tab and Odds carries on."
         await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "captcha", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
         await cancelOpenCommands(env, run.id, "captcha")
         return { text: JSON.stringify({ ok: false, run_ended: true, captcha: true, error: "Captcha: Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
@@ -707,7 +707,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       // (EU Login, Workday's account page). That is the person's, at once. "Log in to save your progress" (Cornerstone) is optional: no wall.
       if (page && Array.isArray(page.fields) && (signInWall(page) || (run.steps <= 2 && name === "read_page" && page.closed !== true && await accountSite(env, run, page)))) {
         const now = new Date().toISOString()
-        const message = "This application asks you to sign in or create an account first. Do that in the tab and press Apply with Odds again."
+        const message = "This site wants you to sign in. Do it in the tab, then press Auto apply again."
         await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "account", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
         await cancelOpenCommands(env, run.id, "account")
         return { text: JSON.stringify({ ok: false, run_ended: true, account: true, error: "Sign-in wall: Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
@@ -752,7 +752,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     const prev = (await svc(env, `drive_commands?run_id=eq.${run.id}&id=lt.${cmd.id}&order=id.desc&limit=1&select=status,result`).catch(() => null))?.[0]
     if (prev?.status === "expired" && prev?.result?.timeout === "never_started") {
       const now = new Date().toISOString()
-      const message = "The application tab stopped answering Odds (it may have opened in another window, or landed on a security check or a page Odds cannot read). Open the tab and press Apply with Odds to carry on from there."
+      const message = "Odds lost the application tab. Open it again and press Auto apply to carry on."
       await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, {
         method: "PATCH",
         body: JSON.stringify({ status: "needs_you", reason: "other", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }),
@@ -943,15 +943,18 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
     const recent = (await svc(env, `drive_runs?user_id=eq.${userId}&status=eq.running&url=eq.${encodeURIComponent(page)}&created_at=gte.${encodeURIComponent(new Date(Date.now() - 120_000).toISOString())}&order=created_at.desc&limit=1&select=id`).catch(() => null))?.[0]
     if (recent?.id) return json(200, { run_id: recent.id, resumed: true })
     const job = await ctx.job(url).catch(() => null)
+    // Time from the page being ready to the first field Odds filled (from the local copies): how fast known sites feel.
+    const firstFill = Number(body?.odds_filled?.first_fill_ms)
+    const fillMs = Number.isFinite(firstFill) && firstFill >= 0 && firstFill < 600_000 ? { first_fill_ms: Math.round(firstFill) } : {}
     // Odds' own fill already finished the form (every required field filled, only Submit left): the run is at review with no model call.
     if (body?.ready === true) {
       const now = new Date().toISOString()
       const message = "Everything is filled in. Check it and press Submit yourself."
-      const [done] = await svc(env, "drive_runs", { method: "POST", body: JSON.stringify({ user_id: userId, posting_id: job?.id ?? null, url: String(body?.page || url).slice(0, 2000), status: "review", steps: 0, message, last_note: "Filled by Odds from your profile (no AI needed).", fill_ended_at: now, agent_finished_at: now, ...(body?.copilot === true ? { mode: "copilot" } : {}) }) })
+      const [done] = await svc(env, "drive_runs", { method: "POST", body: JSON.stringify({ user_id: userId, posting_id: job?.id ?? null, url: String(body?.page || url).slice(0, 2000), status: "review", steps: 0, message, last_note: "Filled by Odds from your profile (no AI needed).", fill_ended_at: now, agent_finished_at: now, ...(body?.copilot === true ? { mode: "copilot" } : {}), ...fillMs }) })
       await recordAttempts(done)
       return json(200, { run_id: done.id, resumed: false, ready: true })
     }
-    const [run] = await svc(env, "drive_runs", { method: "POST", body: JSON.stringify({ user_id: userId, posting_id: job?.id ?? null, url: String(body?.page || url).slice(0, 2000), ...(body?.copilot === true ? { mode: "copilot" } : {}) }) })
+    const [run] = await svc(env, "drive_runs", { method: "POST", body: JSON.stringify({ user_id: userId, posting_id: job?.id ?? null, url: String(body?.page || url).slice(0, 2000), ...(body?.copilot === true ? { mode: "copilot" } : {}), ...fillMs }) })
     await recordAttempts(run)
     const problem = await startBroods(env, run, job, await ctx.facts().catch(() => ({})), undefined, body?.odds_filled)
     if (problem) {
@@ -1096,7 +1099,7 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
             body: JSON.stringify({
               status: "stuck",
               reason: "other",
-              message: "Broods could not carry on with this application. Finish it in the tab, or press Apply with Odds to start again.",
+              message: "Odds got stuck here. Finish it in the tab, or press Auto apply to try again.",
               fill_ended_at: now,
               agent_finished_at: now,
               updated_at: now,

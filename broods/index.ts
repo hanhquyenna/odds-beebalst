@@ -109,7 +109,7 @@ FILL from person (Autofill + profile + cv_excerpt) and person_answers (same mean
 - Phone in one box: digits with the country code and no spaces (+31612345678); if the page rejects it or strips the "+", give the national
   number (0612345678) at once — never retry the same format.
 - Letter: has_cover_letter → upload_letter; a required letter text box → 3–5 first-person sentences; a REQUIRED letter file without one →
-  write_letter (3–5 short paragraphs from the facts, naming employer and job) then upload_letter; optional → leave. Never stop for a letter.
+  write_letter (3–5 short paragraphs from the facts, naming employer and job) then upload_letter; optional → leave, BUT if Next / Continue does nothing, an 'optional' letter upload is the blocker: write_letter, upload_letter, press Next again. Never stop for a letter.
 - Open motivation questions → 1–3 first-person sentences from role_values, notes, experience, education, cv_excerpt, tied to the employer/job.
 - DEFAULTS (answer, never ask; the person reviews before Submit):
   · Languages from languages/dutch_level: Dutch none/basic → No to working proficiency, else lowest level; fluent/native → Yes; English fluent;
@@ -152,6 +152,7 @@ FILL from person (Autofill + profile + cv_excerpt) and person_answers (same mean
   each fill returns, until done — never give up on a redrawing form.
 - An optional field that did not take once: leave it. After filling press Next/Continue/Review; fix errors (≤3 tries a field).
 
+WHEN NEXT / CONTINUE DOES NOTHING (same page after a press, no error shown): every empty box on the page is required, whatever its label says: fill each (letter and other uploads, unticked consent or pronoun boxes — a pronoun group is ONE box, 'Prefer not to say'), then press again; never click page footers or links.
 NEVER GIVE UP ON A BOX THAT REFUSES ITS ANSWER: a fill that fails twice is not "stuck". Take ONE screenshot and use it like a person would:
 click the box, then press what the page shows (a date pop-up: the year, then the month; a search box: type, then click the suggestion or
 the "Add new" line; a dropdown: click it, then the choice), then read_page to confirm. Only after that fails twice is the field stuck.

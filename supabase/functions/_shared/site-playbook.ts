@@ -55,7 +55,8 @@ export function playbookFor(rows: Array<{ lessons?: Record<string, Evidence> }>,
     if (!prev || e.confidence > prev.confidence) unique.set(k, e)
   }
   const lessons = [...unique.values()].filter(e => e.active)
-  const calm = (e: ActiveLesson) => !e.last_failure || now - Date.parse(e.last_failure) > 14 * 86_400_000
+  // A lesson that failed recently is paused for 14 days, unless its record has since proven itself: ten times as many successes as failures.
+  const calm = (e: ActiveLesson) => !e.last_failure || now - Date.parse(e.last_failure) > 14 * 86_400_000 || (e.successes >= 10 * e.failures + 5 && now - Date.parse(e.last_failure) > 86_400_000)
   // Clicks need five independent runs. A field mapping only fills the person's own contact detail into a field three verified runs
   // agreed on, is checked in the page as it fills, and Broods still sees it: active (three runs, no recent failure) is enough.
   const clicks = lessons.filter(e => e.successes >= 5 && new Set(e.source_runs).size >= 5 && e.confidence >= 0.6 && calm(e) && ["opener", "skip_dialog"].includes(e.lesson.kind))

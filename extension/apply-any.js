@@ -346,7 +346,8 @@
   /** The options a dropdown shows now: the list that belongs to it, else the visible one on the page. */
   function listed(input) {
     // (a Workday field's chosen chips sit in a listbox of their own: never the open list)
-    const listbox = document.getElementById(input.getAttribute("aria-controls") || "") || document.getElementById(input.getAttribute("aria-owns") || "") || [...document.querySelectorAll("[role='listbox']")].filter((l) => shown(l) && [...l.querySelectorAll("[role='option']")].some((o) => o.getAttribute("data-automation-id") !== "selectedItem")).pop() || input.closest("[class*='container'], div")?.querySelector("[role='listbox']")
+    const own = (id) => (id ? (input.getRootNode().getElementById?.(id) ?? document.getElementById(id)) : null)
+    const listbox = own(input.getAttribute("aria-controls")) || own(input.getAttribute("aria-owns")) || deepAll("[role='listbox']").filter((l) => shown(l) && [...l.querySelectorAll("[role='option']")].some((o) => o.getAttribute("data-automation-id") !== "selectedItem")).pop() || input.closest("[class*='container'], div")?.querySelector("[role='listbox']")
     let options = [...(listbox?.querySelectorAll("[role='option'], [data-automation-id='promptOption']") || [])].filter((o) => shown(o) && o.getAttribute("data-automation-id") !== "selectedItem" && !/^\s*(searching|loading|zoeken|bezig|laden)\b/i.test(textOf(o)))
     // Workday draws each choice three times (menuItem › promptLeafNode › promptOption): the menu item is the one to press.
     if (options.some((o) => o.getAttribute("data-automation-id") === "menuItem")) options = options.filter((o) => o.getAttribute("data-automation-id") === "menuItem")
@@ -433,7 +434,7 @@
     // question is only ever answered with one of its own options — never with a city typed into it ("Amsterdam" in a non-compete question).
     const searchable = /\b(location|city|ville|lieu|plaats|woonplaats|stad|country|pays|land|school|university|universit\w*|[eé]cole|discipline|field of study|institution|degree|dipl[oô]me|nationalit\w*|language|langue|taal|skills?|comp[eé]tences?)\b/i.test(label || "")
     if (i < 0 && !button && answer !== null && input.tagName === "INPUT" && searchable) {
-      typeInto(input, answer)
+      typeInto(input, searchQuery(answer))
       // Remote place searches often take longer than 900 ms. Do not erase the
       // query while the employer is still fetching suggestions.
       for (let waited = 0; waited < 4000; waited += 100) {
@@ -487,6 +488,13 @@
 
   /** The person's CV in an upload asking for one, from odds. */
   /** known: a validated site recipe names this field as the CV upload (Greenhouse labels it only "Attach"). */
+  /** Whether the page shows this file's name anywhere, in shadow DOM too, however the site writes it ("Kien Phung CV.pdf" shown as "Kien_Phung_CV.pdf"). */
+  function fileNameShown(name) {
+    const norm = (t) => String(t).toLowerCase().replace(/\.[a-z0-9]{2,5}$/i, "").replace(/[^\p{L}\p{N}]+/gu, "")
+    const want = norm(name).slice(0, 18)
+    if (want.length < 4) return false
+    return deepAll("span, p, div, li, a, button, label, strong, td").some((e) => e.children.length === 0 && shown(e) && norm(textOf(e)).includes(want))
+  }
   async function uploadCv(f, known = false) {
     const around = `${f.label} ${f.el.name || ""} ${f.el.id || ""} ${f.el.getAttribute("aria-label") || ""}`
     // On a resume-only step, accept any file input even when the button says "Sélectionner un fichier".
@@ -498,6 +506,7 @@
     const bytes = Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))
     const transfer = new DataTransfer()
     transfer.items.add(new File([bytes], file.name, { type: file.type }))
+    const fieldsBefore = fields().length
     try { f.el.files = transfer.files } catch { /* some ATS wrap the input */ }
     f.el.dispatchEvent(new Event("input", { bubbles: true }))
     f.el.dispatchEvent(new Event("change", { bubbles: true }))
@@ -507,7 +516,9 @@
       // Sites that take the file and clear their input (Homerun, Lever): the file's name shown beside the box means it is in.
       const box = f.el.closest("form, section, [class*='upload' i], [class*='file' i], [class*='dropzone' i], div")?.parentElement || document.body
       const stem = file.name.replace(/\.[a-z0-9]+$/i, "").slice(0, 24)
-      for (let t = 0; t < 15 && !uploaded; t++) { await sleep(200); uploaded = textOf(box).includes(stem) }
+      // Sites that read the CV and rebuild the form from it (SmartRecruiters' Easy Apply): the upload box is gone, or the form grew its
+      // own experience / education boxes. That is the CV taken in.
+      for (let t = 0; t < 15 && !uploaded; t++) { await sleep(200); uploaded = textOf(box).includes(stem) || fileNameShown(file.name) || !f.el.isConnected || fields().length >= fieldsBefore + 3 }
     }
     if (uploaded) {
       cvInputs.add(f.el); cvStem = file.name.replace(/\.[a-z0-9]+$/i, "").slice(0, 24)
@@ -520,15 +531,22 @@
     let last = Date.now()
     const watch = new MutationObserver(() => { last = Date.now() })
     watch.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true })
+    // (a form drawn in shadow DOM does not show in that observer: its boxes are counted too)
+    const shape = () => fields().length + ":" + fields().filter((x) => answered(x)).length
+    let was = shape()
     const t0 = Date.now()
-    while (Date.now() - last < quietMs && Date.now() - t0 < maxMs) await sleep(150)
+    while (Date.now() - last < quietMs && Date.now() - t0 < maxMs) {
+      await sleep(150)
+      const now = shape()
+      if (now !== was) { was = now; last = Date.now() }
+    }
     watch.disconnect()
   }
   function cvShownAt(el) {
     if (!uploaded) return false
     if (cvInputs.has(el)) return true
     const box = el.closest("form, section, [class*='upload' i], [class*='file' i], [class*='dropzone' i], div")?.parentElement
-    return Boolean(cvStem && box && textOf(box).includes(cvStem))
+    return Boolean(cvStem && ((box && textOf(box).includes(cvStem)) || fileNameShown(cvStem)))
   }
 
   /** Consent, terms and privacy-notice boxes are ticked: the person chose consent yes in Odds. Answers how many it ticked. Never anything else. */
@@ -782,6 +800,30 @@
    * The last rung for a field that refused Odds' own events: the same answer through real input. A box gets it typed (in its own shapes
    * too); a choice gets its option clicked; a search list gets the answer typed and the matching option clicked. Never a different answer.
    */
+  /**
+   * The suggestion a search box drew for what was typed, found by where it is (right under the box, as wide as it) and not by its markup:
+   * many sites draw it as plain items with no role. The "Cannot find it? Fill in manually" line is never one.
+   */
+  function suggestionBelow(input, answer) {
+    const r = input.getBoundingClientRect()
+    const want = String(answer).toLowerCase().trim()
+    const head = want.split(",")[0].trim()
+    const found = deepAll("li, [role='option'], [role='menuitem'], a, button, div, span, p").filter((e) => {
+      if (e === input || e.contains(input) || input.contains(e) || !shown(e)) return false
+      const b = e.getBoundingClientRect()
+      if (b.top < r.bottom - 2 || b.top > r.bottom + 420 || b.right < r.left || b.left > r.right + 40) return false
+      const t = textOf(e).toLowerCase().trim()
+      if (!t || t.length > 140 || /cannot find|can.t find|fill in manually|not found|niet gevonden|searching|loading/.test(t)) return false
+      if ([...e.children].some((c) => textOf(c).toLowerCase().trim() === t)) return false
+      return t === want || t.startsWith(want) || (head.length >= 3 && t.startsWith(head))
+    })
+    // The item itself, never a box that holds several of them (clicking its middle would pick another line).
+    const items = found.filter((e) => !found.some((o) => o !== e && e.contains(o)))
+    items.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)
+    return items[0] || null
+  }
+  /** What is typed into a search box: the first part of a place ("Amsterdam" of "Amsterdam, Netherlands"), which is what the site's search finds. */
+  const searchQuery = (value) => (String(value).includes(",") ? String(value).split(",")[0].trim() : String(value)).slice(0, 40)
   async function realRetry(f, value) {
     const el = elOf(f)
     if (["text", "textarea", "date", "month", "number", "tel", "email"].includes(f.kind)) {
@@ -811,16 +853,18 @@
       if (f.kind === "select") return false
       await realClickEl(el)
       await sleep(250)
-      if (el.matches("input")) await realTypeEl(el, String(value).slice(0, 40))
+      if (el.matches("input")) await realTypeEl(el, searchQuery(value))
       const want = String(value).toLowerCase()
-      const shownOptions = () => [...document.querySelectorAll("[role='option'], li[class*='option' i], [class*='option' i]:not(select)")].filter(shown).filter((o) => !/^\s*(searching|loading|zoeken|bezig|laden)\b/i.test(textOf(o)))
+      const shownOptions = () => deepAll("[role='option'], li[class*='option' i], [class*='option' i]:not(select)").filter(shown).filter((o) => !/^\s*(searching|loading|zoeken|bezig|laden)\b/i.test(textOf(o)))
       // (a search list says "Searching…" first: wait for its real lines)
       for (let waited = 0; waited < 4000; waited += 200) { await sleep(200); if (waited >= 600 && shownOptions().length) break }
-      const option = shownOptions()
-        .find((o) => { const t = textOf(o).toLowerCase().replace(/^(add new|new entry|nieuw toevoegen|toevoegen|voeg toe)\s*:?\s*/, ""); return t && (t === want || t.startsWith(want) || want.startsWith(t) || (want.length >= 6 && t.includes(want))) })
+      const option = (shownOptions()
+        .find((o) => { const t = textOf(o).toLowerCase().replace(/^(add new|new entry|nieuw toevoegen|toevoegen|voeg toe)\s*:?\s*/, ""); return t && (t === want || t.startsWith(want) || want.startsWith(t) || (want.length >= 6 && t.includes(want))) }) || suggestionBelow(el, value))
       if (option) await realClickEl(option)
       else await realKey("Enter")
       await sleep(250)
+      // A search box keeps typed text that was never chosen only until the person leaves it: leave it (Tab), then see what stayed.
+      if (el.matches("input") && !option) { await realKey("Tab"); await sleep(400) }
       return answered(f)
     }
     return false
@@ -1391,7 +1435,10 @@
     if (/^(next|continue|volgende|verder|suivant|weiter|save and continue|go to step|back|previous|return to (the )?previous|vorige|terug)\b/i.test(label) && !/\b(submit|send|verzend\w*|versturen|apply|solliciteer\w*|absenden|envoyer)\b/i.test(label)) return false
     return !/^(next|continue|review|save and continue|volgende|verder|suivant|back|previous|reject all(?: cookies)?|deny all(?: cookies)?|necessary only|functional only)$/i.test(label)
   }
-  const prefilledFields = new WeakMap()
+  /** Milliseconds from the start of this page's application to the first field Odds filled (reported with the run), and the page's start. */
+  let startT0 = 0
+  let firstFillMs = null
+  const prefilledFields = new (class extends WeakMap { set(k, v) { if (startT0 && firstFillMs === null && String(v || "").trim()) firstFillMs = Math.round(performance.now() - startT0); return super.set(k, v) } })()
   /** While Odds itself fills or clicks (a prefill, a Broods command): the browser's own input/change events after a scripted checkbox
    * click are trusted, and must not read as the person filling in. */
   let oddsActing = 0, oddsActedAt = 0
@@ -1407,6 +1454,8 @@
   // ---- Site recipes: field mappings Broods runs proved on this ATS/host (label pattern → which contact detail), replayed here so Broods'
   // first read_page already shows them filled. Structure only, from the server's validated playbook: never a value, answer or URL.
   let drivePlaybook = null
+  /** The playbook request started with the page (answered from the local copy at once), shared with driveRecipes. */
+  let earlyPlaybook = null
   /** Recipe replays not yet reported to the server ({lesson, ok}); the next drive-start or command result carries them. */
   let recipeAttempts = []
   /** The same rule as the server's fieldPattern: a label as lowercase words, or null when it holds anything else (a file name, an email). */
@@ -1905,6 +1954,8 @@
     // Fields that appeared since (Ashby's Application tab, the next step) get the person's contact details and recipes first, once each.
     if (cmd.tool === "read_page") {
       if (!args.review_check) await drivePrefill()
+      // A form that rebuilds itself (a field appears, a country is chosen) can empty a contact box Odds filled: put it back before Broods reads, so it is never told a box is done that is empty.
+      await prefillContacts(true)
       tickConsents() // (consents and an unanswered pronoun group: the neutral box, before Broods reads what is left)
       return drivePage()
     }
@@ -2068,6 +2119,9 @@
       if (uploaded) return { ok: false, cv_attached: true, error: "the CV is already attached on this page (by Odds); this box is another upload, e.g. a cover letter: leave it unless it asks for one" }
       // Broods chose this box for the CV ("Browse on your Device" on Picnic says nothing about a CV): its choice stands.
       const ok = await uploadCv(f, true)
+      // A site that reads the CV and redraws the form empties boxes: wait for it, then put back what it wiped (Broods may finish without reading again).
+      await pageSettled()
+      await prefillContacts(true)
       const name = fieldValue(f) || (ok ? cv?.file_name || "CV attached" : "")
       return { ok: Boolean(ok), value: name, file_name: name }
     }
@@ -2147,22 +2201,29 @@
       attempts.push({ lesson: pending.lesson, ok: pageHref() !== pending.url && fields().length > 0 })
       await ask({ type: "drive-recipe", pending: null })
     }
-    const reply = await ask({ type: "drive", op: "playbook", page: pageHref() }, 5000)
-    drivePlaybook = reply?.playbook || null
+    const reply = await (earlyPlaybook || ask({ type: "drive", op: "playbook", page: pageHref() }, 5000))
+    drivePlaybook = reply?.playbook || drivePlaybook
     for (const recipe of (reply?.playbook?.recipes || []).slice(0, 3)) {
       const lesson = recipe.lesson
       if (recipe.confidence < 0.6 || recipe.successes < 5 || !["opener", "skip_dialog"].includes(lesson?.kind)) continue
       const dialog = openDialog()
       if ((lesson.kind === "skip_dialog" && !dialog) || (lesson.kind === "opener" && fields().some(f => /name|email|resume|cv/i.test(f.label)))) continue
-      if (!/^(apply( now| on (company website|employer's website|the employer's website))?|easy apply|solliciteren|skip|not now|close|reject all|necessary only|functional only)$/i.test(lesson.button || "") || DRIVE_DENY.test(lesson.button)) continue
-      const matches = [...(dialog || document).querySelectorAll("a,button,[role='button']")].filter(el => shown(el) && !el.disabled && !el.closest(".odds-apply-bar") && controlLabel(el) === lesson.button)
-      if (matches.length !== 1) { attempts.push({ lesson, ok: false }); continue }
+      if (!/^(apply( now| for this job| on (company website|employer's website|the employer's website))?|easy apply|solliciteren|skip|not now|close|reject all|necessary only|functional only)$/i.test(lesson.button || "") || DRIVE_DENY.test(lesson.button)) continue
+      const matches = [...(dialog || document).querySelectorAll("a,button,[role='button']")].filter(el => shown(el) && !el.disabled && !el.closest(".odds-apply-bar") && controlLabel(el).replace(/\s+/g, " ").trim().toLowerCase() === lesson.button.toLowerCase())
+      // The same button twice on a page (Lever has Apply at the top and the bottom, Ashby a link around a button) is one button; different addresses are ambiguous.
+      if (!matches.length || new Set(matches.map((el) => el.getAttribute("href") || "").filter(Boolean)).size > 1) { attempts.push({ lesson, ok: false }); continue }
       const before = pageHref(), beforeFields = fields().length
       await ask({ type: "drive-recipe", pending: { lesson, url: before, at: Date.now() } })
       await ask({ type: "apply-follow" })
+      // A new document (the click loads another page) ends this script: the next page checks the recipe. A single-page site (Ashby) swaps its
+      // content in place, so the script goes on here.
+      let leaving = false
+      addEventListener("pagehide", () => { leaving = true }, { once: true })
       matches[0].click()
       await sleep(600)
-      if (pageHref() !== before) return { navigating: true, attempts }
+      if (leaving || (pageHref() !== before && !fields().length && document.readyState !== "complete")) return { navigating: true, attempts }
+      for (let i = 0; i < 20 && lesson.kind === "opener" && fields().length <= beforeFields && !leaving; i++) await sleep(150)
+      if (leaving) return { navigating: true, attempts }
       await ask({ type: "drive-recipe", pending: null })
       const ok = lesson.kind === "skip_dialog" ? !dialog?.isConnected || !shown(dialog) : fields().length > beforeFields
       attempts.push({ lesson, ok })
@@ -2209,7 +2270,7 @@
     say("Broods is applying in this tab…", "filling")
     // The script filled what it knows; it never decides the form is done. Broods checks the filled page (and does what is left) before review.
     const snap = drivePage()
-    const odds = { filled: (snap?.fields || []).filter((f) => f.by === "odds").length, left: (snap?.fields || []).filter((f) => f.required && !f.filled).length, only_submit_left: onlySubmitLeft() }
+    const odds = { filled: (snap?.fields || []).filter((f) => f.by === "odds").length, left: (snap?.fields || []).filter((f) => f.required && !f.filled).length, only_submit_left: onlySubmitLeft(), first_fill_ms: firstFillMs }
     const start = await ask({ type: "drive", op: "start", copilot: intent.copilot === true, url: intent.job, page: pageHref(), run_id: intent.driveRun || null, odds_filled: odds, recipe_attempts: [...recipes.attempts, ...recipeAttempts.splice(0)] }, 30000).catch(() => null)
     const runId = start?.run_id
     // What this platform's past runs learned: field kinds that only took a value through real input go there first.
@@ -2402,12 +2463,12 @@
   }
   /** LinkedIn offsite often opens a NEW tab; intent is written a tick later — never silent-quit. */
   async function waitIntent(quiet = false) {
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 60; i++) {
       const { intent } = (await ask({ type: "apply-intent" })) || {}
       if (intent) { watchBoardNudges(); return intent }
       // Heartbeat so Odds never looks idle while the handoff catches up — only in a tab Odds was asked to apply in.
       if (!quiet && (i === 0 || i % 8 === 0)) say("Waiting for Odds to attach this application…", "filling")
-      await sleep(150)
+      await sleep(100)
     }
     return null
   }
@@ -2481,6 +2542,34 @@
     return false
   }
 
+  /** First fill from the browser's own copies: contact details and the site's recipes only, on a form that is plainly this page's. The
+   * full prefill (CV, consents, rule answers) follows with the fresh kit; a field filled here is never filled twice. */
+  async function earlyFill(intent, cached) {
+    if (window.top === window && (atsFrame() || blankFrameForm())) return
+    if (fields().filter((f) => f.kind !== "checkbox").length < 3 || wrongJobPage(String(intent.job || pageHref()))) return
+    // Another job's details never leak in: only the person's own contact facts are used, never the job-specific ones.
+    facts = { ...(cached.facts || {}) }
+    delete facts.job_id
+    cv = cv || cached.cv
+    // A host the browser has no copy for yet answers in a moment or not at all: the contact boxes need no recipe, so it is not waited for long.
+    drivePlaybook = (await Promise.race([earlyPlaybook, sleep(400).then(() => null)]))?.playbook || null
+    await asOdds(async () => {
+      globalThis.oddsDismissCookies?.()
+      if (openDialog() || blockingCaptcha()) return
+      // Plain contact boxes first (instant); recipes then reach the fields the rules do not know, including slow dropdowns.
+      await prefillContacts()
+      await replayMappings()
+    })
+    // Does each field still hold its value after the page had a moment (a form that redraws its boxes when it finishes loading wipes them)?
+    // The ones that lost it are given back to the full fill that follows; the time stamp starts again with the next field that holds.
+    await sleep(400)
+    let lost = 0
+    for (const f of fields()) {
+      const el = elOf(f)
+      if (prefilledFields.has(el) && prefilledFields.get(el) && !answered(f) && f.kind !== "file") { prefilledFields.delete(el); prefillTried.delete(el); prefilledKeys.delete(el); lost++ }
+    }
+    if (lost && !fields().some((f) => prefilledFields.has(elOf(f)))) firstFillMs = null
+  }
   async function start(opts = {}) {
     // A page Odds is not applying in (any site the person just browses) shows nothing at all: the bar is only for application tabs.
     // A tab being handed an application (a site opening the employer form in a new tab) gets a short, silent wait to pick it up.
@@ -2496,14 +2585,29 @@
       // The frame is inert while Odds fills, so it cannot take the keyboard: filling does not wait for it to load.
       autoOpenPanel()
     }
-    // Every page this application loads is counted on the run (it survives reloads): the same page again and again, or too many pages, stops for good.
-    if (!visitNoted) {
-      visitNoted = true
-      const visit = await ask({ type: "apply-hunt", op: "visit" }).catch(() => null)
-      if (visit?.stop) {
-        say(visit.message, "ask")
-        return
+    // Everything the server is asked runs at once, and the first fill does not wait for any of it: it uses the copy of the person's details
+    // kept in this browser and the site recipes kept for this host (both refreshed in the background).
+    startT0 = performance.now()
+    const cachedKit = ask({ type: "apply-kit", url: intent.job, cached: true }, 3000).catch(() => null)
+    earlyPlaybook = ask({ type: "drive", op: "playbook", page: pageHref() }, 5000).catch(() => null)
+    const kitAsked = (async () => {
+      let kit = null
+      // A slow or failed answer (the worker waking, the server busy) is asked again before anything is said; only "connect" means not connected.
+      for (let t = 0; t < 3 && (!kit || kit.status === "error"); t++) {
+        if (t) await sleep(600 * t)
+        kit = await ask({ type: "apply-kit", url: intent.job }, 35000)
       }
+      return kit
+    })()
+    // Every page this application loads is counted on the run (it survives reloads): the same page again and again, or too many pages, stops for good.
+    const visitAsked = visitNoted ? null : ask({ type: "apply-hunt", op: "visit" }).catch(() => null)
+    visitNoted = true
+    const early = await cachedKit
+    if (early?.status === "ok" && early.broods_drive === true && !intent.paused) await earlyFill(intent, early)
+    const visit = await visitAsked
+    if (visit?.stop) {
+      say(visit.message, "ask")
+      return
     }
     // The person went back (browser Back) or paused earlier: stay on their page, push nothing forward, say so in Odds.
     if (!opts.forced && (intent.paused || await cameBack())) {
@@ -2511,12 +2615,7 @@
       return
     }
     pausedByPerson = false
-    // A slow or failed answer (the worker waking, the server busy) is asked again before anything is said; only "connect" means not connected.
-    let kit = null
-    for (let t = 0; t < 3 && (!kit || kit.status === "error"); t++) {
-      if (t) await sleep(2000 * t)
-      kit = await ask({ type: "apply-kit", url: intent.job }, 35000)
-    }
+    const kit = await kitAsked
     if (kit?.status === "connect") return say("Connect odds (its icon in the toolbar) to have this form filled in.", "problem")
     if (!kit) return say("Odds could not load your details. Press Apply with Odds again.", "problem")
     if (kit.status !== "ok") return say("Could not load your application details. Open Odds and try again.", "problem")
@@ -2565,8 +2664,8 @@
       // An application form embedded from an ATS (Greenhouse, Lever... in an iframe): the frame drives, this page stays out (one driver per run).
       let embedded = atsFrame()
       // A career page that loads its form a moment later (Nebius' Greenhouse embed): wait for it before driving an empty page.
-      for (let i = 0; !embedded && !blankFrameForm() && fields().filter((f) => f.kind !== "checkbox").length < 3 && i < 2; i++) {
-        await sleep(750)
+      for (let i = 0; !embedded && !blankFrameForm() && fields().filter((f) => f.kind !== "checkbox").length < 3 && i < 10; i++) {
+        await sleep(150)
         embedded = atsFrame()
       }
       if (!embedded && blankFrameForm()) {

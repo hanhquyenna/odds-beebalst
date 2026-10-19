@@ -32,7 +32,10 @@ declare const chrome: {
   notifications: { getAll(): Promise<Record<string, boolean>> }
 }
 
-const EXTENSION = join(import.meta.dirname, "..", "extension")
+// REAL_EXT_DIR: another copy of the extension (for example the previous commit's) to compare timings against.
+const EXTENSION = process.env.REAL_EXT_DIR || join(import.meta.dirname, "..", "extension")
+/** REAL_SERVER_MS: how long the stand-in server takes to answer apply-kit and drive-playbook (production round trips are 300–1500 ms). */
+const serverDelay = () => (Number(process.env.REAL_SERVER_MS) > 0 ? new Promise((r) => setTimeout(r, Number(process.env.REAL_SERVER_MS))) : undefined)
 const SUPABASE = "http://supabase.test"
 const APP_ORIGIN = process.env.ODDS_E2E_APP_ORIGIN || "http://localhost:4319"
 const KEY = `oddsx_${"ab".repeat(24)}`
@@ -69,6 +72,8 @@ interface Fake {
     end?: { status: string; message: string; reason?: string; steps?: number; fill_ended_at?: string; agent_finished_at?: string }
     shot?: (label: string) => Promise<void>
     fillStartedAt?: number
+    /** Page ready → first field Odds filled, as the extension measured it (null: nothing was filled before Broods started). */
+    firstFillMs?: number | null
     fillEndedAt?: number
     uiEndedAt?: number
   }
@@ -97,13 +102,13 @@ interface Fake {
   port: number
   remoteTask?: { id: string; url: string; status: string }
   remoteTasks?: Array<{ id: string; url: string; status: string }>
+  /** The apply queue (/ext/queue-next, /ext/queue-done): jobs still waiting, what each poll said was active, the most at once, and how each ended. */
+  queue?: { waiting: Array<{ posting_id: string; url: string }>; started: string[]; maxActive: number; done: Array<Record<string, unknown>>; drop: string[] }
   reports: Array<{ status?: string; message?: string }>
   /** The adds it was asked for (peeks and pool reads are counted apart). */
   calls: Array<{ auth: string; body: { url?: string; posting?: Record<string, unknown> } }>
   peeks: string[]
   /** The size of each look-up of several jobs at once. */
-  /** The apply queue (/ext/queue-next, /ext/queue-done): jobs still waiting, what each poll said was active, the most at once, and how each ended. */
-  queue?: { waiting: Array<{ posting_id: string; url: string }>; started: string[]; maxActive: number; done: Array<Record<string, unknown>>; drop: string[] }
   batches: number[]
   /** What a form is filled in from (/ext/apply-kit), the answers the person gave that were kept, the jobs marked applied. */
   kit: Record<string, unknown>
@@ -247,7 +252,7 @@ async function loadRealPlaybook(url: string) {
 }
 async function driveReal(fake: Fake, path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const real = fake.realBroods!
-  if (path.endsWith("/drive-playbook")) return {playbook:await realSitePlaybook(typeof body.page === "string" ? body.page : "")}
+  if (path.endsWith("/drive-playbook")) { await serverDelay(); return {playbook:await realSitePlaybook(typeof body.page === "string" ? body.page : "")} }
   if (path.endsWith("/drive-start")) {
     if (real.runId) return { run_id: real.runId, resumed: true }
     // As production (mcp/drive.ts): Odds' own fill finished the form, so the run is at review with no model call.
@@ -262,6 +267,7 @@ async function driveReal(fake: Fake, path: string, body: Record<string, unknown>
     const [run] = await rest("drive_runs", { method: "POST", body: JSON.stringify({ user_id: REAL_USER, url: String(body.page || body.url) }) })
     real.runId = String(run.id)
     real.fillStartedAt = Date.now()
+    real.firstFillMs = typeof (body.odds_filled as { first_fill_ms?: unknown } | undefined)?.first_fill_ms === "number" ? (body.odds_filled as { first_fill_ms: number }).first_fill_ms : null
     await startRealBroods(real.runId, String(body.page || body.url), real.title, real.person, body.odds_filled)
     return { run_id: real.runId, resumed: false }
   }
@@ -499,7 +505,7 @@ async function fakeOdds(): Promise<Fake> {
     }
     let raw = ""
     req.on("data", (c) => (raw += c))
-    req.on("end", () => {
+    req.on("end", async () => {
       const auth = String(req.headers.authorization ?? "")
       if (auth !== `Bearer ${KEY}`) {
         res.writeHead(401, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ error: "Connect the odds extension again." }))
@@ -566,6 +572,7 @@ async function fakeOdds(): Promise<Fake> {
         fake.sessions++
         answer = { access_token: "e2e-token", refresh_token: "e2e-refresh", expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: "00000000-0000-4000-8000-000000000001", email: "test.person@example.com" } }
       } else if (path.endsWith("/ext/apply-kit")) {
+        await serverDelay()
         answer = { ...fake.kit }
       } else if (path.endsWith("/ext/application-questions")) {
         fake.prompts = body.questions || []
@@ -3039,13 +3046,6 @@ for (const [name, form] of [
   })
 }
 
-test("a website rejecting a filled value or CV never reports ready", async ({ context, fake }) => {
-  await connect(context)
-  fake.kit = { facts: { answers: { first_name: "Chi Kien" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555" } }
-  await context.route("https://careers.example.org/**", route => route.fulfill({ contentType: "text/html", body: '<h1>Application</h1><form><label>First name *<input required oninput="this.value=\'\'"></label><label>CV *<input type="file" required onchange="this.setAttribute(\'aria-invalid\',\'true\')"></label><button>Send application</button></form>' }))
-  const page = await context.newPage()
-  await page.goto("https://careers.example.org/apply")
-  await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4470000302")
 test("a form built from components with shadow roots (SmartRecruiters' Easy Apply) is read and filled like any other", async ({ context, fake }) => {
   await connect(context)
   fake.kit = { facts: { email: "test@example.com", answers: { first_name: "Chi Kien", last_name: "Phung", phone: "+31 6 12345678" }, remembered: {} }, cv: null }
@@ -3065,6 +3065,13 @@ test("a form built from components with shadow roots (SmartRecruiters' Easy Appl
   await expect(boxes.nth(3)).toHaveValue("+31 6 12345678")
 })
 
+test("a website rejecting a filled value or CV never reports ready", async ({ context, fake }) => {
+  await connect(context)
+  fake.kit = { facts: { answers: { first_name: "Chi Kien" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555" } }
+  await context.route("https://careers.example.org/**", route => route.fulfill({ contentType: "text/html", body: '<h1>Application</h1><form><label>First name *<input required oninput="this.value=\'\'"></label><label>CV *<input type="file" required onchange="this.setAttribute(\'aria-invalid\',\'true\')"></label><button>Send application</button></form>' }))
+  const page = await context.newPage()
+  await page.goto("https://careers.example.org/apply")
+  await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4470000302")
   await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask")
   await expect(page.locator(".odds-apply-bar")).not.toHaveAttribute("data-state", "done")
   await expect(page.locator('input[type="file"]')).toHaveAttribute("aria-invalid", "true")
@@ -4732,7 +4739,7 @@ test("REAL_FILL_URL: Broods' fill on a live form's dropdowns (fake Broods, no mo
       return { status: "stuck", message: "probe done" }
     }
     // REAL_FILL_CHOICES=1: yes/no buttons and radios too (Ashby's toggles).
-    const drops = (page.fields ?? []).filter((f) => !process.env.REAL_FILL_ONLY || new RegExp(process.env.REAL_FILL_ONLY, "i").test(f.label)).filter((f) => ["combobox", "listbox", "select", ...(process.env.REAL_FILL_CHOICES ? ["choice", "radio", "checkbox"] : [])].includes(f.kind))
+    const drops = (page.fields ?? []).filter((f) => !process.env.REAL_FILL_ONLY || new RegExp(process.env.REAL_FILL_ONLY, "i").test(f.label)).filter((f) => process.env.REAL_FILL_ONLY || ["combobox", "listbox", "select", ...(process.env.REAL_FILL_CHOICES ? ["choice", "radio", "checkbox"] : [])].includes(f.kind))
     const want = (f: { label: string; options?: string[] }) => /language/i.test(f.label) ? "English" : /city|location/i.test(f.label) ? "Amsterdam, Netherlands" : /evidence|immigration|visa|sponsor/i.test(f.label) ? (f.options?.find((o) => /^no|not require/i.test(o)) ?? "No") : /pronoun/i.test(f.label) ? "Prefer not to say" : /privacy|agree/i.test(f.label) ? (f.options?.[0] ?? "I hereby agree and accept") : /country/i.test(f.label) ? "Netherlands" : "Yes"
     const res = await cmd("fill", { fields: drops.map((f) => ({ id: f.id, value: want(f) })) }) as { results?: Array<{ id: string; ok: boolean; value?: string; error?: string }> }
     for (const f of drops) report.push({ label: f.label.slice(0, 50), kind: f.kind, listed: f.options?.length ?? 0, sent: want(f), result: res.results?.find((r) => r.id === f.id) })
@@ -4792,6 +4799,195 @@ test("a required pronoun group is answered by Odds itself with Prefer not to say
   await page.locator("body").click({ position: { x: 3, y: 3 } })
   await page.waitForTimeout(500)
   await expect(page.locator("#school")).toHaveValue("Vrije Universiteit Amsterdam")
+})
+
+test("while the browser's side panel is open the page draws no second panel, and it may again once that panel is closed", async ({ context }) => {
+  test.setTimeout(60_000)
+  await connect(context)
+  const worker = context.serviceWorkers()[0]
+  const id = new URL(worker.url()).host
+  // (asked from another extension page: a worker's own message does not come back to it)
+  const helper = await context.newPage()
+  await helper.goto(`chrome-extension://${id}/popup.html`)
+  const ask = () => helper.evaluate(() => new Promise<boolean>((resolve) => { chrome.runtime.sendMessage({ type: "native-panel-open" }, (a: unknown) => resolve(Boolean((a as { open?: boolean } | undefined)?.open))) }))
+  expect(await ask()).toBe(false)
+  const side = await context.newPage()
+  await side.goto(`chrome-extension://${id}/panel.html`)
+  await expect.poll(ask, { timeout: 10_000 }).toBe(true)
+  await side.close()
+  await expect.poll(ask, { timeout: 10_000 }).toBe(false)
+})
+
+test("a city search drawn in a shadow DOM (SmartRecruiters) gets a suggestion chosen, and typed text that was never chosen does not count", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const html = `<!doctype html><main><h1>Easy apply</h1><form onsubmit="return false">
+    <label>First name *<input id="fn" required></label>
+    <city-box></city-box>
+    <button type="submit">Submit</button></form></main>
+    <script>
+      class CityBox extends HTMLElement {
+        connectedCallback() {
+          const root = this.attachShadow({ mode: "open" })
+          root.innerHTML = '<label for="city">City</label><input id="city" role="combobox" aria-autocomplete="list" aria-expanded="false" autocomplete="off"><div id="lb" hidden></div>'
+          const input = root.getElementById("city"), lb = root.getElementById("lb")
+          let chosen = ""
+          input.addEventListener("input", () => {
+            chosen = ""; lb.hidden = false; input.setAttribute("aria-expanded", "true")
+            lb.innerHTML = '<div>Searching...</div>'
+            setTimeout(() => {
+              lb.innerHTML = ""
+              // a search finds places for "Amsterdam" but nothing for "Amsterdam, Netherlands"; the items carry no roles
+              const found = input.value.includes(",") ? [] : ["Amsterdam, North Holland, Netherlands", "Amstelveen, North Holland, Netherlands"]
+              if (!found.length) lb.innerHTML = '<div>Cannot find your city? Click here to fill in manually</div>'
+              for (const name of found) {
+                const o = document.createElement("div"); o.textContent = name
+                o.addEventListener("mousedown", () => { chosen = name; input.value = name; lb.hidden = true; input.setAttribute("aria-expanded", "false") })
+                o.addEventListener("click", () => { chosen = name; input.value = name; lb.hidden = true })
+                lb.append(o)
+              }
+            }, 900)
+          })
+          input.addEventListener("blur", () => setTimeout(() => { if (!chosen) input.value = "" }, 150))
+        }
+      }
+      customElements.define("city-box", CityBox)
+    </script>`
+  await context.route("https://www.example-sr.com/apply**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "psr", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  let result: unknown = null
+  fake.driveScript = async (cmd) => {
+    const page = await cmd("read_page") as { fields?: Array<{ id: string; label: string; kind: string }> }
+    const city = page.fields!.find((f) => /^City/.test(f.label))!
+    result = await cmd("fill", { fields: [{ id: city.id, value: "Amsterdam, Netherlands" }] })
+    return { status: "stuck", message: "probe done" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://www.example-sr.com/apply")
+  await applyFrom(context, page, "https://www.example-sr.com/apply")
+  await expect.poll(() => result, { timeout: 45_000 }).not.toBeNull()
+  await page.locator("#fn").click()
+  await page.waitForTimeout(600)
+  expect(await page.evaluate(() => (document.querySelector("city-box")!.shadowRoot!.getElementById("city") as HTMLInputElement).value)).toBe("Amsterdam, North Holland, Netherlands")
+})
+
+test("a form that rebuilds itself and empties the confirm-email box gets it back before Broods reads the page", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const html = `<!doctype html><main><h1>Easy apply</h1><form id="f" onsubmit="return false">
+    <label>First name *<input id="fn"></label>
+    <label>Email *<input id="em" type="email"></label>
+    <div id="slot"><label>Confirm your email *<input id="em2" type="email"></label></div>
+    <button type="submit">Submit</button></form>
+    <script>
+      // a field appears when the first name changes and the whole row is drawn again, empty
+      document.getElementById("fn").addEventListener("change", () => {
+        document.getElementById("slot").innerHTML = '<label>Country/Region *<input id="co"></label><label>Confirm your email *<input id="em2" type="email"></label>'
+      })
+    </script>`
+  await context.route("https://www.example-rebuild.com/apply**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "prebuild", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", email: "kien@example.com" }, remembered: {} }, cv: null }
+  let done = false
+  fake.driveScript = async (cmd) => {
+    const page = await cmd("read_page") as { fields?: Array<{ id: string; label: string }> }
+    const fn = page.fields!.find((f) => /^First name/.test(f.label))!
+    await cmd("fill", { fields: [{ id: fn.id, value: "Kien" }] })
+    await cmd("read_page")
+    done = true
+    return { status: "stuck", message: "probe done" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://www.example-rebuild.com/apply")
+  await applyFrom(context, page, "https://www.example-rebuild.com/apply")
+  await expect.poll(() => done, { timeout: 45_000 }).toBe(true)
+  await expect(page.locator("#em2")).toHaveValue("kien@example.com")
+})
+
+test("a form that takes the CV, rebuilds itself from it and empties the confirm-email box: the CV counts as attached and the box is filled again", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const html = `<!doctype html><main><h1>Easy apply</h1><form id="f" onsubmit="return false">
+    <upload-box></upload-box>
+    <div id="rest"><label>First name *<input id="fn"></label><label>Email *<input id="em" type="email"></label><label>Confirm your email *<input id="em2" type="email"></label></div>
+    <button type="submit">Submit</button></form>
+    <script>
+      class UploadBox extends HTMLElement {
+        connectedCallback() {
+          const root = this.attachShadow({ mode: "open" })
+          root.innerHTML = '<label for="cv">Choose a file or drop it here (10MB size limit)</label><input id="cv" type="file">'
+          root.getElementById("cv").addEventListener("change", () => {
+            // the site reads the file, clears its input and draws the form again from what it read
+            setTimeout(() => {
+              this.remove()
+              document.getElementById("rest").innerHTML = '<label>First name *<input id="fn"></label><label>Email *<input id="em" type="email"></label><label>Confirm your email *<input id="em2" type="email"></label><label>Job title (experience) <input id="jt" value="Corporate Finance Specialist"></label><label>Company <input id="co" value="FLC Group"></label><label>School <input id="sc" value="VU"></label>'
+            }, 700)
+          })
+        }
+      }
+      customElements.define("upload-box", UploadBox)
+    </script>`
+  await context.route("https://www.example-parse.com/apply**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pparse", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", email: "kien@example.com" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_CV", file_name: "Kien_CV.pdf", for_this_job: true } }
+  let uploadResult: unknown = null
+  let done = false
+  fake.driveScript = async (cmd) => {
+    const page = await cmd("read_page") as { fields?: Array<{ id: string; label: string; kind: string }> }
+    const file = page.fields!.find((f) => f.kind === "file")
+    if (file) uploadResult = await cmd("upload_cv", { id: file.id })
+    await cmd("read_page")
+    done = true
+    return { status: "stuck", message: "probe done" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://www.example-parse.com/apply")
+  await applyFrom(context, page, "https://www.example-parse.com/apply")
+  await expect.poll(() => done, { timeout: 60_000 }).toBe(true)
+  expect((uploadResult as { ok?: boolean } | null)?.ok).toBe(true)
+  await expect(page.locator("#em2")).toHaveValue("kien@example.com")
+})
+
+test("a CV the site shows under another spelling, in a shadow DOM (Kien_CV.pdf for Kien CV.pdf), counts as attached; the box the page emptied meanwhile is filled again", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const html = `<!doctype html><main><h1>Easy apply</h1><form id="f" onsubmit="return false">
+    <upload-box></upload-box>
+    <div id="rest"><label>First name *<input id="fn"></label><label>Email *<input id="em" type="email"></label><label>Confirm your email *<input id="em2" type="email"></label></div>
+    <button type="submit">Submit</button></form>
+    <script>
+      class UploadBox extends HTMLElement {
+        connectedCallback() {
+          const root = this.shadowRoot || this.attachShadow({ mode: "open" })
+          root.innerHTML = '<label for="cv">Choose a file or drop it here (10MB size limit)</label><input id="cv" type="file">'
+          root.getElementById("cv").addEventListener("change", (e) => {
+            setTimeout(() => { e.target.value = "" }, 20) // the site takes the file and clears its own input
+            // the site reads the file, clears its input and draws the form again from what it read
+            setTimeout(() => {
+              const shownName = document.createElement("span"); shownName.textContent = "Kien_CV.pdf"; root.append(shownName)
+              document.getElementById("rest").innerHTML = '<label>First name *<input id="fn"></label><label>Email *<input id="em" type="email"></label><label>Confirm your email *<input id="em2" type="email"></label>'
+            }, 700)
+          })
+        }
+      }
+      customElements.define("upload-box", UploadBox)
+    </script>`
+  await context.route("https://www.example-parse2.com/apply**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pparse2", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien", email: "kien@example.com" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien CV", file_name: "Kien CV.pdf", for_this_job: true } }
+  let uploadResult: unknown = null
+  let done = false
+  fake.driveScript = async (cmd) => {
+    const page = await cmd("read_page") as { fields?: Array<{ id: string; label: string; kind: string }> }
+    const file = page.fields!.find((f) => f.kind === "file")
+    if (file) uploadResult = await cmd("upload_cv", { id: file.id })
+    await cmd("read_page")
+    done = true
+    return { status: "stuck", message: "probe done" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://www.example-parse2.com/apply")
+  await applyFrom(context, page, "https://www.example-parse2.com/apply")
+  await expect.poll(() => done, { timeout: 60_000 }).toBe(true)
+  expect((uploadResult as { ok?: boolean } | null)?.ok).toBe(true)
+  await expect(page.locator("#em2")).toHaveValue("kien@example.com")
 })
 
 test("REAL_PWC: walk PwC to step 2 and inspect the school box (fake Broods, nothing sent)", async ({ context, fake }) => {
@@ -5801,12 +5997,23 @@ for (const job of REAL_JOBS) {
     const pageSnap = await last.evaluate(() => {
       const inputs = [...document.querySelectorAll("input, textarea, select")].filter((el) => {
         const s = getComputedStyle(el)
+    { const dbg=(p:typeof page)=>p.on("console",m=>{ if(process.env.REAL_DEBUG && /\[odds-/.test(m.text())) console.log("DBG",Date.now()%100000,m.text()) }); context.pages().forEach(dbg); context.on("page",dbg) }
         return s.display !== "none" && s.visibility !== "hidden"
       }) as HTMLInputElement[]
       const requiredEmpty = inputs.filter((el) => el.required && !el.disabled && !(el.type === "checkbox" || el.type === "radio" ? el.checked : (el.type === "file" ? (el.files?.length ?? 0) > 0 : String(el.value || "").trim()))).map((el) => el.name || el.id || el.getAttribute("aria-label") || el.type)
       const fileName = (document.querySelector('input[type="file"]') as HTMLInputElement | null)?.files?.[0]?.name ?? ""
       const filled = inputs.filter((el) => el.type !== "hidden" && el.type !== "password" && (el.type === "file" ? (el.files?.length ?? 0) > 0 : String(el.value || "").trim())).length
       return { url: location.href, requiredEmpty, fileName, filled, title: document.title }
+    // REAL_WARM=1: the browser already holds the person's details and this site's recipes, as after one earlier application or a panel open.
+    if (process.env.REAL_WARM === "1") {
+      const worker = context.serviceWorkers()[0]
+      await worker.evaluate(async (u) => {
+        const g = globalThis as unknown as { kitFor?: (u: string) => Promise<unknown>; playbookFor?: (u: string) => Promise<unknown> }
+        await g.kitFor?.(u); await g.playbookFor?.(u)
+        await new Promise((r) => setTimeout(r, 300))
+      }, (fake.kit as { apply_url?: string }).apply_url || job.url)
+    }
+    let firstValueMs: number | null = null
     }).catch(() => ({ url: last.url(), requiredEmpty: [] as string[], fileName: "", filled: 0, title: "" }))
     const humanEvidence =
       outcome === "signin" ||
@@ -5842,6 +6049,18 @@ for (const job of REAL_JOBS) {
         await expect(last.locator(".odds-apply-bar")).toBeVisible({ timeout: UI_MS })
       }
       await last.screenshot({ path: testInfo.outputPath("application-opened-for-review.png") })
+      // Page ready → first text box holding a value, watched from outside the extension (works for any extension copy).
+      const watchT0 = Date.now()
+      const watching = (async () => {
+        for (let i = 0; i < 1200; i++) {
+          for (const frame of page.frames()) {
+            const hit = await frame.evaluate(() => [...document.querySelectorAll("input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file]):not([type=password]), textarea")].some((e) => (e as HTMLInputElement).value.trim() !== "" && (e as HTMLInputElement).offsetParent !== null)).catch(() => false)
+            if (hit) { firstValueMs = Date.now() - watchT0; return }
+          }
+          await page.waitForTimeout(40)
+        }
+      })()
+      void watching
       fake.realBroods!.uiEndedAt = Date.now()
       ui_ms = fake.realBroods!.uiEndedAt - uiT0
     }
@@ -5862,7 +6081,7 @@ for (const job of REAL_JOBS) {
       submits,
       blocker: humanEvidence && !reviewOk ? message.slice(0, 300) : null,
     }, null, 2))
-    console.log(`REAL ${job.name}: ${outcome} fill_ms=${fill_ms} ui_ms=${ui_ms} steps=${modelSteps} — ${message.slice(0, 200)}`)
+    console.log(`REAL ${job.name}: ${outcome} fill_ms=${fill_ms} first_fill_ms=${fake.realBroods?.firstFillMs ?? "-"} first_value_ms=${firstValueMs ?? "-"} ui_ms=${ui_ms} steps=${modelSteps} — ${message.slice(0, 200)}`)
   })
 }
 
@@ -5915,6 +6134,8 @@ test("STRESS: six applications at once, each in its own tab, none mixing with an
   await mine.goto("https://dashboard.example-tool.com/runs")
   const worker = context.serviceWorkers()[0]
   const jobs = [
+      first_fill_ms: fake.realBroods?.firstFillMs ?? null,
+      first_value_ms: firstValueMs,
     "https://boards.example-ats.com/stress/jobs/1",
     "https://boards.example-ats.com/stress/jobs/2",
     "https://boards.example-ats.com/stress/jobs/3",
