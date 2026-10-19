@@ -261,14 +261,21 @@ function OddsButton({ info, post }: { info: PanelInfo; post: Posting | null }): 
     )
   }
 
+  // A page Odds does not know as a job or a form (an application's first step: one email box and a Next button): "Apply with Odds" still starts
+  // Broods on this tab; tracking the job is the quieter second choice.
   return (
-    <button type="button" disabled={adding} className={look} onClick={() => {
-      setAdding(true)
-      toExtension({ type: "panel-add-job", url: page.url })
-      window.setTimeout(() => { void data.refreshPostings().finally(() => setAdding(false)) }, 2500)
-    }}>
-      <Face label={adding ? "Adding…" : "Track this job"} sub={sub} />
-    </button>
+    <div className="flex flex-col gap-2">
+      <button type="button" disabled={busy} className={`${look} ${busy ? "" : "odds-fill-pulse"}`} onClick={() => { setPressed(true); toExtension({ type: "panel-fill", tabId: page.tabId }); window.setTimeout(() => setPressed(false), 6000) }}>
+        <Face label={busy ? "Starting…" : "Apply with Odds"} sub={sub} />
+      </button>
+      <Button variant="ghost" size="sm" disabled={adding} className="self-center" onClick={() => {
+        setAdding(true)
+        toExtension({ type: "panel-add-job", url: page.url })
+        window.setTimeout(() => { void data.refreshPostings().finally(() => setAdding(false)) }, 2500)
+      }}>
+        {adding ? "Adding…" : "Track this job"}
+      </Button>
+    </div>
   )
 }
 
