@@ -22,6 +22,7 @@ import { Insights } from "@/components/Insights"
 import { HeardBack } from "@/components/HeardBack"
 import { Button } from "@/components/ui/button"
 import { WebButton } from "@/components/web/ui"
+import { ApplyInbox } from "@/components/web/ApplyInbox"
 import { JobListSkeleton } from "@/components/Skeleton"
 import { useData } from "@/lib/data"
 import { CompaniesView } from "@/components/Companies"
@@ -222,6 +223,7 @@ export function Account({ page = "home", onStartLooking, onOpenClaude, onOpenPag
           ) : (
             <>
               <TrackerBar layout={layout} onLayout={chooseLayout} onImport={() => setAddPanel((current) => panelWith(current, "upload"))} onAdd={() => setAddPanel((current) => panelWith(current, "one"))} />
+              <ApplyInbox onOpenJob={setRevisit} />
               {kept.length > 0 ? <TrackerStats posts={kept} /> : null}
               {kept.length === 0 ? (
                 <div className="flex flex-col items-center gap-3 rounded-[18px] border-[1.5px] border-dashed border-line bg-card px-6 py-14 text-center">

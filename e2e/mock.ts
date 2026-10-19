@@ -10,7 +10,7 @@ export const SUPABASE_ORIGIN = "http://supabase.test"
 const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64")
 
 /** Public tables the app reads that have no rows in these fixtures: answered with an empty list, like PostgREST does. */
-const EMPTY_TABLES: ReadonlySet<string> = new Set(["applications", "employer_about", "employer_culture", "employer_facts", "employer_glassdoor_pay", "employer_headcount", "employer_hiring", "employer_money", "employer_news", "employer_teams", "profiles", "documents", "job_documents", "drive_links", "mcp_keys", "saved_jobs", "chance_snapshots", "push_devices", "application_answers", "application_runs", "application_prompts", "application_questions", "application_desktops", "outreach_drafts", "drive_runs"])
+const EMPTY_TABLES: ReadonlySet<string> = new Set(["applications", "employer_about", "employer_culture", "employer_facts", "employer_glassdoor_pay", "employer_headcount", "employer_hiring", "employer_money", "employer_news", "employer_teams", "profiles", "documents", "job_documents", "drive_links", "mcp_keys", "saved_jobs", "chance_snapshots", "push_devices", "application_answers", "application_runs", "application_prompts", "application_questions", "application_desktops", "outreach_drafts", "drive_runs", "apply_queue"])
 
 /** Functions the job page calls about its employer: these fixtures know nothing about any employer, as for one we have no data on. */
 const EMPTY_RPCS: ReadonlySet<string> = new Set(["rpc/job_company", "rpc/company_research"])

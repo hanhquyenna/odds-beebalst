@@ -12,6 +12,7 @@ import { driveExt, handleDriveMcp } from "./drive.ts"
 import * as core from "./core.js"
 import { handleOAuth, unauthorized } from "./oauth.ts"
 import { accessFor, contentOf, driveEnv, linkOf, pushIfConnected } from "../_shared/drive.ts"
+import { queueDone, queueNext } from "../_shared/apply-queue.ts"
 import { applicationQuestionKey, chooseOption } from "../_shared/apply-form.ts"
 import { applyAgentEnabled, factsForAgent, hostOf, notifyApplyAgent, requestSuggestAction, requestSuggestScan, suggestAnswers, validateSuggestedAnswers, type ApplyAgentEnv, type ApplyQuestion } from "../_shared/apply-agent.ts"
 import { acceptActionPick, actionButtonsFingerprint, factsFromAgentPayload, pickSuggestAction, suggestFromRules } from "../_shared/apply-agent-suggest.ts"
@@ -1259,6 +1260,12 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
         return link ? (await heldJob(env, link))?.[0] ?? null : null
       },
     })
+  }
+  // The apply queue: the extension asks for the next jobs to fill (at most two at once) and says how each one ended. It never submits.
+  if ((route === "queue-next" || route === "queue-done") && req.method === "POST") {
+    const body = await req.json().catch(() => null)
+    if (route === "queue-next") return json(200, { status: "ok", ...(await queueNext((path, init) => svc(env, path, init), me.id, body?.active)) })
+    return json(200, { status: "ok", saved: await queueDone((path, init) => svc(env, path, init), me.id, body ?? {}) })
   }
   if (["application-poll", "application-report", "application-resume"].includes(route) && req.method === "POST") {
     const body = await req.json().catch(() => null)

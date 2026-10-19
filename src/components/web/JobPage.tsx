@@ -11,6 +11,7 @@ import { TailorFlow } from "@/components/TailorFlow"
 import { LockedPersonal, PayCard, CareerLadder } from "@/components/JobPersonal"
 import { MoreAtEmployer } from "@/components/CompanyInsights"
 import { OddsApply } from "@/components/OddsApply"
+import { QueueButton } from "@/components/web/QueueButton"
 import { PastHires } from "@/components/JobCompany"
 import { PostingText } from "@/components/PostingText"
 import { useData } from "@/lib/data"
@@ -116,6 +117,7 @@ function Overview({ post, model, onTab, onOpenJob }: { post: Posting; model: Ret
           </div>
           <div className="w-full max-w-[22rem] shrink-0 sm:w-[20rem] [&_[data-odds-apply=primary]]:h-14 [&_[data-odds-apply=primary]]:rounded-xl [&_[data-odds-apply=primary]]:text-lg [&_[data-odds-apply=primary]]:font-extrabold">
             <OddsApply post={post} />
+            <QueueButton post={post} className="mt-2 h-11 w-full" />
           </div>
         </div>
         <h1 className="text-[2rem] leading-[1.1] font-extrabold tracking-[-0.035em] text-balance sm:text-[2.35rem]">{post.title}</h1>

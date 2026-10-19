@@ -102,6 +102,8 @@ interface Fake {
   calls: Array<{ auth: string; body: { url?: string; posting?: Record<string, unknown> } }>
   peeks: string[]
   /** The size of each look-up of several jobs at once. */
+  /** The apply queue (/ext/queue-next, /ext/queue-done): jobs still waiting, what each poll said was active, the most at once, and how each ended. */
+  queue?: { waiting: Array<{ posting_id: string; url: string }>; started: string[]; maxActive: number; done: Array<Record<string, unknown>>; drop: string[] }
   batches: number[]
   /** What a form is filled in from (/ext/apply-kit), the answers the person gave that were kept, the jobs marked applied. */
   kit: Record<string, unknown>
@@ -526,7 +528,18 @@ async function fakeOdds(): Promise<Fake> {
         return
       }
       let answer: Record<string, unknown> = fake.answer
-      if (path.endsWith("/ext/application-poll")) {
+      if (path.endsWith("/ext/queue-next") && fake.queue) {
+        const active = (body as { active?: string[] }).active ?? []
+        const drop = fake.queue.drop.filter((id) => active.includes(id))
+        const room = Math.max(0, 2 - active.filter((id) => !drop.includes(id)).length)
+        const start = fake.queue.waiting.splice(0, room)
+        fake.queue.started.push(...start.map((j) => j.posting_id))
+        fake.queue.maxActive = Math.max(fake.queue.maxActive, active.length - drop.length + start.length)
+        answer = { start, drop }
+      } else if (path.endsWith("/ext/queue-done") && fake.queue) {
+        fake.queue.done.push(body as Record<string, unknown>)
+        answer = { saved: true }
+      } else if (path.endsWith("/ext/application-poll")) {
         const tasks = fake.remoteTasks || (fake.remoteTask ? [fake.remoteTask] : [])
         answer = { task: tasks.find(t => t.status === "filling" && !body.ids?.includes(t.id)) || null, runs: tasks.filter(t => body.ids?.includes(t.id)).map(t => ({ id: t.id, status: t.status })) }
       } else if (path.endsWith("/ext/application-resume")) {
@@ -6280,4 +6293,38 @@ test("REAL_STEP_URL: a plan walked on a live multi-step form (fake Broods, no mo
   await applyFrom(context, page, url)
   await expect.poll(() => done, { timeout: 220_000 }).toBe(true)
   console.log("STEP PROBE\n" + out.join("\n"))
+})
+
+test("QUEUE: three jobs are filled two at a time in the Odds window, each stops with one reason, nothing is sent, the person's page is left alone", async ({ context, fake }) => {
+  test.setTimeout(240_000)
+  await connect(context)
+  const form = (n: number) => EMPLOYER_FORM.replace("<h1>Data Intern</h1>", `<h1>Data Intern ${n}</h1>`)
+  await context.route("https://boards.example-ats.com/stress/jobs/**", (route) => { const n = Number(/jobs\/(\d+)/.exec(route.request().url())?.[1] ?? 0); return route.fulfill({ contentType: "text/html", body: form(n) }) })
+  await context.route("https://dashboard.example-tool.com/**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><html><body><h1>My dashboard</h1><input id='q'><button>Refresh</button></body></html>" }))
+  fake.kit = { job_id: "pqueue", job_title: "Data Intern", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", linkedin: "https://www.linkedin.com/in/kien", answers: { first_name: "Kien", last_name: "Phung", email: "kien@example.com", phone: "+31 6 1234 5678", work_authorization: "Yes, EU citizen" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true } }
+  fake.queue = { waiting: [1, 2, 3].map((n) => ({ posting_id: `pq-${n}`, url: `https://boards.example-ats.com/stress/jobs/${n}` })), started: [], maxActive: 0, done: [], drop: [] }
+  const mine = await context.newPage()
+  await mine.goto("https://dashboard.example-tool.com/runs")
+  const mineWindowTabs = context.pages().length
+  const worker = context.serviceWorkers()[0]
+  // The worker looks every half minute by itself; here it is asked to look often.
+  await expect.poll(async () => { await worker.evaluate("queueTick()"); return fake.queue!.done.length }, { timeout: 200_000, intervals: [1500] }).toBe(3)
+  // Never more than two at once, and all three were started and finished one way or another.
+  expect(fake.queue.maxActive).toBe(2)
+  expect(fake.queue.started.sort()).toEqual(["pq-1", "pq-2", "pq-3"])
+  for (const done of fake.queue.done) {
+    // The forms leave the SQL question to the person: one reason, in the person's words, never a send.
+    expect(done).toMatchObject({ state: "needs_you", reason: "questions" })
+    expect(String(done.message)).toMatch(/SQL/)
+  }
+  // Each in its own tab, filled by Odds; nothing was submitted.
+  for (const n of [1, 2, 3]) {
+    const p = context.pages().find((pg) => new RegExp(`stress/jobs/${n}$`).test(pg.url()))!
+    await expect(p.locator("#first_name")).toHaveValue("Kien")
+    expect(await p.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+  }
+  // The person's own page: untouched, still the same tab.
+  await expect(mine.locator(".odds-apply-bar")).toHaveCount(0)
+  await expect(mine.locator("#q")).toHaveValue("")
+  expect(context.pages().length).toBeGreaterThan(mineWindowTabs)
 })

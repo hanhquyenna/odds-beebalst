@@ -4,6 +4,10 @@ import { useFilterDefs } from "@/components/JobFilters"
 import { CompanyLogo } from "@/components/CompanyMark"
 import { SortSelect } from "@/components/SortSelect"
 import { JobPage } from "@/components/web/JobPage"
+import { addedWords } from "@/components/web/QueueButton"
+import { WebButton } from "@/components/web/ui"
+import { toast } from "sonner"
+import { addToQueue, useApplyQueue } from "@/lib/apply-queue"
 import { ChevronLeftIcon, FunnelIcon, SearchIcon, XIcon } from "@/components/icons"
 import { useData } from "@/lib/data"
 import { DEFAULT_FILTERS, applyFilters, type JobFilters } from "@/lib/filters"
@@ -35,6 +39,21 @@ export function JobsPage(): React.JSX.Element {
   const [preferences, setPreferences] = useState<boolean>(false)
   const [picked, setPicked] = useState<string | null>(() => takeJob())
   const [filterOpen, setFilterOpen] = useState<boolean>(false)
+  // Several jobs picked at once for the apply queue.
+  const [selecting, setSelecting] = useState<boolean>(false)
+  const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set())
+  const [queueing, setQueueing] = useState<boolean>(false)
+  const queue = useApplyQueue(data.session !== null)
+  const toggleChosen = (id: string): void => setChosen((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next })
+  const stopSelecting = (): void => { setSelecting(false); setChosen(new Set()) }
+  const addChosen = (): void => {
+    setQueueing(true)
+    const ids = [...chosen]
+    addToQueue(ids)
+      .then((n) => { toast(addedWords(n, ids.length)); stopSelecting() })
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "That did not go through. Try again."))
+      .finally(() => setQueueing(false))
+  }
   const fit = useFitRows()
   const defs = useFilterDefs(filters, setFilters)
   const bar = BAR.map((key) => defs.find((d) => d.key === key)).filter((d): d is NonNullable<typeof d> => Boolean(d))
@@ -78,6 +97,11 @@ export function JobsPage(): React.JSX.Element {
     <div className="flex min-h-0 flex-col overflow-hidden rounded-[18px] border-[1.5px] border-line bg-card lg:sticky lg:top-[5.25rem] lg:max-h-[calc(100svh-6.5rem)]">
       <div className="flex items-center justify-between gap-3 border-b-[1.5px] border-line/70 px-5 py-3.5 text-sm">
         <span className="text-muted-foreground tabular-nums">{total.toLocaleString()} jobs</span>
+        {data.session !== null ? (
+          <button type="button" aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))} className="ml-auto h-9 cursor-pointer rounded-full border-[1.5px] border-line bg-card px-3.5 text-[0.8125rem] font-extrabold hover:border-foreground/40 aria-pressed:border-brand aria-pressed:bg-accent">
+            {selecting ? "Cancel" : "Select jobs"}
+          </button>
+        ) : null}
         <SortSelect value={sort} onChange={setSort} keys={["match", "newest", "pay", "chance", "company", "title", "level"]} />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -110,7 +134,7 @@ export function JobsPage(): React.JSX.Element {
             </div>
             <ul className="flex flex-col gap-1 px-2 pb-3">
               {top.map((p) => (
-                <JobRow key={p.id} post={p} on={current?.id === p.id} onOpen={() => open(p.id)} />
+                <JobRow key={p.id} post={p} on={current?.id === p.id} onOpen={() => open(p.id)} pick={selecting ? { checked: chosen.has(p.id), queued: queue.byId.has(p.id), toggle: () => toggleChosen(p.id) } : undefined} />
               ))}
             </ul>
           </section>
@@ -120,7 +144,7 @@ export function JobsPage(): React.JSX.Element {
             {top.length > 0 ? <h2 className="px-3 pb-2 text-base font-extrabold">More jobs</h2> : null}
             <ul className="flex flex-col">
               {more.slice(0, shown).map((p) => (
-                <JobRow key={p.id} post={p} on={current?.id === p.id} onOpen={() => open(p.id)} />
+                <JobRow key={p.id} post={p} on={current?.id === p.id} onOpen={() => open(p.id)} pick={selecting ? { checked: chosen.has(p.id), queued: queue.byId.has(p.id), toggle: () => toggleChosen(p.id) } : undefined} />
               ))}
             </ul>
             {more.length > shown ? (
@@ -131,6 +155,14 @@ export function JobsPage(): React.JSX.Element {
           </section>
         ) : null}
       </div>
+      {selecting ? (
+        <div className="flex items-center justify-between gap-3 border-t-[1.5px] border-line/70 bg-card px-5 py-3">
+          <span className="text-sm font-bold tabular-nums">{chosen.size} picked</span>
+          <WebButton tone="primary" disabled={chosen.size === 0 || queueing} onClick={addChosen}>
+            Add {chosen.size > 0 ? chosen.size : ""} to queue
+          </WebButton>
+        </div>
+      ) : null}
     </div>
   )
 
@@ -182,7 +214,7 @@ export function JobsPage(): React.JSX.Element {
   )
 }
 
-function JobRow({ post, on, onOpen }: { post: Posting; on: boolean; onOpen: () => void }): React.JSX.Element {
+function JobRow({ post, on, onOpen, pick }: { post: Posting; on: boolean; onOpen: () => void; pick?: { checked: boolean; queued: boolean; toggle: () => void } }): React.JSX.Element {
   const data = useData()
   const pay = payOf(post, data.reference)
   const posted = post.local ? null : formatAge(post)
@@ -194,9 +226,13 @@ function JobRow({ post, on, onOpen }: { post: Posting; on: boolean; onOpen: () =
         type="button"
         aria-label={`${post.title} ${post.employer_display}`}
         aria-current={on ? "true" : undefined}
-        onClick={onOpen}
+        onClick={pick ? pick.toggle : onOpen}
+        aria-pressed={pick ? pick.checked : undefined}
         className={`flex w-full cursor-pointer items-start gap-3.5 rounded-xl border-[1.5px] px-3 py-3 text-left transition-colors ${on ? "border-brand bg-accent" : "border-transparent hover:bg-secondary"}`}
       >
+        {pick ? (
+          <span aria-hidden="true" className={`mt-3 flex size-5 shrink-0 items-center justify-center rounded-md border-[1.5px] text-xs font-extrabold ${pick.checked ? "border-brand bg-brand" : "border-line bg-card"}`}>{pick.checked ? "✓" : ""}</span>
+        ) : null}
         <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-card p-1.5 shadow-[0_0_0_1.5px_var(--line)]">
           <CompanyLogo employer={post.employer} name={post.employer_display} size={36} wide={1.1} url={post.url} />
         </span>
@@ -204,6 +240,7 @@ function JobRow({ post, on, onOpen }: { post: Posting; on: boolean; onOpen: () =
           <span className="line-clamp-2 text-[0.95rem] leading-snug font-extrabold">{post.title}</span>
           <span className="truncate text-[0.8125rem] text-muted-foreground">{post.employer_display}</span>
           <span className="text-[0.8125rem] leading-snug text-[#4E4842]">{facts.join(" · ")}</span>
+          {pick?.queued ? <span className="text-[0.75rem] font-extrabold text-brand-ink">Already in your queue</span> : null}
         </span>
       </button>
     </li>
