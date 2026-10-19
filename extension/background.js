@@ -762,7 +762,20 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     const tabId = sender.tab.id
     intentOf(tabId).then(async (intent) => {
       if (!intent) return reply({ ok: false })
-      const next = preferEnglishApplyUrl(message.url)
+      const seen = []
+      if (typeof sender.tab.url === "string") seen.push(sender.tab.url)
+      if (Array.isArray(message.seen)) {
+        for (const item of message.seen) {
+          if (typeof item === "string" && /^https:\/\//.test(item)) seen.push(item)
+          if (seen.length >= 40) break
+        }
+      }
+      const next = applyDestination(message.url, {
+        seen,
+        jobUrls: [intent.job].filter(Boolean),
+        alternates: Array.isArray(message.alternates) ? message.alternates.filter((item) => typeof item === "string") : [],
+      })
+      if (!next) return reply({ ok: false, message: "Odds will not open a page that was not on this job." })
       const cur = sender.tab.url || ""
       // Same path already open (e.g. Workday + locale=en_US rewrite): do not reload — that caused Philips "1 Erreur" reopen loops.
       try {
@@ -842,7 +855,12 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   }
   // LinkedIn (or employer) says applications closed — set postings.closed_at for everyone.
   if (message?.type === "job-closed" && typeof message.url === "string" && /^https:\/\//.test(message.url)) {
-    ext("job-closed", { method: "POST", body: JSON.stringify({ url: message.url }) }).then(reply)
+    const pageUrl = typeof message.page_url === "string" && /^https:\/\//.test(message.page_url) ? message.page_url : ""
+    if (!pageUrl || !globalThis.oddsNav?.jobClosedAllowed(pageUrl, message.url)) {
+      reply({ status: "rejected", reason: "page_url_mismatch" })
+      return true
+    }
+    ext("job-closed", { method: "POST", body: JSON.stringify({ url: message.url, page_url: pageUrl }) }).then(reply)
     return true
   }
   if (message?.type === "cv-file" && typeof message.doc === "string") {
@@ -1134,26 +1152,12 @@ async function tabForApplicationRun(runId, postingId) {
   }
   return null
 }
-/** Prefer English on multilingual ATS URLs so Apply labels match recipes; users' browser locale otherwise opens FR/VI/DE… */
-function preferEnglishApplyUrl(url) {
-  try {
-    const u = new URL(url)
-    u.pathname = u.pathname
-      .replace(/\/([a-z]{2})-([A-Z]{2})(?=\/|$)/g, (m, lang, region) => (lang.toLowerCase() === "en" ? m : `/en-${region === "GB" ? "GB" : "US"}`))
-      .replace(/\/(fr|nl|de|vi|es|it|pl|pt)(?=\/|$)/i, "/en-US")
-    for (const key of ["locale", "lang", "language", "localeCode"]) {
-      const v = u.searchParams.get(key)
-      if (v && !/^en/i.test(v)) u.searchParams.set(key, /_/.test(v) ? "en_US" : "en-US")
-    }
-    // Workday / SuccessFactors often keep UI language from cookie / Accept-Language unless locale is forced.
-    if (/\.myworkday(jobs|site)\.com$/i.test(u.hostname) || /\.successfactors\.(com|eu)$/i.test(u.hostname)) {
-      const loc = u.searchParams.get("locale") || ""
-      if (!loc || !/^en/i.test(loc)) u.searchParams.set("locale", "en_US")
-    }
-    return u.href
-  } catch {
-    return url
-  }
+/** English only when the shared navigation rules allow it: Workday/SuccessFactors query params, or a real English link. */
+function preferEnglishApplyUrl(url, alternates = []) {
+  return globalThis.oddsNav?.preferEnglishApplyUrl(url, alternates) || url
+}
+function applyDestination(url, ctx) {
+  return globalThis.oddsNav?.destinationForApply(url, ctx) || null
 }
 /** Whether a page title or heading names this job ("Apply for: B2C Marketing Intern" for "B2C MARKETING INTERN (CONTENT & RETAIL)"): most of its words. */
 function namesJob(jobTitle, text) {
@@ -1231,7 +1235,7 @@ function jobKeyOf(url, postingId) {
 function openApplication(url, from, opts = {}) {
   const reveal = opts.reveal === true
   const postingId = typeof opts.postingId === "string" && opts.postingId ? opts.postingId : null
-  const applyUrl = preferEnglishApplyUrl(url)
+  const applyUrl = applyDestination(url, { seen: [url], jobUrls: [url] }) || url
   const job = jobKeyOf(applyUrl, postingId) || jobKeyOf(url, postingId)
   kitFor(applyUrl, true).catch(() => undefined)
   if (applicationStarts.has(job)) return applicationStarts.get(job)
@@ -1332,7 +1336,7 @@ function openApplication(url, from, opts = {}) {
       : (await chrome.windows.create({ url: "about:blank", focused: reveal, type: "normal" })).tabs?.[0]
     const tabId = tab?.id
     if (typeof tabId !== "number") return { ok: false, message: "Could not open an application tab." }
-    await setIntent(tabId, { job: applyUrl, postingId, at: Date.now(), status: "filling", message: "Opening the application…", ...(personWindow !== null ? { foreground: true } : {}) })
+    await setIntent(tabId, { job: url, postingId, at: Date.now(), status: "filling", message: "Opening the application…", ...(personWindow !== null ? { foreground: true } : {}) })
     // Where this application was found last time (the employer's real form), straight away; the job's own link otherwise.
     // Where this application was found before, here or by anyone (the server's apply link): past the board's captcha and sign-in walls.
     const learned = await learnedApplyUrl(postingId, applyUrl) || await directApplyUrl(applyUrl)
@@ -1359,8 +1363,8 @@ async function applyHere(tabId, url, postingId) {
   if (!await savedKey()) return { ok: false, message: "Connect Odds from the extension icon first." }
   const present = await chrome.tabs.get(tabId).catch(() => null)
   if (!present) return { ok: false, message: "The application tab is no longer open." }
-  const applyUrl = preferEnglishApplyUrl(url)
-  await setIntent(tabId, { job: applyUrl, postingId, at: Date.now(), status: "filling", message: "Opening the application…", copilot: true, here: true })
+  const applyUrl = applyDestination(url, { seen: [url], jobUrls: [url] }) || url
+  await setIntent(tabId, { job: url, postingId, at: Date.now(), status: "filling", message: "Opening the application…", copilot: true, here: true })
   const learned = await learnedApplyUrl(postingId, applyUrl) || await directApplyUrl(applyUrl)
   const target = learned || applyUrl
   const tab = await chrome.tabs.get(tabId).catch(() => null)
@@ -1727,7 +1731,7 @@ async function pollApplications() {
     if (!(await chrome.storage.local.get("oddsPhoneControl")).oddsPhoneControl || !await savedKey()) return
     if (task.status !== "filling" || !/^https:\/\//.test(task.url)) return
     // Phone/desktop queue: fill in the background; surface the tab only at needs_input/ready.
-    const applyUrl = preferEnglishApplyUrl(task.url)
+    const applyUrl = applyDestination(task.url, { seen: [task.url], jobUrls: [task.url] }) || task.url
     // In the Odds window, as its showing tab: a hidden tab in the person's own window has its timers slowed by Chrome to about once a
     // minute, and the fill and Broods' steps stall there.
     const windowId = await oddsWindow(false)
@@ -1736,7 +1740,7 @@ async function pollApplications() {
       : await chrome.tabs.create({ url: "about:blank", active: false })
     const run = { id: task.id, tabId: tab.id, postingId: task.posting_id || null }
     await updateApplicationRuns(current => { current[run.id] = run })
-    await setIntent(tab.id, { job: applyUrl, at: Date.now(), runId: task.id, postingId: task.posting_id || null })
+    await setIntent(tab.id, { job: task.url, at: Date.now(), runId: task.id, postingId: task.posting_id || null })
     await oddsGo(tab.id, (await learnedApplyUrl(task.posting_id, applyUrl)) || (await directApplyUrl(applyUrl)) || applyUrl, { active: false })
   } catch {
     if (claimed) await reportApplication(claimed, "failed", "Could not open the application. Please start again on your desktop.").catch(() => undefined)

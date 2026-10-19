@@ -3,6 +3,7 @@ import { renderLetterPdf } from "../_shared/cv-template.ts"
 import { compressRoute, routeHint, routeKey, routeStoreKey, usable } from "../_shared/site-routes.ts"
 import { canAcceptDriveResult, humanStopAllowed, jobIdentityMismatch } from "../_shared/drive-ownership.ts"
 import { appliedBeforeAnswer, FACT_QUESTION_HINT, isWorkAuthQuestion, ownQuestions, permitWorkAnswers, studyingFrom, widgetAttemptGuard, workFactForQuestion, type PermitWorkFacts } from "../_shared/drive-finish.ts"
+import { jobClosedAllowed } from "../_shared/apply-navigation.ts"
 import { broodsStartOutcome, driveRunExpired, MODEL_UNREACHABLE, quietGiveUp, type BroodsStartOutcome } from "../_shared/drive-quiet.ts"
 import { fieldPattern, playbookFor, sanitizeLesson, siteIdentity, structuralField } from "../_shared/site-playbook.ts"
 
@@ -510,6 +511,10 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     // calls that "page not found": the page is read again, and a page with a form or an Apply button is never closed. Sent back once.
     if (reason === "closed") {
       const page = await freshPage(env, run)
+      const pageUrl = String(page?.url || "")
+      if (pageUrl && !jobClosedAllowed(pageUrl, String(run.url || ""))) {
+        return { text: "This page is not the job's own posting URL, so it cannot prove the job is closed. Go back to the original job page and read_page there.", error: true }
+      }
       const live = page && page.closed !== true && ((Array.isArray(page.fields) && page.fields.length > 0) || (Array.isArray(page.buttons) && page.buttons.some((b: Json) => /\b(apply|solliciteer|next|continue|volgende|create account|sign in)\b/i.test(String(b?.text ?? "")))))
       const sentClosed = page && page.closed !== true ? (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.closed&select=id&limit=1`).catch(() => null))?.[0] : true
       if (live || !sentClosed) {
@@ -743,7 +748,12 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         return { text: JSON.stringify({ ok: false, run_ended: true, captcha: true, error: "Captcha: Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
       }
       // A job page that says it is over (read_page.closed: a 404, "no longer available", a taken-down Workday job): closed, at once.
+      // Only the run's stored posting URL can close it. A 404 on a page Odds derived is not that verdict.
       if (page?.closed === true && name === "read_page") {
+        const pageUrl = String(page?.url || "")
+        if (!pageUrl || !jobClosedAllowed(pageUrl, String(run.url || ""))) {
+          return { text: "This page is not the job's own posting URL, so a 404 here does not close the job. Go back to the original job page and read_page there.", error: true }
+        }
         const now = new Date().toISOString()
         const message = "This job is no longer open for applications."
         await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "closed", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)

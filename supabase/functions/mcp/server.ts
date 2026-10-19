@@ -19,6 +19,7 @@ import { acceptActionPick, actionButtonsFingerprint, factsFromAgentPayload, pick
 import { educationFromProfile, personalFromProfile, workFromProfile } from "../_shared/application-personal.ts"
 import { cleanAnswers, missingAnswers, type Answers } from "../_shared/application-answers.ts"
 import { cleanCv, cvText, renderCvPdf } from "../_shared/cv-template.ts"
+import { jobClosedAllowed } from "../_shared/apply-navigation.ts"
 import { heldFilter, jobLink, type JobLink } from "../_shared/job-sites.ts"
 // @ts-ignore: npm specifier, resolved by Deno
 import * as PDFLib from "npm:pdf-lib@1.17.1"
@@ -1717,6 +1718,11 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     const link = jobLink(String(body?.url ?? ""), true)
     const held = link ? (await heldJob(env, link))?.[0] : null
     if (!held) return json(404, { status: "unknown", message: "odds does not hold that job yet." })
+    const pageUrl = typeof body?.page_url === "string" ? body.page_url : ""
+    if (!pageUrl || !jobClosedAllowed(pageUrl, String(held.url ?? ""))) {
+      void logApplyAgentEvent(env, me.id, "job-closed-rejected", held.id, { url: String(body?.url ?? "").slice(0, 300), page_url: pageUrl.slice(0, 300), posting_url: String(held.url ?? "").slice(0, 300) })
+      return json(409, { status: "rejected", reason: "page_url_mismatch", message: "Odds only marks a job closed from its own posting page." })
+    }
     if (held.closed_at) return json(200, { status: "closed", id: held.id, already: true })
     const now = new Date().toISOString()
     await svc(env, `postings?id=eq.${encodeURIComponent(held.id)}`, {
@@ -1730,7 +1736,7 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
       headers: { Prefer: "return=minimal" },
       body: JSON.stringify({ status: "failed", message: "This job is no longer accepting applications. No application was submitted.", updated_at: now }),
     }).catch(() => undefined)
-    void logApplyAgentEvent(env, me.id, "job-closed", held.id, { url: String(body?.url ?? "").slice(0, 200) })
+    void logApplyAgentEvent(env, me.id, "job-closed", held.id, { url: String(body?.url ?? "").slice(0, 300), page_url: pageUrl.slice(0, 300), posting_url: String(held.url ?? "").slice(0, 300) })
     return json(200, { status: "closed", id: held.id })
   }
   // The person pressed Submit and LinkedIn said it was sent: the job is applied on their odds tracker (kept for them first if it was not).

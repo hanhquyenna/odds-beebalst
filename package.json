@@ -19,6 +19,7 @@
     "perf": "bun scripts/check-bundles.mjs",
     "preview": "vite preview",
     "test": "bun test src",
+    "apply:live": "bun scripts/apply-live.ts",
     "broods:dev": "broods dev",
     "broods:deploy": "broods deploy",
     "broods:whoami": "broods whoami"

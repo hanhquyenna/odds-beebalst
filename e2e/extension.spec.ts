@@ -7034,6 +7034,22 @@ test("a missing job page (404) closes the job instead of leaving Applying or sta
   expect(fake.drives.size).toBe(0)
 })
 
+test("a 404 on an Odds-derived Ormit URL does not close the original posting",async({context,fake})=>{
+  await connect(context)
+  fake.kit={job_id:"pormit4477162060",broods_drive:false,facts:{name:"Test Applicant",answers:{},remembered:{}},cv:null}
+  const original="https://ormittalent.nl/nl/traineeships/traineeship-change-ai-adoption-asml/"
+  const derived="https://ormittalent.nl/en-US/traineeships/traineeship-change-ai-adoption-asml/"
+  const openBody="<h1>Traineeship Change & AI Adoption @ ASML</h1><form><label>Phone<input name='phone'></label><button type='submit'>Submit</button></form>"
+  await context.route("https://ormittalent.nl/**",r=>r.fulfill({contentType:"text/html",body:openBody}))
+  await context.route(derived,r=>r.fulfill({status:404,contentType:"text/html",body:"<title>Pagina niet gevonden - Ormit Talent NL</title><h1>404. Pagina niet gevonden.</h1><p>curiosity also killed this page</p>"}))
+  await context.route(original,r=>r.fulfill({contentType:"text/html",body:openBody}))
+  const page=await context.newPage();await page.goto(derived);await applyFrom(context,page,original)
+  await expect(page).toHaveURL(original,{timeout:15000})
+  await expect(page.locator(".odds-apply-bar")).not.toContainText("This job is closed")
+  expect(fake.closedUrls).toEqual([])
+  expect(fake.drives.size).toBe(0)
+})
+
 test("Broods field IDs stay attached to their fields when a form inserts a new question",async({context,fake})=>{
   await connect(context)
   fake.kit={broods_drive:true,facts:{answers:{},remembered:{}},cv:null}

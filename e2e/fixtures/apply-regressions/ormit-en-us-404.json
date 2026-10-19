@@ -1,0 +1,16 @@
+{
+  "run": null,
+  "note": "No drive_runs row was created. The extension rewrote the live /nl/ posting to /en-US/ before Broods started.",
+  "page": {
+    "stored_url": "https://www.linkedin.com/jobs/view/4477162060",
+    "seen_url": "https://ormittalent.nl/nl/traineeships/traineeship-change-ai-adoption-asml/",
+    "navigated_url": "https://ormittalent.nl/en-US/traineeships/traineeship-change-ai-adoption-asml/",
+    "title": "Pagina niet gevonden - Ormit Talent NL",
+    "heading": "404. Pagina niet gevonden."
+  },
+  "expected": {
+    "navigation": "https://ormittalent.nl/nl/traineeships/traineeship-change-ai-adoption-asml/",
+    "closed": false,
+    "action": "return"
+  }
+}

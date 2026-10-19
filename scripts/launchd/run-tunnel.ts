@@ -78,6 +78,12 @@ async function pointLatestBroods() {
       continue
     }
     if (wantedBase !== base || !(await modelsOk(base))) continue
+    const gate = Bun.spawn([BUN, "scripts/apply-score-gate.ts"], { cwd: REPO, stdout: "inherit", stderr: "inherit" })
+    if ((await gate.exited) !== 0) {
+      log("apply score gate blocked the Broods deploy; Broods keeps its previous URL")
+      await Bun.sleep(30_000)
+      continue
+    }
     const deploy = Bun.spawn([BUN, "./node_modules/.bin/broods", "deploy", "--project", "odds-apply"], { cwd: REPO, stdout: "inherit", stderr: "inherit" })
     if ((await deploy.exited) !== 0) {
       log("broods deploy failed; retrying in 30s")

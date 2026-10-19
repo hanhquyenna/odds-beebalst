@@ -132,7 +132,7 @@ describe("postingSent: a job a browser hands over is taken only as plain text", 
 
 test("the extension's copy of these rules is built from these files (run scripts/build-extension.sh), and answers the same", () => {
   const root = join(import.meta.dirname, "..", "..")
-  const sources = ["supabase/functions/_shared/job-sites.ts", "supabase/functions/_shared/apply-form.ts", "supabase/functions/_shared/apply-censor.ts", "scripts/extension-sites.ts"].map((f) => readFileSync(join(root, f)))
+  const sources = ["supabase/functions/_shared/job-sites.ts", "supabase/functions/_shared/apply-form.ts", "supabase/functions/_shared/apply-censor.ts", "supabase/functions/_shared/apply-navigation.ts", "scripts/extension-sites.ts"].map((f) => readFileSync(join(root, f)))
   const sum = createHash("sha256").update(Buffer.concat(sources)).digest("hex").slice(0, 16)
   const built = readFileSync(join(root, "extension", "job-sites.js"), "utf8")
   expect(built.split("\n")[0]).toContain(`(sources ${sum})`)
