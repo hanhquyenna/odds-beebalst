@@ -227,7 +227,7 @@ async function afterNavigation(env: Env, runId: string, result: Json, budgetMs =
         shot = page.screenshot.image
         page = { ...page, screenshot: undefined }
         void svc(env, `drive_commands?id=eq.${read.id}`, { method: "PATCH", body: JSON.stringify({ result: page }) }).catch(() => undefined)
-      }
+      } else if (page?.screenshot) page = { ...page, screenshot: undefined } // a blank picture's diagnosis stays in the stored row only
       return { ...result, page_pending: false, page, ...(shot ? { shot_image: shot } : {}) }
     }
     if (row?.status === "cancelled" || row?.status === "expired") break
@@ -342,11 +342,6 @@ const BASE_TOOLS = [
     name: "click",
     description: "Press a button or link (by button id): Apply, Next, Continue, Review, a cookie 'reject/necessary only', a job link. Never Submit/Send (refused). Returns the fresh resulting page, including across navigation; use that page directly.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, id: { type: "string" } }, required: ["run_id", "id"] },
-  },
-  {
-    name: "screenshot",
-    description: "See the tab as an image (when read_page cannot show or move what you need: custom widgets, overlays, canvas). Returns the image and its pixel size.",
-    inputSchema: { type: "object", properties: { run_id: { type: "string" } }, required: ["run_id"] },
   },
   {
     name: "click_at",
@@ -700,7 +695,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     const link = (await svc(env, `job_documents?user_id=eq.${run.user_id}&posting_id=eq.${encodeURIComponent(run.posting_id)}&kind=eq.cover_letter&select=document_id&limit=1`).catch(() => null))?.[0]
     if (link?.document_id) args = { ...args, doc: link.document_id }
   }
-  if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
+  if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "check_email", "open_link", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
   // The same button three times in the last few steps and the page never changed: pressing it again is not an answer. Said once, plainly.
   if (name === "click" && typeof args?.id === "string") {
     const recentClicks = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.click&order=id.desc&limit=6&select=args,status`).catch(() => null)) ?? []
@@ -728,7 +723,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         shotImage = res.screenshot.image
         res = { ...res, screenshot: undefined }
         void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: res }) }).catch(() => undefined)
-      }
+      } else if (res.screenshot) res = { ...res, screenshot: undefined } // a blank picture's diagnosis stays in the stored row only
       if (res.page_pending === true) {
         // Same wall clock — do not stack another full TOOL_WAIT_MS after timeout.
         const left = Math.max(0, deadline - Date.now())
@@ -738,18 +733,14 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       }
       // Sight: Broods cannot see the picture, so what it shows comes with the page as text (open pop-ups and lists, errors, the
       // buttons and where they are, a captcha). Kept on the step for the trace.
-      const picture = shotImage || (name === "screenshot" && typeof res.image === "string" ? res.image : "")
+      const picture = shotImage
       if (picture) {
         const sight = await describeShot(sightEnv((n) => Deno.env.get(n)), picture)
         if (sight) {
           if (res.page && typeof res.page === "object") res = { ...res, page: { ...res.page, sight } }
           else res = { ...res, sight }
-          void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: name === "screenshot" ? { ...res, image: "(sent)" } : res }) }).catch(() => undefined)
+          void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: res }) }).catch(() => undefined)
         }
-      }
-      if (name === "screenshot" && typeof res.image === "string") {
-        void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...res, image: "(sent)" } }) }).catch(() => undefined)
-        return { text: JSON.stringify({ width: res.width, height: res.height, note: res.note, ...(res.sight ? { sight: res.sight } : {}) }), image: res.image }
       }
       // A fill that ran out of its time window (a slow dropdown) leaves the rest "not tried": Odds sends those fields again itself, once more, so Broods gets one answer for the whole fill and never gives up on fields nobody tried.
       if (name === "fill" && Array.isArray(res.results) && Array.isArray(rest.fields)) {

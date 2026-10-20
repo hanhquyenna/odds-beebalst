@@ -5950,6 +5950,36 @@ test("read_page comes with a screenshot of the page (taken through the debugger,
   expect(shot?.width).toBeLessThanOrEqual(1280)
 })
 
+test("a background tab's screenshot is a real picture, and a blank one is never handed on: retried, then reported with why", async ({ context }) => {
+  test.setTimeout(60_000)
+  await connect(context)
+  const host = "careers.blank.example-motor.eu"
+  await context.route(`https://${host}/**`, (route) => route.fulfill({ contentType: "text/html", body: route.request().url().endsWith("/white")
+    ? "<!doctype html><html><body style='background:#fff;margin:0'></body></html>"
+    : `<!doctype html><html><body><h1>Application form</h1>${Array.from({ length: 20 }, (_, i) => `<p>Field ${i} <input value="answer ${i}"></p>`).join("")}</body></html>` }))
+  const form = await context.newPage()
+  await form.goto(`https://${host}/form`)
+  const white = await context.newPage()
+  await white.goto(`https://${host}/white`)
+  const front = await context.newPage() // both application tabs sit behind this one
+  await front.goto(`https://${host}/front`)
+  const worker = context.serviceWorkers()[0]
+  const shots = await worker.evaluate(async (h) => {
+    const shoot = (id: number) => (globalThis as unknown as { shotViaDebugger(id: number): Promise<{ image?: string; blank?: boolean; error?: string; diag?: unknown }> }).shotViaDebugger(id)
+    const tabOf = async (path: string) => (await chrome.tabs.query({ url: `https://${h}${path}` }))[0].id!
+    const f = await shoot(await tabOf("/form"))
+    const w = await shoot(await tabOf("/white"))
+    return { form: { kb: (f.image ?? "").length, blank: f.blank ?? false }, white: { image: Boolean(w.image), blank: w.blank, error: w.error, diag: w.diag as { tries: unknown[]; tabActive: boolean } } }
+  }, host)
+  expect(shots.form.kb).toBeGreaterThan(5000)
+  expect(shots.form.blank).toBe(false)
+  expect(shots.white.image).toBe(false)
+  expect(shots.white.blank).toBe(true)
+  expect(shots.white.error).toBe("blank screenshot")
+  expect(shots.white.diag.tries.length).toBe(3)
+  expect(shots.white.diag.tabActive).toBe(false)
+})
+
 test("the Gmail reader finds the verification mail in Gmail's list, opens it, and returns its text and its links with Google's redirect unwrapped", async ({ context }) => {
   test.setTimeout(60_000)
   await connect(context)

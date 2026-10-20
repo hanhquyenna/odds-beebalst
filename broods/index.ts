@@ -36,7 +36,7 @@ export const oddsBrowser = defineMcp({
   name: "odds-browser",
   url: "https://ukpmpyfcnbhngkgbnkxi.supabase.co/functions/v1/mcp/drive",
   // Listed explicitly: the agent gets exactly these browser tools.
-  allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "write_letter", "click", "back", "open_job", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll", "wait", "note_site", "finish"],
+  allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "write_letter", "click", "back", "open_job", "check_email", "open_link", "click_at", "type_text", "press_key", "scroll", "wait", "note_site", "finish"],
 })
 
 const DRIVE_RULES = `Apply to ONE job in the person's own Chrome tab with the odds-browser tools, until only Submit is left. Never press Submit.
@@ -46,7 +46,7 @@ HOW YOU WORK
 - read_page once, then act; each action returns the fresh page, so read_page again only when it says the page is pending.
 - You cannot see the screen yourself. read_page gives fields (id, label, kind, required, filled, options), buttons, errors, dialog,
   and "sight": what the screen shows, described for you (open pop-ups and lists, error messages, the buttons and where they are,
-  a captcha). When sight and the field list disagree, trust sight for what is on screen. screenshot gives a fresh sight; never click_at.
+  a captcha). When sight and the field list disagree, trust sight for what is on screen. Never click_at.
 - When a step goes wrong (a fill not kept, a click that changed nothing, an error, a pop-up, or before you stop), Odds puts a real
   screenshot of the tab into this conversation as an image. Look at it before your next step; older screenshots are greyed out.
 - Fields marked by:"odds" were filled by Odds from the person's own answers: keep them unless they contradict the facts.

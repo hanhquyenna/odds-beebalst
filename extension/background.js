@@ -647,16 +647,18 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       // Never switch tabs in the window the person is working in; Broods then works from read_page.
       if (!tab.active) {
         const win = await chrome.windows.get(tab.windowId).catch(() => null)
-        if (win?.focused) return reply({ error: "The application tab is in the window you are using; Odds does not switch your tabs to look. Use read_page." })
+        if (win?.focused) return reply(viaDebugger.blank ? viaDebugger : { error: "The application tab is in the window you are using; Odds does not switch your tabs to look. Use read_page." })
         await chrome.tabs.update(tab.id, { active: true }).catch(() => undefined)
         await new Promise((r) => setTimeout(r, 400))
       }
       // A window that is minimised or covered cannot be read back at once: one retry, then say plainly what to do instead.
       const grab = () => chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 55 })
       const url = await grab().catch(async () => { await new Promise((r) => setTimeout(r, 700)); return grab() }).catch(() => null)
-      if (!url) return reply({ error: "This tab cannot be seen right now (its window is minimised or hidden). Work from read_page; do not retry screenshot." })
+      if (!url) return reply(viaDebugger.blank ? viaDebugger : { error: "This tab cannot be seen right now (its window is minimised or hidden). Work from read_page; do not retry screenshot." })
       const size = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => ({ w: innerWidth, h: innerHeight }) }).then((r) => r?.[0]?.result).catch(() => null)
       const bitmap = await createImageBitmap(await (await fetch(url)).blob())
+      // A window macOS does not paint gives a white picture here too: then the debugger's answer (with why) stands.
+      if (viaDebugger.blank && (await shotSpread(url.split(",")[1] || "")) < BLANK_SPREAD) { bitmap.close(); return reply(viaDebugger) }
       const width = Math.min(1280, bitmap.width)
       const height = Math.round(bitmap.height * width / bitmap.width)
       const canvas = new OffscreenCanvas(width, height)
@@ -1915,7 +1917,30 @@ async function readMail(appTabId, hint) {
 }
 chrome.tabs.onRemoved.addListener((id) => { for (const [app, mail] of mailTabs) { if (app === id) { chrome.tabs.remove(mail).catch(() => undefined); mailTabs.delete(app) } else if (mail === id) mailTabs.delete(app) } })
 
-/** The tab as an image through Chrome's debugger: no focus, no tab switch, the page need not be in front. At most 1024 px wide. */
+/** How much a picture varies (grey-level standard deviation on a 64x32 thumbnail): about 0 for a blank (all white) one. */
+async function shotSpread(base64) {
+  try {
+    const bitmap = await createImageBitmap(await (await fetch(`data:image/jpeg;base64,${base64}`)).blob())
+    const canvas = new OffscreenCanvas(64, 32)
+    const g = canvas.getContext("2d")
+    g.drawImage(bitmap, 0, 0, 64, 32)
+    bitmap.close()
+    const px = g.getImageData(0, 0, 64, 32).data
+    let sum = 0, sq = 0, n = 0
+    for (let i = 0; i < px.length; i += 4) { const v = (px[i] + px[i + 1] + px[i + 2]) / 3; sum += v; sq += v * v; n++ }
+    const mean = sum / n
+    return Math.sqrt(Math.max(0, sq / n - mean * mean))
+  } catch {
+    return -1
+  }
+}
+/** Below this spread a picture shows nothing: a real application page is 25+ (a white page with text still ~10). */
+const BLANK_SPREAD = 2
+/**
+ * The tab as an image through Chrome's debugger: no focus, no tab switch, the page need not be in front. At most 1024 px wide.
+ * A blank picture is never handed on (it made Broods stop with "the screen is completely blank"): Odds waits and takes it again,
+ * then once more with the page told it has focus; still blank, it says so with what the tab and window looked like, for the trace.
+ */
 async function shotViaDebugger(tabId) {
   const prior = realInputQueue.get(tabId) || Promise.resolve()
   const next = prior.catch(() => undefined).then(async () => {
@@ -1926,8 +1951,27 @@ async function shotViaDebugger(tabId) {
       const vw = Math.max(1, Math.round(m?.cssVisualViewport?.clientWidth || m?.layoutViewport?.clientWidth || 1000))
       const vh = Math.max(1, Math.round(m?.cssVisualViewport?.clientHeight || m?.layoutViewport?.clientHeight || 700))
       const scale = Math.min(1, 1024 / vw)
-      const shot = await chrome.debugger.sendCommand(target, "Page.captureScreenshot", { format: "jpeg", quality: 50, optimizeForSpeed: true, clip: { x: 0, y: 0, width: vw, height: vh, scale } })
-      return shot?.data ? { image: shot.data, width: Math.round(vw * scale), height: Math.round(vh * scale), viewportWidth: vw, viewportHeight: vh } : { error: "empty screenshot" }
+      const clip = { x: 0, y: 0, width: vw, height: vh, scale }
+      const tries = []
+      const take = async (how, extra) => {
+        const shot = await chrome.debugger.sendCommand(target, "Page.captureScreenshot", { format: "jpeg", quality: 50, clip, ...extra }).catch((e) => ({ error: String(e?.message || e) }))
+        const spread = shot?.data ? await shotSpread(shot.data) : -1
+        tries.push({ how, kb: shot?.data ? Math.round(shot.data.length * 3 / 4 / 1024) : 0, spread: Math.round(spread * 10) / 10, ...(shot?.error ? { error: shot.error.slice(0, 80) } : {}) })
+        return shot?.data && spread >= BLANK_SPREAD ? shot.data : ""
+      }
+      let image = await take("plain", { optimizeForSpeed: true })
+      if (!image) { await new Promise((r) => setTimeout(r, 700)); image = await take("again", {}) }
+      if (!image) {
+        await chrome.debugger.sendCommand(target, "Emulation.setFocusEmulationEnabled", { enabled: true }).catch(() => undefined)
+        await new Promise((r) => setTimeout(r, 300))
+        image = await take("focus", { captureBeyondViewport: true })
+        await chrome.debugger.sendCommand(target, "Emulation.setFocusEmulationEnabled", { enabled: false }).catch(() => undefined)
+      }
+      if (image) return { image, width: Math.round(vw * scale), height: Math.round(vh * scale), viewportWidth: vw, viewportHeight: vh, ...(tries.length > 1 ? { tries } : {}) }
+      const visibility = await chrome.debugger.sendCommand(target, "Runtime.evaluate", { expression: "document.visibilityState + ' ' + document.readyState + ' ' + (document.body ? document.body.innerText.length : 0)", returnByValue: true }).then((r) => r?.result?.value).catch(() => null)
+      const tab = await chrome.tabs.get(tabId).catch(() => null)
+      const win = tab ? await chrome.windows.get(tab.windowId).catch(() => null) : null
+      return { error: "blank screenshot", blank: true, diag: { tries, visibility, tabActive: tab?.active, discarded: tab?.discarded, windowState: win?.state, windowFocused: win?.focused, viewport: `${vw}x${vh}` } }
     } catch (e) {
       return { error: String(e?.message || e).slice(0, 160) }
     } finally {

@@ -2141,7 +2141,7 @@
     const args = cmd.args || {}
     if (cmd.tool === "screenshot") {
       const shot = await ask({ type: "drive-shot" }, 15000).catch(() => null)
-      if (!shot?.image) return { error: shot?.error || "Could not take a screenshot of this tab." }
+      if (!shot?.image) return { error: shot?.error || "Could not take a screenshot of this tab.", ...(shot?.blank ? { blank: true, diag: shot.diag } : {}) }
       driveImageSize = { width: shot.width, height: shot.height, viewportWidth: shot.viewportWidth || innerWidth, viewportHeight: shot.viewportHeight || innerHeight }
       return { image: shot.image, mime: "image/jpeg", width: shot.width, height: shot.height, note: "Coordinates for click_at are pixels in this image." }
     }
@@ -2381,6 +2381,8 @@
         lastShotUrl = page.url
         const shot = await ask({ type: "drive-shot" }, 8000).catch(() => null)
         if (shot?.image) { driveImageSize = { width: shot.width, height: shot.height, viewportWidth: shot.viewportWidth || innerWidth, viewportHeight: shot.viewportHeight || innerHeight }; return { ...page, screenshot: { image: shot.image, width: shot.width, height: shot.height } } }
+        // No picture rather than a blank one; why it was blank stays on the step for the trace (the server never shows it to Broods).
+        if (shot?.blank) return { ...page, screenshot: { blank: true, diag: shot.diag } }
       }
       return page
     }
