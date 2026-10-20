@@ -89,7 +89,7 @@ describe("widgetAttemptGuard", () => {
     if (!early.accept) {
       expect(early.text).toContain("University")
       expect(early.text).toMatch(/another method/i)
-      expect(early.text).toMatch(/screenshot/i)
+      expect(early.text).toMatch(/call options/i) // the model cannot see screenshots through 9router: never told to look
       expect(early.text).toMatch(/do not finish/i)
     }
     expect(widgetAttemptGuard({ stage: "stuck", reason: "other", message: "the dropdown did not keep the value", fields: [dropdown], fills: twoWays, priorRefusals: 0 }).accept).toBe(true)

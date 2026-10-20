@@ -223,7 +223,7 @@ async function afterNavigation(env: Env, runId: string, result: Json, budgetMs =
       let shot: string | undefined
       if (typeof page?.screenshot?.image === "string") {
         shot = page.screenshot.image
-        page = { ...page, screenshot: { width: page.screenshot.width, height: page.screenshot.height, note: "attached as an image" } }
+        page = { ...page, screenshot: undefined }
         void svc(env, `drive_commands?id=eq.${read.id}`, { method: "PATCH", body: JSON.stringify({ result: page }) }).catch(() => undefined)
       }
       return { ...result, page_pending: false, page, ...(shot ? { shot_image: shot } : {}) }
@@ -707,7 +707,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       let shotImage: string | undefined
       if (typeof res.screenshot?.image === "string") {
         shotImage = res.screenshot.image
-        res = { ...res, screenshot: { width: res.screenshot.width, height: res.screenshot.height, note: "attached as an image" } }
+        res = { ...res, screenshot: undefined }
         void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: res }) }).catch(() => undefined)
       }
       if (res.page_pending === true) {

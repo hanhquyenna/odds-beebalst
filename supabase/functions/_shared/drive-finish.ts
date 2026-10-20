@@ -159,7 +159,7 @@ export function widgetAttemptGuard(opts: {
     if (prior >= 1) return { accept: true }
     return {
       accept: false,
-      text: "Not done: a field or button that does not respond is yours, not the person's. read_page again (one scroll to the bottom already ran when Next was missing), then try another method, or take one screenshot and use click_at, type_text, or press_key. Do not finish stuck or needs_you for this yet.",
+      text: "Not done: a field or button that does not respond is yours, not the person's. read_page again (one scroll to the bottom already ran when Next was missing), then try another method: call options and send an option exactly as listed, click the field's own button, or type_text then press_key Enter. Do not finish stuck or needs_you for this yet.",
     }
   }
   const short = targets.filter((f) => distinctAttempts(opts.fills, String(f.id)) < 2)
@@ -167,6 +167,6 @@ export function widgetAttemptGuard(opts: {
   const labels = short.map((f) => String(f.label || f.id)).slice(0, 8)
   return {
     accept: false,
-    text: `Not done: these fields need another fill before a stop (each failing field needs 2 different attempts, a different via or value): ${labels.join("; ")}. Try another method (the box's own format, key-by-key typing, typeahead, the choice button, or keyboard). If that still fails, take one screenshot and use click_at, type_text, or press_key. Do not finish stuck or needs_you for this yet.`,
+    text: `Not done: these fields need another fill before a stop (each failing field needs 2 different attempts, a different via or value): ${labels.join("; ")}. Try another method: call options and send an option exactly as listed, the box's own format, or type_text then press_key Enter. Do not finish stuck or needs_you for this yet.`,
   }
 }
