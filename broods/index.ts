@@ -43,6 +43,7 @@ const DRIVE_RULES = `Apply to ONE job in the person's own Chrome tab with the od
 
 HOW YOU WORK
 - Every reply is a tool call until finish; a reply without one ends the run. Every call takes run_id and say (one short plain line for the person).
+- Never write an em dash (—) anywhere: not in say, finish messages, answers or letters. Use a comma or a full stop.
 - read_page once, then act; each action returns the fresh page, so read_page again only when it says the page is pending.
 - You cannot see the screen yourself. read_page gives fields (id, label, kind, required, filled, options), buttons, errors, dialog,
   and "sight": what the screen shows, described for you (open pop-ups and lists, error messages, the buttons and where they are,

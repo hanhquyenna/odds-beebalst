@@ -5,6 +5,7 @@ import { canAcceptDriveResult, humanStopAllowed, jobIdentityMismatch } from "../
 import { appliedBeforeAnswer, FACT_QUESTION_HINT, isWorkAuthQuestion, ownQuestions, permitWorkAnswers, studyingFrom, widgetAttemptGuard, workFactForQuestion, type PermitWorkFacts } from "../_shared/drive-finish.ts"
 import { describeShot, fewerFields, sightEnv, sightKey, TROUBLE_SIGHT_MAX } from "../_shared/drive-sight.ts"
 import { looksBlank, troubleReasons } from "../_shared/drive-vision.ts"
+import { cleanAgentText, fillHasEmDash, optionTexts } from "../_shared/drive-text.ts"
 import { broodsStartOutcome, broodsTurnState, driveRunExpired, MODEL_UNREACHABLE, quietAction, type BroodsStartOutcome, type BroodsTurn } from "../_shared/drive-quiet.ts"
 import { fieldPattern, playbookFor, sanitizeLesson, siteIdentity, structuralField } from "../_shared/site-playbook.ts"
 
@@ -315,7 +316,7 @@ const BASE_TOOLS = [
   },
   {
     name: "fill",
-    description: "Answer questions on the page: fields [{id, value}] from the last read_page. Text is typed; for select/radio/choice/combobox/listbox the value must be one of its options (call options first when none are listed; a long list shows only its start with options_total — just give the choice you want, e.g. Netherlands, and Odds finds it); a non-consent checkbox takes 'yes' or 'no'. Returns per-field ok/value/error and the fresh page snapshot.",
+    description: "Answer questions on the page: fields [{id, value}] from the last read_page. Text is typed; for select/radio/choice/combobox/listbox the value must be one of its options (call options first when none are listed; a long list shows only its start with options_total: just give the choice you want, e.g. Netherlands, and Odds finds it); a non-consent checkbox takes 'yes' or 'no'. Returns per-field ok/value/error and the fresh page snapshot.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, fields: { type: "array", items: { type: "object", properties: { id: { type: "string" }, value: { type: "string" } }, required: ["id", "value"] } } }, required: ["run_id", "fields"] },
   },
   {
@@ -380,7 +381,7 @@ const BASE_TOOLS = [
   },
   {
     name: "open_job",
-    description: "Open this job's own link again in the tab (when the tab ended up somewhere unrelated — a search page, a blank or warmup page, another job — and back does not help). Returns the fresh page snapshot.",
+    description: "Open this job's own link again in the tab (when the tab ended up somewhere unrelated, a search page, a blank or warmup page, another job, and back does not help). Returns the fresh page snapshot.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" } }, required: ["run_id"] },
   },
   {
@@ -395,7 +396,7 @@ const BASE_TOOLS = [
   },
   {
     name: "finish",
-    description: "End the run. stage: 'review' (everything filled, only Submit left for the person), 'needs_you' (something only the person can do), 'stuck' (cannot move on). reason (for needs_you/stuck): 'captcha', 'account' (sign in / make an account), 'questions' (only the person can answer — list them in questions), 'letter' (a cover/motivation letter is asked and none is in Odds), 'closed' (the job no longer takes applications), 'other'. message: one plain sentence for the person.",
+    description: "End the run. stage: 'review' (everything filled, only Submit left for the person), 'needs_you' (something only the person can do), 'stuck' (cannot move on). reason (for needs_you/stuck): 'captcha', 'account' (sign in / make an account), 'questions' (only the person can answer: list them in questions), 'letter' (a cover/motivation letter is asked and none is in Odds), 'closed' (the job no longer takes applications), 'other'. message: one plain sentence for the person.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, stage: { type: "string", enum: ["review", "needs_you", "stuck"] }, reason: { type: "string", enum: ["captcha", "account", "questions", "letter", "closed", "email", "other"] }, message: { type: "string" }, questions: { type: "array", items: { type: "string" } } }, required: ["run_id", "stage", "message"] },
   },
 ]
@@ -481,6 +482,16 @@ const REASONS = ["captcha", "account", "questions", "letter", "closed", "email",
 async function callTool(env: Env, name: string, args: Json): Promise<{ text: string; error?: boolean }> {
   const run = await runOf(env, String(args?.run_id ?? ""))
   if (!run) return { text: "Unknown run_id.", error: true }
+  // No em dashes in anything the agent writes for the person or into the form (the prompt asks too; this is the backstop).
+  if (args && typeof args === "object") {
+    let options = new Set<string>()
+    if (name === "fill" && fillHasEmDash(args)) {
+      const last = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&tool=in.(read_page,fill,click,click_at,scroll,options,back,open_job)&order=id.desc&limit=3&select=result`).catch(() => null)) ?? []
+      for (const row of last) for (const o of optionTexts(row?.result?.page ?? row?.result)) options.add(o)
+      for (const row of last) if (Array.isArray(row?.result?.options)) for (const o of optionTexts({ fields: [{ options: row.result.options }] })) options.add(o)
+    }
+    args = cleanAgentText(name, args, options)
+  }
   if (name === "finish") {
     let stage = ["review", "needs_you", "stuck"].includes(args.stage) ? args.stage : "stuck"
     const questions = Array.isArray(args.questions) ? args.questions.filter((q: unknown) => typeof q === "string").slice(0, 20) : []
@@ -830,15 +841,18 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         const newPage = Boolean(key) && !looks.some((l: Json) => l.key === key)
         const troubleLeft = looks.filter((l: Json) => l.trouble).length < TROUBLE_SIGHT_MAX
         if (newPage || (reasons.length && troubleLeft)) {
-          const image = shotImage || (reasons.length && troubleLeft ? await captureShot(env, run) : "")
+          // No picture came with the step (the extension sends one only now and then): take one, so every new page gets its look.
+          const image = shotImage || await captureShot(env, run)
           const sight = image && !looksBlank(image) ? await describeShot(sightEnv((n) => Deno.env.get(n)), image, 12_000, fetch, reasons) : ""
           if (sight) {
             if (res.page && typeof res.page === "object") res = { ...res, page: { ...res.page, sight } }
             else res = { ...res, sight }
             if (reasons.length) res = { ...res, vision: `Odds looked at the tab because ${reasons.join(" and ")}: read sight before your next step.` }
             void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: res }) }).catch(() => undefined)
-            await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "sight", key, trouble: reasons.length ? reasons.join("; ") : null }, done_at: new Date().toISOString() }) }).catch(() => undefined)
           }
+          // Recorded even when no picture or no text came back: the page counts as looked at (no 10 s wait for a picture on every
+          // later step of it), and a failed trouble look still counts against the cap.
+          await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "sight", key, trouble: reasons.length ? reasons.join("; ") : null, ...(sight ? {} : { empty: true }) }, done_at: new Date().toISOString() }) }).catch(() => undefined)
         }
       }
       // Recipe replays are the server's evidence, not Broods' business.

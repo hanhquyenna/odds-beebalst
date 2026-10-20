@@ -71,7 +71,8 @@ test("the same button pressed three times with the page unchanged is refused wit
     expect(await click("b3")).toContain("3 times")
     expect(posted.length).toBe(0)
     expect(await click("b4")).not.toContain("3 times")
-    expect(posted.length).toBe(1)
+    // The click itself; the new page's look (a screenshot step and its guard row) rides beside it.
+    expect(posted.filter((b) => JSON.parse(b).tool === "click").length).toBe(1)
   } finally {
     globalThis.fetch = original
     Object.assign(globalThis, { Deno: deno })
@@ -137,6 +138,51 @@ test("a click that moves to another page returns what its screenshot shows as te
     expect(text.length).toBeLessThan(3000)
     expect(json.result.content.some((c) => c.type === "image")).toBe(false)
     expect(text).toContain("BUTTONS: Next at the bottom")
+    expect(sightCalls).toBe(1)
+  } finally {
+    globalThis.fetch = original
+    Object.assign(globalThis, { Deno: deno })
+  }
+})
+
+test("a new page without a picture gets one look: the server takes the screenshot itself, and the same page is not looked at again", async () => {
+  const original = globalThis.fetch
+  const deno = (globalThis as unknown as { Deno?: unknown }).Deno
+  const shot = "QUJD".repeat(30_000)
+  let sightCalls = 0, shots = 0
+  const guards: Array<Record<string, unknown>> = []
+  let nextId = 30
+  const tools = new Map<number, string>()
+  Object.assign(globalThis, { Deno: { env: { get: () => "test-secret" } } })
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+    let result: unknown = []
+    if (url.includes("drive_runs?") && !init?.method) result = [{ id, status: "running", steps: 2, url: "https://job-boards.greenhouse.io/acme/jobs/1", expires_at: new Date(Date.now() + 60000).toISOString() }]
+    if (url.includes("tool=eq.guard") && !init?.method) result = guards.map((g) => ({ result: g }))
+    if (url.endsWith("drive_commands") && init?.method === "POST") {
+      const body = JSON.parse(init.body as string) as { tool: string; result?: Record<string, unknown> }
+      if (body.tool === "guard") { if (body.result?.returned === "sight") guards.push(body.result) }
+      else { const cid = nextId++; tools.set(cid, body.tool); if (body.tool === "screenshot") shots++; result = [{ id: cid }] }
+    }
+    const m = /drive_commands\?id=eq\.(\d+)&select/.exec(url)
+    if (m && !init?.method) {
+      const tool = tools.get(Number(m[1]))
+      result = tool === "screenshot" ? [{ status: "done", result: { image: shot } }]
+        : [{ status: "done", result: { url: "https://job-boards.greenhouse.io/acme/jobs/1", title: "Job Application for Analyst at Acme", fields: [{ id: "f0", label: "First Name", kind: "text", filled: false }], buttons: [] } }]
+    }
+    if (url.endsWith("/chat/completions")) { sightCalls++; result = { choices: [{ message: { content: "FORM: First Name, empty" } }] } }
+    return new Response(JSON.stringify(result), { status: 200 })
+  }) as typeof fetch
+  const read = async (): Promise<string> => {
+    const res = await handleDriveMcp(new Request("https://test.invalid/drive", { method: "POST", headers: { "x-odds-drive-key": "test-secret" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "read_page", arguments: { run_id: id } } }) }), { url: "https://test.invalid", serviceKey: "test-key" })
+    return ((await res.json()) as { result: { content: Array<{ text: string }> } }).result.content[0].text
+  }
+  try {
+    expect(await read()).toContain("FORM: First Name, empty")
+    expect(shots).toBe(1)
+    expect(sightCalls).toBe(1)
+    expect(await read()).not.toContain("FORM: First Name, empty")
+    expect(shots).toBe(1)
     expect(sightCalls).toBe(1)
   } finally {
     globalThis.fetch = original
