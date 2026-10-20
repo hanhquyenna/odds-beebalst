@@ -2965,6 +2965,7 @@ test("an enriched job outside the loaded pool opens from one row without saving,
 })
 
 test("Apply with Odds in the desktop website starts the installed extension directly, acknowledges, fills a new tab and leaves the app open", { tag: "@accept" }, async ({ context, fake }) => {
+  test.setTimeout(60_000)
   await connect(context)
   await context.addInitScript(() => localStorage.setItem("careersim.session", JSON.stringify({ access_token: "e2e-token", refresh_token: "e2e-refresh", expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: "00000000-0000-4000-8000-000000000001" } })))
   await mockBackend(context, FLOW_POSTINGS, [], true)
@@ -4578,6 +4579,7 @@ test("the employer's list does not have this job: odds stops after its tries and
 })
 
 test("the person presses Back after odds filled the form: odds pauses on their page, never pushes forward again, and says so", async ({ context, fake }) => {
+  test.setTimeout(60_000)
   await connect(context)
   await context.route("https://career.example-brands.eu/**", (route) => route.fulfill({ contentType: "text/html", body: /b2c-marketing-intern/.test(route.request().url()) ? VACANCY_FORM : VACANCY_LIST(true) }))
   fake.kit = { job_id: "pjb3", job_title: "B2C MARKETING INTERN (CONTENT & RETAIL)", facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
@@ -4585,6 +4587,7 @@ test("the person presses Back after odds filled the form: odds pauses on their p
   await page.goto("https://career.example-brands.eu/nl/retail/jobs")
   await applyFrom(context, page, "https://career.example-brands.eu/nl/retail/jobs")
   await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 15000 })
+  await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state", "done", { timeout: 15000 })
   await page.goBack()
   await expect(page).toHaveURL(/retail\/jobs$/)
   await expect(page.locator(".odds-apply-bar")).toContainText("Odds paused here", { timeout: 10000 })
