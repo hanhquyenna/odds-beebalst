@@ -8,7 +8,7 @@ import { PropertyField } from "@/components/JobProperties"
 import { STEPS, stepOf } from "@/components/job-steps"
 import { applicationOf, trackerSortValue } from "@/components/tracker-values"
 import { RowStatus } from "@/components/StatusPicker"
-import { choicesFor } from "@/components/ViewSettings"
+import { APPLICATION_HIDDEN_PROPERTIES, choicesFor } from "@/components/ViewSettings"
 import { useData } from "@/lib/data"
 import { downloadCsv, toCsv } from "@/lib/export-csv"
 import { appliedDay, cellKey, followUpFor, followUpText, overrideOf } from "@/lib/cells"
@@ -23,6 +23,9 @@ import { payOf } from "@/lib/spec"
 import { useViewConfig } from "@/lib/views"
 import { JOB_GROUPS, groupJobs } from "@/components/job-groups"
 import { usePhone } from "@/lib/use-phone"
+import { ApplicationMonitor } from "@/components/ApplicationMonitor"
+import { applicationProgress, latestApplicationAttempts, manualApplicationAttempt, type MonitoredRun } from "@/lib/application-progress"
+import type { MonitorSnapshot } from "@/lib/application-monitor"
 import type { Posting, PropertyType, ViewName } from "@/lib/types"
 
 /** What the table can be grouped by. */
@@ -51,7 +54,7 @@ const EDITABLE: Record<string, { type: PropertyType; options?: ReadonlyArray<str
   added: { type: "date" },
 }
 
-const BIG_FIRST = new Set(["pay", "chance", "newest", "level", "applicants", "added"])
+const BIG_FIRST = new Set(["pay", "chance", "newest", "level", "applicants", "added", "activity"])
 
 function ChanceTd({ post }: { post: Posting }): React.JSX.Element {
   return <ChanceCell st={useFit(post)} post={post} />
@@ -62,10 +65,10 @@ function ChanceTd({ post }: { post: Posting }): React.JSX.Element {
  * choice of which to show (Properties). A header sorts by its column and the same press reverses it; Group puts the rows under headings. Closed jobs stay, marked.
  * Any property you added yourself is a column you can edit in place.
  */
-export function TrackerTable({ posts, onOpen, viewName, toolbar, lead }: { posts: ReadonlyArray<Posting>; onOpen: (post: Posting) => void; viewName: ViewName; /** The Table, Sort and Properties buttons, kept in the table's own bar. */ toolbar: React.ReactNode; /** Stands at the left of the bar (the Filter toggle). */ lead: React.ReactNode }): React.JSX.Element {
+export function TrackerTable({ posts, onOpen, viewName, toolbar, lead, monitor, orphanedAttempts = [] }: { monitor?: MonitorSnapshot; orphanedAttempts?: ReadonlyArray<MonitoredRun>; posts: ReadonlyArray<Posting>; onOpen: (post: Posting, history?: boolean) => void; viewName: ViewName; /** The Table, Sort and Properties buttons, kept in the table's own bar. */ toolbar: React.ReactNode; /** Stands at the left of the bar (the Filter toggle). */ lead: React.ReactNode }): React.JSX.Element {
   const data = useData()
   const { profile } = data
-  const view = useViewConfig(viewName)
+  const view = useViewConfig(viewName, monitor ? APPLICATION_HIDDEN_PROPERTIES : undefined)
   const [deleting, setDeleting] = useState<"chosen" | null>(null)
   const followDays = daysOr(profile.followUpDays, FOLLOW_UP_DAYS)
   const phone = usePhone()
@@ -78,7 +81,9 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, lead }: { posts
     data.setProfile({ ...profile, notes: { ...profile.notes, [post.id]: { ...profile.notes[post.id], [name]: value } } })
   }
 
-  const columns = choicesFor("table", profile.columns).properties.filter((p) => view.show(p.key))
+  const attempts = latestApplicationAttempts([...(monitor?.attempts ?? []), ...data.applications.map((application) => manualApplicationAttempt(application))])
+  const byJob = new Map(attempts.map((attempt) => [attempt.run.posting_id, attempt]))
+  const columns = choicesFor("table", profile.columns, Boolean(monitor)).properties.filter((p) => view.show(p.key))
 
   /** A built-in property as we read it, before anything you typed. */
   const baseOf = (post: Posting, key: string): string => {
@@ -134,7 +139,13 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, lead }: { posts
     if (!sortKey) {
       ordered = [...posts]
     } else {
-      const extra = (post: Posting): string | number | null => trackerSortValue(data, sortKey, post)
+      const extra = (post: Posting): string | number | null => {
+        const attempt = byJob.get(post.id)
+        if (sortKey === "activity") return attempt?.run.updated_at ?? null
+        if (sortKey === "activityStatus") return attempt ? applicationProgress(attempt).label : "Saved"
+
+        return trackerSortValue(data, sortKey, post)
+      }
       // A property you have typed over is sorted by what is shown; empty values go last either way.
       if (EDITABLE[sortKey] && posts.some((p) => overrideOf(profile.notes, p.id, sortKey) !== "")) {
         const rank = (post: Posting): string | number | null => {
@@ -157,9 +168,9 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, lead }: { posts
         ordered = sortJobs(posts, sortKey, sortDir, { reference: data.reference, shares: data.shares, profile, referrals: data.referrals }, extra)
       }
     }
-    return pinLiveApplies(ordered)
+    return monitor && sortKey ? ordered : pinLiveApplies(ordered)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [posts, sortKey, sortDir, profile, data.applications, data.reference, data.shares, data.referrals, applyTick])
+  }, [posts, sortKey, sortDir, profile, data.applications, data.reference, data.shares, data.referrals, applyTick, monitor?.attempts])
 
   const groups = useMemo(() => {
     if (!groupBy) {
@@ -240,6 +251,8 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, lead }: { posts
   const numbers = new Map<string, number>()
   for (const g of groups) for (const post of g.posts) numbers.set(post.id, numbers.size + 1)
   const rowNumber = (post: Posting): number => numbers.get(post.id) ?? 0
+
+  if (monitor) return <ApplicationMonitor monitor={monitor} posts={sorted} attempts={byJob} orphanedAttempts={orphanedAttempts} onOpen={onOpen} toolbar={toolbar} lead={lead} columns={columns} renderCell={cell} renderHeader={(label, key) => key === "next" ? label : header(label, key === "status" ? "activityStatus" : key)} />
 
   return (
     <div className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card max-md:-mx-5 max-md:rounded-none max-md:border-x-0">

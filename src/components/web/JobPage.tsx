@@ -10,6 +10,7 @@ import { JobDocuments } from "@/components/JobDocuments"
 import { LockedPersonal, PayCard, CareerLadder } from "@/components/JobPersonal"
 import { MoreAtEmployer } from "@/components/CompanyInsights"
 import { OddsApply } from "@/components/OddsApply"
+import { ApplicationHistory } from "@/components/ApplicationHistory"
 import { PastHires } from "@/components/JobCompany"
 import { PostingText } from "@/components/PostingText"
 import { useData } from "@/lib/data"
@@ -123,6 +124,7 @@ function Overview({ post, model, onTab, onOpenJob }: { post: Posting; model: Ret
           {post.closed_at ? <span className="rounded-full bg-[#FBE9E6] px-3 py-1 text-[0.8125rem] font-extrabold text-[#9B2C1F]">Closed</span> : null}
         </div>
         <Facts post={post} requirements={requirements} signals={data.signals[post.id]} />
+        {data.session && !post.local ? <ApplicationHistory key={`${data.session.user.id}:${post.id}`} postingId={post.id} /> : null}
       </header>
 
       <hr className="border-line/70" />

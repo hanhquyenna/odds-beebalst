@@ -198,7 +198,6 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
         setTabState({ status: "filling", message: "Opening the application…" + boardNote, at: Date.now() })
       }
     }
-    if (!embedded) showLiveApplyInTracker(post.id)
     if (reveal) {
       toast.message("Opening application tab…", {
         description: "Jumping to the Chrome tab Odds is filling.",
@@ -210,6 +209,7 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
         description: "Odds fills a background tab. Press Open application tab when you want to watch.",
         id: `apply-${post.id}`,
         duration: 2500,
+        action: embedded ? undefined : { label: "View in Tracker", onClick: (): void => showLiveApplyInTracker(post.id) },
       })
     }
 

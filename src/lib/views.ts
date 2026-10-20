@@ -17,12 +17,14 @@ function seedOf(view: ViewName): ViewConfig {
 }
 
 /** One view's settings and the ways to change them. Stored with the profile, so they follow the person. */
-export function useViewConfig(view: ViewName): { config: ViewConfig; show: (key: string) => boolean; toggle: (key: string) => void; update: (patch: Partial<ViewConfig>) => void; reset: () => void } {
+export function useViewConfig(view: ViewName, initialHidden?: ReadonlyArray<string>): { config: ViewConfig; show: (key: string) => boolean; toggle: (key: string) => void; update: (patch: Partial<ViewConfig>) => void; reset: () => void } {
   const data = useData()
   // A saved view ("v:" and its id) starts from the seed settings of that view, if it has any; the others from their own starting point.
-  const config = { ...seedOf(view), ...data.profile.views?.[view] }
+  const initial = seedOf(view)
+  const config = { ...initial, ...data.profile.views?.[view] }
   // A property that starts hidden is shown only once chosen; any other is shown unless hidden.
-  const show = (key: string): boolean => (HIDDEN_AT_START.has(key) ? Boolean(config.shown?.includes(key)) : !config.hidden.includes(key))
+  const startsHidden = (key: string): boolean => HIDDEN_AT_START.has(key) || Boolean(initialHidden?.includes(key))
+  const show = (key: string): boolean => (startsHidden(key) ? Boolean(config.shown?.includes(key)) : !config.hidden.includes(key))
   const update = (patch: Partial<ViewConfig>): void => data.setProfile({ ...data.profile, views: { ...data.profile.views, [view]: { ...config, ...patch } } })
 
   return {
@@ -30,7 +32,7 @@ export function useViewConfig(view: ViewName): { config: ViewConfig; show: (key:
     show,
     // Showing or hiding one property: one that starts hidden is turned on by listing it in `shown`, any other by taking it out of `hidden`.
     toggle: (key) => {
-      if (HIDDEN_AT_START.has(key)) {
+      if (startsHidden(key)) {
         const shown = config.shown ?? []
         update({ shown: show(key) ? shown.filter((k) => k !== key) : [...shown, key] })
 
@@ -39,6 +41,6 @@ export function useViewConfig(view: ViewName): { config: ViewConfig; show: (key:
       update({ hidden: show(key) ? [...config.hidden, key] : config.hidden.filter((k) => k !== key) })
     },
     update,
-    reset: () => data.setProfile({ ...data.profile, views: { ...data.profile.views, [view]: seedOf(view) } }),
+    reset: () => data.setProfile({ ...data.profile, views: { ...data.profile.views, [view]: initial } }),
   }
 }

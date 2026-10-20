@@ -7,6 +7,7 @@ import { MoreAtEmployer } from "@/components/CompanyInsights"
 import { CompanyNews, CompanySection, PastHires, ReviewsSection } from "@/components/JobCompany"
 import { CompanyResearch } from "@/components/CompanyResearch"
 import { PostingText } from "@/components/PostingText"
+import { ApplicationHistory } from "@/components/ApplicationHistory"
 import { CvMatch } from "@/components/CvMatch"
 import { SourceLinks } from "@/components/SourceChips"
 import { StatusPicker } from "@/components/StatusPicker"
@@ -32,6 +33,7 @@ import type { Posting } from "@/lib/types"
 const JobPeople = lazy(() => import("@/components/People").then((m) => ({ default: m.JobPeople })))
 
 interface JobDetailProps {
+  applicationHistoryOpen?: boolean
   onBack: () => void
   /** Called after a tag has narrowed the list, so a panel over the list can get out of the way. */
   onPick?: () => void
@@ -61,7 +63,7 @@ const JOB_TABS: ReadonlyArray<{ value: JobTab; label: string }> = [
  * posting is open to anyone. What the questions unlock is the personal part:
  * whether you clear it, your chance, what you keep after tax, your permit.
  */
-export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locked, bare = false, showTab }: JobDetailProps): React.JSX.Element {
+export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locked, bare = false, showTab, applicationHistoryOpen = false }: JobDetailProps): React.JSX.Element {
   // In the extension's panel the app shares the tab's history with the job site beside it (LinkedIn adds an entry for every job picked in its
   // list), so it keeps out of that history: Back goes straight back to the jobs, never to the site's previous page.
   useBackEntry(post.id, onBack, !pane && !embedded)
@@ -131,10 +133,9 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
   const saved = data.saved.has(post.id)
   const [asking, setAsking] = useState<boolean>(false)
   // Overview is the job; Company is who you would join. The tab starts over on each job.
-  const [tabAt, setTabAt] = useState<{ id: string; tab: JobTab }>({ id: post.id, tab: "overview" })
-  const tab: JobTab = tabAt.id === post.id ? tabAt.tab : "overview"
-  const setTab = (next: JobTab): void => setTabAt({ id: post.id, tab: next })
-  useEffect(() => { if (showTab) setTabAt({ id: post.id, tab: showTab.tab }) }, [showTab, post.id])
+  const [tabAt, setTabAt] = useState<{ id: string; tab: JobTab; requestAt?: number }>({ id: post.id, tab: "overview" })
+  const tab: JobTab = tabAt.id === post.id && tabAt.requestAt === showTab?.at ? tabAt.tab : showTab?.tab ?? "overview"
+  const setTab = (next: JobTab): void => setTabAt({ id: post.id, tab: next, requestAt: showTab?.at })
   const fit = base ? (base.failing === 0 ? "met every requirement" : base.failing === 1 ? "missing one requirement" : "missing several requirements") : ""
 
   return (
@@ -180,6 +181,7 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
           <SourceLinks post={post} secondary={Boolean(data.session && !post.local)} />
         </div>
         <OddsApply post={post} />
+        {data.session && !post.local ? <ApplicationHistory key={`${data.session.user.id}:${post.id}`} postingId={post.id} initialOpen={applicationHistoryOpen} /> : null}
         {locked ? <KeyFacts post={post} onPick={onPick} /> : null}
       </header>}
 

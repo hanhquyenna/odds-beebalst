@@ -172,10 +172,11 @@ function JobCard({ info, post, onInsights }: { info: PanelInfo; post: Posting | 
 function OddsButton({ info, post }: { info: PanelInfo; post: Posting | null }): React.JSX.Element {
   const data = useData()
   const page = info.page!
-  const [pressed, setPressed] = useState(false)
-  const [adding, setAdding] = useState(false)
   const state = info.status?.state ?? null
-  useEffect(() => { if (state) setPressed(false) }, [state])
+  const [press, setPress] = useState<{ state: typeof state; active: boolean }>({ state: state, active: false })
+  const [adding, setAdding] = useState(false)
+  const pressed = press.state === state && press.active
+  const setPressed = (active: boolean): void => setPress({ state: state, active: active })
   const look = "flex min-h-16 w-full cursor-pointer items-center justify-center gap-3 rounded-2xl bg-brand px-4 py-3 text-lg font-bold text-foreground shadow-sm transition hover:brightness-105 disabled:cursor-default disabled:opacity-60"
   const needs = state === "needs_input" || state === "failed" || state === "stuck"
   // The button names the state; the words under it are only for what the person has to do.

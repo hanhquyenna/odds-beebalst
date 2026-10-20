@@ -25,19 +25,25 @@ export function DriveLive({ post, questionsOpen = false }: { post: Posting; ques
   const drive = driveOf(post.id)
   const [steps, setSteps] = useState<DriveStep[]>([])
   const [busy, setBusy] = useState(false)
+  const [activityOpen, setActivityOpen] = useState(false)
+  const [activityError, setActivityError] = useState("")
   const [now, setNow] = useState(() => Date.now())
   const runId = drive?.runId
   const running = drive?.status === "running"
 
   useEffect(() => {
-    if (!runId) return
+    if (!runId || !activityOpen) return
     let gone = false
-    const pull = (): void => { void driveSteps(runId).then((s) => { if (!gone) setSteps(s) }); setNow(Date.now()) }
+    const pull = (): void => {
+      if (document.hidden) return
+      void driveSteps(runId).then((rows) => { if (!gone) { setSteps(rows); setActivityError("") } }).catch(() => { if (!gone) setActivityError("Could not load activity. Close and reopen Activity to try again.") })
+      setNow(Date.now())
+    }
     pull()
     if (!running) return () => { gone = true }
     const timer = window.setInterval(pull, 2000)
     return () => { gone = true; window.clearInterval(timer) }
-  }, [runId, running])
+  }, [activityOpen, runId, running])
 
   if (!drive) return <SentAsk post={post} />
   const act = (action: "stop" | "continue" | "sent"): void => {
@@ -56,9 +62,10 @@ export function DriveLive({ post, questionsOpen = false }: { post: Posting; ques
   return (
     <div className="flex flex-col gap-3">
       {drive.reason === "letter" ? <JobDocuments post={post} /> : null}
-      {steps.length ? (
-        <details className="group text-sm">
+      {runId ? (
+        <details open={activityOpen} onToggle={(event) => setActivityOpen(event.currentTarget.open)} className="group text-sm">
           <summary className="cursor-pointer font-medium text-foreground">Activity</summary>
+          {activityError ? <p role="alert" className="mt-2 text-muted-foreground">{activityError}</p> : null}
           <ol aria-label="Application activity" className="mt-3 flex flex-col gap-2 border-l border-line pl-3">
             {steps.slice(0,5).map(s=><li key={s.id} className="flex items-start justify-between gap-3"><span className="min-w-0 text-foreground">{s.note}</span><time className="shrink-0 text-xs tabular-nums text-muted-foreground">{ago(s.created_at,now)}</time></li>)}
           </ol>

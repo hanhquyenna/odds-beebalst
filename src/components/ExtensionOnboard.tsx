@@ -101,6 +101,7 @@ export function ExtensionOnboard({
             <iframe
               title="How to connect Odds for Chrome"
               src={video}
+              sandbox="allow-scripts allow-presentation"
               className="size-full border-0"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen

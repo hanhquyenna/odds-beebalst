@@ -8,7 +8,6 @@ import { connectWaiting } from "@/lib/connect-request"
 import { embedded } from "@/lib/embedded"
 import { dropExtensionRequest, extensionWaiting } from "@/lib/extension-connect"
 import { Button } from "@/components/ui/button"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
 import { takeDriveReturn } from "@/lib/drive"
@@ -28,6 +27,7 @@ import { prefetchOn } from "@/lib/prefetch"
 import { syncApplyActivities, syncDriveRuns } from "@/lib/apply-activity"
 import { liveDriveRuns } from "@/lib/drive-runs"
 import { liveApplicationRuns } from "@/lib/application-runs"
+import { setApplicationMonitorUser, syncApplicationMonitor } from "@/lib/application-monitor"
 import { LIVE_APPLY_EVENT } from "@/lib/apply-nav"
 import type { WebView } from "@/lib/web-nav"
 
@@ -35,6 +35,8 @@ import type { WebView } from "@/lib/web-nav"
 // account needs neither.
 // Lazy because only someone with an account sees them: the front page a visitor lands on never waits on the app's
 // own menus or the bell, and stays inside its size budget (e2e/lean.spec.ts).
+// Lazy: visitors do not need the signed-in account menu or its popover code.
+const AccountMenu = lazy(() => import("@/components/AccountMenu").then((module) => ({ default: module.AccountMenu })))
 const ApplyPanel = lazy(() => import("@/components/ApplyPanel").then((m) => ({ default: m.ApplyPanel })))
 const AppTopNav = lazy(() => import("@/components/AppShell").then((module) => ({ default: module.AppTopNav })))
 const AppTopBar = lazy(() => import("@/components/AppShell").then((module) => ({ default: module.AppTopBar })))
@@ -176,10 +178,17 @@ export default function App(): React.JSX.Element {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onboarded, data.session])
 
+  useEffect(() => {
+    setApplicationMonitorUser(data.session?.user.id ?? null)
+  }, [data.session?.user.id])
+
   // Extension broadcasts every live Apply so tracker chips stay in sync with detail closed.
   // Also poll server runs — chips must show Applying… even when job detail is closed or the apply tab is backgrounded.
   useEffect(() => {
     if (!data.session) return
+    const userId = data.session.user.id
+    let stopped = false
+    let polling = false
     const onMsg = (event: MessageEvent): void => {
       const d = event.data as { source?: string; type?: string; runs?: unknown } | null
       if (!d || d.type !== "apply-activity-sync" || !Array.isArray(d.runs)) return
@@ -187,39 +196,48 @@ export default function App(): React.JSX.Element {
       syncApplyActivities((d.runs as Array<{ postingId?: string; status?: string; message?: string; url?: string; runId?: string | null }>).map(r=>({...r,postingId:r.postingId ? data.byId.get(r.postingId)?.id ?? r.postingId : undefined})))
     }
     window.addEventListener("message", onMsg)
-    const pullServer = (): void => {
+    const pullServer = async (): Promise<void> => {
+      if (document.hidden || polling || stopped) return
+      polling = true
       // Broods runs first: they are the truth for an Apply with Odds (what it does now, why it waits, whether the tab is there).
-      void liveDriveRuns().then((runs) => syncDriveRuns(runs.map(r=>({...r,posting_id:r.posting_id ? data.byId.get(r.posting_id)?.id ?? r.posting_id : null})))).catch(() => undefined)
-      void liveApplicationRuns().then((runs) => {
-        syncApplyActivities(runs.map((r) => ({
-          postingId: data.byId.get(r.posting_id)?.id ?? r.posting_id,
-          status: r.status === "queued" ? "filling" : r.status,
-          message: r.message,
-        })))
-      }).catch(() => undefined)
+      const results = await Promise.allSettled([liveDriveRuns(), liveApplicationRuns()])
+      if (!stopped) {
+        const drives = results[0]
+        const desktop = results[1]
+        if (drives.status === "fulfilled") {
+          const runs = drives.value.map((run) => ({ ...run, posting_id: run.posting_id ? data.byId.get(run.posting_id)?.id ?? run.posting_id : null }))
+          syncDriveRuns(runs)
+          syncApplicationMonitor(userId, runs)
+        }
+        if (desktop.status === "fulfilled") {
+          const runs = desktop.value.map((run) => ({ ...run, posting_id: data.byId.get(run.posting_id)?.id ?? run.posting_id }))
+          syncApplyActivities(runs.map((run) => ({ postingId: run.posting_id, status: run.status === "queued" ? "filling" : run.status, message: run.message })))
+          syncApplicationMonitor(userId, [], runs)
+        }
+      }
+      polling = false
     }
-    pullServer()
+    void pullServer()
+    document.addEventListener("visibilitychange", pullServer)
     const serverTimer = window.setInterval(pullServer, 3000)
     // Site tab: ask content-site; panel: panel-frame already polls.
     if (!embedded) {
       const tick = (): void => window.postMessage({ source: "odds-site", type: "application-statuses" }, location.origin)
       tick()
       const timer = window.setInterval(tick, 2000)
-      return () => { window.removeEventListener("message", onMsg); window.clearInterval(timer); window.clearInterval(serverTimer) }
+      return () => { stopped = true; document.removeEventListener("visibilitychange", pullServer); window.removeEventListener("message", onMsg); window.clearInterval(timer); window.clearInterval(serverTimer) }
     }
-    return () => { window.removeEventListener("message", onMsg); window.clearInterval(serverTimer) }
+    return () => { stopped = true; document.removeEventListener("visibilitychange", pullServer); window.removeEventListener("message", onMsg); window.clearInterval(serverTimer) }
   }, [data.session, data.byId])
 
-  // Apply with Odds from Jobs: switch to Tracker (saved list) so live Applying… chips are in view.
+  // The explicit View in Tracker action opens the existing job without interrupting a background Apply.
   useEffect(() => {
     const on = (): void => {
       // Leave /job/<id> URL — otherwise sharedJobId can stick or popstate reopens the job page.
-      if (jobIdFromPath(location.pathname) || sharedJobId) {
-        history.replaceState({ ...(typeof history.state === "object" && history.state ? history.state : {}), view: "tracker" }, "", "/")
-      }
+      history.replaceState({ ...(typeof history.state === "object" && history.state ? history.state : {}), view: "tracker" }, "", jobIdFromPath(location.pathname) || sharedJobId ? "/" : location.href)
       setSharedJobId(null)
       setPage(null)
-      setView("tracker", "replace")
+      setViewNow("tracker")
       window.scrollTo(0, 0)
     }
     window.addEventListener(LIVE_APPLY_EVENT, on)
@@ -480,7 +498,7 @@ export default function App(): React.JSX.Element {
     </Suspense>
   )
   const accountMenu = (
-    <AccountMenu email={isGuestEmail(data.session?.user.email) ? null : (data.session?.user.email ?? null)} guest={isGuestEmail(data.session?.user.email)} profileAvatar={data.profile.avatar || ""} sessionAvatar={data.session?.user.avatar || ""} name={data.profile.name} onDashboard={onboarded ? () => goTab("account") : undefined} onAnswers={() => goTab("answers")} onConnect={onboarded ? () => goTab("connections") : undefined} onClaude={onboarded ? () => goTab("claude") : undefined} onSignIn={() => leaveSharedJob("signin")} onSignOut={handleSignOut} />
+    <Suspense fallback={<span className="size-10 shrink-0" aria-hidden="true" />}><AccountMenu email={isGuestEmail(data.session?.user.email) ? null : (data.session?.user.email ?? null)} guest={isGuestEmail(data.session?.user.email)} profileAvatar={data.profile.avatar || ""} sessionAvatar={data.session?.user.avatar || ""} name={data.profile.name} onDashboard={onboarded ? () => goTab("account") : undefined} onAnswers={() => goTab("answers")} onConnect={onboarded ? () => goTab("connections") : undefined} onClaude={onboarded ? () => goTab("claude") : undefined} onSignIn={() => leaveSharedJob("signin")} onSignOut={handleSignOut} /></Suspense>
   )
 
   return (
@@ -712,88 +730,6 @@ function PublicJobRoute({ id, onBack, onUnlock }: { id: string; onBack: () => vo
   }
 
   return <JobDetail post={post} locked={data.profile.onboarded ? undefined : { onUnlock }} onBack={onBack} />
-}
-
-interface AccountMenuProps {
-  email: string | null
-  guest: boolean
-  profileAvatar: string
-  sessionAvatar: string
-  name: string
-  onDashboard?: () => void
-  onAnswers: () => void
-  onConnect?: () => void
-  onClaude?: () => void
-  onSignIn: () => void
-  onSignOut: () => void
-}
-
-/** The circle in the header: your photo once signed in, and the way to your answers and out. */
-function AccountMenu({ email, guest, profileAvatar, sessionAvatar, name, onDashboard, onAnswers, onConnect, onClaude, onSignIn, onSignOut }: AccountMenuProps): React.JSX.Element {
-  // Controlled so choosing an item closes it; left open it covered the page it opened.
-  const [open, setOpen] = useState<boolean>(false)
-  // A dead photo URL falls through to the next source, then to the initial.
-  const sources = [profileAvatar, sessionAvatar].filter((src, index, all) => src !== "" && all.indexOf(src) === index)
-  const sourcesKey = sources.join("|")
-  const [seenSources, setSeenSources] = useState<string>(sourcesKey)
-  const [skipped, setSkipped] = useState<number>(0)
-  // A new person resets the fallthrough: derive during render, not in an effect.
-  if (seenSources !== sourcesKey) {
-    setSeenSources(sourcesKey)
-    setSkipped(0)
-  }
-  const displayName = name.trim()
-
-  function choose(action: () => void): void {
-    setOpen(false)
-    action()
-  }
-
-  const photo = sources[skipped] ?? ""
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger aria-label="Account menu" className="flex size-10 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-brand font-extrabold text-foreground">
-        {photo ? (
-          <img src={photo} alt="" onError={() => setSkipped((n) => n + 1)} className="size-full object-cover" />
-        ) : (
-          (displayName || email || (guest ? "Guest" : "Me")).charAt(0).toUpperCase()
-        )}
-      </PopoverTrigger>
-      <PopoverContent align="end" className="flex w-60 flex-col p-0">
-        <div className="border-b-[1.5px] px-4 py-3">
-          <div className="font-medium">{displayName || email || (guest ? "Guest" : "Your profile")}</div>
-          <div className="text-sm text-muted-foreground">{email ? "Saved to your account" : guest ? "Guest on this device" : "Saved on this device only"}</div>
-        </div>
-        {onDashboard ? (
-          <Button variant="ghost" onClick={() => choose(onDashboard)} className="cursor-pointer justify-start">
-            Dashboard
-          </Button>
-        ) : null}
-        <Button variant="ghost" onClick={() => choose(onAnswers)} className="cursor-pointer justify-start">
-          Profile and settings
-        </Button>
-        {onConnect ? (
-          <Button variant="ghost" onClick={() => choose(onConnect)} className="cursor-pointer justify-start">
-            Connect
-          </Button>
-        ) : null}
-        {onClaude ? (
-          <Button variant="ghost" onClick={() => choose(onClaude)} className="cursor-pointer justify-start">
-            Claude
-          </Button>
-        ) : null}
-        {email ? null : (
-          <Button variant="ghost" onClick={() => choose(onSignIn)} className="cursor-pointer justify-start">
-            Continue with Google to keep it
-          </Button>
-        )}
-        <Button variant="ghost" onClick={() => choose(onSignOut)} className="cursor-pointer justify-start text-destructive">
-          {email ? "Sign out" : "Clear this device"}
-        </Button>
-      </PopoverContent>
-    </Popover>
-  )
 }
 
 /** The name on the orange header, all in black so the "o" does not vanish into the orange. The round mark sits by the headline on the front page. */

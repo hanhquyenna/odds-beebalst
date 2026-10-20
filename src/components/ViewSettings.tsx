@@ -10,8 +10,11 @@ export interface Choice {
   label: string
 }
 
+/** Starts the application table with Status, Activity, and Next step; other job properties remain available. */
+export const APPLICATION_HIDDEN_PROPERTIES = STANDARD_PROPERTIES.filter((property) => property.key !== "status").map((property) => property.key)
+
 /** Sorts whose usual order starts with the most: newest, highest pay, highest chance, most senior. */
-const BIG_FIRST = new Set(["pay", "chance", "match", "newest", "posted", "level"])
+const BIG_FIRST = new Set(["pay", "chance", "match", "newest", "posted", "level", "activity"])
 
 /** What "ascending" and "descending" mean for each thing a view can be sorted by, in words that fit it. */
 function directionLabels(key: string): { asc: string; desc: string } {
@@ -21,7 +24,7 @@ function directionLabels(key: string): { asc: string; desc: string } {
   if (key === "level") {
     return { asc: "Junior first", desc: "Senior first" }
   }
-  if (key === "newest" || key === "posted") {
+  if (key === "newest" || key === "posted" || key === "activity") {
     return { asc: "Oldest first", desc: "Newest first" }
   }
   if (key === "language") {
@@ -42,8 +45,8 @@ function directionLabels(key: string): { asc: string; desc: string } {
  * what it is sorted by on the button itself, so a change is always visible.
  * Hiding a property only hides it here; nothing is deleted.
  */
-export function ViewControls({ view, properties, sorts, sortDefault }: { view: ViewName; properties: ReadonlyArray<Choice>; sorts: ReadonlyArray<Choice>; sortDefault?: string }): React.JSX.Element {
-  const { config, show, toggle, update, reset } = useViewConfig(view)
+export function ViewControls({ view, properties, sorts, sortDefault, initialHidden }: { view: ViewName; properties: ReadonlyArray<Choice>; sorts: ReadonlyArray<Choice>; sortDefault?: string; initialHidden?: ReadonlyArray<string> }): React.JSX.Element {
+  const { config, show, toggle, update, reset } = useViewConfig(view, initialHidden)
   const [sortOpen, setSortOpen] = useState<boolean>(false)
   const [propsOpen, setPropsOpen] = useState<boolean>(false)
   const key = config.sortKey || sortDefault || ""
@@ -158,7 +161,7 @@ export function peopleChoices(columns: ReadonlyArray<string>): { properties: Cho
   return { properties: [...own, ...custom], sorts: [{ key: "name", label: "Name" }, ...own, ...custom], sortDefault: "company" }
 }
 
-export function choicesFor(view: ViewName, columns: ReadonlyArray<string>): { properties: Choice[]; sorts: Choice[]; sortDefault?: string } {
+export function choicesFor(view: ViewName, columns: ReadonlyArray<string>, applications = false): { properties: Choice[]; sorts: Choice[]; sortDefault?: string } {
   const custom = columns.map((c) => ({ key: `p:${c}`, label: c }))
   if (view.startsWith("pv:")) {
     return peopleChoices(columns)
@@ -192,7 +195,7 @@ export function choicesFor(view: ViewName, columns: ReadonlyArray<string>): { pr
   const board = view === "board"
 
   return {
-    properties: [...STANDARD_PROPERTIES.filter((p) => !board || p.key !== "status"), ...custom],
-    sorts: [...STANDARD_SORTS.filter((p) => !board || p.key !== "status"), ...custom],
+    properties: [...STANDARD_PROPERTIES.filter((p) => p.key === "status" && !board), ...(applications ? [{ key: "activity", label: "Activity" }, { key: "next", label: "Next step" }] : []), ...STANDARD_PROPERTIES.filter((p) => p.key !== "status"), ...custom],
+    sorts: [...STANDARD_SORTS.filter((p) => !board || p.key !== "status").map((property) => applications && property.key === "status" ? { key: "activityStatus", label: "Status" } : property), ...(applications ? [{ key: "activity", label: "Last activity" }] : []), ...custom],
   }
 }

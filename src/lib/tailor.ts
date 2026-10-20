@@ -158,11 +158,6 @@ export const TAILORED_MAX_AGE_DAYS = 7
 export const TAILORED_MIN_ROWS = 20
 const TAILORED_TOP_UP_DAYS = [14, 30]
 
-/** Posted in the last week. A posting with no date cannot be shown to be that new, so it is left out of the tailored list (it stays in "All jobs"). */
-export function freshForTailored(post: Pick<Posting, "days_open">): boolean {
-  return post.days_open !== null && post.days_open !== undefined && post.days_open <= TAILORED_MAX_AGE_DAYS
-}
-
 /** 0 for the last week, 1 for the week or so before, 2 up to a month; null when too old or undated. */
 function ageTier(post: Pick<Posting, "days_open">): number | null {
   const d = post.days_open

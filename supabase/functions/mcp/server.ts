@@ -1172,7 +1172,7 @@ const EXT_DAILY_PAGE_READS = 300
 /** A job we hold, found by the address it was stored under (job boards loaded in bulk kept longer ones: heldFilter finds those by the job's id). */
 const POSTING_COLUMNS = "id,closed_at,region,employer,employer_display,ats,title,url"
 /** The job an employer's application form belongs to, when its address is not a job link Odds holds (see apply-kit). */
-async function formJob(env: Env, url: string, postingId: string | null, title: string): Promise<Json | null> {
+async function formJob(env: Env, url: string, postingId: string | null, title: string): Promise<Json> {
   const clean = url.split("#")[0]!.slice(0, 2000)
   if (!/^https:\/\//.test(clean)) return null
   const byId = (id: string) => rest(env, `postings?id=eq.${encodeURIComponent(id)}&select=${POSTING_COLUMNS}&limit=1`).then((r) => r?.[0] ?? null).catch(() => null)
@@ -1184,7 +1184,7 @@ async function formJob(env: Env, url: string, postingId: string | null, title: s
   if (name.length < 6) return null
   const host = (() => { try { return new URL(clean).hostname.toLowerCase() } catch { return "" } })()
   const rows = await rest(env, `postings?title=ilike.${encodeURIComponent(name.replace(/[*%,()]/g, " ").trim())}&closed_at=is.null&select=${POSTING_COLUMNS}&limit=10`).catch(() => null) ?? []
-  const key = (t: unknown) => String(t ?? "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]/g, "")
+  const key = (t: unknown) => (typeof t === "string" ? t : "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]/g, "")
   // The posting on this very site first (YETI's own Workday), else one whose employer's first name is in the address ("yeti" in yeticoolers…).
   const hostOf = (u: unknown) => { try { return new URL(String(u)).hostname.toLowerCase() } catch { return "" } }
   const firstWord = (p: Json) => key(String(p.employer_display || p.employer || "").split(/\s+/)[0])

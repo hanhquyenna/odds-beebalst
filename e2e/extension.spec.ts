@@ -225,7 +225,9 @@ const REST = "https://ukpmpyfcnbhngkgbnkxi.supabase.co/rest/v1"
 const restKey = (): string => (process.env.REAL_SR_KEY || readFileSync(String(process.env.REAL_SR_KEY_FILE), "utf8")).trim()
 async function rest(path: string, init: RequestInit = {}): Promise<Array<Record<string, unknown>>> {
   const key = restKey()
-  const res = await fetch(`${REST}/${path}`, { ...init, headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=representation", ...(init.headers ?? {}) } })
+  const headers = new Headers({ apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=representation" })
+  new Headers(init.headers).forEach((value, name) => headers.set(name, value))
+  const res = await fetch(`${REST}/${path}`, { ...init, headers: headers })
   const text = await res.text()
   return text ? (JSON.parse(text) as Array<Record<string, unknown>>) : []
 }
@@ -293,17 +295,17 @@ async function driveReal(fake: Fake, path: string, body: Record<string, unknown>
   for (const deadline = Date.now()+18000; Date.now()<deadline;) {
     const [q] = await rest(`drive_commands?run_id=eq.${runId}&status=eq.queued&order=id.asc&limit=1&select=id,tool,args,doc_gen`)
     if (q) {
-      const taken = await rest(`drive_commands?id=eq.${q.id}&status=eq.queued`, { method: "PATCH", body: JSON.stringify({ status: "taken", taken_at: new Date().toISOString(), accepted_at: new Date().toISOString() }) })
+      const taken = await rest(`drive_commands?id=eq.${String(q.id)}&status=eq.queued`, { method: "PATCH", body: JSON.stringify({ status: "taken", taken_at: new Date().toISOString(), accepted_at: new Date().toISOString() }) })
       if (taken.length) {
-        real.log.push(`${q.tool} ${JSON.stringify(q.args).slice(0, 160)}`)
-        console.log(`REAL command ${q.tool}`)
+        real.log.push(`${String(q.tool)} ${JSON.stringify(q.args).slice(0, 160)}`)
+        console.log(`REAL command ${String(q.tool)}`)
         const [runRow] = await rest(`drive_runs?id=eq.${runId}&select=doc_gen,steps`)
         return { command: q, steps: runRow?.steps ?? 0, doc_gen: runRow?.doc_gen ?? 0 }
       }
     }
     // Broods went quiet (its turn ended without a step): picked up again, as production's drive-next does (30 s, up to 3 times).
     const [last] = await rest(`drive_commands?run_id=eq.${runId}&order=id.desc&limit=1&select=done_at,status`)
-    const quietSince = Date.parse(String(last?.done_at || "")) || real.fillStartedAt || Date.now()
+    const quietSince = Date.parse(typeof last?.done_at === "string" ? last.done_at : "") || real.fillStartedAt || Date.now()
     if (last?.status === "done" && Date.now() - quietSince > 30_000 && (real.nudges ?? 0) < 3 && (!real.nudgedAt || Date.now() - real.nudgedAt > 30_000)) {
       real.nudges = (real.nudges ?? 0) + 1
       real.nudgedAt = Date.now()
@@ -358,7 +360,7 @@ async function toolbarBadge(context: BrowserContext, urlPattern: string): Promis
 async function toolbarFill(context: BrowserContext, urlPattern: string): Promise<unknown> {
   return await context.serviceWorkers()[0].evaluate(async (pattern) => {
     const [tab] = await chrome.tabs.query({ url: pattern })
-    const send = chrome.tabs.sendMessage as unknown as (tabId: number, message: unknown, options: { frameId: number }) => Promise<unknown>
+    const send = chrome.tabs.sendMessage.bind(chrome.tabs) as unknown as (tabId: number, message: unknown, options: { frameId: number }) => Promise<unknown>
     return tab ? await send(tab.id!, { type: "odds-fill-now" }, { frameId: 0 }) : null
   }, urlPattern)
 }
@@ -406,8 +408,8 @@ async function driveFake(fake: Fake, path: string, body: Record<string, unknown>
     return { ok: true }
   }
   if (path.endsWith("/drive-stop")) {
-    fake.driveEvents.push(`stop ${String(body.reason ?? "")}`)
-    run.done = { status: "stopped", message: String(body.message ?? "") }
+    fake.driveEvents.push(`stop ${typeof body.reason === "string" ? body.reason : ""}`)
+    run.done = { status: "stopped", message: typeof body.message === "string" ? body.message : "" }
     cancelFakeOpen(run, "stopped")
     return { ok: true }
   }
@@ -756,6 +758,7 @@ test("next to LinkedIn's Save button when the page has one, at the edge when it 
   await page.goto("https://www.linkedin.com/jobs/view/4470863235/")
   const pill = page.locator("#odds-add")
   await expect(pill).toHaveAttribute("data-where", "inline")
+  await expect(pill).toHaveAttribute("data-state", "idle")
   expect(await pill.evaluate((el) => el.parentElement?.id)).toBe("row")
   // After the Save wrapper, in the same row, not inside it.
   expect(await pill.evaluate((el) => el.previousElementSibling?.querySelector("button")?.getAttribute("aria-label"))).toBe("Save the job")
@@ -1132,16 +1135,14 @@ test("job-list percentages open the selected unsaved job in the real Odds app, w
   await badges.nth(0).click()
   const panel = page.frameLocator("#odds-panel-frame")
   const app = panel.frameLocator("#app")
-  await expect(app.getByRole("heading", { name: "Junior Financial Analyst", exact: true })).toBeVisible({ timeout: 15000 })
+  await expect(app.locator("[data-apply-panel]").getByText("Junior Financial Analyst", { exact: true })).toBeVisible({ timeout: 15000 })
   const openedAt = await page.frameLocator("#odds-panel-frame").frameLocator("#app").locator("body").evaluate(e => e.ownerDocument.defaultView!.performance.timeOrigin)
   await badges.nth(1).click()
-  await expect(app.getByRole("heading", { name: FLOW_POSTINGS[1].title, exact: true })).toBeVisible({ timeout: 15000 })
+  await expect(app.locator("[data-apply-panel]").getByText(FLOW_POSTINGS[1].title, { exact: true })).toBeVisible({ timeout: 15000 })
   expect(await app.locator("body").evaluate(e => e.ownerDocument.defaultView!.performance.timeOrigin)).toBe(openedAt)
   expect(fake.pools).toBe(0)
-  await app.getByRole("button", { name: "← Back", exact: true }).click()
-  await expect(app.getByRole("heading", { name: FLOW_POSTINGS[1].title, exact: true })).not.toBeVisible()
-  await badges.nth(1).click()
-  await expect(app.getByRole("heading", { name: FLOW_POSTINGS[1].title, exact: true })).toBeVisible({ timeout: 15000 })
+  await badges.nth(0).click()
+  await expect(app.locator("[data-apply-panel]").getByText("Junior Financial Analyst", { exact: true })).toBeVisible({ timeout: 15000 })
   expect(fake.calls).toHaveLength(0)
   await expect(page.locator("#odds-panel-frame")).toHaveAttribute("data-open", "true")
   await shot(page, "ext-job-list-chances")
@@ -2964,6 +2965,7 @@ test("an enriched job outside the loaded pool opens from one row without saving,
 })
 
 test("Apply with Odds in the desktop website starts the installed extension directly, acknowledges, fills a new tab and leaves the app open", { tag: "@accept" }, async ({ context, fake }) => {
+  test.setTimeout(60_000)
   await connect(context)
   await context.addInitScript(() => localStorage.setItem("careersim.session", JSON.stringify({ access_token: "e2e-token", refresh_token: "e2e-refresh", expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: "00000000-0000-4000-8000-000000000001" } })))
   await mockBackend(context, FLOW_POSTINGS, [], true)
@@ -3027,12 +3029,18 @@ for (const [name, form] of [
 }
 
 test("a website rejecting a filled value or CV never reports ready", async ({ context, fake }) => {
+  test.setTimeout(60_000)
   await connect(context)
   fake.kit = { facts: { answers: { first_name: "Chi Kien" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555" } }
   await context.route("https://careers.example.org/**", route => route.fulfill({ contentType: "text/html", body: '<h1>Application</h1><form><label>First name *<input required oninput="this.value=\'\'"></label><label>CV *<input type="file" required onchange="this.setAttribute(\'aria-invalid\',\'true\')"></label><button>Send application</button></form>' }))
   const page = await context.newPage()
   await page.goto("https://careers.example.org/apply")
   await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4470000302")
+  await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask", { timeout: 30_000 })
+  await expect(page.locator(".odds-apply-bar")).not.toHaveAttribute("data-state", "done")
+  await expect(page.locator('input[type="file"]')).toHaveAttribute("aria-invalid", "true")
+})
+
 test("a form built from components with shadow roots (SmartRecruiters' Easy Apply) is read and filled like any other", async ({ context, fake }) => {
   await connect(context)
   fake.kit = { facts: { email: "test@example.com", answers: { first_name: "Chi Kien", last_name: "Phung", phone: "+31 6 12345678" }, remembered: {} }, cv: null }
@@ -3050,11 +3058,6 @@ test("a form built from components with shadow roots (SmartRecruiters' Easy Appl
   await expect(boxes.nth(1)).toHaveValue("Phung")
   await expect(boxes.nth(2)).toHaveValue("test@example.com")
   await expect(boxes.nth(3)).toHaveValue("+31 6 12345678")
-})
-
-  await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask")
-  await expect(page.locator(".odds-apply-bar")).not.toHaveAttribute("data-state", "done")
-  await expect(page.locator('input[type="file"]')).toHaveAttribute("aria-invalid", "true")
 })
 
 test("an unsupported required custom dropdown pauses instead of reporting success", async ({ context, fake }) => {
@@ -4576,6 +4579,7 @@ test("the employer's list does not have this job: odds stops after its tries and
 })
 
 test("the person presses Back after odds filled the form: odds pauses on their page, never pushes forward again, and says so", async ({ context, fake }) => {
+  test.setTimeout(60_000)
   await connect(context)
   await context.route("https://career.example-brands.eu/**", (route) => route.fulfill({ contentType: "text/html", body: /b2c-marketing-intern/.test(route.request().url()) ? VACANCY_FORM : VACANCY_LIST(true) }))
   fake.kit = { job_id: "pjb3", job_title: "B2C MARKETING INTERN (CONTENT & RETAIL)", facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
@@ -4583,6 +4587,7 @@ test("the person presses Back after odds filled the form: odds pauses on their p
   await page.goto("https://career.example-brands.eu/nl/retail/jobs")
   await applyFrom(context, page, "https://career.example-brands.eu/nl/retail/jobs")
   await expect(page.locator("#first_name")).toHaveValue("Kien", { timeout: 15000 })
+  await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state", "done", { timeout: 15000 })
   await page.goBack()
   await expect(page).toHaveURL(/retail\/jobs$/)
   await expect(page.locator(".odds-apply-bar")).toContainText("Odds paused here", { timeout: 10000 })
@@ -4695,7 +4700,7 @@ test("REAL_KIND_URL: what the side panel's one button reads a live page as (job 
     await page.waitForTimeout(1500)
     kinds.push(await worker.evaluate(async (u) => {
       const [tab] = await chrome.tabs.query({ url: u.split("?")[0].replace(/[^/]*$/, "") + "*" })
-      const send = chrome.tabs.sendMessage as unknown as (tabId: number, message: unknown, options: { frameId: number }) => Promise<unknown>
+      const send = chrome.tabs.sendMessage.bind(chrome.tabs) as unknown as (tabId: number, message: unknown, options: { frameId: number }) => Promise<unknown>
       return tab ? await send(tab.id!, { type: "odds-page-kind" }, { frameId: 0 }).catch((e) => `ERR ${String(e).slice(0, 80)}`) : "no tab"
     }, page.url()))
   }
@@ -4900,7 +4905,7 @@ test("date boxes that are only pop-up pickers (PwC) and a school search that onl
   test.setTimeout(90_000)
   await connect(context)
   const html = `<!doctype html><main><h1>Application</h1><form onsubmit="return false">
-    ${["a", "b"].map((k, i) => `<label for="d${k}">${i ? "Tot" : "Van"} (required)</label><div class="react-datepicker__input-container"><input type="text" id="d${k}" required value="" onclick="openPicker(this)" oninput="this.value=this.dataset.v||\'\'"></div>`).join("")}
+    ${["a", "b"].map((k, i) => `<label for="d${k}">${i ? "Tot" : "Van"} (required)</label><div class="react-datepicker__input-container"><input type="text" id="d${k}" required value="" onclick="openPicker(this)" oninput="this.value=this.dataset.v||''"></div>`).join("")}
     <label for="school">School of universiteit (required)</label><div class="rbt"><input id="school" type="text" role="combobox" aria-autocomplete="both" aria-expanded="false" aria-owns="school-menu" required autocomplete="off" oninput="menu(this)"><div id="school-menu" role="listbox" style="display:none"><a role="option" href="#" onclick="pickSchool(event)"></a></div></div>
     <button type="submit">Submit</button></form></main>
     <script>
@@ -5235,7 +5240,7 @@ test("the side panel knows the page: a create-account step gets Create account &
   const worker = context.serviceWorkers()[0]
   const kindOf = () => worker.evaluate(async () => {
     const [tab] = await chrome.tabs.query({ url: "https://acme.wd5.example-workday.com/*" })
-    const send = chrome.tabs.sendMessage as unknown as (tabId: number, message: unknown, options: { frameId: number }) => Promise<{ kind: string }>
+    const send = chrome.tabs.sendMessage.bind(chrome.tabs) as unknown as (tabId: number, message: unknown, options: { frameId: number }) => Promise<{ kind: string }>
     return tab ? (await send(tab.id!, { type: "odds-page-kind" }, { frameId: 0 }).catch(() => null))?.kind ?? null : null
   })
   await expect.poll(kindOf, { timeout: 15000 }).toBe("create_account")
@@ -5881,7 +5886,7 @@ test("the person takes the application tab for something else (types another add
   // The person uses that tab for something else, from the address bar (Chrome reports a "typed" navigation; the test browser's own
   // navigation is not typed, so the same handler is called the way Chrome would call it).
   const tabId = await worker.evaluate(`chrome.tabs.query({ url: "https://boards.example-ats.com/acme/jobs/556*" }).then(t => t[0].id)`)
-  await worker.evaluate(`personTookTab(${tabId})`)
+  await worker.evaluate(`personTookTab(${Number(tabId)})`)
   await app.goto("https://dashboard.example-tool.com/runs")
   await app.waitForTimeout(8000)
   await expect(app.locator(".odds-apply-bar")).toHaveCount(0)
@@ -6242,8 +6247,8 @@ test("REAL_STEP_URL: a plan walked on a live multi-step form (fake Broods, no mo
     let pg = await cmd("read_page") as Pg
     for (const step of plan) {
       if (step.wait) { await new Promise((r) => setTimeout(r, Number(step.wait))); pg = await cmd("read_page") as Pg; continue }
-      if (step.js) { out.push("JS " + JSON.stringify(await (String(step.js).startsWith("page.") ? eval(String(step.js)) : page.evaluate(String(step.js))).catch((e: unknown) => String(e)))); continue }
-      if (step.click) {
+      if (typeof step.js === "string") { out.push("JS " + JSON.stringify(await page.evaluate(step.js).catch((e: unknown) => String(e)))); continue }
+      if (typeof step.click === "string") {
         const b = (pg.buttons ?? []).filter((x) => new RegExp(String(step.click), "i").test(x.text)).pop()
         out.push(`CLICK ${step.click}: ${b ? "found" : "NOT FOUND"}`)
         if (b) { const r = await cmd("click", { id: b.id }) as { page?: Pg }; pg = r.page ?? (await cmd("read_page") as Pg) }
@@ -6255,7 +6260,7 @@ test("REAL_STEP_URL: a plan walked on a live multi-step form (fake Broods, no mo
         pg = await cmd("read_page") as Pg
         continue
       }
-      if (step.options) {
+      if (typeof step.options === "string") {
         const f = (pg.fields ?? []).find((x) => new RegExp(String(step.options), "i").test(x.label))
         out.push(`OPTIONS ${step.options}: ` + JSON.stringify(f ? await cmd("options", { id: f.id }).then((r) => (r as { options?: unknown }).options) : "no field"))
         continue

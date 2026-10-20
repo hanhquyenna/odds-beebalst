@@ -30,19 +30,22 @@ export async function liveDriveRuns(): Promise<DriveRun[]> {
   return out
 }
 
-export interface DriveStep { id: number; tool: string; note: string; created_at: string }
+export interface DriveStep { id: number; tool: string; note: string | null; status: string; created_at: string }
 
 /** What Broods said it was doing, newest first: the live reasoning feed. */
-export async function driveSteps(runId: string, limit = 8): Promise<DriveStep[]> {
-  const { data, error } = await supabase
+export async function driveSteps(runId: string, limit = 8, before?: number): Promise<DriveStep[]> {
+  let query = supabase
     .from("drive_commands")
-    .select("id,tool,note,created_at")
+    .select("id,tool,note,status,created_at")
     .eq("run_id", runId)
     .not("note", "is", null)
     .order("id", { ascending: false })
     .limit(limit)
-  if (error || !data) return []
-  return data as DriveStep[]
+  if (before !== undefined) query = query.lt("id", before)
+  const { data, error } = await query
+  if (error) throw new Error("Could not load application steps. Try again.")
+
+  return (data ?? []) as DriveStep[]
 }
 
 /** stop: Broods ends at its next step. continue: Broods carries on in the same tab. sent: the person submitted it. */

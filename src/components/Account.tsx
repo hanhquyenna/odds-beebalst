@@ -1,5 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react"
-import { BoardIcon, BookmarkIcon, CalendarIcon, DownloadIcon, ImportExportIcon, UploadIcon, ChevronDownIcon, PlusIcon, TableIcon } from "@/components/icons"
+import { JobDrawer } from "@/components/JobBoard"
+import { JobFilters, MultiPick } from "@/components/JobFilters"
+import { FunnelIcon, BoardIcon, BookmarkIcon, CalendarIcon, DownloadIcon, ImportExportIcon, UploadIcon, ChevronDownIcon, PlusIcon, TableIcon, DotsThreeVerticalIcon as MoreIcon } from "@/components/icons"
 import { SearchSummary } from "@/components/InterviewMeter"
 import type { ViewLayout, ViewName } from "@/lib/types"
 import { NewViewButton, LAYOUT_CHOICES } from "@/components/ViewTabs"
@@ -8,8 +10,8 @@ import { TrackerCalendar } from "@/components/TrackerCalendar"
 import { applicationOf } from "@/components/tracker-values"
 import { useSavedViews } from "@/lib/use-saved-views"
 import { usePeopleViews } from "@/lib/use-people-views"
-import { applyTrackerFilter } from "@/lib/tracker"
-import { choicesFor, peopleChoices, ViewControls } from "@/components/ViewSettings"
+import { applyTrackerFilter, isTrackerFilterOn } from "@/lib/tracker"
+import { APPLICATION_HIDDEN_PROPERTIES, choicesFor, peopleChoices, ViewControls } from "@/components/ViewSettings"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ColumnsBy, PipelineBoard } from "@/components/PipelineBoard"
 import { STEPS, stepOf } from "@/components/job-steps"
@@ -27,7 +29,7 @@ import { useData } from "@/lib/data"
 import { CompaniesView } from "@/components/Companies"
 import { usePhone } from "@/lib/use-phone"
 import { FilterBus } from "@/lib/filter-bus"
-import { applyFilters } from "@/lib/filters"
+import { activeCount, applyFilters } from "@/lib/filters"
 import type { Posting } from "@/lib/types"
 import { downloadCsv, toCsv } from "@/lib/export-csv"
 import { appliedDay, overrideOf } from "@/lib/cells"
@@ -35,6 +37,11 @@ import { formatPlace } from "@/lib/format"
 import { LIVE_APPLY_EVENT, peekLiveApplyPostingId, takeLiveApplyPostingId } from "@/lib/apply-nav"
 import { goTo } from "@/lib/web-nav"
 import { applyActivityOf, isLiveApply, useApplyActivityTick } from "@/lib/apply-activity"
+import { fetchKeptPostings } from "@/lib/jobs"
+import { APPLICATION_ACTIVITY_GROUPS, applicationProgress, latestApplicationAttempts, manualApplicationAttempt } from "@/lib/application-progress"
+import { loadApplicationMonitor, useApplicationMonitor } from "@/lib/application-monitor"
+
+const EMPTY_ACTIVITY_FILTER: string[] = []
 
 const SetupCard = lazy(() => import("@/components/SetupCard").then((m) => ({ default: m.SetupCard })))
 
@@ -65,6 +72,23 @@ export function Account({ page = "home", onStartLooking, onOpenClaude, onOpenPag
   const saved = useSavedViews()
   const { active, filters, configName } = saved
   const [revisit, setRevisit] = useState<Posting | null>(null)
+  const [drawerPost, setDrawerPost] = useState<Posting | null>(null)
+  const [historyPostingId, setHistoryPostingId] = useState<string | null>(null)
+  const monitor = useApplicationMonitor(data.session?.user.id ?? null, page === "tracker")
+  const hasActivity = monitor.attempts.length > 0 || data.applications.length > 0 || Boolean(monitor.error)
+  const [historyPosts, setHistoryPosts] = useState<{ userId: string; posts: Posting[] }>({ userId: "", posts: [] })
+  const userId = data.session?.user.id ?? ""
+  const allPosts = useMemo(() => [...new Map([...(historyPosts.userId === userId ? historyPosts.posts : []), ...data.keptExtra, ...data.postings].map((post) => [post.id, post])).values()], [data.postings, data.keptExtra, historyPosts, userId])
+  const missingIds = [...new Set(monitor.attempts.map((attempt) => attempt.run.posting_id).filter((id): id is string => Boolean(id && !allPosts.some((post) => post.id === id))))].sort().join(",")
+  useEffect(() => {
+    if (!userId || !missingIds) return
+    let cancelled = false
+    void fetchKeptPostings(missingIds.split(",")).then((posts) => {
+      if (!cancelled) setHistoryPosts((previous) => ({ userId: userId, posts: [...(previous.userId === userId ? previous.posts : []), ...posts] }))
+    }).catch(() => undefined)
+
+    return () => { cancelled = true }
+  }, [missingIds, userId])
   // Apply with Odds: open this job’s drawer on Tracker so Applying… / Captcha / Account updates are visible.
   // Keep the pending id until the drawer closes — Strict Mode remount + empty postings would otherwise clear it too early.
   useEffect(() => {
@@ -72,7 +96,8 @@ export function Account({ page = "home", onStartLooking, onOpenClaude, onOpenPag
       if (!postingId) return
       const post = [...data.postings, ...data.keptExtra].find((p) => p.id === postingId)
       if (!post) return
-      setRevisit(post)
+      if (page === "tracker") setDrawerPost(post)
+      else setRevisit(post)
     }
     openLive(peekLiveApplyPostingId())
     const on = (event: Event): void => {
@@ -94,6 +119,9 @@ export function Account({ page = "home", onStartLooking, onOpenClaude, onOpenPag
   const pviews = usePeopleViews()
   // The form to add jobs of your own: opened by the small link under your jobs, or by the upload button beside Sort.
   const [addPanel, setAddPanel] = useState<AddPanel>(null)
+  const [filtersOpen, setFiltersOpen] = useState<boolean>(false)
+  const [activityChoice, setActivityChoice] = useState<{ viewId: string; values: string[] }>({ viewId: "", values: [] })
+  const activityFilter = activityChoice.viewId === active.id ? activityChoice.values : EMPTY_ACTIVITY_FILTER
   // Jobs have views (tabs) that each keep their own layout and filters; people keep a list or a board.
   const phone = usePhone()
   const chosen: Layout = subject === "jobs" ? active.layout : pviews.active.layout
@@ -110,15 +138,19 @@ export function Account({ page = "home", onStartLooking, onOpenClaude, onOpenPag
     pviews.setLayout(next)
   }
 
+  const applicationTable = page === "tracker" && layout === "table" && hasActivity
+  const attemptsByJob = useMemo(() => new Map(latestApplicationAttempts([...monitor.attempts, ...data.applications.map((application) => manualApplicationAttempt(application))]).map((attempt) => [attempt.run.posting_id, attempt])), [monitor.attempts, data.applications])
+  const orphanedAttempts = latestApplicationAttempts(monitor.attempts).filter((attempt) => !allPosts.some((post) => post.id === attempt.run.posting_id))
   const applyTick = useApplyActivityTick()
   const kept = useMemo(() => {
+    void applyTick
     const applied = new Set(data.applications.map((a) => a.posting_id))
 
     // Jobs you kept that have closed since are still here, marked closed.
     // Live Apply pins also show even if save state races behind the Tracker jump.
-    return [...data.postings, ...data.keptExtra].filter((post) => data.saved.has(post.id) || applied.has(post.id) || isLiveApply(applyActivityOf(post.id)))
+    return allPosts.filter((post) => data.saved.has(post.id) || applied.has(post.id) || monitor.attempts.some((attempt) => attempt.run.posting_id === post.id) || isLiveApply(applyActivityOf(post.id)))
     // applyTick: re-include rows when Apply activity starts/stops
-  }, [data.postings, data.keptExtra, data.saved, data.applications, applyTick])
+  }, [allPosts, data.saved, data.applications, monitor.attempts, applyTick])
   // The open view's filters: the usual job filters, then the ones on your own search (status, follow-up due, closed).
   const shown = useMemo(
     () =>
@@ -127,11 +159,19 @@ export function Account({ page = "home", onStartLooking, onOpenClaude, onOpenPag
         active.tracker,
         (post) => stepOf(data, post),
         (post) => applicationOf(data, post),
-      ),
+      ).filter((post) => {
+        if (!activityFilter.length) return true
+        const attempt = attemptsByJob.get(post.id)
+        if (!attempt) return false
+        if (activityFilter.includes("history") && (["stopped", "cancelled", "submitted", "failed"].includes(attempt.run.status) || attempt.source === "drive" && attempt.run.reason === "closed")) return true
+
+        return activityFilter.includes(applicationProgress(attempt).group)
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [kept, filters, active.tracker, data.signals, data.reference, data.applications],
+    [kept, filters, active.tracker, data.signals, data.reference, data.applications, attemptsByJob, activityFilter],
   )
   const shownIds = useMemo(() => new Set(shown.map((p) => p.id)), [shown])
+  const filtered = activeCount(filters) > 0 || isTrackerFilterOn(active.tracker) || activityFilter.length > 0
   // How many jobs are in the pool: one plain number, the same one the job list counts from, not a personal subset of it.
   const pool = data.postings.length
 
@@ -164,22 +204,23 @@ export function Account({ page = "home", onStartLooking, onOpenClaude, onOpenPag
     )
   }
 
+  const filterToggle = <ToolButton pressed={filtersOpen} round onClick={() => setFiltersOpen(!filtersOpen)}><FunnelIcon className="size-4" aria-hidden="true" /><span>Filter</span></ToolButton>
   const toolsSubject: "jobs" | "people" = subject === "people" ? "people" : "jobs"
   const viewCount = toolsSubject === "people" ? pviews.views.length : saved.views.length
   const tools = (
-    <span className="flex flex-wrap items-center gap-2 max-md:min-w-0 max-md:shrink! max-md:flex-nowrap max-md:gap-1.5 [&>*]:shrink-0">
-      <LayoutMenu subject={toolsSubject} layout={layout} onChange={chooseLayout} />
+    <span className="application-tools flex flex-wrap items-center gap-2 max-md:min-w-0 max-md:shrink! max-md:flex-nowrap max-md:gap-1.5 [&>*]:shrink-0">
+      {toolsSubject === "people" ? <LayoutMenu subject={toolsSubject} layout={layout} onChange={chooseLayout} /> : null}
       {toolsSubject === "jobs" && layout === "board" ? <ColumnsBy viewName={view} /> : null}
       {toolsSubject === "people" ? (
         layout === "calendar" ? null : <ViewControls view={view} {...peopleChoices(data.profile.peopleColumns ?? [])} properties={layout === "table" ? peopleChoices(data.profile.peopleColumns ?? []).properties : []} />
       ) : (
         <>
-          <ViewControls view={view} {...choicesFor(layout === "board" ? "board" : "table", data.profile.columns)} properties={layout === "table" ? choicesFor("table", data.profile.columns).properties : []} />
-          <DataMenu count={shown.length} onImport={() => setAddPanel((current) => panelWith(current, "upload"))} onAdd={() => setAddPanel((current) => panelWith(current, "one"))} onExport={() => exportJobs(shown)} />
+          <ViewControls view={view} {...choicesFor(layout === "board" ? "board" : "table", data.profile.columns, applicationTable)} initialHidden={applicationTable ? APPLICATION_HIDDEN_PROPERTIES : undefined} properties={layout === "table" ? choicesFor("table", data.profile.columns, applicationTable).properties : []} />
+          <DataMenu extra={applicationTable && viewCount <= 1 ? <NewViewButton activeName={active.name} onAdd={saved.add} /> : undefined} refresh={applicationTable ? () => { if (userId) void loadApplicationMonitor(userId, true) } : undefined} count={shown.length} onImport={() => setAddPanel((current) => panelWith(current, "upload"))} onAdd={() => setAddPanel((current) => panelWith(current, "one"))} onExport={() => exportJobs(shown)} />
         </>
       )}
       {/* When there is only the starting view, All jobs / All people is the Tracker tab — New view sits here instead of a second tab row. */}
-      {viewCount <= 1 ? <NewViewButton activeName={toolsSubject === "people" ? pviews.active.name : active.name} onAdd={toolsSubject === "people" ? pviews.add : saved.add} /> : null}
+      {viewCount <= 1 && !applicationTable ? <NewViewButton activeName={toolsSubject === "people" ? pviews.active.name : active.name} onAdd={toolsSubject === "people" ? pviews.add : saved.add} /> : null}
     </span>
   )
 
@@ -223,7 +264,8 @@ export function Account({ page = "home", onStartLooking, onOpenClaude, onOpenPag
             <>
               <TrackerBar layout={layout} onLayout={chooseLayout} onImport={() => setAddPanel((current) => panelWith(current, "upload"))} onAdd={() => setAddPanel((current) => panelWith(current, "one"))} />
               {kept.length > 0 ? <TrackerStats posts={kept} /> : null}
-              {kept.length === 0 ? (
+              <JobFilters search={false} open={filtersOpen} filters={filters} onChange={saved.setFilters} extra={<>{hasActivity ? <MultiPick label="Activity" any="All activity" items={APPLICATION_ACTIVITY_GROUPS} value={activityFilter} onChange={(values) => setActivityChoice({ viewId: active.id, values: values })} /> : null}</>} />
+              {kept.length === 0 && !applicationTable ? (
                 <div className="flex flex-col items-center gap-3 rounded-[18px] border-[1.5px] border-dashed border-line bg-card px-6 py-14 text-center">
                   <span className="flex size-12 items-center justify-center rounded-full bg-accent text-brand">
                     <BookmarkIcon weight="fill" className="size-6" aria-hidden="true" />
@@ -238,8 +280,10 @@ export function Account({ page = "home", onStartLooking, onOpenClaude, onOpenPag
                 </div>
               ) : layout === "calendar" ? (
                 <TrackerCalendar posts={shown} dateKey={active.dateKey ?? "applied"} onDateKey={saved.setDateKey} onOpen={setRevisit} />
+              ) : shown.length === 0 && !applicationTable ? (
+                <p className="text-sm text-muted-foreground">{filtered ? "Nothing here fits these filters." : "Nothing here yet."}</p>
               ) : layout === "table" ? (
-                <TrackerTable posts={shown} onOpen={setRevisit} viewName={configName} toolbar={null} lead={null} />
+                <TrackerTable key={data.session?.user.id} posts={shown} onOpen={(post, history) => { setHistoryPostingId(history ? post.id : null); setDrawerPost(post) }} viewName={configName} toolbar={tools} lead={filterToggle} monitor={applicationTable ? monitor : undefined} orphanedAttempts={filtered ? [] : orphanedAttempts} />
               ) : (
                 <PipelineBoard onOpen={setRevisit} viewName={configName} include={(post) => shownIds.has(post.id)} />
               )}
@@ -251,6 +295,18 @@ export function Account({ page = "home", onStartLooking, onOpenClaude, onOpenPag
 
       </div>
 
+      {drawerPost ? (
+        <JobDrawer
+          post={drawerPost}
+          applicationHistoryOpen={historyPostingId === drawerPost.id}
+          onClose={() => {
+            if (peekLiveApplyPostingId() === drawerPost.id) takeLiveApplyPostingId()
+            setDrawerPost(null)
+            setHistoryPostingId(null)
+          }}
+          onSwitch={setDrawerPost}
+        />
+      ) : null}
 
       {page === "home" ? (
       <div className="flex justify-center pb-4 max-md:hidden">
@@ -318,7 +374,7 @@ export function LayoutMenu({ subject, layout, onChange }: { subject: "jobs" | "p
 }
 
 /** Import and export, as in Notion: bring in a spreadsheet of your own jobs, add one by hand, or take this view out as a file Excel opens. */
-function DataMenu({ count, onImport, onAdd, onExport }: { count: number; onImport: () => void; onAdd: () => void; onExport: () => void }): React.JSX.Element {
+function DataMenu({ count, onImport, onAdd, onExport, extra, refresh }: { count: number; onImport: () => void; onAdd: () => void; onExport: () => void; extra?: React.ReactNode; refresh?: () => void }): React.JSX.Element {
   const [open, setOpen] = useState<boolean>(false)
   const item = "flex w-full cursor-pointer items-start gap-3 rounded-md px-2.5 py-2.5 text-left transition-colors duration-150 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
   const choose = (act: () => void): void => {
@@ -328,11 +384,13 @@ function DataMenu({ count, onImport, onAdd, onExport }: { count: number; onImpor
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger aria-label="Import or export" className="flex h-10 cursor-pointer items-center gap-2 rounded-lg border-[1.5px] bg-card px-3.5 text-sm font-medium transition-colors duration-150 hover:bg-accent max-md:w-10 max-md:justify-center max-md:rounded-full max-md:px-0">
-        <ImportExportIcon className="size-4" aria-hidden="true" />
-        <span className="max-md:sr-only">Import / export</span>
+      <PopoverTrigger aria-label={extra || refresh ? "More job actions" : "Import or export"} className="flex h-10 cursor-pointer items-center gap-2 rounded-lg border-[1.5px] bg-card px-3.5 text-sm font-medium transition-colors duration-150 hover:bg-accent max-md:w-10 max-md:justify-center max-md:rounded-full max-md:px-0">
+        {extra || refresh ? <MoreIcon className="size-4" aria-hidden="true" /> : <ImportExportIcon className="size-4" aria-hidden="true" />}
+        {extra || refresh ? null : <span className="max-md:sr-only">Import / export</span>}
       </PopoverTrigger>
       <PopoverContent align="end" className="flex w-72 flex-col gap-0.5 p-1.5">
+        {extra}
+        {refresh ? <button type="button" className={item} onClick={() => choose(refresh)}>Refresh activity</button> : null}
         <p className="px-2.5 pt-1.5 pb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Import</p>
         <button type="button" onClick={() => choose(onImport)} className={item}>
           <UploadIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
