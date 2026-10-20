@@ -225,7 +225,9 @@ const REST = "https://ukpmpyfcnbhngkgbnkxi.supabase.co/rest/v1"
 const restKey = (): string => (process.env.REAL_SR_KEY || readFileSync(String(process.env.REAL_SR_KEY_FILE), "utf8")).trim()
 async function rest(path: string, init: RequestInit = {}): Promise<Array<Record<string, unknown>>> {
   const key = restKey()
-  const res = await fetch(`${REST}/${path}`, { ...init, headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=representation", ...Object.fromEntries(new Headers(init.headers)) } })
+  const headers = new Headers({ apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=representation" })
+  new Headers(init.headers).forEach((value, name) => headers.set(name, value))
+  const res = await fetch(`${REST}/${path}`, { ...init, headers: headers })
   const text = await res.text()
   return text ? (JSON.parse(text) as Array<Record<string, unknown>>) : []
 }

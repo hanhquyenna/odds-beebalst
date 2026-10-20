@@ -59,10 +59,9 @@ async function abandonCommand(env: Env, cmdId: number, kind: "never_started" | "
 }
 
 async function svc(env: Env, path: string, init: RequestInit = {}): Promise<Json> {
-  const res = await fetch(`${env.url}/rest/v1/${path}`, {
-    ...init,
-    headers: { apikey: env.serviceKey!, Authorization: `Bearer ${env.serviceKey}`, "Content-Type": "application/json", Prefer: "return=representation", ...Object.fromEntries(new Headers(init.headers)) },
-  })
+  const headers = new Headers({ apikey: env.serviceKey!, Authorization: `Bearer ${env.serviceKey}`, "Content-Type": "application/json", Prefer: "return=representation" })
+  new Headers(init.headers).forEach((value, key) => headers.set(key, value))
+  const res = await fetch(`${env.url}/rest/v1/${path}`, { ...init, headers: headers })
   if (!res.ok) throw new Error(`db ${res.status}`)
   const text = await res.text()
   return text ? JSON.parse(text) : null
