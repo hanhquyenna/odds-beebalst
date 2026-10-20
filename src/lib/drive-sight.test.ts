@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { cleanSight, describeShot, sightEnv } from "../../supabase/functions/_shared/drive-sight"
+import { cleanSight, describeShot, fewerFields, sightEnv, sightKey } from "../../supabase/functions/_shared/drive-sight"
 
 describe("sight: the server describes the screenshot Broods cannot see", () => {
   const env = { baseUrl: "https://router.test/v1", apiKey: "k", model: "cx/gpt-6-luna" }
@@ -29,5 +29,27 @@ describe("sight: the server describes the screenshot Broods cannot see", () => {
     expect(await describeShot(env, "A".repeat(5_300), 5000, (async () => new Response(JSON.stringify({ choices: [{ message: { content: "blank page" } }] }))) as typeof fetch)).toBe("")
     expect(await describeShot(env, "A".repeat(20_000), 50, ((_u: unknown, init?: RequestInit) => new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("timeout"))))) as typeof fetch)).toBe("")
     expect(sightEnv(() => undefined)).toBeNull()
+  })
+})
+
+describe("one look per page", () => {
+  test("a page is the address without its fragment, plus the title", () => {
+    expect(sightKey({ url: "https://a.example/apply#step2", title: "Apply" })).toBe(sightKey({ url: "https://a.example/apply", title: "Apply" }))
+    expect(sightKey({ url: "https://a.example/apply", title: "Step 2" })).not.toBe(sightKey({ url: "https://a.example/apply", title: "Step 1" }))
+    expect(sightKey(null)).toBe("")
+  })
+  test("far fewer fields on the same page is trouble; a page that never had fields is not", () => {
+    const f = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `f${i}` }))
+    expect(fewerFields({ url: "https://a.example/x", fields: f(1) }, { url: "https://a.example/x", fields: f(6) })).toBe(true)
+    expect(fewerFields({ url: "https://a.example/x", fields: f(4) }, { url: "https://a.example/x", fields: f(6) })).toBe(false)
+    expect(fewerFields({ url: "https://a.example/y", fields: f(0) }, { url: "https://a.example/x", fields: f(6) })).toBe(false)
+    expect(fewerFields({ url: "https://a.example/x", fields: f(0) }, { url: "https://a.example/x", fields: f(2) })).toBe(false)
+  })
+  test("a look taken because something went wrong asks the sight model to explain it first", async () => {
+    let sent = ""
+    const fetcher = (async (_u: unknown, init?: RequestInit) => { sent = String(init?.body ?? ""); return new Response(JSON.stringify({ choices: [{ message: { content: "ERRORS: Phone is required" } }] })) }) as typeof fetch
+    const out = await describeShot({ baseUrl: "https://r.example/v1", apiKey: "k", model: "m" }, "A".repeat(20_000), 5000, fetcher, ["a fill did not take (1 field)"])
+    expect(out).toBe("ERRORS: Phone is required")
+    expect(sent).toContain("taken because a fill did not take (1 field)")
   })
 })

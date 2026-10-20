@@ -112,10 +112,11 @@ test("finishing 'requires signing in' on a register form that also holds the app
   }
 })
 
-test("a click that moves to another page returns that page's screenshot as an image, never as base64 text in the page JSON", async () => {
+test("a click that moves to another page returns what its screenshot shows as text: never the image, never base64 in the page JSON", async () => {
   const original = globalThis.fetch
   const deno = (globalThis as unknown as { Deno?: unknown }).Deno
   const bigImage = "QUJD".repeat(30_000) // ~120 KB of base64
+  let sightCalls = 0
   Object.assign(globalThis, { Deno: { env: { get: () => "test-secret" } } })
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
@@ -125,6 +126,7 @@ test("a click that moves to another page returns that page's screenshot as an im
     if (url.endsWith("drive_commands") && init?.method === "POST") result = [{ id: String(init.body).includes("read_page") ? 22 : 21 }]
     if (url.includes("drive_commands?id=eq.21") && !init?.method) result = [{ status: "done", result: { ok: true, page_pending: true } }]
     if (url.includes("drive_commands?id=eq.22") && !init?.method) result = [{ status: "done", result: { url: "https://careers.example.org/apply", fields: [{ id: "f0", label: "Email", kind: "text", filled: true }], buttons: [], screenshot: { image: bigImage, width: 1000, height: 700 } } }]
+    if (url.endsWith("/chat/completions")) { sightCalls++; result = { choices: [{ message: { content: "BUTTONS: Next at the bottom" } }] } }
     return new Response(JSON.stringify(result), { status: 200 })
   }) as typeof fetch
   try {
@@ -133,7 +135,9 @@ test("a click that moves to another page returns that page's screenshot as an im
     const text = json.result.content.find((c) => c.type === "text")?.text ?? ""
     expect(text).not.toContain("QUJDQUJD")
     expect(text.length).toBeLessThan(3000)
-    expect(json.result.content.some((c) => c.type === "image" && (c.data ?? "").length > 100_000)).toBe(true)
+    expect(json.result.content.some((c) => c.type === "image")).toBe(false)
+    expect(text).toContain("BUTTONS: Next at the bottom")
+    expect(sightCalls).toBe(1)
   } finally {
     globalThis.fetch = original
     Object.assign(globalThis, { Deno: deno })

@@ -47,8 +47,8 @@ HOW YOU WORK
 - You cannot see the screen yourself. read_page gives fields (id, label, kind, required, filled, options), buttons, errors, dialog,
   and "sight": what the screen shows, described for you (open pop-ups and lists, error messages, the buttons and where they are,
   a captcha). When sight and the field list disagree, trust sight for what is on screen. Never click_at.
-- When a step goes wrong (a fill not kept, a click that changed nothing, an error, a pop-up, or before you stop), Odds puts a real
-  screenshot of the tab into this conversation as an image. Look at it before your next step; older screenshots are greyed out.
+- Sight comes once per new page. When a step goes wrong (a fill not kept, a click that changed nothing, an error, a pop-up, or
+  before you stop), Odds looks at the tab again: the result carries "vision" (why) and a fresh "sight". Read it before your next step.
 - Fields marked by:"odds" were filled by Odds from the person's own answers: keep them unless they contradict the facts.
 - Fill every empty field you can in ONE fill call; then press Next / Continue / Review / Save and continue.
 
@@ -89,7 +89,7 @@ GETTING THERE
 FINISH
 - review: only Submit / Send is left. needs_you: captcha, account (after you tried), email (no form; the page asks for applications
   by e-mail: name the address), questions (only the leave-to-the-person list, with their exact labels). stuck: after 5 genuinely
-  different attempts, say exactly what blocks. closed: the job is gone. After finish, reply with one short line.
+  different attempts, say exactly what blocks. closed: the job is gone. finish ends the run: write nothing after it.
 
 task.route (when given) is this platform's known path and step budget: follow it. task.odds_filled tells what Odds already filled.
 site_playbook: structure hints only; the page wins.`
@@ -98,13 +98,13 @@ site_playbook: structure hints only; the page wins.`
 export const oddsApply = defineAgent({
   name: "odds-apply",
   description: "Applies to jobs in the person's own Chrome through the Odds extension (MCP), from their Autofill and profile. Never submits.",
-  // Through the person's own 9router (OpenAI-compatible, their ChatGPT plan), not the paid API key. Drive runs on cx/gpt-6.1-sol: the small
-  // luna model gave up after ~6 steps and stopped for questions the facts answered (7 days of traces); sol is tried on the same batch.
+  // Through the person's own 9router (OpenAI-compatible), not the paid API key. Drive runs on cc/claude-sonnet-5 (Claude plan through
+  // 9router): luna gave up after ~6 steps, sol on high reasoning ran 3-4x longer. ODDS_APPLY_MODEL at deploy overrides it.
   // The URL is a Cloudflare tunnel from their Mac: if it changes, `broods env set NINE_ROUTER_BASE_URL` and redeploy.
   provider: { custom: { apiKey: env("NINE_ROUTER_API_KEY"), baseURL: env("NINE_ROUTER_BASE_URL"), name: "ninerouter" } },
   model: {
     provider: "custom",
-    modelId: process.env.ODDS_APPLY_MODEL || "cx/gpt-6.1-sol",
+    modelId: process.env.ODDS_APPLY_MODEL || "cc/claude-sonnet-5",
     reasoning: "high",
     maxOutputTokens: 6000,
   },

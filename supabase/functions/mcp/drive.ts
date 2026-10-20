@@ -3,8 +3,8 @@ import { renderLetterPdf } from "../_shared/cv-template.ts"
 import { compressRoute, routeHint, routeKey, routeStoreKey, usable } from "../_shared/site-routes.ts"
 import { canAcceptDriveResult, humanStopAllowed, jobIdentityMismatch } from "../_shared/drive-ownership.ts"
 import { appliedBeforeAnswer, FACT_QUESTION_HINT, isWorkAuthQuestion, ownQuestions, permitWorkAnswers, studyingFrom, widgetAttemptGuard, workFactForQuestion, type PermitWorkFacts } from "../_shared/drive-finish.ts"
-import { describeShot, sightEnv } from "../_shared/drive-sight.ts"
-import { pushScreenshot, troubleReasons, type VisionDeps } from "../_shared/drive-vision.ts"
+import { describeShot, fewerFields, sightEnv, sightKey, TROUBLE_SIGHT_MAX } from "../_shared/drive-sight.ts"
+import { looksBlank, troubleReasons } from "../_shared/drive-vision.ts"
 import { broodsStartOutcome, broodsTurnState, driveRunExpired, MODEL_UNREACHABLE, quietAction, type BroodsStartOutcome, type BroodsTurn } from "../_shared/drive-quiet.ts"
 import { fieldPattern, playbookFor, sanitizeLesson, siteIdentity, structuralField } from "../_shared/site-playbook.ts"
 
@@ -478,7 +478,7 @@ const SAY = { type: "string", description: "One short line for the person, in pl
 const TOOLS = BASE_TOOLS.map((t) => (t.name === "finish" ? t : { ...t, inputSchema: { ...t.inputSchema, properties: { ...t.inputSchema.properties, say: SAY } } }))
 const REASONS = ["captcha", "account", "questions", "letter", "closed", "email", "other"]
 
-async function callTool(env: Env, name: string, args: Json): Promise<{ text: string; error?: boolean; image?: string }> {
+async function callTool(env: Env, name: string, args: Json): Promise<{ text: string; error?: boolean }> {
   const run = await runOf(env, String(args?.run_id ?? ""))
   if (!run) return { text: "Unknown run_id.", error: true }
   if (name === "finish") {
@@ -547,14 +547,16 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       stage = "review"; reason = null
       message = "Everything is filled in. Check it and press Submit yourself (the Submit button is the site's own)."
     }
-    // About to give up: once per run, Broods first looks at the real tab (a screenshot steered into its conversation) and tries again.
+    // About to give up: once per run, the server looks at the real tab first (a screenshot described by the sight model; only the
+    // text goes to Broods, never the picture) and Broods tries again with that.
     if ((stage === "stuck" || (stage === "needs_you" && reason === "other")) && live(run)) {
       const looked = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.vision_stuck&select=id&limit=1`).catch(() => null))?.[0]
       if (!looked) {
         const image = await captureShot(env, run)
-        if (image && await pushScreenshot(visionDeps(env, run), run.id, image, ["you were about to stop"])) {
-          await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "vision_stuck" }, done_at: new Date().toISOString() }) }).catch(() => undefined)
-          return { text: "Not yet: a screenshot of the tab is now in your conversation as an image. Look at it (what is open, what the error says, where the button is, what each box really shows), then try another way, or finish again if it really is blocked.", error: true }
+        const sight = image && !looksBlank(image) ? await describeShot(sightEnv((n) => Deno.env.get(n)), image, 12_000, fetch, ["the agent was about to stop"]) : ""
+        if (sight) {
+          await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "vision_stuck", sight }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+          return { text: `Not yet: Odds looked at the tab for you. What it shows now:\n${sight}\nUse that (what is open, what the error says, where the button is, what each box really shows) to try another way, or finish again if it really is blocked.`, error: true }
         }
       }
     }
@@ -645,7 +647,8 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     await learnRun(env, run, stage).catch(() => console.warn("Site playbook learning unavailable"))
     // Only runs that ended on the form itself teach a route (a captcha or a closed job says nothing about the platform's route).
     if (stage === "review" || reason === "questions") await recordRoute(env, { ...run, steps: run.steps }, stage).catch(() => undefined)
-    return { text: "Finished." }
+    await endTurn(run)
+    return { text: "Finished. The run is over: end your turn now without writing anything." }
   }
   if (!live(run)) return { text: `This run is over (${run.status}). Stop.`, error: true }
   if (name === "note_site") {
@@ -731,17 +734,6 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         if (typeof res.shot_image === "string") { shotImage = res.shot_image; const { shot_image: _s, ...rest } = res; res = rest }
         await svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: res }) })
       }
-      // Sight: Broods cannot see the picture, so what it shows comes with the page as text (open pop-ups and lists, errors, the
-      // buttons and where they are, a captcha). Kept on the step for the trace.
-      const picture = shotImage
-      if (picture) {
-        const sight = await describeShot(sightEnv((n) => Deno.env.get(n)), picture)
-        if (sight) {
-          if (res.page && typeof res.page === "object") res = { ...res, page: { ...res.page, sight } }
-          else res = { ...res, sight }
-          void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: res }) }).catch(() => undefined)
-        }
-      }
       // A fill that ran out of its time window (a slow dropdown) leaves the rest "not tried": Odds sends those fields again itself, once more, so Broods gets one answer for the whole fill and never gives up on fields nobody tried.
       if (name === "fill" && Array.isArray(res.results) && Array.isArray(rest.fields)) {
         // One more round at most: two 45 s rounds stay well inside the function's wall clock.
@@ -773,6 +765,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         const message = "A check is in the way. Tick it in the tab and Odds carries on."
         await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "captcha", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
         await cancelOpenCommands(env, run.id, "captcha")
+        await endTurn(run)
         return { text: JSON.stringify({ ok: false, run_ended: true, captcha: true, error: "Captcha: Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
       }
       // A job page that says it is over (read_page.closed: a 404, "no longer available", a taken-down Workday job): closed, at once.
@@ -781,6 +774,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         const message = "This job is no longer open for applications."
         await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "closed", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
         await cancelOpenCommands(env, run.id, "closed")
+        await endTurn(run)
         return { text: JSON.stringify({ ok: false, run_ended: true, closed: true, error: "The job is closed: Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
       }
       // A sign-in wall with nothing to apply to: the page says "log in to apply" (EU JRC), or it is a sign-in form and nothing else
@@ -797,6 +791,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
           const message = "This site wants you to sign in. Do it in the tab, then press Auto apply again."
           await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "account", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
           await cancelOpenCommands(env, run.id, "account")
+          await endTurn(run)
           return { text: JSON.stringify({ ok: false, run_ended: true, account: true, error: "Sign-in wall: Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
         }
       }
@@ -818,24 +813,39 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
             }),
           }).catch(() => undefined)
           await cancelOpenCommands(env, run.id, "wrong_job")
+          await endTurn(run)
           return { text: JSON.stringify({ ok: false, wrong_job: true, error: idCheck.message, page }), error: true }
         }
       }
-      // Real vision when the step went wrong: the screenshot goes into the conversation as an image (drive-vision.ts).
-      if (["fill", "click", "click_at", "read_page"].includes(name) && live(run)) {
+      // Sight: Broods never gets the picture itself (an image in the conversation cost ~40K tokens and was sent again on every later
+      // step). The server shows the screenshot to the sight model and hands Broods its short text: once per new page, and again only when
+      // the step went wrong (a fill not kept, a click that changed nothing, a new error or pop-up, far fewer fields than before).
+      if (["read_page", "fill", "click", "click_at", "scroll", "upload_cv", "back", "open_job"].includes(name) && live(run)) {
         const prev = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&id=lt.${cmd.id}&tool=in.(read_page,fill,click,click_at,scroll,upload_cv,back,open_job)&order=id.desc&limit=1&select=result`).catch(() => null))?.[0]?.result
         const before = prev?.page ?? (Array.isArray(prev?.fields) ? prev : null)
-        const reasons = troubleReasons(name, res, page, before)
-        if (reasons.length) {
-          const image = shotImage || await captureShot(env, run)
-          if (image && await pushScreenshot(visionDeps(env, run), run.id, image, reasons)) res = { ...res, vision: "A screenshot of the tab is now in your conversation as an image: look at it before your next step." }
+        const reasons = ["fill", "click", "click_at", "read_page"].includes(name) ? troubleReasons(name, res, page, before) : []
+        if (fewerFields(page, before)) reasons.push("the page lists far fewer fields than before")
+        const key = sightKey(page)
+        const looks = ((await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.sight&select=result&limit=60`).catch(() => null)) ?? []).map((r: Json) => r?.result ?? {})
+        const newPage = Boolean(key) && !looks.some((l: Json) => l.key === key)
+        const troubleLeft = looks.filter((l: Json) => l.trouble).length < TROUBLE_SIGHT_MAX
+        if (newPage || (reasons.length && troubleLeft)) {
+          const image = shotImage || (reasons.length && troubleLeft ? await captureShot(env, run) : "")
+          const sight = image && !looksBlank(image) ? await describeShot(sightEnv((n) => Deno.env.get(n)), image, 12_000, fetch, reasons) : ""
+          if (sight) {
+            if (res.page && typeof res.page === "object") res = { ...res, page: { ...res.page, sight } }
+            else res = { ...res, sight }
+            if (reasons.length) res = { ...res, vision: `Odds looked at the tab because ${reasons.join(" and ")}: read sight before your next step.` }
+            void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: res }) }).catch(() => undefined)
+            await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "sight", key, trouble: reasons.length ? reasons.join("; ") : null }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+          }
         }
       }
       // Recipe replays are the server's evidence, not Broods' business.
       const { recipe_attempts: _replayed, ...shown } = res
       if (shown.page?.recipe_attempts) { const { recipe_attempts: _inPage, ...rest } = shown.page; shown.page = rest }
       // Whatever else is a very long string (a stray image, a page dump) never goes into the text the model reads.
-      return { text: JSON.stringify(shown, (_k, v) => (typeof v === "string" && v.length > 20_000 ? "(omitted: too long)" : v)).slice(0, 30_000), ...(shotImage ? { image: shotImage } : {}) }
+      return { text: JSON.stringify(shown, (_k, v) => (typeof v === "string" && v.length > 20_000 ? "(omitted: too long)" : v)).slice(0, 30_000) }
     }
     if (row?.status === "cancelled" || row?.status === "expired") {
       const kind = row.result?.timeout || row.status
@@ -857,6 +867,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         body: JSON.stringify({ status: "needs_you", reason: "other", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }),
       }).catch(() => undefined)
       await cancelOpenCommands(env, run.id, "tab_silent")
+      await endTurn(run)
       return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, run_ended: true, error: "The tab stopped answering twice; Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
     }
   }
@@ -890,7 +901,8 @@ export async function handleDriveMcp(req: Request, env: Env): Promise<Response> 
     if (m?.method === "tools/list") return { jsonrpc: "2.0", id, result: { tools: TOOLS, ttlMs: 300_000, cacheScope: "public" } }
     if (m?.method === "tools/call") {
       const out = await callTool(env, String(m.params?.name ?? ""), m.params?.arguments ?? {}).catch((e) => ({ text: `Error: ${String(e?.message ?? e)}`, error: true }))
-      return { jsonrpc: "2.0", id, result: { content: [...("image" in out && out.image ? [{ type: "image", data: out.image, mimeType: "image/jpeg" }] : []), { type: "text", text: out.text }], ...(out.error ? { isError: true } : {}) } }
+      // Text only: no image part ever goes to Broods (it kept every picture in the conversation and resent it on each step).
+      return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: out.text }], ...(out.error ? { isError: true } : {}) } }
     }
     return { jsonrpc: "2.0", id: id ?? null, error: { code: -32601, message: "Method not found" } }
   }
@@ -979,29 +991,18 @@ function jobFacts(job: Json, url: string, facts: Record<string, string>): Record
   return out
 }
 
-/** The storage, memory and Broods steering the screenshot push needs, for one run (drive-vision.ts). */
-function visionDeps(env: Env, run: Json): VisionDeps {
-  // Broods downloads every image link again on every step, and the storage CDN would keep serving an overwritten screenshot: no cache,
-  // so greying out an old one takes effect at once (tested: 4,744 input tokens with the cache, 3,365 without).
-  const storage = (path: string) => `${env.url}/storage/v1/object/sight/${path.split("/").map(encodeURIComponent).join("/")}`
-  const auth = { apikey: env.serviceKey!, Authorization: `Bearer ${env.serviceKey}` }
-  return {
-    put: async (path, base64) => (await fetch(storage(path), { method: "POST", headers: { ...auth, "Content-Type": "image/jpeg", "x-upsert": "true", "cache-control": "max-age=0" }, body: Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)) })).ok,
-    sign: async (path, seconds) => {
-      const res = await fetch(`${env.url}/storage/v1/object/sign/sight/${path.split("/").map(encodeURIComponent).join("/")}`, { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify({ expiresIn: seconds }) })
-      const body = res.ok ? await res.json().catch(() => null) : null
-      return typeof body?.signedURL === "string" ? `${env.url}/storage/v1${body.signedURL}` : null
-    },
-    pushed: async () => ((await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.vision&order=id.asc&select=result`).catch(() => null)) ?? []).map((r: Json) => String(r?.result?.path ?? "")).filter(Boolean),
-    remember: async (path, reason) => { await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "vision", args: {}, status: "done", result: { path, reason }, done_at: new Date().toISOString() }) }) },
-    steer: async (text, imageUrl) => {
-      const agentId = (Deno.env.get("ODDS_DRIVE_AGENT_ID") ?? "").trim()
-      const client = agentId ? await broodsClient(run) : null
-      if (!client) return false
-      await client.runAsync({ agentId, eventId: crypto.randomUUID(), conversationKey: `odds-drive-${run.id}`, mode: "steer", events: [{ role: "user", content: [{ type: "text", text }, { type: "image", image: imageUrl, mediaType: "image/jpeg" }] }] } as never)
-      return true
-    },
-  }
+/**
+ * End the run's Broods turn right after finish: without this the model makes one more full-context call only to write a closing line
+ * (643 such calls in 4 days, ~6% of all drive tokens). Steered as Broods' /stop; ODDS_STOP_AT_FINISH=0 turns it off. Never throws.
+ */
+async function endTurn(run: Json): Promise<void> {
+  if ((Deno.env.get("ODDS_STOP_AT_FINISH") ?? "").trim() === "0") return
+  try {
+    const agentId = (Deno.env.get("ODDS_DRIVE_AGENT_ID") ?? "").trim()
+    const client = agentId ? await broodsClient(run) : null
+    // Awaited (an edge function may drop work left running after it answers), but never for more than 4 s.
+    if (client) await Promise.race([client.runAsync({ agentId, eventId: crypto.randomUUID(), conversationKey: `odds-drive-${run.id}`, mode: "steer", input: "/stop" } as never), sleep(4000)])
+  } catch { /* the closing line is only a cost, never a fault */ }
 }
 
 /** A fresh screenshot of the run's tab (a screenshot step the extension answers), or "" when it does not come in time. */

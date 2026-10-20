@@ -36,7 +36,7 @@ export function cleanSight(text: string): string {
  * What the screenshot shows, as text for an agent that cannot see; "" when sight is off, slow or fails (never holds a run up).
  * `image` is the base64 JPEG the extension took of the tab.
  */
-export async function describeShot(env: SightEnv | null, image: string, timeoutMs = 12_000, fetcher: typeof fetch = fetch): Promise<string> {
+export async function describeShot(env: SightEnv | null, image: string, timeoutMs = 12_000, fetcher: typeof fetch = fetch, trouble: string[] = []): Promise<string> {
   // An unpainted (white) tab says nothing about the page; described, it read as "blank page" (see looksBlank in drive-vision.ts).
   if (!env || !image || (image.length * 3) / 4 < 8_000) return ""
   try {
@@ -48,7 +48,7 @@ export async function describeShot(env: SightEnv | null, image: string, timeoutM
         max_tokens: 400,
         messages: [
           { role: "system", content: SIGHT_PROMPT },
-          { role: "user", content: [{ type: "text", text: "Screenshot of the application tab." }, { type: "image_url", image_url: { url: `data:image/jpeg;base64,${image}` } }] },
+          { role: "user", content: [{ type: "text", text: trouble.length ? `Screenshot of the application tab, taken because ${trouble.join(" and ")}. Start with one line that explains it (which value a box really shows, the exact error, what is open or covering the form).` : "Screenshot of the application tab." }, { type: "image_url", image_url: { url: `data:image/jpeg;base64,${image}` } }] },
         ],
       }),
       signal: AbortSignal.timeout(timeoutMs),
@@ -60,4 +60,24 @@ export async function describeShot(env: SightEnv | null, image: string, timeoutM
   } catch {
     return ""
   }
+}
+
+/** Sight descriptions per run at most when something went wrong (a new page's first look does not count). */
+export const TROUBLE_SIGHT_MAX = 8
+
+/** One look per page: the address without its #fragment, plus the title (a single-page form that changes step keeps its URL). */
+export function sightKey(page: { url?: unknown; title?: unknown } | null | undefined): string {
+  const url = typeof page?.url === "string" ? page.url.split("#")[0]! : ""
+  return url ? `${url}|${typeof page?.title === "string" ? page.title.slice(0, 120) : ""}` : ""
+}
+
+/**
+ * Unusually few fields: the same page as before now lists far fewer fields (a form that lost its fields behind an overlay, a
+ * widget the reader cannot see into). A page that never had fields (a job description) is not trouble.
+ */
+export function fewerFields(page: { url?: unknown; fields?: unknown } | null | undefined, before: { url?: unknown; fields?: unknown } | null | undefined): boolean {
+  if (!page || !before || !Array.isArray(page.fields) || !Array.isArray(before.fields)) return false
+  if (sightKey({ url: page.url }) !== sightKey({ url: before.url })) return false
+  const was = before.fields.length, now = page.fields.length
+  return was >= 4 && now * 2 < was
 }
