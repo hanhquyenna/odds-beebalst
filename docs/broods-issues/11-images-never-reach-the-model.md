@@ -50,6 +50,26 @@ await client.run({ agentId: "<agent with no tools on the custom provider>", conv
 
 **C. Through Broods, MCP tool result with an image part (fails):** the drive agent calls `read_page`; the tool returns the image part above. Asked about the page, the model never refers to anything only visible in the picture. A direct provider call that puts the image inside a `role: "tool"` message gives the same blindness, so that path may also be a provider limit. B shows Broods drops images even where the provider accepts them.
 
+## Root cause (traced in `apps/core/src/harness`, dev branch)
+
+Captured at the provider (a logging proxy in front of 9router, shapes only), for each image event sent through Broods:
+`s:string(863) u:parts[text,text] images=[]`. The second text part is Broods' `<environment>` block, and the image part is simply
+gone. The same image sent as a **URL** arrives as `u:parts[text,image_url,text]` (`data:image/png;base64,…`, 14,750 chars) and the
+model answers correctly ("7392").
+
+1. **User events:** `session.ts` → `createStoredEventFromModelMessage` → `sanitizeUserMessage`: "Media carrying its own bytes is
+   dropped." Only storable media *references* survive. The turn's model messages are then built from those stored rows
+   (`createTurnContext` → `loadTurnHistory` → `rehydrateStoredMedia`), not from the live event. So an inline base64 image never
+   reaches the model. Only channel attachments are turned into sealed links first (`ingestChannelAttachments` / `channel-media.ts`).
+   The direct API (`run` / `runAsync` events) gets no such upload.
+2. **MCP tool results:** `mcp/client.ts` → `imageContentOutput` turns an MCP `image` block into `image-data`, and
+   `tools/utils.ts` → `withImageLimits` validates it for the model ("Images reach the model only within `withImageLimits`"). But
+   `session.ts` → `storableToolResultOutput` returns `false` for `image-data`, and the next model step is rebuilt from stored
+   rows, so the image is dropped there. The docs' "Stored history keeps the text only" makes this a contradiction: no MCP image
+   ever reaches the model.
+3. **`resource_link` / `resource`** in a tool result become text (`"[resource link: <uri>]"`): the MCP client never reads the
+   mimeType, so a tool cannot hand over an image as a link either.
+
 ## Expected
 
 - B: the image reaches the provider as an `image_url` part (OpenAI-compatible providers accept `data:` URLs), and the model reads it.
@@ -60,7 +80,16 @@ await client.run({ agentId: "<agent with no tools on the custom provider>", conv
 
 No image reaches the model, and nothing in `broods logs` (WARN or INFO) mentions it.
 
-## Suggested fix
+## Suggested fix (source level)
+
+- For direct-API events, put byte-backed image/file parts through the same path as channel attachments: upload, then a sealed
+  link in the stored row, rehydrated for the model. Or keep them on the live turn (`turnEvents`) even though they are not stored.
+- For MCP results, store `image-data` the same way (upload, then a sealed link) instead of returning `false` in
+  `storableToolResultOutput`, so `rehydrateStoredMedia` can give it back to the model on the next step.
+- Map MCP `resource_link` with an `image/*` mimeType to an `image-url` part.
+- Log a WARN whenever an image part is dropped.
+
+## Suggested fix (original notes)
 
 1. Map user `image` / `file` (image/*) parts to `{ type: "image_url", image_url: { url: "data:<mediaType>;base64,<data>" } }` for `custom` and other OpenAI-compatible providers.
 2. For MCP tool results with image parts: forward them as a user message right after the tool message when the provider can't take images in tool messages, behind an agent option such as `mcp.toolImages: "forward" | "drop" | "native"`, and log which was used.
