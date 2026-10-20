@@ -559,6 +559,8 @@
     if (want.length < 4) return false
     return deepAll("span, p, div, li, a, button, label, strong, td").some((e) => e.children.length === 0 && shown(e) && norm(textOf(e)).includes(want))
   }
+  /** How long one fill step may work in the tab (the server waits 45 s for it). Every per-field budget is measured against this. */
+  const FILL_STEP_MS = 40000
   /** Why the CV file could not be had (the server's words), for the upload step's answer to Broods. */
   let cvLoadError = ""
   async function uploadCv(f, known = false) {
@@ -2173,7 +2175,7 @@
     const allowReal = opts.allowReal === true
     const fillStarted = opts.started || Date.now()
     const fieldStarted = Date.now()
-    const timeOk = () => Date.now() - fillStarted < 15000 && Date.now() - fieldStarted < 6000
+    const timeOk = () => Date.now() - fillStarted < FILL_STEP_MS - 4000 && Date.now() - fieldStarted < 6000
     const tried = []
     const note = (step) => { if (step && !tried.includes(step)) tried.push(step) }
     const finish = (ok, via) => ({ ok, via: ok ? via : "", value: fieldValue(f), tried })
@@ -2354,7 +2356,9 @@
           continue
         }
         // The step answers within ~40 s whatever happens (the server waits 45 s for a fill): fields left over are said to be left over.
-        if (Date.now() - fillStarted > 40000) { results.push({ id: it.id, ok: false, error: "not tried: out of time in this step; fill it again in a new fill call" }); continue }
+        // A dropdown that would get only a few seconds is left "not tried" (the server sends it again in a fresh step) rather than
+        // failed in 2 s with no fallback (the last dropdown on GenScript and IMC always lost this way).
+        if (Date.now() - fillStarted > FILL_STEP_MS || (["combobox", "listbox"].includes(f.kind) && FILL_STEP_MS - 4000 - (Date.now() - fillStarted) < 4000)) { results.push({ id: it.id, ok: false, error: "not tried: out of time in this step; fill it again in a new fill call" }); continue }
         // Longer than the box takes: cut at a whole sentence here (the site would cut mid-word) and say so, so Broods can rewrite if needed.
         const limit = charLimit(elOf(f))
         const shortened = limit && value.length > limit ? value.length : 0
@@ -2394,8 +2398,9 @@
             if (widget === "choice" || f.kind === "select" || f.kind === "radio" || f.kind === "choice") return fillButtonChoice(f, value)
             return fillPlainOrCard(f, value, besideCountry)
           })()
-          // One field never holds the step: 8 s at most, then Broods is told it failed and can try another way.
-          const left = Math.max(1500, Math.min(8000, 19000 - (Date.now() - fillStarted)))
+          // One field never holds the step: 8 s at most, then Broods is told it failed and can try another way. Measured against the
+          // whole fill step (FILL_STEP_MS): left at the old 19 s step, every dropdown after the first few got 2 s and no fallbacks.
+          const left = Math.max(1500, Math.min(8000, FILL_STEP_MS - 4000 - (Date.now() - fillStarted)))
           result = await Promise.race([work, sleep(left).then(() => ({ ok: false, error: `the site did not take it within ${Math.round(left / 1000)} s` }))])
         } catch (e) { result = { ok: false, error: String(e?.message || e).slice(0, 120) } }
         await sleep(80)

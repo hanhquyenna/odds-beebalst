@@ -7259,3 +7259,38 @@ test("Ashby's empty 'Autofill from resume' box beside a filled 'Resume' box does
   await expect(page.locator(".odds-apply-bar")).toContainText(/press Submit/i, { timeout: 30000 })
   await expect(page.locator(".odds-apply-bar")).not.toContainText(/(outlined|highlighted) questions/i)
 })
+
+test("live: Greenhouse react-select dropdowns keep the option Broods' fill chose (REAL_DROPDOWN_URL)", async ({ context, fake }) => {
+  test.skip(!process.env.REAL_DROPDOWN_URL, "Set REAL_DROPDOWN_URL to a live Greenhouse application page.")
+  test.setTimeout(240_000)
+  const url = process.env.REAL_DROPDOWN_URL!
+  await connect(context)
+  const host = new URL(url).hostname
+  await context.unroute(`https://${host}/**`).catch(() => undefined)
+  fake.kit = { job_id: "plive", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", phone: "+31 6 1234 5678", place: "Amsterdam, Netherlands", answers: { first_name: "Kien", last_name: "Phung" }, remembered: {} } }
+  let before: Array<{ id: string; label: string; kind: string; filled: boolean; value?: string; options?: string[] }> = []
+  let after: typeof before = []
+  let results: Array<{ id: string; ok: boolean; error?: string; tried?: string[] }> = []
+  fake.driveScript = async (cmd) => {
+    before = ((await cmd("read_page")).fields ?? []) as typeof before
+    const picks = before.filter((f) => f.kind === "combobox" && !f.filled && (f.options?.length ?? 0) > 0).slice(0, 10).map((f) => ({ id: f.id, value: f.options![Math.min(1, f.options!.length - 1)] }))
+    results = ((await cmd("fill", { fields: picks })).results ?? []) as typeof results
+    // As the server does: fields left "not tried" go again in a fresh step.
+    const untried = new Set(results.filter((r) => /^not tried/.test(r.error ?? "")).map((r) => r.id))
+    if (untried.size) {
+      const again = ((await cmd("fill", { fields: picks.filter((p) => untried.has(p.id)) })).results ?? []) as typeof results
+      results = [...results.filter((r) => !untried.has(r.id)), ...again]
+    }
+    after = ((await cmd("read_page")).fields ?? []) as typeof before
+    return { status: "needs_you", reason: "other", message: "live dropdown check" }
+  }
+  const page = await context.newPage()
+  await page.goto(url)
+  await applyFrom(context, page, url)
+  await expect.poll(() => after.length, { timeout: 180_000 }).toBeGreaterThan(0)
+  for (const r of results) {
+    const b = before.find((f) => f.id === r.id), a = after.find((f) => f.id === r.id)
+    console.log(`LIVE DROPDOWN ${r.ok ? "KEPT  " : "LOST  "} ${(b?.label ?? r.id).slice(0, 50).padEnd(50)} -> ${String(a?.value ?? "").slice(0, 40)} ${r.error ? "| " + r.error.slice(0, 80) : ""} ${r.tried ? JSON.stringify(r.tried) : ""}`)
+  }
+  console.log(`LIVE DROPDOWN kept ${results.filter((r) => r.ok).length}/${results.length}`)
+})

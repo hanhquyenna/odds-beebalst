@@ -147,3 +147,35 @@ test("review is refused when the run tried to attach the CV and it never went in
   expect(cvNeverAttached([{ result: { ok: false, cv_attached: true } }])).toBe(false)
   expect(cvNeverAttached([])).toBe(false)
 })
+
+test("stopping a run (an extension reload stops every run it remembers) keeps the outcome of one that already ended", async () => {
+  const { driveExt } = await import("../../supabase/functions/mcp/drive")
+  const stop = async (status: string): Promise<string[]> => {
+    const original = globalThis.fetch
+    const deno = (globalThis as unknown as { Deno?: unknown }).Deno
+    const patches: string[] = []
+    Object.assign(globalThis, { Deno: { env: { get: () => "" } } })
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+      let result: unknown = []
+      if (url.includes("drive_runs?") && !init?.method) result = [{ id, user_id: "u1", status, steps: 4, url: "https://careers.example.org/job", expires_at: new Date(Date.now() + 60000).toISOString() }]
+      if (url.includes("drive_runs?") && init?.method === "PATCH") patches.push(typeof init.body === "string" ? init.body : "")
+      return new Response(JSON.stringify(result), { status: 200 })
+    }) as typeof fetch
+    try {
+      const req = new Request("https://test.invalid/ext/drive-stop", { method: "POST", body: JSON.stringify({ run_id: id, message: "The Odds extension was updated while applying." }) })
+      await driveExt("drive-stop", req, { url: "https://test.invalid", serviceKey: "k" }, "u1", { facts: async () => ({}), job: async () => null })
+    } finally {
+      globalThis.fetch = original
+      Object.assign(globalThis, { Deno: deno })
+    }
+    return patches
+  }
+  for (const ended of ["needs_you", "stuck", "review"]) {
+    const patches = await stop(ended)
+    expect(patches.length).toBe(1)
+    expect(patches[0]).not.toContain("\"status\"")
+  }
+  const running = await stop("running")
+  expect(running.some((p) => p.includes("\"status\":\"stopped\""))).toBe(true)
+})

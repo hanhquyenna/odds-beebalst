@@ -1130,11 +1130,13 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
   if (!run || run.user_id !== userId) return json(404, { error: "No such run." })
   if (route === "drive-stop") {
     // The person took the tab back (or stopped the run): Broods' next tool call sees the run is over and ends.
-    // The tab is gone either way. At review it stays review (did they send it? the app asks once); otherwise the run ends.
+    // The tab is gone either way.
     const gone = new Date(0).toISOString()
     const now = new Date().toISOString()
-    if (run.status === "review") await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ last_seen_at: gone }) })
-    else if (!["submitted", "stopped"].includes(run.status)) {
+    // Only a run still working is stopped. One that already ended (review, needs you, stuck) keeps its outcome: a reload of the
+    // extension stops every run it remembers, and rewrote finished ones as "stopped" (the tracker and the metrics lost them).
+    if (run.status !== "running") await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ last_seen_at: gone, resume_pending: false }) })
+    else {
       await svc(env, `drive_runs?id=eq.${run.id}`, {
         method: "PATCH",
         body: JSON.stringify({
