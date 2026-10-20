@@ -1009,8 +1009,11 @@ function jobFacts(job: Json, url: string, facts: Record<string, string>): Record
  * End the run's Broods turn right after finish: without this the model makes one more full-context call only to write a closing line
  * (643 such calls in 4 days, ~6% of all drive tokens). Steered as Broods' /stop; ODDS_STOP_AT_FINISH=0 turns it off. Never throws.
  */
+// Off unless ODDS_STOP_AT_FINISH=1. Broods core (0.50, harness.ts) parses /stop only on channel messages: an API run's "/stop" is
+// admitted as a plain steer (the model reads the text "/stop"), or after the turn as a new turn. It never ended the turn. The only
+// real end after finish is a core stopWhen on the finish tool (proposed upstream as agent.stopAfterTools).
 async function endTurn(run: Json): Promise<void> {
-  if ((Deno.env.get("ODDS_STOP_AT_FINISH") ?? "").trim() === "0") return
+  if ((Deno.env.get("ODDS_STOP_AT_FINISH") ?? "").trim() !== "1") return
   try {
     const agentId = (Deno.env.get("ODDS_DRIVE_AGENT_ID") ?? "").trim()
     const client = agentId ? await broodsClient(run) : null
