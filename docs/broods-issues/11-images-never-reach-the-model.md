@@ -98,3 +98,21 @@ No image reaches the model, and nothing in `broods logs` (WARN or INFO) mentions
 ## Workaround in odds
 
 The drive server sends the screenshot to 9router itself as an ordinary image message, and puts a short text description ("sight") beside the field list (`supabase/functions/_shared/drive-sight.ts`, commit d4f9feb).
+
+## Proposed fix (patch ready): `11-fix.patch`
+
+Against `beeblastco/broods` dev at `b544c6f`, 4 files, +223 / -1:
+
+- `apps/core/src/harness/provider.ts`: `toolImagesAsUserMessageMiddleware`, added to the `custom` (OpenAI-compatible) chain after
+  `mergeSystemMessagesMiddleware`. It moves image file parts out of tool results into one user message right after the tool
+  messages (parallel tool messages share one), leaving a note in the result. `@ai-sdk/openai-compatible` otherwise
+  JSON-stringifies a tool result's image into the tool message (`supportsMultiPartToolContent` is off), where no chat
+  endpoint reads it.
+- `apps/core/src/harness/session.ts`: `restoreTurnMedia`, called in `createTurnContext`. It puts this turn's byte-backed media
+  back onto its user messages for the model (rows untouched). That keeps the promise in `sanitizeUserMessage`'s comment ("the
+  model already saw it in the turn it arrived"), which the stored-rows turn build broke.
+- Tests: `tests/tool-images-middleware.test.ts` (4) and `tests/restore-turn-media.test.ts` (3). With the existing
+  `provider-middleware` tests: 25/25. Related suites (session, provider, media, ingress, mcp): no new failures; the 27–28
+  `mcp-runner` failures are the same without the patch (they need the sandbox runner).
+
+Apply: `git apply docs/broods-issues/11-fix.patch` in a broods checkout.
