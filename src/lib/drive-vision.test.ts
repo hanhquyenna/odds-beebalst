@@ -12,6 +12,10 @@ describe("real vision only when a step shows trouble", () => {
     expect(troubleReasons("read_page", {}, page({ errors: ["City is required"] }), null)).toEqual(["the page shows an error"])
     expect(troubleReasons("read_page", {}, page({ dialog: { title: "Cookies" } }), null)).toEqual(["a pop-up is open"])
     expect(troubleReasons("fill", { results: [{ id: "f1", ok: true }] }, page({ fields: [{ id: "f1", value: "x", filled: true }] }), page())).toEqual([])
+    // The same error or pop-up already on the page before is no new trouble.
+    expect(troubleReasons("read_page", {}, page({ errors: ["City is required"] }), page({ errors: ["City is required"] }))).toEqual([])
+    expect(troubleReasons("read_page", {}, page({ errors: ["City is required", "Phone is invalid"] }), page({ errors: ["City is required"] }))).toEqual(["the page shows an error"])
+    expect(troubleReasons("read_page", {}, page({ dialog: { title: "Cookies" } }), page({ dialog: { title: "Cookies" } }))).toEqual([])
     expect(pageSignature(page())).toBe(pageSignature(page()))
   })
 

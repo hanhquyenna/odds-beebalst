@@ -40,8 +40,12 @@ export function troubleReasons(tool: string, result: Json, page: Json, before: J
     if (lost.length) out.push(`a fill did not take (${lost.length} field${lost.length > 1 ? "s" : ""})`)
   }
   if ((tool === "click" || tool === "click_at") && page && before && pageSignature(page) === pageSignature(before)) out.push("the click changed nothing on the page")
-  if (page && Array.isArray(page.errors) && page.errors.length) out.push("the page shows an error")
-  if (page?.dialog) out.push("a pop-up is open")
+  // Only a new error or a newly opened pop-up: the same message left on the page (SmartRecruiters keeps its error text) spent the
+  // whole screenshot budget on the same picture.
+  const errorsOf = (p: Json) => (Array.isArray(p?.errors) ? p.errors.map(String) : [])
+  const seen = new Set(errorsOf(before))
+  if (errorsOf(page).some((e: string) => !seen.has(e))) out.push("the page shows an error")
+  if (page?.dialog && !before?.dialog) out.push("a pop-up is open")
   return out
 }
 
