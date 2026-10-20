@@ -14,27 +14,17 @@ import { markExtensionOnboardDone, shouldShowExtensionOnboard } from "@/lib/exte
 /** What one-click applying runs on: Drive for files, Gmail for outreach, and Odds for Chrome that fills the forms. */
 export function Connections({ onSignIn }: { onSignIn: () => void }): React.JSX.Element {
   const [problem, setProblem] = useState<string | null>(null)
-  const [focus, setFocus] = useState<ConnectFocus | null>(null)
+  const [focus, setFocus] = useState<ConnectFocus | null>(() => takeConnectFocus())
   const { present, linked, boards } = useExtensionLink()
-  const [tourOpen, setTourOpen] = useState(false)
+  const [tour, setTour] = useState<"initial" | "open" | "closed">(() => focus === "extension" ? "open" : "initial")
+  const tourOpen = tour === "open" || tour === "initial" && shouldShowExtensionOnboard({ present: present, linked: linked })
 
   useEffect(() => {
-    const next = takeConnectFocus()
-    if (!next) return
-    setFocus(next)
-    if (next === "extension") setTourOpen(true)
-    const t = window.setTimeout(() => setFocus(null), 4000)
-    return () => window.clearTimeout(t)
-  }, [])
+    if (!focus) return
+    const timer = window.setTimeout(() => setFocus(null), 4000)
 
-  const [autoTour, setAutoTour] = useState(false)
-  useEffect(() => {
-    if (autoTour || linked) return
-    if (shouldShowExtensionOnboard({ present, linked })) {
-      setTourOpen(true)
-      setAutoTour(true)
-    }
-  }, [present, linked, autoTour])
+    return () => window.clearTimeout(timer)
+  }, [focus])
 
   useEffect(() => {
     if (linked) markExtensionOnboardDone()
@@ -65,7 +55,7 @@ export function Connections({ onSignIn }: { onSignIn: () => void }): React.JSX.E
             focused={focus === "extension"}
             onSignIn={onSignIn}
             onProblem={setProblem}
-            onOpenTour={() => setTourOpen(true)}
+            onOpenTour={() => setTour("open")}
             linked={linked}
             present={present}
             boards={boards}
@@ -73,7 +63,7 @@ export function Connections({ onSignIn }: { onSignIn: () => void }): React.JSX.E
         </li>
       </ul>
 
-      <ExtensionOnboard open={tourOpen && !linked} onClose={() => setTourOpen(false)} onConnected={() => setTourOpen(false)} />
+      <ExtensionOnboard open={tourOpen && !linked} onClose={() => setTour("closed")} onConnected={() => setTour("closed")} />
     </div>
   )
 }

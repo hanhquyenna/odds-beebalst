@@ -2,7 +2,7 @@
  * Try Apply under the signed-in account: Jobs → open → Apply with Odds (app button).
  * Headed Chromium + unpacked ~/Downloads/odds-extension (same-window tabs).
  */
-import { chromium, type Page } from "playwright"
+import { chromium, type Page } from "@playwright/test"
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"

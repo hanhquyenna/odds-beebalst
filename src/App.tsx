@@ -8,7 +8,6 @@ import { connectWaiting } from "@/lib/connect-request"
 import { embedded } from "@/lib/embedded"
 import { dropExtensionRequest, extensionWaiting } from "@/lib/extension-connect"
 import { Button } from "@/components/ui/button"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
 import { takeDriveReturn } from "@/lib/drive"
@@ -36,6 +35,8 @@ import type { WebView } from "@/lib/web-nav"
 // account needs neither.
 // Lazy because only someone with an account sees them: the front page a visitor lands on never waits on the app's
 // own menus or the bell, and stays inside its size budget (e2e/lean.spec.ts).
+// Lazy: visitors do not need the signed-in account menu or its popover code.
+const AccountMenu = lazy(() => import("@/components/AccountMenu").then((module) => ({ default: module.AccountMenu })))
 const ApplyPanel = lazy(() => import("@/components/ApplyPanel").then((m) => ({ default: m.ApplyPanel })))
 const AppTopNav = lazy(() => import("@/components/AppShell").then((module) => ({ default: module.AppTopNav })))
 const AppTopBar = lazy(() => import("@/components/AppShell").then((module) => ({ default: module.AppTopBar })))
@@ -497,7 +498,7 @@ export default function App(): React.JSX.Element {
     </Suspense>
   )
   const accountMenu = (
-    <AccountMenu email={isGuestEmail(data.session?.user.email) ? null : (data.session?.user.email ?? null)} guest={isGuestEmail(data.session?.user.email)} profileAvatar={data.profile.avatar || ""} sessionAvatar={data.session?.user.avatar || ""} name={data.profile.name} onDashboard={onboarded ? () => goTab("account") : undefined} onAnswers={() => goTab("answers")} onConnect={onboarded ? () => goTab("connections") : undefined} onClaude={onboarded ? () => goTab("claude") : undefined} onSignIn={() => leaveSharedJob("signin")} onSignOut={handleSignOut} />
+    <Suspense fallback={<span className="size-10 shrink-0" aria-hidden="true" />}><AccountMenu email={isGuestEmail(data.session?.user.email) ? null : (data.session?.user.email ?? null)} guest={isGuestEmail(data.session?.user.email)} profileAvatar={data.profile.avatar || ""} sessionAvatar={data.session?.user.avatar || ""} name={data.profile.name} onDashboard={onboarded ? () => goTab("account") : undefined} onAnswers={() => goTab("answers")} onConnect={onboarded ? () => goTab("connections") : undefined} onClaude={onboarded ? () => goTab("claude") : undefined} onSignIn={() => leaveSharedJob("signin")} onSignOut={handleSignOut} /></Suspense>
   )
 
   return (
@@ -729,88 +730,6 @@ function PublicJobRoute({ id, onBack, onUnlock }: { id: string; onBack: () => vo
   }
 
   return <JobDetail post={post} locked={data.profile.onboarded ? undefined : { onUnlock }} onBack={onBack} />
-}
-
-interface AccountMenuProps {
-  email: string | null
-  guest: boolean
-  profileAvatar: string
-  sessionAvatar: string
-  name: string
-  onDashboard?: () => void
-  onAnswers: () => void
-  onConnect?: () => void
-  onClaude?: () => void
-  onSignIn: () => void
-  onSignOut: () => void
-}
-
-/** The circle in the header: your photo once signed in, and the way to your answers and out. */
-function AccountMenu({ email, guest, profileAvatar, sessionAvatar, name, onDashboard, onAnswers, onConnect, onClaude, onSignIn, onSignOut }: AccountMenuProps): React.JSX.Element {
-  // Controlled so choosing an item closes it; left open it covered the page it opened.
-  const [open, setOpen] = useState<boolean>(false)
-  // A dead photo URL falls through to the next source, then to the initial.
-  const sources = [profileAvatar, sessionAvatar].filter((src, index, all) => src !== "" && all.indexOf(src) === index)
-  const sourcesKey = sources.join("|")
-  const [seenSources, setSeenSources] = useState<string>(sourcesKey)
-  const [skipped, setSkipped] = useState<number>(0)
-  // A new person resets the fallthrough: derive during render, not in an effect.
-  if (seenSources !== sourcesKey) {
-    setSeenSources(sourcesKey)
-    setSkipped(0)
-  }
-  const displayName = name.trim()
-
-  function choose(action: () => void): void {
-    setOpen(false)
-    action()
-  }
-
-  const photo = sources[skipped] ?? ""
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger aria-label="Account menu" className="flex size-10 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-brand font-extrabold text-foreground">
-        {photo ? (
-          <img src={photo} alt="" onError={() => setSkipped((n) => n + 1)} className="size-full object-cover" />
-        ) : (
-          (displayName || email || (guest ? "Guest" : "Me")).charAt(0).toUpperCase()
-        )}
-      </PopoverTrigger>
-      <PopoverContent align="end" className="flex w-60 flex-col p-0">
-        <div className="border-b-[1.5px] px-4 py-3">
-          <div className="font-medium">{displayName || email || (guest ? "Guest" : "Your profile")}</div>
-          <div className="text-sm text-muted-foreground">{email ? "Saved to your account" : guest ? "Guest on this device" : "Saved on this device only"}</div>
-        </div>
-        {onDashboard ? (
-          <Button variant="ghost" onClick={() => choose(onDashboard)} className="cursor-pointer justify-start">
-            Dashboard
-          </Button>
-        ) : null}
-        <Button variant="ghost" onClick={() => choose(onAnswers)} className="cursor-pointer justify-start">
-          Profile and settings
-        </Button>
-        {onConnect ? (
-          <Button variant="ghost" onClick={() => choose(onConnect)} className="cursor-pointer justify-start">
-            Connect
-          </Button>
-        ) : null}
-        {onClaude ? (
-          <Button variant="ghost" onClick={() => choose(onClaude)} className="cursor-pointer justify-start">
-            Claude
-          </Button>
-        ) : null}
-        {email ? null : (
-          <Button variant="ghost" onClick={() => choose(onSignIn)} className="cursor-pointer justify-start">
-            Continue with Google to keep it
-          </Button>
-        )}
-        <Button variant="ghost" onClick={() => choose(onSignOut)} className="cursor-pointer justify-start text-destructive">
-          {email ? "Sign out" : "Clear this device"}
-        </Button>
-      </PopoverContent>
-    </Popover>
-  )
 }
 
 /** The name on the orange header, all in black so the "o" does not vanish into the orange. The round mark sits by the headline on the front page. */

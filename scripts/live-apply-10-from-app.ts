@@ -4,7 +4,7 @@
  *
  * Usage: bun scripts/live-apply-10-from-app.ts /tmp/odds-live-session.json
  */
-import { chromium, type Page } from "playwright"
+import { chromium, type Page } from "@playwright/test"
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"

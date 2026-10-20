@@ -61,7 +61,7 @@ async function abandonCommand(env: Env, cmdId: number, kind: "never_started" | "
 async function svc(env: Env, path: string, init: RequestInit = {}): Promise<Json> {
   const res = await fetch(`${env.url}/rest/v1/${path}`, {
     ...init,
-    headers: { apikey: env.serviceKey!, Authorization: `Bearer ${env.serviceKey}`, "Content-Type": "application/json", Prefer: "return=representation", ...(init.headers ?? {}) },
+    headers: { apikey: env.serviceKey!, Authorization: `Bearer ${env.serviceKey}`, "Content-Type": "application/json", Prefer: "return=representation", ...Object.fromEntries(new Headers(init.headers)) },
   })
   if (!res.ok) throw new Error(`db ${res.status}`)
   const text = await res.text()
@@ -88,10 +88,10 @@ const CHOOSING = ["select", "radio", "choice", "combobox", "listbox", "typeahead
 const STRUCTURE_WORDS = new Set(["http", "https", "www", "com", "net", "org", "linkedin", "profile"])
 /** Where a field the person's own detail went sits, as structure: the field's normalized label and which of the same-labelled fields
  * it is. Null when the label is not plain structure or repeats any word of the value (a label must never carry the person). */
-function placedMapping(page: Json, field: Json, key: string, value: unknown): Json | null {
+function placedMapping(page: Json, field: Json, key: string, value: unknown): Json {
   const label = fieldPattern(field?.label)
   if (!label || !key) return null
-  const words = String(value ?? "").toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 3 && !STRUCTURE_WORDS.has(w))
+  const words = (typeof value === "string" || typeof value === "number" ? String(value) : "").toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 3 && !STRUCTURE_WORDS.has(w))
   if (words.some((w) => label.includes(w))) return null
   const nth = (page?.fields || []).filter((f: Json) => fieldPattern(f?.label) === label).findIndex((f: Json) => f?.id === field.id)
   if (nth < 0) return null
@@ -132,7 +132,7 @@ async function learnRun(env: Env, run: Json, stage: string): Promise<void> {
   let page: Json = null
   // Field placements are judged over the whole run: one wrong placement (Broods had to redo it) outweighs its successes in the same run.
   const placements = new Map<string, { lesson: Json; url: string; outcome: string }>()
-  const place = (lesson: Json | null, url: string, outcome: string) => {
+  const place = (lesson: Json, url: string, outcome: string) => {
     if (!lesson) return
     const k = JSON.stringify(lesson)
     if (!placements.has(k) || outcome === "failure") placements.set(k, { lesson, url, outcome })
@@ -225,7 +225,7 @@ async function freshFields(env: Env, run: Json): Promise<Json[] | null> {
   return page ? (Array.isArray(page.fields) ? page.fields : []) : null
 }
 /** The page right now, read for the server's own check (no model turn), or null if the tab did not answer. */
-async function freshPage(env: Env, run: Json): Promise<Json | null> {
+async function freshPage(env: Env, run: Json): Promise<Json> {
   const docGen = typeof run?.doc_gen === "number" ? run.doc_gen : 0
   const [read] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "read_page", args: { review_check: true }, note: "Checking the page before stopping", doc_gen: docGen }) }).catch(() => [null])
   if (!read) return null
@@ -265,7 +265,7 @@ async function requiredEmpty(env: Env, run: Json): Promise<string[]> {
   return []
 }
 
-const runOf = async (env: Env, id: string): Promise<Json | null> => (UUID.test(id) ? (await svc(env, `drive_runs?id=eq.${id}&select=*`))?.[0] ?? null : null)
+const runOf = async (env: Env, id: string): Promise<Json> => (UUID.test(id) ? (await svc(env, `drive_runs?id=eq.${id}&select=*`))?.[0] ?? null : null)
 /** The person typed or clicked in the form in the last 20 s. */
 const personBusy = (run: Json): boolean => Boolean(run?.person_active_at) && Date.now() - Date.parse(run.person_active_at) < 20_000
 const live = (run: Json): boolean => run?.status === "running" && Date.parse(run.expires_at) > Date.now()
@@ -366,14 +366,14 @@ async function personQuestions(env: Env, run: Json, questions: string[]): Promis
   const fields = ((await freshFields(env, run)) ?? []).filter((f: Json) => f?.kind !== "file" && !f?.consent && f?.kind !== "checkbox")
   const clean = (l: string): string => String(l ?? "").replace(/\s*[*✱]\s*$/, "").trim()
   const out = new Map<string, Json>()
-  const add = (label: string, f: Json | null): void => {
+  const add = (label: string, f: Json): void => {
     const exact = clean(f?.label ?? label).slice(0, 300)
     const options = Array.isArray(f?.options) ? f.options.filter((o: unknown) => typeof o === "string" && o.trim() && !/^(select|choose|kies)\b/i.test(o as string)).slice(0, 40) : []
     out.set(questionSlug(exact), { key: questionSlug(exact), label: exact, kind: options.length ? "radio" : "text", ...(options.length ? { options } : {}) })
   }
   for (const q of questions) {
     const qw = words(q)
-    let best: Json | null = null, score = 0
+    let best: Json = null, score = 0
     for (const f of fields) {
       const fw = words(clean(f.label))
       const hit = [...qw].filter((w) => fw.has(w)).length / Math.max(1, Math.min(qw.size, fw.size))
@@ -672,7 +672,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
           if (!fields.length) break
           const [again] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "fill", args: { ...rest, fields }, note: "Filling the rest", doc_gen: docGen, tab_id: run.tab_id ?? null }) }).catch(() => [null])
           if (!again) break
-          let more: Json | null = null
+          let more: Json = null
           for (const until = Date.now() + TOOL_WAIT_MS; Date.now() < until;) {
             await sleep(400)
             const r2 = (await svc(env, `drive_commands?id=eq.${again.id}&select=status,result`).catch(() => null))?.[0]
@@ -778,8 +778,8 @@ export async function handleDriveMcp(req: Request, env: Env): Promise<Response> 
   if (calls && !authorized) return reply({ jsonrpc: "2.0", id: Array.isArray(msg) ? null : msg?.id ?? null, error: { code: -32001, message: "Unauthorized." } }, 401)
   // MCP 2026-07-28: every result names its kind; "complete" for all of ours (older clients ignore the extra key).
   const done = (r: Json): Json => (r && typeof r === "object" && "result" in r ? { ...r, result: { resultType: "complete", ...r.result } } : r)
-  const one = async (m: Json): Promise<Json | null> => done(await answer(m))
-  const answer = async (m: Json): Promise<Json | null> => {
+  const one = async (m: Json): Promise<Json> => done(await answer(m))
+  const answer = async (m: Json): Promise<Json> => {
     const id = m?.id
     // Newer stateless MCP clients (Broods) open with server/discover instead of initialize: same server card, plus the tools.
     // MCP 2026-07-28 (stateless): server/discover advertises versions + capabilities; versions after that ride in each request's _meta.
@@ -906,7 +906,7 @@ const resumeRun = (run: Json): boolean => run?.mode === "copilot"
 const resumePatch = (run: Json): Json => ({ status: "running", reason: null, message: null, resume_pending: true, resumes: (run.resumes ?? 0) + 1, last_note: "Carrying on where it stopped…", expires_at: new Date(Date.now() + 30 * 60_000).toISOString(), updated_at: new Date().toISOString() })
 
 /** /ext/drive-start | drive-next | drive-result for the person's own extension. */
-export async function driveExt(route: string, req: Request, env: Env, userId: string, ctx: { facts: () => Promise<Record<string, string>>; job: (url: string) => Promise<Json | null> }): Promise<Response> {
+export async function driveExt(route: string, req: Request, env: Env, userId: string, ctx: { facts: () => Promise<Record<string, string>>; job: (url: string) => Promise<Json> }): Promise<Response> {
   const json = (status: number, body: Json) => new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } })
   const body = await req.json().catch(() => null)
   if (route === "drive-playbook") return json(200, { playbook: await sitePlaybook(env, String(body?.page || body?.url || "")) })

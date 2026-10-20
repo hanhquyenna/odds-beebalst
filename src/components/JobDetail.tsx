@@ -133,10 +133,9 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
   const saved = data.saved.has(post.id)
   const [asking, setAsking] = useState<boolean>(false)
   // Overview is the job; Company is who you would join. The tab starts over on each job.
-  const [tabAt, setTabAt] = useState<{ id: string; tab: JobTab }>({ id: post.id, tab: "overview" })
-  const tab: JobTab = tabAt.id === post.id ? tabAt.tab : "overview"
-  const setTab = (next: JobTab): void => setTabAt({ id: post.id, tab: next })
-  useEffect(() => { if (showTab) setTabAt({ id: post.id, tab: showTab.tab }) }, [showTab, post.id])
+  const [tabAt, setTabAt] = useState<{ id: string; tab: JobTab; requestAt?: number }>({ id: post.id, tab: "overview" })
+  const tab: JobTab = tabAt.id === post.id && tabAt.requestAt === showTab?.at ? tabAt.tab : showTab?.tab ?? "overview"
+  const setTab = (next: JobTab): void => setTabAt({ id: post.id, tab: next, requestAt: showTab?.at })
   const fit = base ? (base.failing === 0 ? "met every requirement" : base.failing === 1 ? "missing one requirement" : "missing several requirements") : ""
 
   return (

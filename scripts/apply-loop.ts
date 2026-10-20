@@ -8,7 +8,7 @@
  *
  * set.json: [{ id, employer, title, ats, url }]. Results: research-data/jobcheck/loop/<name>.json. Needs the Supabase CLI logged in (read-only queries).
  */
-import { chromium, type BrowserContext, type Page } from "playwright"
+import { chromium, type BrowserContext, type Page } from "@playwright/test"
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
