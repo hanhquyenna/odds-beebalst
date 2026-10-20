@@ -7304,3 +7304,105 @@ test("live: Greenhouse react-select dropdowns keep the option Broods' fill chose
   for (const label of Object.keys(JSON.parse(process.env.REAL_DROPDOWN_VALUES || "{}"))) console.log(`LIVE OPTIONS ${label}: ${JSON.stringify(before.find((f) => f.label.startsWith(label))?.options?.slice(0, 40) ?? [])}`)
   console.log(`LIVE DROPDOWN kept ${results.filter((r) => r.ok).length}/${results.length}`)
 })
+
+test("a city search that drops an uncommitted choice when focus moves (SmartRecruiters) is never reported kept while empty @accept", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  // The suggestion commits only on a trusted pick; without one, leaving the box clears it (SmartRecruiters' city did this).
+  const html = `<!doctype html><html><body><h1>Apply: Reservations and Events Trainee</h1><form>
+    <label for="city">City *</label>
+    <input id="city" role="combobox" aria-expanded="false" aria-controls="city-list" aria-autocomplete="list" required autocomplete="off">
+    <ul id="city-list" role="listbox" hidden></ul>
+    <label for="nm">Name *</label><input id="nm" required>
+    <button type="submit">Submit application</button></form>
+    <script>
+      const input = document.getElementById("city"), list = document.getElementById("city-list"); let committed = ""
+      input.addEventListener("input", () => {
+        const q = input.value.toLowerCase(); committed = ""
+        list.innerHTML = ["Amsterdam, Noord-Holland, Nederland", "Amstelveen, Noord-Holland, Nederland"].filter((c) => q && c.toLowerCase().includes(q.split(",")[0])).map((c) => '<li role="option">' + c + '</li>').join("")
+        list.hidden = !list.children.length; input.setAttribute("aria-expanded", String(!list.hidden))
+      })
+      list.addEventListener("click", (e) => {
+        const li = e.target.closest("li"); if (!li) return
+        input.value = li.textContent; list.hidden = true; input.setAttribute("aria-expanded", "false")
+        if (e.isTrusted) committed = li.textContent
+      })
+      input.addEventListener("focusout", () => setTimeout(() => { if (!committed) input.value = "" }, 50))
+    </script></body></html>`
+  await context.route("https://careers.example-sr.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "psr", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { city: "Amsterdam" }, remembered: {} } }
+  let result: { ok: boolean; error?: string } | undefined
+  let after = ""
+  fake.driveScript = async (cmd) => {
+    const r = await cmd("read_page")
+    const city = (r.fields as Array<{ id: string; label: string }>).find((f) => /City/.test(f.label))!
+    result = ((await cmd("fill", { fields: [{ id: city.id, value: "Amsterdam" }] })).results as Array<{ id: string; ok: boolean; error?: string }>).find((x) => x.id === city.id)
+    // Broods' next action (here: the Name box) moves focus off the city, as on SmartRecruiters.
+    const nm = (r.fields as Array<{ id: string; label: string }>).find((f) => /Name/.test(f.label))!
+    await cmd("fill", { fields: [{ id: nm.id, value: "Kien Phung" }] })
+    after = String(((await cmd("read_page")).fields as Array<{ label: string; value?: string }>).find((f) => /City/.test(f.label))?.value ?? "")
+    return { status: "needs_you", reason: "other", message: "test" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://careers.example-sr.com/apply")
+  await applyFrom(context, page, "https://careers.example-sr.com/apply")
+  await expect.poll(() => result !== undefined, { timeout: 60_000 }).toBe(true)
+  // Never "kept" with an empty box: either the choice really stayed, or the fill says it was dropped.
+  if (result!.ok) expect(after).toContain("Amsterdam")
+  else expect(result!.error ?? "").toMatch(/dropped it when focus moved/)
+  console.log(`SR city: ok=${result!.ok} after="${after}" ${result!.error ?? ""}`)
+})
+
+test("buttons drawn inside web components are listed for Broods (SmartRecruiters' Next), Odds' own never are @accept", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const html = `<!doctype html><html><body><h1>Apply: Learning &amp; Development Intern</h1>
+    <sr-form></sr-form>
+    <script>
+      customElements.define("sr-form", class extends HTMLElement {
+        connectedCallback() {
+          const root = this.attachShadow({ mode: "open" })
+          root.innerHTML = '<form><label for="fn">First name</label><input id="fn" required><label for="ln">Last name</label><input id="ln" required><button type="button" id="next">Volgende</button></form>'
+        }
+      })
+    </script></body></html>`
+  await context.route("https://careers.example-wc.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pwc", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: {}, remembered: {} } }
+  let buttons: string[] = []
+  fake.driveScript = async (cmd) => {
+    buttons = (((await cmd("read_page")).buttons ?? []) as Array<{ text: string }>).map((b) => b.text)
+    return { status: "needs_you", reason: "other", message: "test" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://careers.example-wc.com/apply")
+  await applyFrom(context, page, "https://careers.example-wc.com/apply")
+  await expect.poll(() => buttons.length, { timeout: 60_000 }).toBeGreaterThan(0)
+  expect(buttons).toContain("Volgende")
+  expect(buttons.some((t) => /open odds/i.test(t))).toBe(false)
+})
+
+test("yes/no radios with one name each and the question in plain text (bunq) are one question with its label @accept", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  // bunq's markup: each radio its own name (…yes / …no), no fieldset, the question as text in the block above.
+  const q = (id: string, text: string) => `<div class="q"><div><span>${text}</span></div><div><div><div><input type="radio" id="${id}yes" name="${id}yes"><label for="${id}yes">Yes</label></div><div><input type="radio" id="${id}no" name="${id}no"><label for="${id}no">No</label></div></div></div></div>`
+  const html = `<!doctype html><html><body><h1>Copywriting Intern</h1><form>
+    <label for="fn">First name</label><input id="fn">
+    ${q("4396280", "Have you previously worked at bunq?")}
+    ${q("4396293", "This internship requires a minimum commitment 40 hours per week for at least 3 months. Are you able to meet this requirement?")}
+    <button type="submit">Submit application</button></form></body></html>`
+  await context.route("https://careers.example-bunq.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pbunq", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: {}, remembered: {} } }
+  let fields: Array<{ label: string; kind: string; options?: string[] }> = []
+  fake.driveScript = async (cmd) => {
+    fields = ((await cmd("read_page")).fields ?? []) as typeof fields
+    return { status: "needs_you", reason: "other", message: "test" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://careers.example-bunq.com/apply")
+  await applyFrom(context, page, "https://careers.example-bunq.com/apply")
+  await expect.poll(() => fields.length, { timeout: 60_000 }).toBeGreaterThan(0)
+  const radios = fields.filter((f) => f.kind === "radio")
+  expect(radios.map((f) => f.label)).toEqual(["Have you previously worked at bunq?", "This internship requires a minimum commitment 40 hours per week for at least 3 months. Are you able to meet this requirement?"])
+  for (const r of radios) expect(r.options).toEqual(["Yes", "No"])
+})

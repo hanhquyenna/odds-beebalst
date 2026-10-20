@@ -205,6 +205,15 @@
   const asked = new Set()
 
   /** Every element matching `selector` on the page, including inside open shadow roots (SmartRecruiters' Easy Apply and other component-built forms draw their inputs there). */
+  /** Odds' own bar, pill and mascot tab (some drawn in shadow roots): never a page control. Climbs out of shadow roots to their hosts. */
+  function oddsOwn(el) {
+    for (let n = el; n; ) {
+      if (n.closest?.(".odds-apply-bar, .odds-fill-host, [data-odds-bar], [id^='odds-'], #odds-add, #odds-auto")) return true
+      const root = n.getRootNode?.()
+      n = root && root !== document && root.host ? root.host : null
+    }
+    return false
+  }
   function deepAll(selector, root = document, out = []) {
     for (const el of root.querySelectorAll(selector)) out.push(el)
     for (const host of root.querySelectorAll("*")) if (host.shadowRoot) deepAll(selector, host.shadowRoot, out)
@@ -227,12 +236,21 @@
       if (t === "radio") {
         if (!el.name || groups.has(el.name)) continue
         groups.add(el.name)
-        const radios = deepAll(`input[type="radio"][name="${CSS.escape(el.name)}"]`).filter(shown)
+        let radios = deepAll(`input[type="radio"][name="${CSS.escape(el.name)}"]`).filter(shown)
+        // One radio per name (bunq names them 4396280yes / 4396280no): the radios in the nearest box holding two or more are one question.
+        if (radios.length < 2) {
+          for (let c = el.parentElement, i = 0; c && i < 6; c = c.parentElement, i++) {
+            const near = [...c.querySelectorAll('input[type="radio"]')].filter(shown)
+            if (near.length >= 2) { radios = near; for (const r of near) if (r.name) groups.add(r.name); break }
+          }
+        }
         const fieldset = el.closest("fieldset")
         const legend = fieldset?.querySelector("legend")
         // The question over the choices (Ashby puts it in a label of its own, not tied to any one radio), never the first choice's text.
         const title = fieldset ? [...fieldset.querySelectorAll("label")].find((l) => !l.querySelector("input") && !radios.some((r) => l.htmlFor && l.htmlFor === r.id)) : null
-        const label = textOf(legend) || textOf(title) || labelOf(el.closest("[role='radiogroup']") || el)
+        // Without a legend or a title: the text before the first choice, as for a group of checkboxes ("Have you previously worked at
+        // bunq?"), never the first choice's own "Yes".
+        const label = textOf(legend) || textOf(title) || (el.closest("[role='radiogroup']") ? labelOf(el.closest("[role='radiogroup']")) : "") || groupOf(radios[0]) || labelOf(el)
         out.push({ kind: "radio", el: radios, label, options: radios.map((r) => labelOf(r)), widget: "plain" })
         continue
       }
@@ -1987,7 +2005,7 @@
     return false
   }
   /** The question a checkbox answers when it is one choice of a group ("Work permit": "I am an EU citizen" / "I need sponsorship"...). */
-  const groupOf = (el) => {
+  function groupOf(el) {
     const legend = el.closest("fieldset")?.querySelector("legend")
     if (legend && textOf(legend)) return textOf(legend)
     const g = el.closest("[role='group'], [role='radiogroup']")
@@ -1997,10 +2015,10 @@
     // A box holding several checkboxes: the text that comes before its first one.
     let c = el.parentElement
     for (let i = 0; i < 6 && c; i++, c = c.parentElement) {
-      const boxes = c.querySelectorAll("input[type=checkbox], [role='checkbox']")
+      const boxes = c.querySelectorAll("input[type=checkbox], [role='checkbox'], input[type=radio]")
       if (boxes.length < 2) continue
       const first = boxes[0]
-      const q = [...c.querySelectorAll("legend, label, h1, h2, h3, h4, h5, h6, p, span, div")].find((n) => !n.querySelector("input, [role='checkbox']") && !n.closest("label")?.querySelector("input") && textOf(n).length > 8 && textOf(n).length < 300 && (n.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING))
+      const q = [...c.querySelectorAll("legend, label, h1, h2, h3, h4, h5, h6, p, span, div")].find((n) => !n.querySelector("input, [role='checkbox']") && !n.closest("label")?.querySelector("input") && !/^(yes|no|ja|nee|oui|non)$/i.test(textOf(n)) && textOf(n).length > 8 && textOf(n).length < 300 && (n.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING))
       // The question may sit one level up, above the box of choices (bunq): keep climbing until text comes before the first choice.
       if (q) return textOf(q)
     }
@@ -2062,10 +2080,12 @@
     // Apply controls always count and come first: job boards put "Apply on the employer's website" in the job's own <header>, and
     // a page full of links (Glassdoor's matches, ads) must never push them past the list's end.
     const APPLYISH = /\b(apply|solliciteer|solliciteren|bewerben|postuler|candidat|easy apply|quick apply)/i
-    const controls = [...document.querySelectorAll("a, button, input[type=button], input[type=submit], [role='button']")]
+    // Inside web components too (SmartRecruiters draws its form's buttons in shadow roots): fields were found there, its Continue and
+    // Next never were, and Broods saw only "Apply with Indeed" and the privacy links.
+    const controls = deepAll("a, button, input[type=button], input[type=submit], [role='button']")
     const applyFirst = [...controls.filter((el) => APPLYISH.test(controlLabel(el))), ...controls.filter((el) => !APPLYISH.test(controlLabel(el)))]
     for (const el of applyFirst) {
-      if (!shown(el) || b >= 60 || el.closest(".odds-apply-bar")) continue
+      if (!shown(el) || b >= 60 || oddsOwn(el)) continue
       const text = controlLabel(el).slice(0, 100)
       if (text.length < 1) continue
       if (!inScope(el) && !(APPLYISH.test(text) && !dialog)) continue
@@ -2080,7 +2100,7 @@
       url: pageHref().slice(0, 500),
       title: document.title.slice(0, 200),
       headings: [...document.querySelectorAll("h1, h2, h3")].filter(shown).map(textOf).filter(Boolean).slice(0, 8).map((t) => t.slice(0, 160)),
-      errors: [...document.querySelectorAll('[role="alert"], .error, [aria-invalid="true"]')].filter(shown).map(textOf).filter(Boolean).slice(0, 10).map((t) => t.slice(0, 200)),
+      errors: deepAll('[role="alert"], .error, [aria-invalid="true"]').filter(shown).map(textOf).filter(Boolean).slice(0, 10).map((t) => t.slice(0, 200)),
       captcha: Boolean(blockingCaptcha()),
       // The person's CV is already attached on this page (the site may show it as a file name, not in a box): never upload it again.
       ...(uploaded ? { cv_attached: true } : {}),
@@ -2439,6 +2459,35 @@
         let okDom = recovered.ok
         let via = recovered.via
         let stuck = recovered.value
+        // A dropdown or search box can show the choice and drop it once focus moves on, because the widget never committed it
+        // (SmartRecruiters' city cleared on the next fill, scroll or key while Odds said "kept"). Focus is moved away and the box read
+        // again: a choice that is gone is not kept, and Broods is told so.
+        let dropped = false
+        if (okDom && ["combobox", "listbox"].includes(f.kind)) {
+          const el = elOf(f)
+          el.dispatchEvent(new FocusEvent("focusout", { bubbles: true, composed: true }))
+          el.dispatchEvent(new Event("blur", { bubbles: true, composed: true }))
+          try { el.blur?.() } catch { /* ignore */ }
+          await sleep(500)
+          const kept = () => valueKept(f, value) || (typeof result.expectedText === "string" && choiceShownNear(el, result.expectedText))
+          if (!kept()) {
+            // Once more the way a person does it: type, wait for the suggestions, and pick the matching one with a real click (widgets
+            // that commit only on a trusted pick); else the recovery ladder. Then read again.
+            let again = { ok: false, via: "" }
+            typeInto(el, String(value).split(",")[0])
+            for (let w = 0; w < 2500 && !listed(el).texts.length; w += 150) await sleep(150)
+            const { options: sugg, texts: shown } = listed(el)
+            const pick = shown.length ? (typeof A.chooseOption === "function" ? A.chooseOption(shown, value, f.label) : -1) : -1
+            const at = pick >= 0 ? pick : shown.findIndex((t) => String(t).toLowerCase().includes(String(value).split(",")[0].trim().toLowerCase()))
+            if (at >= 0 && await realClickEl(sugg[at]).catch(() => false)) { await sleep(300); again = { ok: true, via: "real_pick" } }
+            if (!again.ok || !kept()) again = await recoverFill(f, value, { allowReal: true, started: Date.now() })
+            el.dispatchEvent(new FocusEvent("focusout", { bubbles: true, composed: true }))
+            try { el.blur?.() } catch { /* ignore */ }
+            await sleep(500)
+            if (again.ok && kept()) { via = again.via; stuck = fieldValue(f) }
+            else { okDom = false; via = ""; stuck = fieldValue(f); dropped = true }
+          }
+        }
         const tried = recovered.tried
         // A phone box that reformats what it gets (a country picker in front): the digits Broods meant must still be there.
         let phoneError = ""
@@ -2467,7 +2516,7 @@
         }
         // Which contact detail it was (never the value): the server learns where this site wants it.
         const key = okDom ? factKey(value) : null
-        const keptError = phoneError || (fieldInvalid(f) ? "the site marked this value invalid" : "the site did not keep the value")
+        const keptError = phoneError || (dropped ? "the box showed the choice but dropped it when focus moved on (the widget never committed it): open its list, type a few letters, then pick the suggestion itself (click it, or ArrowDown then Enter)" : fieldInvalid(f) ? "the site marked this value invalid" : "the site did not keep the value")
         results.push({ id: it.id, ok: okDom, value: stuck, ...(diag ? { diag } : {}), ...(key ? { key } : {}), ...(okDom && via ? { via } : {}), ...(tried?.length ? { tried } : {}), ...(shortened ? { note: `this box takes at most ${limit} characters: your ${shortened}-character answer was cut to its last whole sentence` } : {}), ...(okDom ? {} : { error: result.error ? `${keptError}; ${result.error}` : keptError, ...(failedChoices(f) ? { options: failedChoices(f) } : {}) }) })
       }
       const sigAfter = `${pageHref()}|${[...driveFields.values()].map((f) => `${f.label}:${fieldValue(f)}`).join("|")}`

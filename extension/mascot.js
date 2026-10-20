@@ -69,6 +69,8 @@
   /** A host element in the corner with the mascot (and, when it has words, the bar) drawn inside its shadow root. */
   function make(dock = false) {
     const host = document.createElement("div")
+    // Marked as Odds' own, so the page reader never lists its button as one of the site's (it reads inside shadow roots).
+    host.setAttribute("data-odds-bar", "")
     host.style.cssText = dock
       ? "all:initial!important;position:fixed!important;right:0!important;bottom:140px!important;z-index:2147483646!important;display:block!important"
       : "all:initial!important;position:fixed!important;right:20px!important;bottom:20px!important;z-index:2147483646!important;display:block!important"
