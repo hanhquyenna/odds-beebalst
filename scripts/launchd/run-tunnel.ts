@@ -80,9 +80,12 @@ async function pointLatestBroods() {
     }
     // Never point Broods at a URL that did not pass the public check.
     if (!reachable || wantedBase !== base) {
-      if (!reachable && wantedBase === base) log(`tunnel ${base} never became reachable; Broods keeps its previous URL`)
       if (wantedBase !== base) continue
-      return
+      // A new tunnel only starts when the old one failed, so the previous URL is dead: giving up left Broods on it ("model is
+      // unreachable" for every run). A fresh name can take minutes to resolve; keep checking it while it is still the wanted one.
+      log(`tunnel ${base} not reachable yet; checking again in 30s`)
+      await Bun.sleep(30_000)
+      continue
     }
     log(`tunnel moved to ${base}: updating Broods`)
     const set = Bun.spawn([BUN, "./node_modules/.bin/broods", "env", "set", "NINE_ROUTER_BASE_URL"], { cwd: REPO, stdin: new Blob([`${base}\n`]), stdout: "inherit", stderr: "inherit" })
