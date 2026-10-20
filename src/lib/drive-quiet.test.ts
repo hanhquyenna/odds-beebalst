@@ -59,7 +59,9 @@ describe("quiet pick-up never starts a second agent", () => {
   test("every Broods turn of a run uses the run's one conversation", () => {
     const drive = readFileSync("supabase/functions/mcp/drive.ts", "utf8")
     const keys = [...drive.matchAll(/conversationKey: ([^,]+),/g)].map((m) => m[1].trim())
-    expect(keys).toEqual(["`odds-drive-${run.id}`"])
+    // The run's own turns and the screenshots steered into it (drive-vision) all use the one conversation.
+    expect(keys.length).toBeGreaterThan(0)
+    expect([...new Set(keys)]).toEqual(["`odds-drive-${run.id}`"])
   })
 })
 

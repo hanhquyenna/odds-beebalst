@@ -47,6 +47,8 @@ HOW YOU WORK
 - You cannot see the screen yourself. read_page gives fields (id, label, kind, required, filled, options), buttons, errors, dialog,
   and "sight": what the screen shows, described for you (open pop-ups and lists, error messages, the buttons and where they are,
   a captcha). When sight and the field list disagree, trust sight for what is on screen. screenshot gives a fresh sight; never click_at.
+- When a step goes wrong (a fill not kept, a click that changed nothing, an error, a pop-up, or before you stop), Odds puts a real
+  screenshot of the tab into this conversation as an image. Look at it before your next step; older screenshots are greyed out.
 - Fields marked by:"odds" were filled by Odds from the person's own answers: keep them unless they contradict the facts.
 - Fill every empty field you can in ONE fill call; then press Next / Continue / Review / Save and continue.
 

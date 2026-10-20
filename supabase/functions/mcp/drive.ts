@@ -4,6 +4,7 @@ import { compressRoute, routeHint, routeKey, routeStoreKey, usable } from "../_s
 import { canAcceptDriveResult, humanStopAllowed, jobIdentityMismatch } from "../_shared/drive-ownership.ts"
 import { appliedBeforeAnswer, FACT_QUESTION_HINT, isWorkAuthQuestion, ownQuestions, permitWorkAnswers, studyingFrom, widgetAttemptGuard, workFactForQuestion, type PermitWorkFacts } from "../_shared/drive-finish.ts"
 import { describeShot, sightEnv } from "../_shared/drive-sight.ts"
+import { pushScreenshot, troubleReasons, type VisionDeps } from "../_shared/drive-vision.ts"
 import { broodsStartOutcome, broodsTurnState, driveRunExpired, MODEL_UNREACHABLE, quietAction, type BroodsStartOutcome, type BroodsTurn } from "../_shared/drive-quiet.ts"
 import { fieldPattern, playbookFor, sanitizeLesson, siteIdentity, structuralField } from "../_shared/site-playbook.ts"
 
@@ -551,6 +552,17 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       stage = "review"; reason = null
       message = "Everything is filled in. Check it and press Submit yourself (the Submit button is the site's own)."
     }
+    // About to give up: once per run, Broods first looks at the real tab (a screenshot steered into its conversation) and tries again.
+    if ((stage === "stuck" || (stage === "needs_you" && reason === "other")) && live(run)) {
+      const looked = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.vision_stuck&select=id&limit=1`).catch(() => null))?.[0]
+      if (!looked) {
+        const image = await captureShot(env, run)
+        if (image && await pushScreenshot(visionDeps(env, run), run.id, image, ["you were about to stop"])) {
+          await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "vision_stuck" }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+          return { text: "Not yet: a screenshot of the tab is now in your conversation as an image. Look at it (what is open, what the error says, where the button is, what each box really shows), then try another way, or finish again if it really is blocked.", error: true }
+        }
+      }
+    }
     // Review is only true when the page says so: read it fresh, and refuse while a required field is still empty (a site that cleared
     // name/email after reading the CV, a field Broods never saw). Broods is told exactly what is left and carries on.
     if (stage === "review") {
@@ -818,6 +830,16 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
           return { text: JSON.stringify({ ok: false, wrong_job: true, error: idCheck.message, page }), error: true }
         }
       }
+      // Real vision when the step went wrong: the screenshot goes into the conversation as an image (drive-vision.ts).
+      if (["fill", "click", "click_at", "read_page"].includes(name) && live(run)) {
+        const prev = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&id=lt.${cmd.id}&tool=in.(read_page,fill,click,click_at,scroll,upload_cv,back,open_job)&order=id.desc&limit=1&select=result`).catch(() => null))?.[0]?.result
+        const before = prev?.page ?? (Array.isArray(prev?.fields) ? prev : null)
+        const reasons = troubleReasons(name, res, page, before)
+        if (reasons.length) {
+          const image = shotImage || await captureShot(env, run)
+          if (image && await pushScreenshot(visionDeps(env, run), run.id, image, reasons)) res = { ...res, vision: "A screenshot of the tab is now in your conversation as an image: look at it before your next step." }
+        }
+      }
       // Recipe replays are the server's evidence, not Broods' business.
       const { recipe_attempts: _replayed, ...shown } = res
       if (shown.page?.recipe_attempts) { const { recipe_attempts: _inPage, ...rest } = shown.page; shown.page = rest }
@@ -966,6 +988,50 @@ function jobFacts(job: Json, url: string, facts: Record<string, string>): Record
   return out
 }
 
+/** The storage, memory and Broods steering the screenshot push needs, for one run (drive-vision.ts). */
+function visionDeps(env: Env, run: Json): VisionDeps {
+  // Broods downloads every image link again on every step, and the storage CDN would keep serving an overwritten screenshot: no cache,
+  // so greying out an old one takes effect at once (tested: 4,744 input tokens with the cache, 3,365 without).
+  const storage = (path: string) => `${env.url}/storage/v1/object/sight/${path.split("/").map(encodeURIComponent).join("/")}`
+  const auth = { apikey: env.serviceKey!, Authorization: `Bearer ${env.serviceKey}` }
+  return {
+    put: async (path, base64) => (await fetch(storage(path), { method: "POST", headers: { ...auth, "Content-Type": "image/jpeg", "x-upsert": "true", "cache-control": "max-age=0" }, body: Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)) })).ok,
+    sign: async (path, seconds) => {
+      const res = await fetch(`${env.url}/storage/v1/object/sign/sight/${path.split("/").map(encodeURIComponent).join("/")}`, { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify({ expiresIn: seconds }) })
+      const body = res.ok ? await res.json().catch(() => null) : null
+      return typeof body?.signedURL === "string" ? `${env.url}/storage/v1${body.signedURL}` : null
+    },
+    pushed: async () => ((await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.vision&order=id.asc&select=result`).catch(() => null)) ?? []).map((r: Json) => String(r?.result?.path ?? "")).filter(Boolean),
+    remember: async (path, reason) => { await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "vision", args: {}, status: "done", result: { path, reason }, done_at: new Date().toISOString() }) }) },
+    steer: async (text, imageUrl) => {
+      const agentId = (Deno.env.get("ODDS_DRIVE_AGENT_ID") ?? "").trim()
+      const client = agentId ? await broodsClient(run) : null
+      if (!client) return false
+      await client.runAsync({ agentId, eventId: crypto.randomUUID(), conversationKey: `odds-drive-${run.id}`, mode: "steer", events: [{ role: "user", content: [{ type: "text", text }, { type: "image", image: imageUrl, mediaType: "image/jpeg" }] }] } as never)
+      return true
+    },
+  }
+}
+
+/** A fresh screenshot of the run's tab (a screenshot step the extension answers), or "" when it does not come in time. */
+async function captureShot(env: Env, run: Json): Promise<string> {
+  const docGen = typeof run.doc_gen === "number" ? run.doc_gen : 0
+  const [cmd] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "screenshot", args: {}, note: "Taking a picture of the tab", doc_gen: docGen, tab_id: run.tab_id ?? null }) }).catch(() => [null])
+  if (!cmd) return ""
+  for (const until = Date.now() + 10_000; Date.now() < until;) {
+    await sleep(400)
+    const row = (await svc(env, `drive_commands?id=eq.${cmd.id}&select=status,result`).catch(() => null))?.[0]
+    if (row?.status === "done") {
+      const image = typeof row.result?.image === "string" ? row.result.image : ""
+      void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...row.result, image: image ? "(sent)" : row.result?.image } }) }).catch(() => undefined)
+      return image
+    }
+    if (row?.status === "cancelled" || row?.status === "expired") break
+  }
+  await abandonCommand(env, cmd.id, "result_lost").catch(() => undefined)
+  return ""
+}
+
 /** A Broods client acting for the run's person, or null when Broods is not set up on the server. */
 async function broodsClient(run: Json): Promise<BroodsClient | null> {
   const key = (Deno.env.get("APPLY_AGENT_BROODS_API_KEY") ?? "").trim()
@@ -1037,7 +1103,7 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
     if (started === "ended") {
       const [fresh, commands] = await Promise.all([
         runOf(env, run.id),
-        svc(env, `drive_commands?run_id=eq.${run.id}&tool=not.in.(recipe,broods,guard,ext)&select=id&limit=1`).catch(() => []),
+        svc(env, `drive_commands?run_id=eq.${run.id}&tool=not.in.(recipe,broods,guard,ext,vision)&select=id&limit=1`).catch(() => []),
       ])
       if (fresh?.status === "running" && (!Array.isArray(commands) || commands.length === 0)) {
         return "Broods ended before it reached the application tab. Press Apply with Odds to try again."
@@ -1284,7 +1350,7 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
       // it). Ended without a tool call: pick it up again in the same conversation. Hung: end the run.
       const quietMs = Date.now() - Date.parse(fresh.updated_at)
       if (quietMs > QUIET_MS && !personBusy(fresh)) {
-        const commands = await svc(env, `drive_commands?run_id=eq.${run.id}&tool=not.in.(recipe,broods,guard,ext)&select=id&limit=1`).catch(() => [])
+        const commands = await svc(env, `drive_commands?run_id=eq.${run.id}&tool=not.in.(recipe,broods,guard,ext,vision)&select=id&limit=1`).catch(() => [])
         const decision = quietAction({ turn: await broodsTurn(env, fresh), quietMs, retries: fresh.retries ?? 0, commandCount: Array.isArray(commands) ? commands.length : 0 })
         if (decision === "wait") { await sleep(400); continue }
         if (decision === "retry") {
