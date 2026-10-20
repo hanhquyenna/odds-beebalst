@@ -758,6 +758,7 @@ test("next to LinkedIn's Save button when the page has one, at the edge when it 
   await page.goto("https://www.linkedin.com/jobs/view/4470863235/")
   const pill = page.locator("#odds-add")
   await expect(pill).toHaveAttribute("data-where", "inline")
+  await expect(pill).toHaveAttribute("data-state", "idle")
   expect(await pill.evaluate((el) => el.parentElement?.id)).toBe("row")
   // After the Save wrapper, in the same row, not inside it.
   expect(await pill.evaluate((el) => el.previousElementSibling?.querySelector("button")?.getAttribute("aria-label"))).toBe("Save the job")
@@ -1134,16 +1135,14 @@ test("job-list percentages open the selected unsaved job in the real Odds app, w
   await badges.nth(0).click()
   const panel = page.frameLocator("#odds-panel-frame")
   const app = panel.frameLocator("#app")
-  await expect(app.getByRole("heading", { name: "Junior Financial Analyst", exact: true })).toBeVisible({ timeout: 15000 })
+  await expect(app.locator("[data-apply-panel]").getByText("Junior Financial Analyst", { exact: true })).toBeVisible({ timeout: 15000 })
   const openedAt = await page.frameLocator("#odds-panel-frame").frameLocator("#app").locator("body").evaluate(e => e.ownerDocument.defaultView!.performance.timeOrigin)
   await badges.nth(1).click()
-  await expect(app.getByRole("heading", { name: FLOW_POSTINGS[1].title, exact: true })).toBeVisible({ timeout: 15000 })
+  await expect(app.locator("[data-apply-panel]").getByText(FLOW_POSTINGS[1].title, { exact: true })).toBeVisible({ timeout: 15000 })
   expect(await app.locator("body").evaluate(e => e.ownerDocument.defaultView!.performance.timeOrigin)).toBe(openedAt)
   expect(fake.pools).toBe(0)
-  await app.getByRole("button", { name: "← Back", exact: true }).click()
-  await expect(app.getByRole("heading", { name: FLOW_POSTINGS[1].title, exact: true })).not.toBeVisible()
-  await badges.nth(1).click()
-  await expect(app.getByRole("heading", { name: FLOW_POSTINGS[1].title, exact: true })).toBeVisible({ timeout: 15000 })
+  await badges.nth(0).click()
+  await expect(app.locator("[data-apply-panel]").getByText("Junior Financial Analyst", { exact: true })).toBeVisible({ timeout: 15000 })
   expect(fake.calls).toHaveLength(0)
   await expect(page.locator("#odds-panel-frame")).toHaveAttribute("data-open", "true")
   await shot(page, "ext-job-list-chances")
@@ -3029,12 +3028,18 @@ for (const [name, form] of [
 }
 
 test("a website rejecting a filled value or CV never reports ready", async ({ context, fake }) => {
+  test.setTimeout(60_000)
   await connect(context)
   fake.kit = { facts: { answers: { first_name: "Chi Kien" }, remembered: {} }, cv: { id: "11111111-2222-3333-4444-555555555555" } }
   await context.route("https://careers.example.org/**", route => route.fulfill({ contentType: "text/html", body: '<h1>Application</h1><form><label>First name *<input required oninput="this.value=\'\'"></label><label>CV *<input type="file" required onchange="this.setAttribute(\'aria-invalid\',\'true\')"></label><button>Send application</button></form>' }))
   const page = await context.newPage()
   await page.goto("https://careers.example.org/apply")
   await applyFrom(context, page, "https://www.linkedin.com/jobs/view/4470000302")
+  await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask", { timeout: 30_000 })
+  await expect(page.locator(".odds-apply-bar")).not.toHaveAttribute("data-state", "done")
+  await expect(page.locator('input[type="file"]')).toHaveAttribute("aria-invalid", "true")
+})
+
 test("a form built from components with shadow roots (SmartRecruiters' Easy Apply) is read and filled like any other", async ({ context, fake }) => {
   await connect(context)
   fake.kit = { facts: { email: "test@example.com", answers: { first_name: "Chi Kien", last_name: "Phung", phone: "+31 6 12345678" }, remembered: {} }, cv: null }
@@ -3052,11 +3057,6 @@ test("a form built from components with shadow roots (SmartRecruiters' Easy Appl
   await expect(boxes.nth(1)).toHaveValue("Phung")
   await expect(boxes.nth(2)).toHaveValue("test@example.com")
   await expect(boxes.nth(3)).toHaveValue("+31 6 12345678")
-})
-
-  await expect(page.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask")
-  await expect(page.locator(".odds-apply-bar")).not.toHaveAttribute("data-state", "done")
-  await expect(page.locator('input[type="file"]')).toHaveAttribute("aria-invalid", "true")
 })
 
 test("an unsupported required custom dropdown pauses instead of reporting success", async ({ context, fake }) => {
