@@ -20,7 +20,8 @@ export function sightEnv(get: (name: string) => string | undefined): SightEnv | 
   const baseUrl = (get("NINE_ROUTER_BASE_URL") ?? "").trim().replace(/\/+$/, "")
   const apiKey = (get("NINE_ROUTER_API_KEY") ?? "").trim()
   if (!baseUrl || !apiKey) return null
-  return { baseUrl, apiKey, model: (get("ODDS_SIGHT_MODEL") ?? "").trim() || "cx/gpt-6-luna" }
+  // Sonnet 5 by default: luna on the ChatGPT plan hit "usage limit" (429) and the page went undescribed. ODDS_SIGHT_MODEL overrides it.
+  return { baseUrl, apiKey, model: (get("ODDS_SIGHT_MODEL") ?? "").trim() || "cc/claude-sonnet-5" }
 }
 
 /** At most 8 lines, no e-mail addresses or phone numbers even if the model wrote them. */
@@ -45,6 +46,8 @@ export async function describeShot(env: SightEnv | null, image: string, timeoutM
       headers: { Authorization: `Bearer ${env.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: env.model,
+        // 9router streams a Claude (cc/) model unless told not to, and a stream is not JSON: the description came back empty.
+        stream: false,
         max_tokens: 400,
         messages: [
           { role: "system", content: SIGHT_PROMPT },

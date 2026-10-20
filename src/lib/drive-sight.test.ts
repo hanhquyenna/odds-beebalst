@@ -47,9 +47,19 @@ describe("one look per page", () => {
   })
   test("a look taken because something went wrong asks the sight model to explain it first", async () => {
     let sent = ""
-    const fetcher = (async (_u: unknown, init?: RequestInit) => { sent = String(init?.body ?? ""); return new Response(JSON.stringify({ choices: [{ message: { content: "ERRORS: Phone is required" } }] })) }) as typeof fetch
+    const fetcher = (async (_u: unknown, init?: RequestInit) => { sent = typeof init?.body === "string" ? init.body : ""; return new Response(JSON.stringify({ choices: [{ message: { content: "ERRORS: Phone is required" } }] })) }) as typeof fetch
     const out = await describeShot({ baseUrl: "https://r.example/v1", apiKey: "k", model: "m" }, "A".repeat(20_000), 5000, fetcher, ["a fill did not take (1 field)"])
     expect(out).toBe("ERRORS: Phone is required")
     expect(sent).toContain("taken because a fill did not take (1 field)")
   })
+})
+
+test("sight asks 9router for one JSON answer (a cc/ Claude model streams unless told not to) and defaults to Sonnet 5", async () => {
+  let body: Record<string, unknown> = {}
+  const fetcher = (async (_u: unknown, init?: RequestInit) => { body = JSON.parse(typeof init?.body === "string" ? init.body : "{}") as Record<string, unknown>; return new Response(JSON.stringify({ choices: [{ message: { content: "OPEN: none" } }] })) }) as typeof fetch
+  expect(await describeShot({ baseUrl: "https://r.example/v1", apiKey: "k", model: "cc/claude-sonnet-5" }, "A".repeat(20_000), 5000, fetcher)).toBe("OPEN: none")
+  expect(body.stream).toBe(false)
+  const vars: Record<string, string> = { NINE_ROUTER_BASE_URL: "https://r.example/v1", NINE_ROUTER_API_KEY: "k" }
+  expect(sightEnv((n) => vars[n])?.model).toBe("cc/claude-sonnet-5")
+  expect(sightEnv((n) => ({ ...vars, ODDS_SIGHT_MODEL: "cx/gpt-6-luna" } as Record<string, string>)[n])?.model).toBe("cx/gpt-6-luna")
 })
