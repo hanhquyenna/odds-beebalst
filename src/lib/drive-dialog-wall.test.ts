@@ -179,3 +179,32 @@ test("stopping a run (an extension reload stops every run it remembers) keeps th
   const running = await stop("running")
   expect(running.some((p) => p.includes("\"status\":\"stopped\""))).toBe(true)
 })
+
+test("'stuck' only because no Next / Submit is visible becomes review when nothing required is empty (SmartRecruiters)", async () => {
+  const finish = async (page: Record<string, unknown>): Promise<string[]> => {
+    const original = globalThis.fetch
+    const deno = (globalThis as unknown as { Deno?: unknown }).Deno
+    const patches: string[] = []
+    Object.assign(globalThis, { Deno: { env: { get: () => "test-secret" } } })
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+      let result: unknown = []
+      if (url.includes("drive_runs?") && !init?.method) result = [{ id, user_id: "u1", status: "running", steps: 13, url: "https://jobs.smartrecruiters.com/Boskalis/1", expires_at: new Date(Date.now() + 60000).toISOString() }]
+      if (url.endsWith("drive_commands") && init?.method === "POST") result = [{ id: 7 }]
+      if (url.includes("drive_commands?id=eq.7") && !init?.method) result = [{ status: "done", result: page }]
+      if (url.includes("drive_runs?id=eq.") && init?.method === "PATCH") patches.push(typeof init.body === "string" ? init.body : "")
+      return new Response(JSON.stringify(result), { status: 200 })
+    }) as typeof fetch
+    try {
+      await handleDriveMcp(new Request("https://test.invalid/drive", { method: "POST", headers: { "x-odds-drive-key": "test-secret" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "finish", arguments: { run_id: id, stage: "stuck", reason: "other", message: "Your details, CV and motivation are filled, but the browser exposes no Next, Review or Submit control, so I cannot advance." } } }) }), { url: "https://test.invalid", serviceKey: "test-key" })
+    } finally {
+      globalThis.fetch = original
+      Object.assign(globalThis, { Deno: deno })
+    }
+    return patches
+  }
+  const done = await finish({ url: "https://jobs.smartrecruiters.com/Boskalis/1", fields: [{ id: "f2", label: "First name", kind: "text", required: true, filled: true }, { id: "f6", label: "City", kind: "combobox", required: true, filled: true }], buttons: [] })
+  expect(done.some((p) => p.includes("\"status\":\"review\""))).toBe(true)
+  const empty = await finish({ url: "https://jobs.smartrecruiters.com/Boskalis/1", fields: [{ id: "f6", label: "City", kind: "combobox", required: true, filled: false }], buttons: [] })
+  expect(empty.some((p) => p.includes("\"status\":\"review\""))).toBe(false)
+})

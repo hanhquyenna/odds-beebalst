@@ -7406,3 +7406,37 @@ test("yes/no radios with one name each and the question in plain text (bunq) are
   expect(radios.map((f) => f.label)).toEqual(["Have you previously worked at bunq?", "This internship requires a minimum commitment 40 hours per week for at least 3 months. Are you able to meet this requirement?"])
   for (const r of radios) expect(r.options).toEqual(["Yes", "No"])
 })
+
+test("SmartRecruiters' layout: the CV never goes into the profile-image box, and a sealed <spl-button> Submit is listed (blocked) @accept", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const html = `<!doctype html><html><body><h1>Internship Learning &amp; Development</h1><form>
+    <div><label for="pic">Upload profile image</label><input id="pic" type="file" accept="image/png,image/jpeg"></div>
+    <label for="fn">First name *</label><input id="fn" required value="Kien">
+    <div><span>Resume</span><label for="cv">10MB size limit</label><input id="cv" type="file"></div>
+    <spl-button>Submit</spl-button></form>
+    <script>
+      customElements.define("spl-button", class extends HTMLElement {
+        connectedCallback() { this.attachShadow({ mode: "closed" }).innerHTML = "<button><slot></slot></button>" }
+      })
+    </script></body></html>`
+  await context.route("https://careers.example-srlayout.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "psrl", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} },
+    cv: { id: "11111111-2222-3333-4444-555555555555", name: "Kien_Data_CV", file_name: "Kien_Data_CV.pdf", for_this_job: true } }
+  let page1: Record<string, unknown> = {}
+  fake.driveScript = async (cmd) => {
+    const r = await cmd("read_page")
+    const cv = (r.fields as Array<{ id: string; label: string; filled: boolean }>).find((f) => /10MB/.test(f.label))!
+    if (!cv.filled) await cmd("upload_cv", { id: cv.id })
+    page1 = await cmd("read_page")
+    return { status: "needs_you", reason: "other", message: "test" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://careers.example-srlayout.com/apply")
+  await applyFrom(context, page, "https://careers.example-srlayout.com/apply")
+  await expect.poll(() => Object.keys(page1).length, { timeout: 60_000 }).toBeGreaterThan(0)
+  expect(await page.evaluate(() => (document.getElementById("pic") as HTMLInputElement).files?.length ?? 0)).toBe(0)
+  expect(await page.evaluate(() => (document.getElementById("cv") as HTMLInputElement).files?.[0]?.name ?? "")).toBe("Kien_Data_CV.pdf")
+  const buttons = page1.buttons as Array<{ text: string; blocked?: boolean }>
+  expect(buttons.find((b) => b.text === "Submit")?.blocked).toBe(true)
+})

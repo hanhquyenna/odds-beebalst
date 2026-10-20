@@ -544,6 +544,12 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         return { text: "The cover/motivation letter on this page is optional (not required): leave it empty and do not ask for it. Fill everything else you can, then finish with only what the person must do (reason 'questions' for their own answers), or finish review when only Submit is left.", error: true }
       }
     }
+    // "Stuck" only because no Next / Continue / Submit is visible (SmartRecruiters draws its own): with nothing required left and the CV
+    // in, that is the end of the form, so review (the person checks and submits). The fresh read below decides.
+    if (stage === "stuck" && /\bno\b[^.]{0,40}\b(next|continue|review|submit|send)\b[^.]{0,30}\b(control|button)s?\b|\b(exposes|shows|offers|has) no\b[^.]{0,30}\b(next|continue|review|submit)\b/i.test(message) && (await requiredEmpty(env, run)).length === 0) {
+      stage = "review"; reason = null
+      message = "Everything is filled in. Check it and press Submit yourself (the Submit button is the site's own)."
+    }
     // Review is only true when the page says so: read it fresh, and refuse while a required field is still empty (a site that cleared
     // name/email after reading the CV, a field Broods never saw). Broods is told exactly what is left and carries on.
     if (stage === "review") {

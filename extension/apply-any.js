@@ -589,7 +589,16 @@
   const FILL_STEP_MS = 40000
   /** Why the CV file could not be had (the server's words), for the upload step's answer to Broods. */
   let cvLoadError = ""
+  /** A photo box (profile image, avatar, picture), by its words or because it takes images only: never the CV's place. */
+  const imageBox = (el, label) => {
+    const accept = String(el?.getAttribute?.("accept") || "").toLowerCase()
+    const onlyImages = accept && /image/.test(accept) && !/pdf|doc|application/.test(accept)
+    return onlyImages || /\b(profile (image|picture|photo)|photo|picture|avatar|headshot|foto|afbeelding|profielfoto|bild)\b/i.test(`${label} ${el?.name || ""} ${el?.id || ""} ${el?.getAttribute?.("aria-label") || ""}`)
+  }
   async function uploadCv(f, known = false) {
+    // SmartRecruiters' first file box is "Upload profile image": Odds put the CV there, the site refused it, and Broods' upload into
+    // the real CV box was then turned down as "already attached".
+    if (imageBox(f.el, f.label)) return false
     const around = `${f.label} ${f.el.name || ""} ${f.el.id || ""} ${f.el.getAttribute("aria-label") || ""}`
     // On a resume-only step, accept any file input even when the button says "Sélectionner un fichier".
     const resumeStep = known || isResumeAsk(around) || isResumeAsk(textOf(document.querySelector("h1, h2, h3")))
@@ -2082,7 +2091,9 @@
     const APPLYISH = /\b(apply|solliciteer|solliciteren|bewerben|postuler|candidat|easy apply|quick apply)/i
     // Inside web components too (SmartRecruiters draws its form's buttons in shadow roots): fields were found there, its Continue and
     // Next never were, and Broods saw only "Apply with Indeed" and the privacy links.
-    const controls = deepAll("a, button, input[type=button], input[type=submit], [role='button']")
+    // Design-system buttons drawn as custom elements (<spl-button>, <x-button>) with the real button sealed inside: the host is the control.
+    const custom = deepAll("*").filter((el) => /-button$/i.test(el.tagName) && !el.querySelector("button") && !el.shadowRoot?.querySelector("button"))
+    const controls = [...deepAll("a, button, input[type=button], input[type=submit], [role='button']"), ...custom]
     const applyFirst = [...controls.filter((el) => APPLYISH.test(controlLabel(el))), ...controls.filter((el) => !APPLYISH.test(controlLabel(el)))]
     for (const el of applyFirst) {
       if (!shown(el) || b >= 60 || oddsOwn(el)) continue
