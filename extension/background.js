@@ -1156,9 +1156,13 @@ async function tabForApplicationRun(runId, postingId) {
   return null
 }
 /** Prefer English on multilingual ATS URLs so Apply labels match recipes; users' browser locale otherwise opens FR/VI/DE… */
+/** Job platforms that serve every page in English at the same address with an English locale (Workday, SuccessFactors, Oracle,
+ * Cornerstone). Elsewhere a language segment is the site's own page: /nl/ → /en-US/ on Ormit was a 404, read as "job closed". */
+const ENGLISH_BY_LOCALE = /(\.myworkday(jobs|site)\.com|\.successfactors\.(com|eu)|\.oraclecloud\.com|\.csod\.com)$/i
 function preferEnglishApplyUrl(url) {
   try {
     const u = new URL(url)
+    if (!ENGLISH_BY_LOCALE.test(u.hostname)) return url
     u.pathname = u.pathname
       .replace(/\/([a-z]{2})-([A-Z]{2})(?=\/|$)/g, (m, lang, region) => (lang.toLowerCase() === "en" ? m : `/en-${region === "GB" ? "GB" : "US"}`))
       .replace(/\/(fr|nl|de|vi|es|it|pl|pt)(?=\/|$)/i, "/en-US")

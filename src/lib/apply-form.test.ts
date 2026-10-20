@@ -370,3 +370,26 @@ test("a year of study said in words picks its option; with two levels it is neve
   expect(chooseOption(["Year 1", "Year 2", "Year 3"], "Second year", label)).toBe(1)
   expect(chooseOption(["First year", "Second year"], "2nd year", label)).toBe(1)
 })
+
+describe("degree choices pick the closest option at the level, not the first", () => {
+  const imc = ["Associate's Degree", "Bachelor's Degree", "Doctor of Medicine (M.D.)", "Doctor of Philosophy (Ph.D.)", "Engineer's Degree", "High School", "Juris Doctor (J.D.)", "Master of Business Administration (M.B.A.)", "Master's Degree", "Other"]
+  test("Master's Degree is never the MBA listed before it (IMC)", () => {
+    expect(imc[chooseOption(imc, "Master's Degree", "Degree")]).toBe("Master's Degree")
+    expect(imc[chooseOption(imc, "MSc Finance", "Degree")]).toBe("Master's Degree")
+    expect(imc[chooseOption(imc, "MBA", "Degree")]).toBe("Master of Business Administration (M.B.A.)")
+  })
+  test("an MSc is Master of Science, an MA Master of Arts", () => {
+    const opts = ["Bachelor of Science", "Master of Arts", "Master of Science", "MBA"]
+    expect(opts[chooseOption(opts, "MSc Finance", "Degree")]).toBe("Master of Science")
+    expect(opts[chooseOption(opts, "MA History", "Degree")]).toBe("Master of Arts")
+  })
+})
+
+test("availability for the stated period is Yes, whatever start date Autofill holds (GenScript answered No)", () => {
+  const f: Facts = { answers: { start_date: "1 September 2027" } }
+  expect(answerText("This internship is expected to run from October/November 2026 until end of January 2027 (3-4 months). Are you available for this period?", f)).toBe("Yes")
+  expect(answerText("Can you commit to a 6-month full-time internship?", f)).toBe("Yes")
+  expect(answerText("Are you available to start in February 2027?", f)).toBe("Yes")
+  expect(answerText("How many hours per week are you available?", f)).not.toBe("Yes")
+  expect(answerText("When are you available to start?", f)).not.toBe("Yes")
+})

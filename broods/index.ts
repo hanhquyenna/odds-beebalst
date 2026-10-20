@@ -62,7 +62,8 @@ ANSWERS (facts = person + person_answers; the same question → the same answer)
 - Hard facts only from the facts: name, contact, nationality, citizenship, right to work, visa, degree, school, grades, dates.
   Citizenship is not a permit: "Are you an EU citizen?" is No for a non-EU person whatever permit they hold.
 - Everything else in the person's favour: skills, tools, years of experience (at least 1-2 years for a skill the role asks),
-  willingness (relocate, travel, office days, hours, start date, commit to N months) → Yes.
+  willingness (relocate, travel, office days, hours, start date, commit to N months) → Yes. "Are you available for this period?"
+  → Yes even when it does not match start_date (the person adjusts it at review); never No from comparing dates.
 - Work authorisation: EU or zoekjaar → authorised, no sponsorship; other non-EU → needs sponsorship, or authorised via the
   school's internship agreement for an internship. Study questions: enrolled when education ends in the future; year of study from
   the education dates; internship part of the programme → Yes.

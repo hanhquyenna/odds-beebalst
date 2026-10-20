@@ -298,6 +298,9 @@ export function answerText(label: string, facts: Facts): string | null {
   if (/\b(mobile|phone|telephone|telefon\w*|telefoon\w*|mobiel\w*|portable)\b/.test(key) && !/country|landcode|pays/.test(key)) return pick(a.phone) ?? pick(facts.phone)
   // Bosch / Phenom etc. label the field just "LinkedIn" (no "URL"/"profile"). Skip yes/no and "how did you hear".
   if (/\blinkedin\b/.test(key) && !asks && !isHearQuestion(label)) return pick(a.linkedin) ?? pick(facts.linkedin)
+  // "This internship runs from October 2026 until January 2027. Are you available for this period?" / "Can you commit to 6 months?":
+  // Yes, in the person's favour (they adjust it at review). A start date in Autofill that differs is no reason for a No (GenScript).
+  if (asks && /\b(available|availability|commit\w*|beschikbaar)\b/.test(key) && /\b(period|duration|months?|weeks?|internship|traineeship|programme|program|full ?time|part ?time|dates?|start\w*|from|until|till|this role)\b/.test(key) && !/\b(hours?|salary|how many|when|which|what)\b/.test(key)) return remembered || "Yes"
   // "Are you currently based in the Netherlands?": yes or no from where the person lives, when the question names a Dutch place.
   if (asks && /\b(based|living|located|residing|reside|live|resident)\b/.test(key) && /\b(netherlands|nederland|holland|amsterdam|rotterdam|utrecht|the hague|den haag|eindhoven|delft|leiden|groningen|breda|tilburg|nijmegen|maastricht|haarlem|almere)\b/.test(key) && !/relocat|willing|open to|office|days?\b|able|travel/.test(key)) {
     const country = residenceCountry(facts)
@@ -469,8 +472,25 @@ export function chooseOption(options: string[], answer: string, label = ""): num
   if (/\bdegree\b|\bdiploma\b|\beducation\b/.test(norm(label))) {
     const level = (t: string): string | null => (/\b(phd|doctor\w*)\b/.test(t) ? "phd" : /\b(master\w*|msc|mba|ma|llm)\b/.test(t) ? "master" : /\b(bachelor\w*|bsc|ba|llb)\b/.test(t) ? "bachelor" : /\b(associate|diploma|certificate)\b/.test(t) ? "associate" : null)
     const wanted = level(want)
-    const i = wanted ? opts.findIndex((o, n) => options[n] !== undefined && level(o) === wanted) : -1
-    if (i >= 0) return i
+    const exact = opts.findIndex((o, n) => options[n] !== undefined && o === want)
+    if (exact >= 0) return exact
+    // Of the options at that level, the one closest to the answer: MBA only for an MBA ("Master's Degree" chose "Master of Business
+    // Administration" on IMC because it is listed first), Master of Science for an MSc, else the plain degree.
+    const same = wanted ? opts.map((o, n) => (options[n] !== undefined && level(o) === wanted ? n : -1)).filter((n) => n >= 0) : []
+    if (same.length) {
+      const mba = /\b(mba|business administration)\b/.test(want)
+      const science = /\b(msc|bsc|science)\b/.test(want)
+      const arts = /\b(ma|ba|arts)\b/.test(want)
+      const score = (o: string): number => {
+        let v = 0
+        if (/\b(mba|business administration)\b/.test(o)) v += mba ? 6 : -6
+        if (/\bscience\b|\b(msc|bsc)\b/.test(o)) v += science ? 4 : 0
+        if (/\barts\b|\b(ma|ba)\b/.test(o)) v += arts ? 4 : 0
+        if (/\bdegree\b/.test(o)) v += 2
+        return v
+      }
+      return same.reduce((best, n) => (score(opts[n]) > score(opts[best]) ? n : best), same[0])
+    }
   }
   const real = (i: number): boolean => !/^(select an option|select|selecteer|choose|kies|kiezen|make a selection|pick one)\b/.test(opts[i]) && opts[i] !== ""
   if (!want) return -1

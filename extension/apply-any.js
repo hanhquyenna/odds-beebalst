@@ -336,6 +336,8 @@
       const t = textOf(singleEl)
       return PLACEHOLDER.test(t) ? "" : t
     }
+    // react-select with nothing chosen draws no single-value at all: its input holds only search words, never a choice.
+    if (/\bselect__input\b/.test(String(input.className || "")) && !control?.querySelector("[class*='multi-value']")) return ""
     // A multi-select shows its picks as chips ("English ×"): their labels, joined. The chip box itself, even empty, is the truth.
     if (control?.querySelector("[class*='multi-value']")) {
       return [...control.querySelectorAll("[class*='multi-value__label'], [class*='multivaluelabel' i]")].map(textOf).filter(Boolean).join(", ")
@@ -355,12 +357,18 @@
     return ""
   }
   /** Whether the dropdown now shows the option that was picked: its visible text (the list closed) holds that option's words, flags and symbols aside. */
+  /** react-select (Greenhouse, many others): the input holds only search words; the chosen option is the "single-value" beside it. */
+  const reactSelectBox = (input) => (/\bselect__input\b/.test(String(input?.className || "")) ? input.closest("[class*='select__control'], [class*='-control']") : null)
+  const reactSelectChoice = (input) => textOf(reactSelectBox(input)?.querySelector("[class*='single-value'], [class*='multi-value__label']"))
   function choiceShownNear(input, expected) {
     if (!input?.isConnected || !expected || input.getAttribute?.("aria-expanded") === "true") return false
     const norm = (t) => String(t).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "")
     const want = norm(expected)
     if (want.length < 2) return false
-    const wrap = input.closest("[class*='control' i], [class*='select' i], [class*='dropdown' i], [class*='combo' i], [class*='picker' i], [class*='field' i]") || input.parentElement
+    // Typed search words are no choice: on react-select only the chosen value counts (it read "University of Amsterdam" typed in an
+    // empty School box as kept).
+    if (reactSelectBox(input)) return norm(reactSelectChoice(input)).includes(want)
+    const wrap = input.parentElement?.closest("[class*='control' i], [class*='select' i], [class*='dropdown' i], [class*='combo' i], [class*='picker' i], [class*='field' i]") || input.parentElement
     const seen = norm(`${input.value || ""} ${wrap?.innerText || input.innerText || ""}`)
     return seen.includes(want)
   }
@@ -653,9 +661,23 @@
     const wanted = String(place || full[0] || "").toLowerCase().split(",").map((x) => x.trim()).filter(Boolean)
     for (const q of tries) {
       // The suggestion that names the whole place asked for first (the city, then its country), else the first one.
-      const expectedText = await pickOption(f.el, q, f.label, (texts) => { if (!texts.length) return -1; const i = texts.findIndex((t) => wanted.every((w) => String(t).toLowerCase().includes(w))); return i >= 0 ? i : 0 })
-      if (expectedText !== null && (f.el.value.trim() !== "" || Boolean(document.getElementById("selected-location")?.value))) {
-        return { ok: true, expected: null, expectedOption: -1, expectedText }
+      // Compared without punctuation (Greenhouse writes Master’s, Autofill Master's). Then the usual best-option match; the first
+      // suggestion only for a place search (a city box lists the city first) — on a list like Degree it picked "Master of Business
+      // Administration" for "Master's Degree".
+      const bare = (t) => String(t).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()
+      const placeBox = /\b(city|location|place|town|address|residence|woonplaats|stad|plaats|locatie)\b/i.test(f.label)
+      const expectedText = await pickOption(f.el, q, f.label, (texts) => {
+        if (!texts.length) return -1
+        const i = texts.findIndex((t) => wanted.every((w) => bare(t).includes(bare(w))))
+        if (i >= 0) return i
+        const best = typeof A.chooseOption === "function" ? A.chooseOption(texts, String(q), f.label) : -1
+        if (best >= 0) return best
+        return placeBox ? 0 : -1
+      })
+      if (expectedText !== null) {
+        // react-select keeps the typed words in its input until it loses focus, then drops them: only a chosen value is a fill.
+        if (reactSelectBox(f.el)) { await sleep(150); if (choiceShownNear(f.el, expectedText)) return { ok: true, expected: null, expectedOption: -1, expectedText }; continue }
+        if (f.el.value.trim() !== "" || Boolean(document.getElementById("selected-location")?.value)) return { ok: true, expected: null, expectedOption: -1, expectedText }
       }
     }
     return { ok: false, expected: null, expectedOption: -1, expectedText: null }

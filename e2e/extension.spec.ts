@@ -7273,7 +7273,16 @@ test("live: Greenhouse react-select dropdowns keep the option Broods' fill chose
   let results: Array<{ id: string; ok: boolean; error?: string; tried?: string[] }> = []
   fake.driveScript = async (cmd) => {
     before = ((await cmd("read_page")).fields ?? []) as typeof before
-    const picks = before.filter((f) => f.kind === "combobox" && !f.filled && (f.options?.length ?? 0) > 0).slice(0, 10).map((f) => ({ id: f.id, value: f.options![Math.min(1, f.options!.length - 1)] }))
+    // REAL_DROPDOWN_VALUES='{"School":"University of Amsterdam"}': those labels get the value a person would type (a search box), the
+    // rest one of their own listed options.
+    const chosen = JSON.parse(process.env.REAL_DROPDOWN_VALUES || "{}") as Record<string, string>
+    const own = (f: (typeof before)[number]) => Object.entries(chosen).find(([label]) => f.label.startsWith(label))?.[1]
+    const picks = before.filter((f) => f.kind === "combobox" && !f.filled && (own(f) || (f.options?.length ?? 0) > 0)).slice(0, 10).map((f) => ({ id: f.id, value: own(f) ?? f.options![Math.min(1, f.options!.length - 1)] }))
+    // REAL_DROPDOWN_PREFILL=1: each chosen box first gets another option (what Odds' own prefill may leave), so the fill must replace it.
+    if (process.env.REAL_DROPDOWN_PREFILL) {
+      const wrong = picks.flatMap((p) => { const f = before.find((x) => x.id === p.id); const o = (f?.options ?? []).find((x) => x !== p.value); return own(f!) && o ? [{ id: p.id, value: o }] : [] })
+      if (wrong.length) await cmd("fill", { fields: wrong })
+    }
     results = ((await cmd("fill", { fields: picks })).results ?? []) as typeof results
     // As the server does: fields left "not tried" go again in a fresh step.
     const untried = new Set(results.filter((r) => /^not tried/.test(r.error ?? "")).map((r) => r.id))
@@ -7292,5 +7301,6 @@ test("live: Greenhouse react-select dropdowns keep the option Broods' fill chose
     const b = before.find((f) => f.id === r.id), a = after.find((f) => f.id === r.id)
     console.log(`LIVE DROPDOWN ${r.ok ? "KEPT  " : "LOST  "} ${(b?.label ?? r.id).slice(0, 50).padEnd(50)} -> ${String(a?.value ?? "").slice(0, 40)} ${r.error ? "| " + r.error.slice(0, 80) : ""} ${r.tried ? JSON.stringify(r.tried) : ""}`)
   }
+  for (const label of Object.keys(JSON.parse(process.env.REAL_DROPDOWN_VALUES || "{}"))) console.log(`LIVE OPTIONS ${label}: ${JSON.stringify(before.find((f) => f.label.startsWith(label))?.options?.slice(0, 40) ?? [])}`)
   console.log(`LIVE DROPDOWN kept ${results.filter((r) => r.ok).length}/${results.length}`)
 })

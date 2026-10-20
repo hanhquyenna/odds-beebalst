@@ -1,4 +1,4 @@
-// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts, apply-form.ts and apply-censor.ts (sources 72084032a748633f). Do not edit.
+// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts, apply-form.ts and apply-censor.ts (sources 9b0e5acb8452eaee). Do not edit.
 (() => {
   var __defProp = Object.defineProperty;
   var __returnValue = (v) => v;
@@ -249,6 +249,8 @@
       return pick(a.phone) ?? pick(facts.phone);
     if (/\blinkedin\b/.test(key) && !asks && !isHearQuestion(label))
       return pick(a.linkedin) ?? pick(facts.linkedin);
+    if (asks && /\b(available|availability|commit\w*|beschikbaar)\b/.test(key) && /\b(period|duration|months?|weeks?|internship|traineeship|programme|program|full ?time|part ?time|dates?|start\w*|from|until|till|this role)\b/.test(key) && !/\b(hours?|salary|how many|when|which|what)\b/.test(key))
+      return remembered || "Yes";
     if (asks && /\b(based|living|located|residing|reside|live|resident)\b/.test(key) && /\b(netherlands|nederland|holland|amsterdam|rotterdam|utrecht|the hague|den haag|eindhoven|delft|leiden|groningen|breda|tilburg|nijmegen|maastricht|haarlem|almere)\b/.test(key) && !/relocat|willing|open to|office|days?\b|able|travel/.test(key)) {
       const country = residenceCountry(facts);
       return country ? NL_NAME.test(country) ? "Yes" : "No" : remembered || null;
@@ -437,9 +439,28 @@
     if (/\bdegree\b|\bdiploma\b|\beducation\b/.test(norm(label))) {
       const level = (t) => /\b(phd|doctor\w*)\b/.test(t) ? "phd" : /\b(master\w*|msc|mba|ma|llm)\b/.test(t) ? "master" : /\b(bachelor\w*|bsc|ba|llb)\b/.test(t) ? "bachelor" : /\b(associate|diploma|certificate)\b/.test(t) ? "associate" : null;
       const wanted = level(want);
-      const i = wanted ? opts.findIndex((o, n) => options[n] !== undefined && level(o) === wanted) : -1;
-      if (i >= 0)
-        return i;
+      const exact = opts.findIndex((o, n) => options[n] !== undefined && o === want);
+      if (exact >= 0)
+        return exact;
+      const same = wanted ? opts.map((o, n) => options[n] !== undefined && level(o) === wanted ? n : -1).filter((n) => n >= 0) : [];
+      if (same.length) {
+        const mba = /\b(mba|business administration)\b/.test(want);
+        const science = /\b(msc|bsc|science)\b/.test(want);
+        const arts = /\b(ma|ba|arts)\b/.test(want);
+        const score = (o) => {
+          let v = 0;
+          if (/\b(mba|business administration)\b/.test(o))
+            v += mba ? 6 : -6;
+          if (/\bscience\b|\b(msc|bsc)\b/.test(o))
+            v += science ? 4 : 0;
+          if (/\barts\b|\b(ma|ba)\b/.test(o))
+            v += arts ? 4 : 0;
+          if (/\bdegree\b/.test(o))
+            v += 2;
+          return v;
+        };
+        return same.reduce((best, n) => score(opts[n]) > score(opts[best]) ? n : best, same[0]);
+      }
     }
     const real = (i) => !/^(select an option|select|selecteer|choose|kies|kiezen|make a selection|pick one)\b/.test(opts[i]) && opts[i] !== "";
     if (!want)
