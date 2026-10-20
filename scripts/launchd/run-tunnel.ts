@@ -12,6 +12,14 @@ const BUN = "/Users/kien/.bun/bin/bun"
 const SAVED = `${DIR}/tunnel-url`
 const log = (m: string) => console.log(`${new Date().toISOString()} ${m}`)
 
+/** The Supabase CLI token from the repo's .env.secrets (never logged), for keeping the server's 9router address current. */
+function supabaseToken(): string {
+  try {
+    const line = readFileSync(`${REPO}/.env.secrets`, "utf8").split("\n").find((l) => l.startsWith("SUPABASE_ACCESS_TOKEN="))
+    return line ? line.slice("SUPABASE_ACCESS_TOKEN=".length).trim().replace(/^["']|["']$/g, "") : ""
+  } catch { return "" }
+}
+
 function apiKey(): string {
   const fromEnv = (process.env.NINE_ROUTER_API_KEY || "").trim()
   if (fromEnv) return fromEnv
@@ -102,6 +110,12 @@ async function pointLatestBroods() {
       continue
     }
     if (wantedBase !== base || !(await modelsOk(base))) continue
+    // The drive server describes screenshots through 9router itself (Broods passes no image to the model): it needs the new address too.
+    const token = supabaseToken()
+    if (token) {
+      const sec = Bun.spawn([BUN, "x", "supabase", "secrets", "set", `NINE_ROUTER_BASE_URL=${base}`, "--project-ref", "ukpmpyfcnbhngkgbnkxi"], { cwd: REPO, env: { ...process.env, SUPABASE_ACCESS_TOKEN: token }, stdout: "inherit", stderr: "inherit" })
+      if ((await sec.exited) !== 0) log("supabase secrets set failed: sight stays on the old address until the next change")
+    } else log("no SUPABASE_ACCESS_TOKEN in .env.secrets: sight keeps the old address")
     writeFileSync(SAVED, base)
     log("Broods now uses the new tunnel")
     return

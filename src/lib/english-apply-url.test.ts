@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs"
 const src = readFileSync("extension/background.js", "utf8")
 const start = src.indexOf("const ENGLISH_BY_LOCALE")
 const end = src.indexOf("\n}\n", src.indexOf("function preferEnglishApplyUrl")) + 3
+// oxlint-disable-next-line no-implied-eval -- deliberately evaluates the function as it ships in the extension
 const preferEnglishApplyUrl = new Function(`${src.slice(start, end)}; return preferEnglishApplyUrl`)() as (url: string) => string
 
 test("an employer's own site keeps its language page: Ormit's /nl/ → /en-US/ was a 404 read as 'job closed'", () => {

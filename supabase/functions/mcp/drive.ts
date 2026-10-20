@@ -3,6 +3,7 @@ import { renderLetterPdf } from "../_shared/cv-template.ts"
 import { compressRoute, routeHint, routeKey, routeStoreKey, usable } from "../_shared/site-routes.ts"
 import { canAcceptDriveResult, humanStopAllowed, jobIdentityMismatch } from "../_shared/drive-ownership.ts"
 import { appliedBeforeAnswer, FACT_QUESTION_HINT, isWorkAuthQuestion, ownQuestions, permitWorkAnswers, studyingFrom, widgetAttemptGuard, workFactForQuestion, type PermitWorkFacts } from "../_shared/drive-finish.ts"
+import { describeShot, sightEnv } from "../_shared/drive-sight.ts"
 import { broodsStartOutcome, broodsTurnState, driveRunExpired, MODEL_UNREACHABLE, quietAction, type BroodsStartOutcome, type BroodsTurn } from "../_shared/drive-quiet.ts"
 import { fieldPattern, playbookFor, sanitizeLesson, siteIdentity, structuralField } from "../_shared/site-playbook.ts"
 
@@ -723,9 +724,20 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         if (typeof res.shot_image === "string") { shotImage = res.shot_image; const { shot_image: _s, ...rest } = res; res = rest }
         await svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: res }) })
       }
+      // Sight: Broods cannot see the picture, so what it shows comes with the page as text (open pop-ups and lists, errors, the
+      // buttons and where they are, a captcha). Kept on the step for the trace.
+      const picture = shotImage || (name === "screenshot" && typeof res.image === "string" ? res.image : "")
+      if (picture) {
+        const sight = await describeShot(sightEnv((n) => Deno.env.get(n)), picture)
+        if (sight) {
+          if (res.page && typeof res.page === "object") res = { ...res, page: { ...res.page, sight } }
+          else res = { ...res, sight }
+          void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: name === "screenshot" ? { ...res, image: "(sent)" } : res }) }).catch(() => undefined)
+        }
+      }
       if (name === "screenshot" && typeof res.image === "string") {
         void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...res, image: "(sent)" } }) }).catch(() => undefined)
-        return { text: JSON.stringify({ width: res.width, height: res.height, note: res.note }), image: res.image }
+        return { text: JSON.stringify({ width: res.width, height: res.height, note: res.note, ...(res.sight ? { sight: res.sight } : {}) }), image: res.image }
       }
       // A fill that ran out of its time window (a slow dropdown) leaves the rest "not tried": Odds sends those fields again itself, once more, so Broods gets one answer for the whole fill and never gives up on fields nobody tried.
       if (name === "fill" && Array.isArray(res.results) && Array.isArray(rest.fields)) {
