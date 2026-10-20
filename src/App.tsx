@@ -28,6 +28,7 @@ import { prefetchOn } from "@/lib/prefetch"
 import { syncApplyActivities, syncDriveRuns } from "@/lib/apply-activity"
 import { liveDriveRuns } from "@/lib/drive-runs"
 import { liveApplicationRuns } from "@/lib/application-runs"
+import { setApplicationMonitorUser, syncApplicationMonitor } from "@/lib/application-monitor"
 import { LIVE_APPLY_EVENT } from "@/lib/apply-nav"
 import type { WebView } from "@/lib/web-nav"
 
@@ -176,10 +177,17 @@ export default function App(): React.JSX.Element {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onboarded, data.session])
 
+  useEffect(() => {
+    setApplicationMonitorUser(data.session?.user.id ?? null)
+  }, [data.session?.user.id])
+
   // Extension broadcasts every live Apply so tracker chips stay in sync with detail closed.
   // Also poll server runs — chips must show Applying… even when job detail is closed or the apply tab is backgrounded.
   useEffect(() => {
     if (!data.session) return
+    const userId = data.session.user.id
+    let stopped = false
+    let polling = false
     const onMsg = (event: MessageEvent): void => {
       const d = event.data as { source?: string; type?: string; runs?: unknown } | null
       if (!d || d.type !== "apply-activity-sync" || !Array.isArray(d.runs)) return
@@ -187,39 +195,48 @@ export default function App(): React.JSX.Element {
       syncApplyActivities((d.runs as Array<{ postingId?: string; status?: string; message?: string; url?: string; runId?: string | null }>).map(r=>({...r,postingId:r.postingId ? data.byId.get(r.postingId)?.id ?? r.postingId : undefined})))
     }
     window.addEventListener("message", onMsg)
-    const pullServer = (): void => {
+    const pullServer = async (): Promise<void> => {
+      if (document.hidden || polling || stopped) return
+      polling = true
       // Broods runs first: they are the truth for an Apply with Odds (what it does now, why it waits, whether the tab is there).
-      void liveDriveRuns().then((runs) => syncDriveRuns(runs.map(r=>({...r,posting_id:r.posting_id ? data.byId.get(r.posting_id)?.id ?? r.posting_id : null})))).catch(() => undefined)
-      void liveApplicationRuns().then((runs) => {
-        syncApplyActivities(runs.map((r) => ({
-          postingId: data.byId.get(r.posting_id)?.id ?? r.posting_id,
-          status: r.status === "queued" ? "filling" : r.status,
-          message: r.message,
-        })))
-      }).catch(() => undefined)
+      const results = await Promise.allSettled([liveDriveRuns(), liveApplicationRuns()])
+      if (!stopped) {
+        const drives = results[0]
+        const desktop = results[1]
+        if (drives.status === "fulfilled") {
+          const runs = drives.value.map((run) => ({ ...run, posting_id: run.posting_id ? data.byId.get(run.posting_id)?.id ?? run.posting_id : null }))
+          syncDriveRuns(runs)
+          syncApplicationMonitor(userId, runs)
+        }
+        if (desktop.status === "fulfilled") {
+          const runs = desktop.value.map((run) => ({ ...run, posting_id: data.byId.get(run.posting_id)?.id ?? run.posting_id }))
+          syncApplyActivities(runs.map((run) => ({ postingId: run.posting_id, status: run.status === "queued" ? "filling" : run.status, message: run.message })))
+          syncApplicationMonitor(userId, [], runs)
+        }
+      }
+      polling = false
     }
-    pullServer()
+    void pullServer()
+    document.addEventListener("visibilitychange", pullServer)
     const serverTimer = window.setInterval(pullServer, 3000)
     // Site tab: ask content-site; panel: panel-frame already polls.
     if (!embedded) {
       const tick = (): void => window.postMessage({ source: "odds-site", type: "application-statuses" }, location.origin)
       tick()
       const timer = window.setInterval(tick, 2000)
-      return () => { window.removeEventListener("message", onMsg); window.clearInterval(timer); window.clearInterval(serverTimer) }
+      return () => { stopped = true; document.removeEventListener("visibilitychange", pullServer); window.removeEventListener("message", onMsg); window.clearInterval(timer); window.clearInterval(serverTimer) }
     }
-    return () => { window.removeEventListener("message", onMsg); window.clearInterval(serverTimer) }
+    return () => { stopped = true; document.removeEventListener("visibilitychange", pullServer); window.removeEventListener("message", onMsg); window.clearInterval(serverTimer) }
   }, [data.session, data.byId])
 
-  // Apply with Odds from Jobs: switch to Tracker (saved list) so live Applying… chips are in view.
+  // The explicit View in Tracker action opens the existing job without interrupting a background Apply.
   useEffect(() => {
     const on = (): void => {
       // Leave /job/<id> URL — otherwise sharedJobId can stick or popstate reopens the job page.
-      if (jobIdFromPath(location.pathname) || sharedJobId) {
-        history.replaceState({ ...(typeof history.state === "object" && history.state ? history.state : {}), view: "tracker" }, "", "/")
-      }
+      history.replaceState({ ...(typeof history.state === "object" && history.state ? history.state : {}), view: "tracker" }, "", jobIdFromPath(location.pathname) || sharedJobId ? "/" : location.href)
       setSharedJobId(null)
       setPage(null)
-      setView("tracker", "replace")
+      setViewNow("tracker")
       window.scrollTo(0, 0)
     }
     window.addEventListener(LIVE_APPLY_EVENT, on)

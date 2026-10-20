@@ -239,6 +239,7 @@ export function JobRow({ post, onOpen, status, dismissible }: JobRowProps): Reac
 
 interface JobDrawerProps {
   post: Posting
+  applicationHistoryOpen?: boolean
   locked?: { onUnlock: () => void }
   onClose: () => void
   /** Shows a different job in the same panel. */
@@ -250,7 +251,7 @@ interface JobDrawerProps {
  * button and the phone's back gesture all close it, and the page behind does not
  * scroll while it is open.
  */
-export function JobDrawer({ post, locked, onClose, onSwitch }: JobDrawerProps): React.JSX.Element {
+export function JobDrawer({ post, locked, onClose, onSwitch, applicationHistoryOpen = false }: JobDrawerProps): React.JSX.Element {
   useEffect(() => {
     const scrollY = window.scrollY
     const previous = document.body.style.overflow
@@ -319,7 +320,7 @@ export function JobDrawer({ post, locked, onClose, onSwitch }: JobDrawerProps): 
           </button>
         </div>
         <Suspense fallback={null}>
-          <JobDetail key={post.id} pane post={post} locked={locked} onBack={() => undefined} onPick={() => closeRef()} onOpenJob={onSwitch} />
+          <JobDetail key={post.id} pane post={post} locked={locked} onBack={() => undefined} onPick={() => closeRef()} onOpenJob={onSwitch} applicationHistoryOpen={applicationHistoryOpen} />
         </Suspense>
       </aside>
     </div>,

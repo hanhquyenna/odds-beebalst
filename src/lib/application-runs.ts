@@ -5,6 +5,9 @@ export interface ApplicationRun {
   status: "queued" | "filling" | "needs_input" | "ready" | "submitted" | "failed" | "cancelled"
   message: string
   expires_at?: string
+  url?: string
+  created_at?: string
+  updated_at?: string
 }
 export const activeApplication = (run: ApplicationRun): boolean => ["queued", "filling", "needs_input", "ready"].includes(run.status)
 export async function applicationState(postingId: string): Promise<{ run: ApplicationRun | null; online: boolean }> {
@@ -22,7 +25,7 @@ export async function applicationState(postingId: string): Promise<{ run: Applic
 export async function liveApplicationRuns(): Promise<ApplicationRun[]> {
   const { data, error } = await supabase
     .from("application_runs")
-    .select("id,posting_id,status,message,expires_at")
+    .select("id,posting_id,status,message,expires_at,url,created_at,updated_at")
     .in("status", ["queued", "filling", "needs_input", "ready"])
     .order("created_at", { ascending: false })
     .limit(40)
