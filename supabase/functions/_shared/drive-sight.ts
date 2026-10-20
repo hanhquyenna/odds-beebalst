@@ -37,7 +37,8 @@ export function cleanSight(text: string): string {
  * `image` is the base64 JPEG the extension took of the tab.
  */
 export async function describeShot(env: SightEnv | null, image: string, timeoutMs = 12_000, fetcher: typeof fetch = fetch): Promise<string> {
-  if (!env || !image) return ""
+  // An unpainted (white) tab says nothing about the page; described, it read as "blank page" (see looksBlank in drive-vision.ts).
+  if (!env || !image || (image.length * 3) / 4 < 8_000) return ""
   try {
     const res = await fetcher(`${env.baseUrl}/chat/completions`, {
       method: "POST",

@@ -19,6 +19,14 @@ export const PLACEHOLDER_JPEG =
 // deno-lint-ignore no-explicit-any
 type Json = any
 
+/**
+ * A picture with nothing in it: a tab Chrome did not paint (queued applications fill in a background tab) comes back pure white, a
+ * ~4 KB JPEG, where a real application page is 40-70 KB. Pushed, it made Broods stop with "the screen is completely blank".
+ */
+export function looksBlank(base64: string): boolean {
+  return !base64 || (base64.length * 3) / 4 < 8_000
+}
+
 /** What a page looks like for "did that click change anything": address, every field's value, the buttons and the errors. */
 export function pageSignature(page: Json): string {
   if (!page || typeof page !== "object") return ""
@@ -67,7 +75,7 @@ export type VisionDeps = {
  * then steered in as an image link. False when it could not (over the cap, storage or steer failed): text sight remains.
  */
 export async function pushScreenshot(deps: VisionDeps, runId: string, image: string, reasons: string[], now = Date.now()): Promise<boolean> {
-  if (!image || !reasons.length) return false
+  if (!image || !reasons.length || looksBlank(image)) return false
   const done = await deps.pushed().catch(() => [] as string[])
   if (done.length >= VISION_MAX) return false
   const path = `${runId}/${now}.jpg`

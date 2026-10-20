@@ -17,16 +17,17 @@ describe("sight: the server describes the screenshot Broods cannot see", () => {
       sent = JSON.parse(typeof init?.body === "string" ? init.body : "{}")
       return new Response(JSON.stringify({ choices: [{ message: { content: "BUTTONS: Submit application at the bottom (blocked for you)" } }] }), { status: 200 })
     }) as typeof fetch
-    const out = await describeShot(env, "QUJD", 5000, fetcher)
+    const out = await describeShot(env, "A".repeat(20_000), 5000, fetcher)
     expect(out).toBe("BUTTONS: Submit application at the bottom (blocked for you)")
     const user = sent.messages?.find((m) => m.role === "user")?.content as Array<{ type: string; image_url?: { url: string } }>
-    expect(user.find((p) => p.type === "image_url")?.image_url?.url).toBe("data:image/jpeg;base64,QUJD")
+    expect(user.find((p) => p.type === "image_url")?.image_url?.url).toBe(`data:image/jpeg;base64,${"A".repeat(20_000)}`)
   })
 
   test("off, failing or slow sight returns nothing and never holds a run up", async () => {
     expect(await describeShot(null, "QUJD")).toBe("")
-    expect(await describeShot(env, "QUJD", 5000, (async () => new Response("no", { status: 500 })) as typeof fetch)).toBe("")
-    expect(await describeShot(env, "QUJD", 50, ((_u: unknown, init?: RequestInit) => new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("timeout"))))) as typeof fetch)).toBe("")
+    expect(await describeShot(env, "A".repeat(20_000), 5000, (async () => new Response("no", { status: 500 })) as typeof fetch)).toBe("")
+    expect(await describeShot(env, "A".repeat(5_300), 5000, (async () => new Response(JSON.stringify({ choices: [{ message: { content: "blank page" } }] }))) as typeof fetch)).toBe("")
+    expect(await describeShot(env, "A".repeat(20_000), 50, ((_u: unknown, init?: RequestInit) => new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("timeout"))))) as typeof fetch)).toBe("")
     expect(sightEnv(() => undefined)).toBeNull()
   })
 })

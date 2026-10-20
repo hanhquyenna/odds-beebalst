@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import { PLACEHOLDER_JPEG, VISION_MAX, pageSignature, pushScreenshot, troubleReasons, type VisionDeps } from "../../supabase/functions/_shared/drive-vision"
+import { PLACEHOLDER_JPEG, VISION_MAX, looksBlank, pageSignature, pushScreenshot, troubleReasons, type VisionDeps } from "../../supabase/functions/_shared/drive-vision"
 
+const REAL = "A".repeat(20_000)
 const page = (over: Record<string, unknown> = {}) => ({ url: "https://jobs.example.com/apply", fields: [{ id: "f1", value: "", filled: false }], buttons: [{ text: "Next" }], errors: [], ...over })
 
 describe("real vision only when a step shows trouble", () => {
@@ -35,8 +36,8 @@ describe("real vision only when a step shows trouble", () => {
 
   test("the screenshot is stored, steered in as a link with the reason, and only the last 2 stay real", async () => {
     const { d, puts, steers, remembered } = deps(["run1/1.jpg", "run1/2.jpg"])
-    expect(await pushScreenshot(d, "run1", "SHOT", ["a fill did not take (1 field)"], 3)).toBe(true)
-    expect(puts[0]).toEqual(["run1/3.jpg", "SHOT"])
+    expect(await pushScreenshot(d, "run1", REAL, ["a fill did not take (1 field)"], 3)).toBe(true)
+    expect(puts[0]).toEqual(["run1/3.jpg", REAL])
     // 2 already pushed + this one = 3: the oldest becomes the grey placeholder at the same path (its link keeps working).
     expect(puts.slice(1)).toEqual([["run1/1.jpg", PLACEHOLDER_JPEG]])
     expect(steers[0][1]).toBe("https://store.test/sign/run1/3.jpg")
@@ -45,13 +46,17 @@ describe("real vision only when a step shows trouble", () => {
   })
 
   test("over the per-run cap, or when storage or steering fails, nothing is pushed (text sight remains)", async () => {
-    expect(await pushScreenshot(deps(Array.from({ length: VISION_MAX }, (_, i) => `r/${i}.jpg`)).d, "r", "SHOT", ["x"])).toBe(false)
-    expect(await pushScreenshot(deps([], { put: true }).d, "r", "SHOT", ["x"])).toBe(false)
-    expect(await pushScreenshot(deps([], { sign: true }).d, "r", "SHOT", ["x"])).toBe(false)
+    expect(await pushScreenshot(deps(Array.from({ length: VISION_MAX }, (_, i) => `r/${i}.jpg`)).d, "r", REAL, ["x"])).toBe(false)
+    expect(await pushScreenshot(deps([], { put: true }).d, "r", REAL, ["x"])).toBe(false)
+    expect(await pushScreenshot(deps([], { sign: true }).d, "r", REAL, ["x"])).toBe(false)
     const failedSteer = deps([], { steer: true })
-    expect(await pushScreenshot(failedSteer.d, "r", "SHOT", ["x"])).toBe(false)
+    expect(await pushScreenshot(failedSteer.d, "r", REAL, ["x"])).toBe(false)
     expect(failedSteer.remembered).toEqual([])
     expect(await pushScreenshot(deps([]).d, "r", "", ["x"])).toBe(false)
-    expect(await pushScreenshot(deps([]).d, "r", "SHOT", [])).toBe(false)
+    // A white, unpainted tab (~4 KB) is never pushed: it made Broods stop with "the screen is completely blank".
+    expect(looksBlank("A".repeat(5_300))).toBe(true)
+    expect(looksBlank(REAL)).toBe(false)
+    expect(await pushScreenshot(deps([]).d, "r", "A".repeat(5_300), ["x"])).toBe(false)
+    expect(await pushScreenshot(deps([]).d, "r", REAL, [])).toBe(false)
   })
 })
