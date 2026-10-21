@@ -33,7 +33,11 @@ takeConnectFromUrl()
 // The odds browser extension sending someone here to connect (/connect/extension): same.
 takeExtensionFromUrl()
 // Shown inside the odds extension's panel: signed in by the extension.
-if (embedded) void import("@/lib/embed").then((m) => m.startEmbed())
+if (embedded) {
+  // Its own look in index.css: drawn outlines, since the panel sits beside bright job sites where the phone's hairlines vanish.
+  document.documentElement.classList.add("embedded")
+  void import("@/lib/embed").then((m) => m.startEmbed())
+}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

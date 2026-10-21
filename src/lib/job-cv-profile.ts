@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import type { CvRows } from "@/lib/cv-parse"
 import { attachedTo, type Store } from "@/lib/document-model"
+import { profileFromRows } from "@/lib/job-chance"
 import type { Profile } from "@/lib/types"
 
 /**
@@ -61,9 +62,7 @@ export function profileFromCv(profile: Profile, body: string): Profile | null {
   }
   if (!reader) return null
   if (byBody.has(body)) return byBody.get(body) ?? null
-  const rows = reader(body)
-  const readable = rows.positions.length + rows.education.length + rows.skills.length > 0
-  const next = readable ? { ...profile, cv: body, positions: rows.positions, education: rows.education, skills: rows.skills } : null
+  const next = profileFromRows(profile, body, reader(body))
   byBody.set(body, next)
 
   return next

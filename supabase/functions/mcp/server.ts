@@ -10,6 +10,7 @@
 // @ts-ignore: bundled from src/lib by scripts/build-mcp-core.sh
 import { driveExt, handleDriveMcp } from "./drive.ts"
 import * as core from "./core.js"
+import { keptChances } from "./kept-chance.ts"
 import { handleOAuth, unauthorized } from "./oauth.ts"
 import { accessFor, contentOf, driveEnv, linkOf, pushIfConnected } from "../_shared/drive.ts"
 import { queueDone, queueNext } from "../_shared/apply-queue.ts"
@@ -99,6 +100,14 @@ async function svc(env: Env, path: string, init: { method?: string; body?: strin
   const t = await r.text()
 
   return t ? JSON.parse(t) : null
+}
+
+/**
+ * The interview chance per job for the signed-in person, the same figure the app, the side panel and the badge show (kept-chance.ts).
+ * `userId` null (a person Claude describes): the plain figure, nothing kept.
+ */
+function chancesFor(env: Env, userId: string | null, profile: Json, posts: Json[], w: { ref: Json; shares: Json }): Promise<Map<string, Json>> {
+  return keptChances(core as never, (path, init) => svc(env, path, init), userId && env.serviceKey ? userId : null, profile, posts, w.ref, w.shares)
 }
 
 async function sha256hex(data: string | Uint8Array): Promise<string> {
@@ -631,7 +640,9 @@ async function call(env: Env, me: Me | null, keyGiven: boolean, name: string, ra
     if (!post) return failed("No open job with that id in the pool. Use search_jobs to find one.")
     const profile = await personFor(env, me, args.person)
     if (!core.hasProfile(profile)) return failed("Tell me about the person first: at least one role or one degree.")
-    const chance = core.chanceFor(post, profile, w.ref, w.shares)
+    // The person's own saved profile gets the figure the app shows them; someone described in the chat gets a plain estimate.
+    const own = me && !core.hasProfile(core.profileFrom(args.person ?? {})) ? me.id : null
+    const chance = (await chancesFor(env, own, profile, [post], w)).get(String(post.id)) ?? null
 
     return chance ? text({ job: core.jobLine(post, w.ref), ...chance }) : failed("No estimate for this job.")
   }
@@ -876,6 +887,7 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
     const missing = mine.ids.filter((id) => !w.byId.has(id))
     const closed = missing.length ? await rest(env, `postings?select=id,title,employer,employer_display,region,url,valid_through,closed_at&id=in.(${missing.map((id) => `"${encodeURIComponent(id)}"`).join(",")})`).catch(() => []) : []
     const closedBy = new Map((closed ?? []).map((p: Json) => [p.id, p]))
+    const chances = await chancesFor(env, uid, profile, mine.ids.map((id) => w.byId.get(id)).filter(Boolean), w)
     const jobs = mine.ids.map((id) => {
       const post = w.byId.get(id)
       const files = (attached ?? []).filter((a: Json) => a.posting_id === id).map((a: Json) => ({ kind: a.kind === "cv" ? "CV" : "cover letter", name: docName.get(a.document_id) ?? null, document_id: a.document_id }))
@@ -885,7 +897,7 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
 
         return { id, title: c?.title ?? null, company: c?.employer_display ?? c?.employer ?? null, url: c?.url ?? null, status, still_open: false, attached: files }
       }
-      const chance = core.hasProfile(profile) ? core.chanceFor(post, profile, w.ref, w.shares) : null
+      const chance = chances.get(String(id)) ?? null
 
       return { ...core.jobLine(post, w.ref), status, still_open: true, chance_pct: chance?.chance_pct ?? null, attached: files }
     })
@@ -1563,12 +1575,15 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     marks.push(`waited;dur=${Date.now() - t0}`)
     const posts = new Map(core.preparePool(open.filter(Boolean)).map((p: Json) => [String(p.id), p]))
     const saved = new Set((mine ?? []).map((m: Json) => String(m.posting_id)))
+    // The figure the app shows this person for each job (kept-chance.ts), all jobs in one go.
+    const chances = await chancesFor(env, me.id, profile, [...posts.values()], w).catch(() => new Map<string, Json>())
+    marks.push(`chance;dur=${Date.now() - t0}`)
     const answerFor = (link: JobLink | null, held: Json): Json => {
       if (!link) return { status: "error", message: "odds cannot tell which job this page is." }
       if (!held) return { known: false }
       if (held.closed_at) return { known: true, closed: true, id: held.id }
       const post = posts.get(String(held.id))
-      const chance = post && core.hasProfile(profile) ? core.chanceFor(post, profile, w.ref, w.shares) : null
+      const chance = post ? chances.get(String(post.id)) ?? null : null
 
       return { known: true, id: held.id, job: post ? core.jobLine(post, w.ref) : { id: held.id }, saved: saved.has(String(held.id)), chance_pct: chance?.chance_pct ?? null, needs_profile: !core.hasProfile(profile) }
     }
@@ -1823,7 +1838,7 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     early,
   ])
   const post = rows?.[0] ? core.preparePool(rows)[0] : null
-  const chance = post && core.hasProfile(profile) ? core.chanceFor(post, profile, w.ref, w.shares) : null
+  const chance = post ? (await chancesFor(env, me.id, profile, [post], w).catch(() => new Map<string, Json>())).get(String(post.id)) ?? null : null
   const line = post ? core.jobLine(post, w.ref) : { id, title: result.title ?? null, company: result.employer ?? null }
 
   return json(200, { status: result.status, known: true, saved: route === "add", job: line, odds_link: `https://odds.beeblast.co/job/${id}`, chance_pct: chance?.chance_pct ?? null, needs_profile: !core.hasProfile(profile) })

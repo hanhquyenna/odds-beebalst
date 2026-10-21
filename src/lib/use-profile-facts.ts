@@ -12,8 +12,10 @@ import type { Posting, Profile } from "@/lib/types"
  * stops counting the moment it changes, and a new part counts once it has been read. Signed out, or the reader off or busy:
  * there are no facts, and every number is what it was without them.
  */
-export function useProfileFacts(profile: Profile, session: Session | null): { strengthFor: (post: Pick<Posting, "family">) => Strength | null; refresh: () => void; reading: boolean; pending: number } {
+export function useProfileFacts(profile: Profile, session: Session | null): { strengthFor: (post: Pick<Posting, "family">) => Strength | null; refresh: () => void; reading: boolean; pending: number; settled: boolean } {
   const [stored, setStored] = useState<Record<string, ItemFacts>>({})
+  // True once the stored facts have come back (or the reader said no): before that, a chance without them is not yet the person's.
+  const [settled, setSettled] = useState<boolean>(false)
   const [current, setCurrent] = useState<Array<{ hash: string; text: string }>>([])
   const [reading, setReading] = useState<boolean>(false)
   const [pending, setPending] = useState<number>(0)
@@ -43,6 +45,7 @@ export function useProfileFacts(profile: Profile, session: Session | null): { st
   useEffect(() => {
     setStored({})
     setPending(0)
+    setSettled(false)
     stopped.current = false
   }, [session?.user.id])
 
@@ -76,6 +79,7 @@ export function useProfileFacts(profile: Profile, session: Session | null): { st
       .finally(() => {
         busy.current = false
         setReading(false)
+        setSettled(true)
         if (again.current) {
           again.current = false
           refresh()
@@ -86,5 +90,5 @@ export function useProfileFacts(profile: Profile, session: Session | null): { st
   const readItems = useMemo<ReadItem[]>(() => current.flatMap((c) => (stored[c.hash] ? [{ text: c.text, facts: stored[c.hash] }] : [])), [current, stored])
   const strengthFor = useCallback((post: Pick<Posting, "family">): Strength | null => strengthFromItems(readItems, post.family), [readItems])
 
-  return { strengthFor, refresh, reading, pending }
+  return { strengthFor, refresh, reading, pending, settled }
 }

@@ -14,9 +14,15 @@ import { oddsV2 } from "@/lib/odds-v2"
 import { withSkillTiers } from "@/lib/skill-tiers"
 import { payOf } from "@/lib/spec"
 import { similarMix, tailor } from "@/lib/tailor"
+import { chanceInputs, pinToWrite, profileFromRows, withPinned, type PinnedChance } from "@/lib/job-chance"
+import { parseCv } from "@/lib/cv-parse"
+import { parseItemFacts, strengthFromItems } from "@/lib/strength"
+import { hashItem, itemsOf } from "../profile/items"
 import { DEFAULT_PROFILE, type Band, type DutchLevel, type Posting, type Profile, type Row, type TaxParams, type Transition } from "@/lib/types"
 
 export { FIELD_OPTIONS, LEVELS, chanceSnapshot }
+// For the kept chance on the server (kept-chance.ts): the CV put on a job, and what was read from the profile, worked out as the app does.
+export { hashItem, itemsOf, parseCv, parseItemFacts, profileFromRows, strengthFromItems }
 
 const APP = "https://odds.beeblast.co"
 
@@ -193,12 +199,39 @@ export interface Chance {
 }
 
 export function chanceFor(post: Posting, profile: Profile, ref: Reference, shares: ReturnType<typeof computeShares>): Chance | null {
-  const st = standing(post, profile, ref, shares)
-  if (!st.rate) return null
-  const v2 = oddsV2(post, profile, {})
+  return keptChance(post, profile, ref, shares).chance
+}
+
+/** What one job's chance is worked out from, besides the posting and the profile used for it (the job's own CV's, or the saved one). */
+export interface ChanceExtras {
+  referral?: boolean
+  strength?: ReturnType<typeof strengthFromItems>
+  /** The figure kept for this person and job (job-chance.ts), if any. */
+  pin?: PinnedChance
+  /**
+   * The server knows less than the app (a referral ticked in the browser): a kept figure is shown whatever it came from, and never
+   * replaced from here, or the app and the badge would keep overwriting each other. A job with nothing kept gets the figure from here.
+   */
+  trustPin?: boolean
+}
+
+/**
+ * The chance exactly as the app shows it for this person and job: the same inputs as the app (src/lib/use-job-chance.ts), then the kept
+ * figure in its place while what it came from holds. `keep` is the figure to keep when none is kept for these inputs yet.
+ */
+export function keptChance(post: Posting, profile: Profile, ref: Reference, shares: ReturnType<typeof computeShares>, extras: ChanceExtras = {}): { chance: Chance | null; keep: ReturnType<typeof pinToWrite> } {
+  const referral = extras.referral ?? false
+  const strength = extras.strength ?? null
+  const live = standing(post, profile, ref, shares, undefined, referral, strength)
+  const inputs = chanceInputs(profile, referral, strength)
+  const key = extras.trustPin && extras.pin ? extras.pin.inputs : inputs
+  const st = withPinned(live, extras.pin, key)
+  const keep = extras.trustPin && extras.pin ? null : pinToWrite(live, extras.pin, inputs)
+  if (!st.rate) return { chance: null, keep: null }
+  const v2 = oddsV2(post, profile, { referral, record: strength })
   const pct = (x: number): number => displayedChance(x).pct
 
-  return {
+  return { keep, chance: {
     chance_pct: pct(st.rate.mid),
     range_pct: [pct(st.rate.low), pct(st.rate.high)],
     applicants_estimate: Math.round(v2.pile.applicants),
@@ -207,7 +240,7 @@ export function chanceFor(post: Posting, profile: Profile, ref: Reference, share
     helps: v2.parts.filter((x) => x.z > 0.05).sort((a, b) => b.z - a.z).slice(0, 4).map((x) => plainLabel(x.label)),
     holds_back: v2.parts.filter((x) => x.z < -0.05).sort((a, b) => a.z - b.z).slice(0, 4).map((x) => plainLabel(x.label)),
     note: "An estimate from published hiring studies and the size of the applicant pile, not a promise. Real outcomes are not yet logged to calibrate it.",
-  }
+  } }
 }
 
 // ---- Jobs tailored to you ----

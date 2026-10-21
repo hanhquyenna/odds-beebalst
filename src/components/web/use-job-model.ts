@@ -5,6 +5,8 @@ import { stripMarkup } from "@/lib/format"
 import { fetchBody, fetchJevRequirements } from "@/lib/jobs"
 import { extractRequirements, fromJev, namedSkills, relaxedGates, tiersOf, type Requirement } from "@/lib/requirements"
 import { useJobProfile, useJobStrength } from "@/lib/use-documents"
+import { useJobChance, usePinnedScale } from "@/lib/use-job-chance"
+import { scaled } from "@/lib/job-chance"
 import type { Posting } from "@/lib/types"
 
 export interface JobModel {
@@ -57,9 +59,12 @@ export function useJobModel(post: Posting): JobModel {
   const referral = data.referrals.has(post.id)
   const strength = useJobStrength(post)
   const profile = useJobProfile(post.id)
+  // Read from the posting's text too, then moved onto the figure kept for this job (job-chance.ts): the same number as everywhere else.
+  useJobChance(post)
+  const scale = usePinnedScale(job)
   const st = useMemo(
-    () => (data.reference && data.shares ? standing(job, profile, data.reference, data.shares, NO_WHAT_IF, referral, strength) : null),
-    [job, profile, data.reference, data.shares, referral, strength],
+    () => (data.reference && data.shares ? scaled(standing(job, profile, data.reference, data.shares, NO_WHAT_IF, referral, strength), scale) : null),
+    [job, profile, data.reference, data.shares, referral, strength, scale],
   )
 
   return { job, body, requirements, st }

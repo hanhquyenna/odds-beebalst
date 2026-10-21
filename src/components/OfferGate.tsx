@@ -3,6 +3,7 @@ import { OFFER_EVENT, moveJob, type Pending } from "@/components/job-steps"
 import { Button } from "@/components/ui/button"
 import { useData } from "@/lib/data"
 import { point, standing } from "@/lib/engine"
+import { usePins } from "@/lib/chance-pins"
 import type { Posting } from "@/lib/types"
 
 /** The card people can post: what they got and the chance they beat. Drawn here, nothing is uploaded. */
@@ -57,12 +58,16 @@ export function OfferGate(): React.JSX.Element | null {
     if (pending) yes.current?.focus()
   }, [pending, done])
 
+  const pins = usePins()
   const chance = useMemo(() => {
     if (!pending || !data.reference || !data.shares) return null
+    // The figure the person saw for this job everywhere else (job-chance.ts), when one was kept.
+    const kept = pins.byJob.get(pending.post.id)
+    if (kept) return point(kept.mid)
     const st = standing(pending.post, data.profile, data.reference, data.shares, undefined, data.referrals.has(pending.post.id))
 
     return st.rate && !st.rate.thin ? point(st.rate.mid) : null
-  }, [pending, data.reference, data.shares, data.profile, data.referrals])
+  }, [pending, data.reference, data.shares, data.profile, data.referrals, pins])
 
   if (!pending) {
     return null

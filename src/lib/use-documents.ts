@@ -107,6 +107,18 @@ export function useJobProfileInfo(postingId: string): JobProfile {
   return useMemo(() => jobProfileOf(profile, store, postingId), [profile, store, postingId, ready])
 }
 
+/**
+ * True once this job's profile is final: the documents are in and, when a CV sits on the job, it has been read. Before that the chance
+ * is the saved profile's for a moment, and is not kept (job-chance.ts).
+ */
+export function useJobProfileSettled(postingId: string): boolean {
+  const store = useDocumentStore()
+  const onJob = store.links.some((l) => l.postingId === postingId && l.kind === "cv")
+  const ready = useCvReader(onJob)
+
+  return store.status === "ready" && (!onJob || ready)
+}
+
 export function useJobProfile(postingId: string): Profile {
   return useJobProfileInfo(postingId).profile
 }

@@ -31,6 +31,7 @@ import { saveChanceSnapshot } from "@/lib/outcome-log"
 import { chanceSnapshot } from "@/lib/outcome-snapshot"
 import { mergeSaved, pushSaved } from "@/lib/saved-sync"
 import { documentStoreNow, loadDocuments } from "@/lib/documents"
+import { loadPins } from "@/lib/chance-pins"
 import { jobProfileOf } from "@/lib/job-cv-profile"
 import { loadAutoLogos, registerLogos, useAutoLogosReady } from "@/lib/stored-logos"
 import { DEFAULT_PROFILE, type Application, type PastSearch, type Person, type Posting, type Profile } from "@/lib/types"
@@ -103,6 +104,8 @@ export interface Data {
   referrals: Set<string>
   /** How strong your saved profile reads for this job (strength.ts), or null until something has been read: the chance then shows without it. */
   strengthFor: (post: Pick<Posting, "family">) => Strength | null
+  /** True once what was read from the profile is in: only then is a chance kept for a job (job-chance.ts). */
+  factsSettled: boolean
   toggleReferral: (id: string) => void
   people: Person[]
   addPerson: (person: Omit<Person, "id">) => Person
@@ -435,6 +438,10 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
   )
 
   const signedInId = session?.user.id ?? null
+  // The chance kept per job (chance-pins.ts): one figure on every surface.
+  useEffect(() => {
+    void loadPins(signedInId)
+  }, [signedInId])
   const toggleSaved = useCallback((id: string): void => {
     setSaved((prev) => {
       const next = new Set(prev)
@@ -474,6 +481,7 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
       if (document.visibilityState !== "visible" || Date.now() - last < 20_000) return
       last = Date.now()
       void loadDocuments(signedInId)
+      void loadPins(signedInId)
       void fetchApplications(latest.current.byId)
         .then(setApplications)
         .catch(() => undefined)
@@ -749,6 +757,7 @@ export function DataProvider({ children }: { children: React.ReactNode }): React
     setSaved: setSaved_,
     referrals: referrals,
     strengthFor: facts.strengthFor,
+    factsSettled: facts.settled,
     toggleReferral: toggleReferral,
     people: people,
     addPerson: addPerson,

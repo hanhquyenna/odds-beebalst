@@ -5,20 +5,11 @@ import { pct, point, standing, type Standing } from "@/lib/engine"
 import { IMPORT_HINT, openLinkedInImport } from "@/lib/open-profile"
 import type { Posting } from "@/lib/types"
 import { useJobProfile, useJobStrength } from "@/lib/use-documents"
+import { useJobChance, usePinnedScale } from "@/lib/use-job-chance"
 
-/** How you stand on one job, worked out from your profile. Null until the reference data has loaded. */
+/** How you stand on one job, with the chance every surface shows for it (job-chance.ts). Null until the reference data has loaded. */
 export function useFit(post: Posting): Standing | null {
-  const data = useData()
-  const referral = data.referrals.has(post.id)
-  const reference = data.reference
-  const shares = data.shares
-  const profile = data.profile
-  const strengthFor = data.strengthFor
-
-  return useMemo(
-    (): Standing | null => (reference && shares ? standing(post, profile, reference, shares, undefined, referral, strengthFor(post)) : null),
-    [post, profile, reference, shares, referral, strengthFor],
-  )
+  return useJobChance(post).base
 }
 
 /**
@@ -29,13 +20,15 @@ export function useOriginalChance(post: Posting): number | null {
   const { reference, shares } = useData()
   const profile = useJobProfile(post.id)
   const strength = useJobStrength(post)
+  // Moved by the same factor as the figure shown (the kept one), so "was 2.1%, now 2.7%" compares like with like.
+  const scale = usePinnedScale(post)
 
   return useMemo(() => {
     if (!reference || !shares) return null
     const r = standing(post, profile, reference, shares, undefined, false, strength).rate
 
-    return r ? r.mid : null
-  }, [post, profile, reference, shares, strength])
+    return r ? r.mid * scale : null
+  }, [post, profile, reference, shares, strength, scale])
 }
 
 /**

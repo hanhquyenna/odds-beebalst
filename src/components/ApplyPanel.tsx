@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react"
+import { lazy, Suspense, useEffect, useRef, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
 import { BriefcaseIcon, BuildingsIcon, ChevronRightIcon, GraduationCapIcon, PeopleIcon } from "@/components/icons"
 import type { JobTab } from "@/components/JobDetail"
@@ -9,11 +9,11 @@ import { useData } from "@/lib/data"
 import { fetchKeptPostings } from "@/lib/jobs"
 import { applySourceOf } from "@/lib/apply-source"
 import { onPanelInfo, toExtension, type PanelInfo } from "@/lib/embed"
-import { displayedChance, NO_WHAT_IF, standing } from "@/lib/engine"
+import { displayedChance } from "@/lib/engine"
 import { PANEL_FILL_MS } from "@/lib/panel-fill"
 import { formatAge } from "@/lib/format"
 import type { Posting } from "@/lib/types"
-import { useJobProfile, useJobStrength } from "@/lib/use-documents"
+import { useJobChance } from "@/lib/use-job-chance"
 
 const JobDetail = lazy(() => import("@/components/JobDetail").then((m) => ({ default: m.JobDetail })))
 
@@ -146,7 +146,7 @@ function JobCard({ info, post, onInsights }: { info: PanelInfo; post: Posting | 
   const people = data.people.filter((p) => (post && p.jobId === post.id) || (company && p.company.toLowerCase() === company))
 
   return (
-    <div className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card">
+    <div className="overflow-hidden rounded-xl border-2 border-line bg-card">
       <div className="flex items-start gap-3 p-3">
         <span className="flex size-12 shrink-0 items-center justify-center">
           <CompanyLogo employer={employer} name={name} size={48} wide={1.3} url={post?.url ?? page.url} />
@@ -163,7 +163,7 @@ function JobCard({ info, post, onInsights }: { info: PanelInfo; post: Posting | 
         ) : null}
       </div>
       {onInsights ? (
-        <button type="button" onClick={onInsights} className="flex w-full cursor-pointer items-center gap-2 border-t-[1.5px] border-line px-3 py-3 text-left hover:bg-accent/60">
+        <button type="button" onClick={onInsights} className="flex w-full cursor-pointer items-center gap-2 border-t-2 border-line px-3 py-3 text-left hover:bg-accent/60">
           <span className="flex-1 text-sm font-semibold">See job insights</span>
           {/* What the insights hold: the job, who got hired there before, the company, the people (with a few faces when some are known). */}
           <span className="flex items-center gap-1.5 text-muted-foreground" aria-hidden="true" data-insight-icons>
@@ -288,11 +288,8 @@ function OddsButton({ info, post }: { info: PanelInfo; post: Posting | null }): 
 
 /** Like a resume score, but the interview chance: the ring, then the recommendations that raise it (tick one and the chance moves). */
 function ChanceCard({ post, tabId, url }: { post: Posting; tabId: number; url: string }): React.JSX.Element | null {
-  const data = useData()
-  const profile = useJobProfile(post.id)
-  const strength = useJobStrength(post)
-  const referral = data.referrals.has(post.id)
-  const st = useMemo(() => (data.reference && data.shares ? standing(post, profile, data.reference, data.shares, NO_WHAT_IF, referral, strength) : null), [post, profile, data.reference, data.shares, referral, strength])
+  // The same figure as the job list, the job page and the badge beside the posting (job-chance.ts).
+  const st = useJobChance(post).base
   const mid = st && !st.needsProfile ? st.rate?.mid ?? null : null
   const shown = mid !== null ? displayedChance(mid) : null
   const chancePct = shown?.pct
@@ -312,7 +309,7 @@ function ChanceCard({ post, tabId, url }: { post: Posting; tabId: number; url: s
   const missing = st.checklist.filter((c) => !c.have).map((c) => c.skill).slice(0, 6)
 
   return (
-    <div className="flex flex-col gap-4 rounded-xl border-[1.5px] border-line bg-card p-4">
+    <div className="flex flex-col gap-4 rounded-xl border-2 border-line bg-card p-4">
       <div className="flex flex-col items-center gap-2 text-center">
         <div className="relative grid size-[112px] shrink-0 place-items-center">
           <svg viewBox="0 0 100 100" className="absolute inset-0 -rotate-90" aria-hidden="true">
@@ -344,10 +341,10 @@ function ChanceCard({ post, tabId, url }: { post: Posting; tabId: number; url: s
 function Attach({ info, post }: { info: PanelInfo; post: Posting | null }): React.JSX.Element {
   const go = (): void => window.location.assign("/documents")
   const file = (name: string | null | undefined, empty: string): React.JSX.Element => name ? (
-    <button type="button" onClick={go} className="flex w-full cursor-pointer items-center gap-3 rounded-xl border-[1.5px] border-line px-3 py-3 text-left hover:bg-accent/60">
+    <button type="button" onClick={go} className="flex w-full cursor-pointer items-center gap-3 rounded-xl border-2 border-line px-3 py-3 text-left hover:bg-accent/60">
       <span className="flex h-12 w-10 shrink-0 items-end justify-center rounded-md bg-destructive/10 pb-1.5 text-[10px] font-extrabold text-destructive">PDF</span>
       <span className="flex min-w-0 flex-1 flex-col"><span className="truncate text-sm font-bold">{name}</span><span className="text-xs text-muted-foreground">Used for this application</span></span>
-      <span className="rounded-lg border-[1.5px] border-line px-3 py-1.5 text-sm font-bold">Change</span>
+      <span className="rounded-lg border-2 border-line px-3 py-1.5 text-sm font-bold">Change</span>
     </button>
   ) : (
     <button type="button" onClick={go} className="flex h-14 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-[1.5px] border-dashed border-brand px-3 text-sm font-bold hover:bg-brand/10">{empty}</button>
@@ -355,12 +352,12 @@ function Attach({ info, post }: { info: PanelInfo; post: Posting | null }): Reac
 
   return (
     <>
-      <div className="flex flex-col gap-3 rounded-xl border-[1.5px] border-line bg-card p-4">
+      <div className="flex flex-col gap-3 rounded-xl border-2 border-line bg-card p-4">
         <div className="text-base font-bold">Your CV</div>
         {file(info.cv, "Upload your CV")}
         {post ? <TailorFlow post={post} kind="cv" solid compact /> : null}
       </div>
-      <div className="flex flex-col gap-3 rounded-xl border-[1.5px] border-line bg-card p-4">
+      <div className="flex flex-col gap-3 rounded-xl border-2 border-line bg-card p-4">
         <div className="text-base font-bold">Your cover letter</div>
         {file(info.letter, "Add a cover letter")}
         {post ? <TailorFlow post={post} kind="cover_letter" compact /> : null}
@@ -395,7 +392,7 @@ function SaveAnswers({ info }: { info: PanelInfo }): React.JSX.Element | null {
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border-[1.5px] border-line bg-card p-4">
+    <div className="flex flex-col gap-3 rounded-xl border-2 border-line bg-card p-4">
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-2 text-base font-bold"><span className="grid size-5 place-items-center rounded-full bg-good-foreground text-xs text-white">✓</span>Saved to Autofill</span>
         <span className="rounded-full bg-brand/15 px-2.5 py-0.5 text-xs font-bold text-brand-ink">{items.length} new</span>
@@ -405,10 +402,10 @@ function SaveAnswers({ info }: { info: PanelInfo }): React.JSX.Element | null {
         const value = values[it.question] ?? it.answer
 
         return (
-          <div key={it.question} className="flex flex-col gap-1.5 rounded-xl border-[1.5px] border-line p-3">
+          <div key={it.question} className="flex flex-col gap-1.5 rounded-xl border-2 border-line p-3">
             <div className="flex items-start gap-2">
               <span className="flex-1 text-sm font-semibold text-muted-foreground">{it.question}</span>
-              {editing === it.question ? null : <button type="button" onClick={() => setEditing(it.question)} className="cursor-pointer rounded-lg border-[1.5px] border-line px-3 py-1 text-sm font-bold hover:bg-accent">Edit</button>}
+              {editing === it.question ? null : <button type="button" onClick={() => setEditing(it.question)} className="cursor-pointer rounded-lg border-2 border-line px-3 py-1 text-sm font-bold hover:bg-accent">Edit</button>}
             </div>
             {editing === it.question ? (
               <>

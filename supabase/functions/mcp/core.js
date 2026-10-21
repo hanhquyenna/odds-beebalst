@@ -284,6 +284,13 @@ function guessFamily(title, skills) {
 }
 
 // src/lib/strength.ts
+var STANDING_TIERS = ["none", "known", "elite"];
+var RECOGNITION_TIERS = ["none", "local", "national", "international"];
+var GRADE_TIERS = ["none", "stated_high", "stated_top"];
+var STANDING_VALUE = { none: 0, known: 0.5, elite: 1 };
+var RECOGNITION_VALUE = { none: 0, local: 0.2, national: 0.5, international: 0.8 };
+var GRADE_VALUE = { none: 0, stated_high: 0.2, stated_top: 0.4 };
+var RELEVANCE_SHARE = { unrelated: 0.2, adjacent: 0.6, same: 1 };
 var NEIGHBOURS = [
   ["Finance & accounting", "Risk, compliance & legal", "Consulting & strategy"],
   ["Software engineering", "Data, analytics & AI", "IT, cloud & security", "Hardware & engineering"],
@@ -300,6 +307,48 @@ function relevanceOf(itemFamily, jobFamily) {
     return "same";
   }
   return NEIGHBOURS.some((g) => g.includes(itemFamily) && g.includes(jobFamily)) ? "adjacent" : "unrelated";
+}
+var STRENGTH_SPAN = 0.5;
+var isOneOf = (list, x) => typeof x === "string" && list.includes(x);
+function parseItemFacts(raw) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const r = raw;
+  if (!isOneOf(STANDING_TIERS, r.standing) || !isOneOf(RECOGNITION_TIERS, r.recognition) || !isOneOf(GRADE_TIERS, r.grades)) {
+    return null;
+  }
+  if (r.family !== null && !(typeof r.family === "string" && FAMILIES.includes(r.family))) {
+    return null;
+  }
+  return { standing: r.standing, recognition: r.recognition, grades: r.grades, family: r.family };
+}
+function headOf(text) {
+  const first = text.split(/\.\s/)[0].replace(/\.$/, "").trim();
+  if (first.length <= 90)
+    return first;
+  const cut = first.slice(0, 90);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 40))}...`;
+}
+function itemStrength(f) {
+  const signals = [STANDING_VALUE[f.standing], RECOGNITION_VALUE[f.recognition], GRADE_VALUE[f.grades]].sort((x, y) => y - x);
+  return Math.min(1, signals[0] + 0.25 * signals[1]);
+}
+function strengthFromItems(items, jobFamily) {
+  if (items.length === 0) {
+    return null;
+  }
+  const scored = items.map((it) => {
+    const rel = relevanceOf(it.facts.family, jobFamily);
+    return { it, rel, c: itemStrength(it.facts) * RELEVANCE_SHARE[rel] };
+  }).sort((a, b) => b.c - a.c);
+  const best = scored[0];
+  if (best.c === 0) {
+    return { value: FIT_AVERAGE, detail: "nothing on your profile that stands out for this job. That is the normal case and does not lower your chance" };
+  }
+  const s = Math.min(1, best.c + 0.25 * (scored[1]?.c ?? 0));
+  const closeness = best.rel === "same" ? "the same kind of work" : best.rel === "adjacent" ? "work next to this job" : "work far from this job, so it counts for little";
+  return { value: FIT_AVERAGE + STRENGTH_SPAN * s, detail: `${headOf(best.it.text)}: ${closeness}` };
 }
 // src/lib/pile-model.json
 var pile_model_default = {
@@ -3812,6 +3861,259 @@ function withSkillTiers(post) {
   return { ...post, skills: Object.keys(t), tiers };
 }
 
+// src/lib/job-chance.ts
+var READ = ["permit", "birth", "abroad", "origin", "dutch", "studying", "cv", "positions", "education", "skills", "languages", "occ", "headline"];
+function fnv(text) {
+  let h = 2166136261;
+  for (let i = 0;i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+function chanceInputs(profile, referral, strength) {
+  const used = {};
+  for (const k of READ)
+    used[k] = profile[k] ?? null;
+  return fnv(JSON.stringify([used, referral, strength ?? null]));
+}
+function scaled(st, k) {
+  if (!st.rate || k === 1)
+    return st;
+  return { ...st, rate: { ...st.rate, low: st.rate.low * k, mid: st.rate.mid * k, high: st.rate.high * k } };
+}
+function pinScale(live, pin, inputs) {
+  return live?.rate && pin && pin.inputs === inputs && live.rate.mid > 0 ? pin.mid / live.rate.mid : 1;
+}
+function withPinned(st, pin, inputs, live = st) {
+  const k = pinScale(live, pin, inputs);
+  if (k === 1 || !st.rate || !pin)
+    return st;
+  if (st === live)
+    return { ...st, rate: { ...st.rate, low: pin.low, mid: pin.mid, high: pin.high } };
+  return scaled(st, k);
+}
+function pinToWrite(live, pin, inputs) {
+  if (!live?.rate || live.needsProfile || !(live.rate.mid > 0))
+    return null;
+  if (pin && pin.inputs === inputs)
+    return null;
+  return { mid: live.rate.mid, low: live.rate.low, high: live.rate.high, inputs };
+}
+function profileFromRows(profile, body, rows) {
+  const readable = rows.positions.length + rows.education.length + rows.skills.length > 0;
+  return readable ? { ...profile, cv: body, positions: rows.positions, education: rows.education, skills: rows.skills } : null;
+}
+
+// src/lib/cv-parse.ts
+var HEADINGS = [
+  ["experience", /^(work |professional |relevant |employment |internship |career )?(experience|experiences|history|employment|werkervaring|ervaring|experi[eê]ncia|experiencia|iş deneyimi|deneyim|berufserfahrung)( history| summary)?$/i],
+  ["education", /^(education|academic background|academic|studies|qualifications?|opleiding|opleidingen|educa[cç][aã]o|educaci[oó]n|forma[cç][aã]o( acad[eê]mica)?|eğitim|ausbildung|bildung)$/i],
+  ["skills", /^(skills|technical skills|key skills|core skills|competenc(e|ies)|tools|technologies|vaardigheden|habilidades|compet[eê]ncias|yetenekler|f[aä]higkeiten)$/i],
+  ["other", /^(summary|profile|about( me)?|objective|awards?|honou?rs|achievements|scholarships|certifications?|certificates|languages?|interests|publications|references|projects|volunteer(ing)?|contact|personal)$/i]
+];
+var MONTH = MONTH_PATTERN;
+var DATE = `(?:${MONTH}\\s+\\d{4}|\\d{1,2}\\s*[/.-]\\s*\\d{4}|\\d{4}\\s*[/-]\\s*\\d{1,2}|\\d{4})`;
+var NOW = "(?:present|now|current|today|heden|nu|actualidad|presente|atual|devam|bugün|heute)";
+var RANGE = new RegExp(`(${DATE})\\s*(?:-|–|—|to|until|tot|a|até|bis|-->)\\s*(${DATE}|${NOW})`, "iu");
+var ENDS_NOW = new RegExp(`^${NOW}$`, "i");
+var clean = (s) => s.replace(/^[\s\-•*·▪◦●–—]+/, "").replace(/\s+/g, " ").trim();
+function headingOf(line) {
+  const t = clean(line).replace(/[:：]+$/, "").trim();
+  if (t.length === 0 || t.length > 40)
+    return null;
+  for (const [kind, re] of HEADINGS)
+    if (re.test(t))
+      return kind;
+  return null;
+}
+function splitHeader(line) {
+  const t = line.replace(RANGE, "").replace(/[()|]+\s*$/g, "").replace(/\s+/g, " ").trim().replace(/[,;|\-–—\s]+$/, "");
+  const at = /^(.+?)\s+(?:at|@|bij|na|en)\s+(.+)$/i.exec(t);
+  if (at && !t.includes(","))
+    return { title: at[1].trim(), company: at[2].trim(), place: "" };
+  const bar = t.split(/\s+[|–—]\s+/);
+  const parts = bar.length > 1 ? bar : t.split(/\s*,\s*/);
+  return { title: parts[0]?.trim() ?? t, company: parts[1]?.trim() ?? "", place: parts.slice(2).join(", ").trim() };
+}
+var fixDate = (s) => s.replace(/\s+/g, " ").trim();
+var TITLE_WORDS = /\b(intern|internship|stagiair|trainee|manager|analyst|engineer|specialist|consultant|director|founder|co-founder|ceo|cto|cfo|coo|officer|assistant|associate|developer|designer|lead|head|coordinator|executive|researcher|advisor|adviser|administrator|representative|owner|president|chief|scientist|architect|accountant|controller|auditor|strategist|planner|buyer|recruiter|teacher|nurse|technician|mechanic|clerk|agent|partner|apprentice|werkstudent|student assistant|medewerker|adviseur|stagiaire)\b/i;
+var looksLikePlace = (s) => s.length >= 3 && s.length <= 50 && !/\d/.test(s) && !/^[-•*·▪◦●–—]/.test(s) && s.split(/\s+/).length <= 5;
+var SCHOOL = /\b(universit(y|eit)|college|school|institute|institut|hogeschool|academy|academie|polytechnic|hbo|université|universidad|universidade|üniversite)\b/i;
+var DEGREE = /\b(b\.?sc|m\.?sc|b\.?a|m\.?a|bba|mba|ph\.?d|bachelor|master|licen[cs]e|diploma|degree|b\.?tech|m\.?tech|b\.?eng|m\.?eng|llb|llm|associate degree|wo|hbo)\b/i;
+function parseCv(text) {
+  const positions = [];
+  const education = [];
+  const skills = [];
+  let section = "other";
+  const lines = text.split(`
+`).map((l) => l.trim());
+  const nextIdx = (i) => {
+    for (let j = i + 1;j < lines.length && j <= i + 3; j++)
+      if (lines[j] !== "")
+        return j;
+    return -1;
+  };
+  let current = null;
+  let pending = null;
+  const bullets = [];
+  const flush = () => {
+    if (current) {
+      positions.push({ ...current, Description: bullets.join(" ").slice(0, 600) });
+      current = null;
+    }
+    bullets.length = 0;
+  };
+  for (let i = 0;i < lines.length; i++) {
+    const raw = lines[i];
+    if (raw === "")
+      continue;
+    const h = headingOf(raw);
+    if (h) {
+      flush();
+      pending = null;
+      section = h;
+      continue;
+    }
+    if (section === "experience") {
+      const isBullet = /^[\s]*[-•*·▪◦●–—]/.test(raw);
+      const range = isBullet ? null : RANGE.exec(raw);
+      if (range) {
+        flush();
+        const remainder = clean(raw.replace(RANGE, ""));
+        const header = remainder.length >= 3 ? remainder : pending ?? "";
+        const above = pending;
+        pending = null;
+        let { title, company, place } = splitHeader(header);
+        if (remainder.length >= 3 && company === "" && !TITLE_WORDS.test(remainder)) {
+          const nj = nextIdx(i);
+          const next = nj >= 0 ? lines[nj] : "";
+          const nextIsPlain = next !== "" && !headingOf(next) && !/^[-•*·▪◦●–—]/.test(next) && !RANGE.test(next);
+          if (nextIsPlain && TITLE_WORDS.test(next)) {
+            const rest = splitHeader(clean(next));
+            company = remainder;
+            title = rest.title;
+            place = rest.company ? [rest.company, rest.place].filter(Boolean).join(", ") : "";
+            i = nj;
+            const aj = nextIdx(i);
+            const after = aj >= 0 ? lines[aj] : "";
+            if (!place && after !== "" && !headingOf(after) && !RANGE.test(after) && looksLikePlace(clean(after))) {
+              place = clean(after);
+              i = aj;
+            }
+          } else if (above && TITLE_WORDS.test(above)) {
+            company = remainder;
+            title = above;
+          }
+        }
+        if (title.length >= 2) {
+          current = { Title: title, "Company Name": company, Location: place, "Started On": fixDate(range[1]), "Finished On": ENDS_NOW.test(range[2].trim()) ? "" : fixDate(range[2]), Description: "" };
+        }
+        continue;
+      }
+      if (isBullet) {
+        if (current)
+          bullets.push(clean(raw));
+      } else {
+        pending = clean(raw);
+      }
+      continue;
+    }
+    if (section === "education") {
+      const range = RANGE.exec(raw);
+      const expected = new RegExp(`\\b(?:expected|expected graduation|graduating|verwacht)\\s*:?\\s*(${DATE})`, "iu").exec(raw);
+      const bare = clean(raw.replace(RANGE, "").replace(expected?.[0] ?? "", ""));
+      if (bare.length >= 3) {
+        const parts = bare.split(/\s*,\s*/);
+        const nj = nextIdx(i);
+        const nextRaw = nj >= 0 ? lines[nj] : "";
+        const next = clean(nextRaw.replace(RANGE, ""));
+        if (parts.length === 1 && SCHOOL.test(bare) && !DEGREE.test(bare) && next && DEGREE.test(next) && !headingOf(next)) {
+          const nextExpected = new RegExp(`\\b(?:expected|expected graduation|graduating|verwacht)\\s*:?\\s*(${DATE})`, "iu").exec(nextRaw);
+          const nextRange = RANGE.exec(nextRaw);
+          const degree = clean(next.replace(nextExpected?.[0] ?? "", ""));
+          education.push({ "Degree Name": degree, "School Name": bare, "Field Of Study": "", "Start Date": nextRange ? fixDate(nextRange[1]) : "", "End Date": nextRange ? fixDate(nextRange[2]) : nextExpected ? fixDate(nextExpected[1]) : "", Notes: "" });
+          i = nj;
+        } else if (parts.length === 1 && DEGREE.test(bare) && !SCHOOL.test(bare) && next && SCHOOL.test(next) && !DEGREE.test(next) && !headingOf(next)) {
+          education.push({ "Degree Name": bare, "School Name": next, "Field Of Study": "", "Start Date": range ? fixDate(range[1]) : "", "End Date": range ? fixDate(range[2]) : expected ? fixDate(expected[1]) : "", Notes: "" });
+          i = nj;
+        } else {
+          education.push({ "Degree Name": parts[0] ?? bare, "School Name": parts[1] ?? "", "Field Of Study": "", "Start Date": range ? fixDate(range[1]) : "", "End Date": range ? fixDate(range[2]) : expected ? fixDate(expected[1]) : "", Notes: parts.slice(2).join(", ") });
+        }
+      }
+      continue;
+    }
+    if (section === "skills") {
+      let line = clean(raw);
+      while (/^[a-zà-ÿ]/.test(clean(lines[i + 1] ?? "")) && clean(lines[i + 1] ?? "").length <= 40 && !headingOf(lines[i + 1] ?? "")) {
+        i++;
+        line = `${line} ${clean(lines[i])}`;
+      }
+      const labelled = /^([^:,]{2,40}):\s*(.+)$/.exec(line);
+      if (labelled && /^languages?$/i.test(labelled[1].trim()))
+        continue;
+      const list = labelled ? labelled[2] : line.replace(/^skills?:/i, "");
+      for (const name of list.split(/[,;•|·]|\s{2,}/).map((x) => x.trim()).filter((x) => x.length >= 1 && x.length <= 40 && /[\p{L}\d]/u.test(x)))
+        skills.push({ Name: name });
+    }
+  }
+  flush();
+  return { positions: positions.slice(0, 12), education: education.slice(0, 6), skills: skills.slice(0, 40) };
+}
+
+// supabase/functions/profile/items.ts
+var MAX_ITEMS = 40;
+var MAX_LINE = 400;
+var REPEAT_SHARE = 0.85;
+var CONTACT = /@|https?:\/\/|www\.|linkedin\.com|github\.com|\+?\d[\d\s().-]{7,}\d/i;
+var HEADING = /^(summary|profile|about( me)?|objective|experience|work experience|professional experience|employment|education|studies|skills|technical skills|tools|awards?|honou?rs|achievements|scholarships|certifications?|languages?|interests|publications|references|projects|volunteering|contact|personal details|werkervaring|opleiding|vaardigheden|experi[eê]ncia|educa[cç][aã]o|forma[cç][aã]o|habilidades|resumo|eğitim|deneyim|yetenekler|berufserfahrung|ausbildung)\s*:?$/i;
+var NAME = /^\p{Lu}[\p{L}'.-]+(?:\s+\p{Lu}[\p{L}'.-]+){1,3}$/u;
+var wordsOf = (s) => s.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) ?? [];
+var clean2 = (s) => (typeof s === "string" ? s : typeof s === "number" ? String(s) : "").replace(/\s+/g, " ").trim();
+var rows = (x) => Array.isArray(x) ? x.filter((r) => r !== null && typeof r === "object" && !Array.isArray(r)) : [];
+function roleText(p) {
+  const head = `${clean2(p.Title)}${clean2(p["Company Name"]) ? `, ${clean2(p["Company Name"])}` : ""}${clean2(p.Location) ? ` (${clean2(p.Location)})` : ""}`;
+  const dates = [clean2(p["Started On"]), clean2(p["Finished On"])].filter(Boolean).join(" to ");
+  return [head, dates, clean2(p.Description)].filter((x) => x !== "").join(". ").slice(0, MAX_LINE);
+}
+function educationText(e) {
+  const parts = [clean2(e["Degree Name"]), clean2(e["Field Of Study"]), clean2(e["School Name"]), [clean2(e["Start Date"]), clean2(e["End Date"])].filter(Boolean).join(" to "), clean2(e.Notes)];
+  return parts.filter((x) => x !== "").join(", ").slice(0, MAX_LINE);
+}
+function itemsOf2(profile) {
+  const out = [];
+  const seen = new Set;
+  const add = (kind, text) => {
+    const t = text.trim();
+    const key = `${kind}|${t.toLowerCase()}`;
+    if (t.length < 8 || seen.has(key) || out.length >= MAX_ITEMS)
+      return;
+    seen.add(key);
+    out.push({ kind, text: t });
+  };
+  for (const p of rows(profile.positions))
+    add("role", roleText(p));
+  for (const e of rows(profile.education))
+    add("education", educationText(e));
+  const covered = new Set(out.flatMap((i) => wordsOf(i.text)));
+  const cvLines = (typeof profile.cv === "string" ? profile.cv : "").split(/\n+/).map((l) => clean2(l)).filter(Boolean);
+  for (const [n, line] of cvLines.entries()) {
+    const text = line.slice(0, MAX_LINE);
+    if (CONTACT.test(text) || HEADING.test(text) || n === 0 && NAME.test(text))
+      continue;
+    const w = wordsOf(text);
+    if (covered.size > 0 && w.length > 0 && w.filter((x) => covered.has(x)).length / w.length >= REPEAT_SHARE)
+      continue;
+    add("line", text);
+  }
+  return out;
+}
+async function hashItem(item) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${item.kind}
+${item.text}`));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 // supabase/functions/mcp/core.src.ts
 var APP = "https://odds.beeblast.co";
 function preparePool(rows) {
@@ -3906,12 +4208,21 @@ function search(pool, ref, signals, input) {
 }
 var plainLabel = (label) => label.replace(/^Most relevant: /, "").replace(/ \((same|a neighbouring|another) line of work\)$/, "");
 function chanceFor(post, profile, ref, shares) {
-  const st = standing(post, profile, ref, shares);
+  return keptChance(post, profile, ref, shares).chance;
+}
+function keptChance(post, profile, ref, shares, extras = {}) {
+  const referral = extras.referral ?? false;
+  const strength = extras.strength ?? null;
+  const live = standing(post, profile, ref, shares, undefined, referral, strength);
+  const inputs = chanceInputs(profile, referral, strength);
+  const key = extras.trustPin && extras.pin ? extras.pin.inputs : inputs;
+  const st = withPinned(live, extras.pin, key);
+  const keep = extras.trustPin && extras.pin ? null : pinToWrite(live, extras.pin, inputs);
   if (!st.rate)
-    return null;
-  const v2 = oddsV2(post, profile, {});
+    return { chance: null, keep: null };
+  const v2 = oddsV2(post, profile, { referral, record: strength });
   const pct = (x) => displayedChance(x).pct;
-  return {
+  return { keep, chance: {
     chance_pct: pct(st.rate.mid),
     range_pct: [pct(st.rate.low), pct(st.rate.high)],
     applicants_estimate: Math.round(v2.pile.applicants),
@@ -3920,7 +4231,7 @@ function chanceFor(post, profile, ref, shares) {
     helps: v2.parts.filter((x) => x.z > 0.05).sort((a, b) => b.z - a.z).slice(0, 4).map((x) => plainLabel(x.label)),
     holds_back: v2.parts.filter((x) => x.z < -0.05).sort((a, b) => a.z - b.z).slice(0, 4).map((x) => plainLabel(x.label)),
     note: "An estimate from published hiring studies and the size of the applicant pile, not a promise. Real outcomes are not yet logged to calibrate it."
-  };
+  } };
 }
 function tailoredFor(pool, ref, signals, shares, profile, opts) {
   const fieldOrder = known(opts.fields, FIELD_OPTIONS);
@@ -3961,15 +4272,22 @@ export {
   filtersFrom,
   fitTable,
   hasProfile,
+  hashItem,
+  itemsOf2 as itemsOf,
   jobLine,
+  keptChance,
   makeReference,
+  parseCv,
+  parseItemFacts,
   preparePool,
   profileFrom,
+  profileFromRows,
   profileFromSaved,
   search,
   sharesOf,
   signalsOf,
   similarMix,
   similarToSaved,
+  strengthFromItems,
   tailoredFor
 };

@@ -18,6 +18,8 @@ import { JobDocuments } from "@/components/JobDocuments"
 import { useData } from "@/lib/data"
 import { embedded } from "@/lib/embedded"
 import { useJobProfile, useJobStrength } from "@/lib/use-documents"
+import { useJobChance, usePinnedScale } from "@/lib/use-job-chance"
+import { scaled } from "@/lib/job-chance"
 import { saved as notifySaved } from "@/lib/saved"
 import { isWhatIfActive, NO_WHAT_IF, standing, type WhatIf } from "@/lib/engine"
 import { stripMarkup } from "@/lib/format"
@@ -118,13 +120,18 @@ export function JobDetail({ onBack, onPick, onOpenJob, post, pane = false, locke
   const strength = useJobStrength(post)
   // A CV put on this job is what this job's chance is worked out from; without one it is the saved profile.
   const profile = useJobProfile(post.id)
+  // This page reads the posting's text too (gates, skills), so it works the job out from more than the list and the badge do. Its chance is
+  // moved onto the figure kept for this job (job-chance.ts), so it shows the same number as everywhere else; that figure is kept from the
+  // posting as stored, like every other surface.
+  useJobChance(post)
+  const scale = usePinnedScale(job)
   const base = useMemo(
-    () => (data.reference && data.shares ? standing(job, profile, data.reference, data.shares, NO_WHAT_IF, referral, strength) : null),
-    [job, profile, data.reference, data.shares, referral, strength],
+    () => (data.reference && data.shares ? scaled(standing(job, profile, data.reference, data.shares, NO_WHAT_IF, referral, strength), scale) : null),
+    [job, profile, data.reference, data.shares, referral, strength, scale],
   )
   const st = useMemo(
-    () => (data.reference && data.shares ? standing(job, profile, data.reference, data.shares, whatIf, referral, strength) : null),
-    [job, profile, data.reference, data.shares, whatIf, referral, strength],
+    () => (data.reference && data.shares ? scaled(standing(job, profile, data.reference, data.shares, whatIf, referral, strength), scale) : null),
+    [job, profile, data.reference, data.shares, whatIf, referral, strength, scale],
   )
 
   const pay = payOf(post, data.reference)

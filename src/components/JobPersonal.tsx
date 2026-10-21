@@ -11,6 +11,7 @@ import { Section } from "@/components/Section"
 import { TIERS } from "@/lib/requirements"
 import { useData } from "@/lib/data"
 import { useJobProfile, useJobStrength } from "@/lib/use-documents"
+import { usePinnedScale } from "@/lib/use-job-chance"
 import { ladderStats, poolOf, rungOf } from "@/lib/ladder"
 import { derive, eur, isInternship, levelOf, type Level, payChoicesOf, netMonth, pct, point, standing, thresholdLines, type Standing, type WhatIf, NO_WHAT_IF } from "@/lib/engine"
 import { EXAMPLE_PROFILE } from "@/lib/example"
@@ -134,6 +135,8 @@ export function Recommendations({ post, base, whatIf, setWhatIf }: { post: Posti
   const referral = data.referrals.has(post.id)
   const jobProfile = useJobProfile(post.id)
   const jobStrength = useJobStrength(post)
+  // `base` shows the kept figure (job-chance.ts): what a change does is worked out here and moved by the same factor.
+  const scale = usePinnedScale(post)
   const d = derive(jobProfile)
   const active = whatIf.dutch || whatIf.degree || whatIf.student || whatIf.years > 0 || whatIf.skills.length > 0 || whatIf.tailor !== null
   const failed = (name: string): boolean => base.gates.find((g) => g.name === name)?.status === "fail"
@@ -146,7 +149,7 @@ export function Recommendations({ post, base, whatIf, setWhatIf }: { post: Posti
     const alt = standing(post, jobProfile, ref, shares, { ...NO_WHAT_IF, ...change }, asReferral || referral, jobStrength)
     // Whether few postings of this kind exist (rate.thin) does not change the figure, so it does not hide what a change does to it.
     if (base.rate && alt.rate) {
-      const gain = (alt.rate.mid - base.rate.mid) * 100
+      const gain = (alt.rate.mid * scale - base.rate.mid) * 100
       if (Math.abs(gain) >= 0.05) {
         return { badge: `${gain > 0 ? "↑" : "↓"} ${Math.abs(gain).toFixed(1)}%`, gap: false }
       }
