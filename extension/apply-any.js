@@ -2204,6 +2204,18 @@
       if (!/^(Enter|Tab|Escape|ArrowDown|ArrowUp|ArrowLeft|ArrowRight|Space|Backspace)$/.test(key)) return { ok: false, error: "allowed keys: Enter, Tab, Escape, arrows, Space, Backspace" }
       const el = document.activeElement || document.body
       if (key === "Enter" && el.closest("form") && denyText.test((el.closest("form").querySelector("[type=submit]")?.innerText || "") + " ")) return { ok: false, error: "Enter here would submit; the person sends it" }
+      // Escape with a list left open on another box (a country picker that never lost its menu): that box takes the key, or the
+      // focused one closes nothing and the list stays over the form.
+      if (key === "Escape") {
+        const stuck = [...document.querySelectorAll('input[aria-expanded="true"], [role="combobox"][aria-expanded="true"]')].filter((x) => x !== el && x.isConnected && x.getClientRects().length)
+        for (const box of stuck.slice(0, 3)) {
+          box.focus()
+          await sleep(60)
+          if (!(await realKey("Escape"))?.ok) box.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))
+          await sleep(60)
+        }
+        if (stuck.length) { el.focus?.(); if (!document.querySelector('input[aria-expanded="true"], [role="combobox"][aria-expanded="true"]')) return { ok: true, closed: stuck.length } }
+      }
       if ((await realKey(key))?.ok) return { ok: true, via: "real_input" }
       for (const type of ["keydown", "keypress", "keyup"]) el.dispatchEvent(new KeyboardEvent(type, { key: key === "Space" ? " " : key, bubbles: true, cancelable: true }))
       return { ok: true }

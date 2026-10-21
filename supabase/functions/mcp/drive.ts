@@ -647,8 +647,20 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         const sightText = lastSight.map((r: Json) => String(r?.result?.page?.sight ?? r?.result?.sight ?? "")).join("\n")
         const openBySight = /^OPEN:(?!\s*(none|nothing|no\b))[^\n]*\b(list|dropdown|drop-down|menu|options|select)\b/im.test(sightText)
         if (reviewed.open_list || openBySight) {
-          await runQuick(env, run, "press_key", { key: "Escape" }, "Closing a list left open")
-          await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "closed_open_list", by: reviewed.open_list ? "reader" : "sight", what: String(reviewed.open_list ?? "").slice(0, 80) }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+          const after = await runQuick(env, run, "press_key", { key: "Escape" }, "Closing a list left open")
+          let still: Json = after?.page && typeof after.page === "object" ? after.page.open_list ?? null : reviewed.open_list ?? null
+          // Escape went to the box in focus, not the one whose list is open (extensions before 0.15.138): that box is put in focus
+          // first (reading its options does that), then Escape again.
+          if (still) {
+            const want = String(still).replace(/\*\s*$/, "").trim().toLowerCase()
+            const box = (Array.isArray(reviewed.fields) ? reviewed.fields : []).find((f: Json) => String(f?.label ?? "").replace(/\*\s*$/, "").trim().toLowerCase() === want)
+            if (box?.id) {
+              await runQuick(env, run, "options", { id: box.id }, "Closing a list left open")
+              const again = await runQuick(env, run, "press_key", { key: "Escape" }, "Closing a list left open")
+              still = again?.page && typeof again.page === "object" ? again.page.open_list ?? null : still
+            }
+          }
+          await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "closed_open_list", by: reviewed.open_list ? "reader" : "sight", what: String(reviewed.open_list ?? "").slice(0, 80), still_open: still ? String(still).slice(0, 80) : null }, done_at: new Date().toISOString() }) }).catch(() => undefined)
         }
       }
     }
