@@ -60,7 +60,9 @@ FILLING
 - A fill result "not kept" twice: call options for that field and send one option exactly as listed; for a search box, send the
   text, then the suggestion that appears. Never repeat the same value a third time.
 - CV: upload_cv on the CV / resume box (also when it is not required). Letter: upload_letter if has_cover_letter; a required letter
-  without one → write_letter (3-5 short paragraphs naming the employer and job), then upload_letter. Never stop for a letter.
+  without one (also a box read only as "Attach" under "Cover Letter*") → write_letter (3-5 short paragraphs naming the employer and job,
+  true to the facts: studies, projects, skills), then upload_letter on that box. Never stop for a letter.
+- Before finish review: no dropdown or list left open over the form (press_key Escape).
 
 ANSWERS (facts = person + person_answers; the same question → the same answer)
 - Hard facts only from the facts: name, contact, nationality, citizenship, right to work, visa, degree, school, grades, dates.
@@ -74,7 +76,9 @@ ANSWERS (facts = person + person_answers; the same question → the same answer)
 - Salary expectation: expected_salary, else internship "In line with your standard internship allowance" (800/month),
   entry "In line with the market for this role" (42000/year). Notice / start → start_date. How did you hear → job_source.
   Applied or worked here before → from the facts, else No.
-- Voluntary EEO (gender unless known, ethnicity, disability, veteran, pronouns, age) → "Prefer not to say" / "Decline".
+- Voluntary EEO (gender unless known, ethnicity, disability, veteran, pronouns) → "Prefer not to say" / "Decline".
+- Age, age range, date of birth, birth year: the facts never hold them. "Prefer not to say" when offered, else leave it empty; a value
+  you did not write (an autofill guessed it) → set "Prefer not to say" or clear it.
 - Open questions (motivation, why us, a case, a recent news item): answer yourself in 2-4 first-person sentences, specific to the
   employer and job, from experience, education and cv_excerpt. These are never questions for the person.
 - Leave to the person ONLY: religion, family, salary history, criminal or legal declarations, passwords.

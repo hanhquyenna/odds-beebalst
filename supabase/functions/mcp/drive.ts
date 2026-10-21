@@ -3,8 +3,8 @@ import { renderLetterPdf } from "../_shared/cv-template.ts"
 import { compressRoute, routeHint, routeKey, routeStoreKey, usable } from "../_shared/site-routes.ts"
 import { canAcceptDriveResult, humanStopAllowed, jobIdentityMismatch } from "../_shared/drive-ownership.ts"
 import { appliedBeforeAnswer, FACT_QUESTION_HINT, isWorkAuthQuestion, ownQuestions, permitWorkAnswers, studyingFrom, widgetAttemptGuard, workFactForQuestion, type PermitWorkFacts } from "../_shared/drive-finish.ts"
-import { describeShot, fewerFields, sightEnv, sightKey, TROUBLE_SIGHT_MAX } from "../_shared/drive-sight.ts"
-import { looksBlank, troubleReasons } from "../_shared/drive-vision.ts"
+import { describeShotDetailed, fewerFields, sightEnv, sightKey, TROUBLE_SIGHT_MAX } from "../_shared/drive-sight.ts"
+import { troubleReasons } from "../_shared/drive-vision.ts"
 import { cleanAgentText, fillHasEmDash, optionTexts } from "../_shared/drive-text.ts"
 import { broodsStartOutcome, broodsTurnState, driveRunExpired, MODEL_UNREACHABLE, quietAction, type BroodsStartOutcome, type BroodsTurn } from "../_shared/drive-quiet.ts"
 import { fieldPattern, playbookFor, sanitizeLesson, siteIdentity, structuralField } from "../_shared/site-playbook.ts"
@@ -256,6 +256,20 @@ async function freshPage(env: Env, run: Json): Promise<Json | null> {
   await abandonCommand(env, read.id, "result_lost").catch(() => undefined)
   return null
 }
+/** One step the server takes itself (no model turn), e.g. Escape to close a list; waits up to 6 s for the tab's answer. */
+async function runQuick(env: Env, run: Json, tool: string, args: Json, note: string): Promise<Json | null> {
+  const docGen = typeof run?.doc_gen === "number" ? run.doc_gen : 0
+  const [cmd] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool, args, note, doc_gen: docGen }) }).catch(() => [null])
+  if (!cmd) return null
+  for (const until = Date.now() + 6_000; Date.now() < until;) {
+    await sleep(300)
+    const row = (await svc(env, `drive_commands?id=eq.${cmd.id}&select=status,result`).catch(() => null))?.[0]
+    if (row?.status === "done") return row.result ?? {}
+    if (row?.status === "cancelled" || row?.status === "expired") break
+  }
+  await abandonCommand(env, cmd.id, "result_lost").catch(() => undefined)
+  return null
+}
 const LETTER_FIELD = /cover\s*letter|motivation(al)?\s*letter|letter of motivation|motivatiebrief|sollicitatiebrief|lettre de motivation|anschreiben|begeleidende brief/i
 
 /** The page right now, read for the server's own check (no model turn): its required fields that are still empty. [] if it cannot tell. */
@@ -266,7 +280,34 @@ const emptyOf = (page: Json): string[] => {
     .filter((f) => (f?.required && !f?.filled) || f?.needs_choice)
     .map((f) => `${String(f.label ?? f.id).slice(0, 80)}${f?.needs_choice ? " (suggestions are open: choose one of them)" : ""}`)
   if (page?.cv_missing === true) out.push("Resume / CV box (attach the CV with upload_cv, required or not)")
+  for (const f of emptyUploads(page)) out.push(f)
   return out
+}
+/** An upload button's own words, not a question ("Attach" on Greenhouse). */
+const GENERIC_UPLOAD = /^(attach|upload|browse|choose( a)? file|select( a)? files?|add file|enter manually)\*?$/i
+/**
+ * Upload boxes still empty that must not be left: a required one ("Cover Letter*"), a letter box, or, once the CV is in, a box the
+ * reader could only call "Attach" (Greenhouse draws the question beside it; older extensions read only the button).
+ */
+export function emptyUploads(page: Json): string[] {
+  const fields: Json[] = Array.isArray(page?.fields) ? page.fields : []
+  return fields
+    .filter((f) => f?.kind === "file" && !String(f?.value ?? "").trim() && !/\.(pdf|docx?|txt|rtf)$/i.test(String(f?.file_name ?? "")))
+    .filter((f) => f?.required === true || LETTER_FIELD.test(String(f?.label ?? "")) || (page?.cv_attached === true && GENERIC_UPLOAD.test(String(f?.label ?? "").trim())))
+    .map((f) => {
+      const label = String(f.label ?? f.id).slice(0, 80)
+      return LETTER_FIELD.test(label) || GENERIC_UPLOAD.test(label.trim())
+        ? `${label} (${f.id}): an upload box still empty, most likely the cover letter: write_letter (3-5 short truthful paragraphs naming the employer and the job), then upload_letter with id ${f.id}`
+        : `${label} (${f.id}): an upload box still empty (upload_cv for a CV box, upload_letter for a letter)`
+    })
+}
+/** Age and date-of-birth questions: the facts never hold them, so like diversity questions they are "Prefer not to say" or empty. */
+export const AGE_FIELD = /\b(age|ages|age range|age group|year range|date of birth|birth ?date|birth ?year|year of birth|born|dob|how old|leeftijd|geboortedatum|geboortejaar|geburtsdatum|alter)\b/i
+const PREFER_NOT = /prefer not|rather not|decline|don.t wish|do not wish|not to (say|disclose|answer)|niet (zeggen|delen)|zeg ik liever niet/i
+/** A filled age / birth question the agent did not answer itself (a page or browser autofill guessed it): to clear or set prefer-not. */
+export function strayAge(page: Json, filledByAgent: Set<string>): Json[] {
+  const fields: Json[] = Array.isArray(page?.fields) ? page.fields : []
+  return fields.filter((f) => f?.kind !== "file" && f?.kind !== "checkbox" && AGE_FIELD.test(String(f?.label ?? "")) && String(f?.value ?? "").trim() && !PREFER_NOT.test(String(f?.value ?? "")) && !filledByAgent.has(String(f?.id)))
 }
 /** The run tried to attach the CV and it never went in: a CV box the page does not call one ("Attach" on Greenhouse) is still empty. */
 export function cvNeverAttached(uploads: Json[]): boolean {
@@ -564,7 +605,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       const looked = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.vision_stuck&select=id&limit=1`).catch(() => null))?.[0]
       if (!looked) {
         const image = await captureShot(env, run)
-        const sight = image && !looksBlank(image) ? await describeShot(sightEnv((n) => Deno.env.get(n)), image, 12_000, fetch, ["the agent was about to stop"]) : ""
+        const sight = image ? (await describeShotDetailed(sightEnv((n) => Deno.env.get(n)), image, 20_000, fetch, ["the agent was about to stop"])).text : ""
         if (sight) {
           await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "vision_stuck", sight }, done_at: new Date().toISOString() }) }).catch(() => undefined)
           return { text: `Not yet: Odds looked at the tab for you. What it shows now:\n${sight}\nUse that (what is open, what the error says, where the button is, what each box really shows) to try another way, or finish again if it really is blocked.`, error: true }
@@ -575,7 +616,38 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     // name/email after reading the CV, a field Broods never saw). Broods is told exactly what is left and carries on.
     if (stage === "review") {
       const empty = await requiredEmpty(env, run)
-      if (empty.length) return { text: `Not done yet: these required fields are still empty on the page: ${empty.slice(0, 10).join("; ")}. Fill them (read_page shows them), or finish needs_you if only the person can answer them.`, error: true }
+      if (empty.length) {
+        // An "Attach"-only box may be an optional upload the reader could not name: sent back at most twice for it, then it stands.
+        const onlyGuessed = empty.every((e) => / an upload box still empty, most likely the cover letter/.test(e))
+        const sentUploads = onlyGuessed ? ((await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.upload_empty&select=id&limit=2`).catch(() => null)) ?? []).length : 0
+        if (!onlyGuessed || sentUploads < 2) {
+          if (onlyGuessed) await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "upload_empty" }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+          return { text: `Not done yet: these are still empty on the page: ${empty.slice(0, 10).join("; ")}. Fill them (read_page shows them), or finish needs_you if only the person can answer them.`, error: true }
+        }
+      }
+      const reviewed = await freshPage(env, run)
+      if (reviewed) {
+        // An age or birth answer Broods did not give (a browser or site autofill guessed it): Prefer not to say, or empty. Sent back once.
+        const fills = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.fill&status=eq.done&select=args`).catch(() => null)) ?? []
+        const mine = new Set<string>(fills.flatMap((r: Json) => (Array.isArray(r?.args?.fields) ? r.args.fields.map((f: Json) => String(f?.id)) : [])))
+        const stray = strayAge(reviewed, mine)
+        if (stray.length) {
+          const sentAge = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.age&select=id&limit=1`).catch(() => null))?.[0]
+          if (!sentAge) {
+            await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "age", ids: stray.map((f) => f.id) }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+            const list = stray.map((f) => `${f.id} "${String(f.label).slice(0, 80)}" holds "${String(f.value).slice(0, 40)}"`).join("; ")
+            return { text: `Not done yet: ${list}, which you did not write (an autofill guessed it). Age and birth questions are like diversity questions: choose "Prefer not to say" / "Decline" when it is one of the options; otherwise clear it (fill the field with value "" or click its clear button). Then finish review.`, error: true }
+          }
+        }
+        // A list or dropdown left open over the form (the phone-country list): closed with Escape before the person reviews it.
+        const lastSight = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&tool=in.(read_page,fill,click,upload_cv)&order=id.desc&limit=3&select=result`).catch(() => null)) ?? []
+        const sightText = lastSight.map((r: Json) => String(r?.result?.page?.sight ?? r?.result?.sight ?? "")).join("\n")
+        const openBySight = /^OPEN:(?!\s*(none|nothing|no\b))[^\n]*\b(list|dropdown|drop-down|menu|options|select)\b/im.test(sightText)
+        if (reviewed.open_list || openBySight) {
+          await runQuick(env, run, "press_key", { key: "Escape" }, "Closing a list left open")
+          await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "closed_open_list", by: reviewed.open_list ? "reader" : "sight", what: String(reviewed.open_list ?? "").slice(0, 80) }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+        }
+      }
     }
     // "Apply by email to jobs@…": no online form. That is a correct stop of its own (reason email), whatever reason the model gave.
     if (stage !== "review" && /\b(apply|applications?|send (your )?(cv|resume|application))\b[^.]{0,60}\be-?mail\b|[\w.+-]+@[\w-]+\.[\w.]+/i.test(message) && /no (online )?(application )?form|(did not|could not|couldn.t|cannot|can.t) (open|find)|by e-?mail|email (your|to)|lists? [^.]{0,40}@/i.test(message)) { stage = "needs_you"; reason = "email" }
@@ -733,11 +805,12 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       let res = row.result ?? {}
       // A picture of the page rides with read_page: kept out of the stored row (the database holds no images) and handed to the model as an image.
       let shotImage: string | undefined
+      let blankShot: string | undefined
       if (typeof res.screenshot?.image === "string") {
         shotImage = res.screenshot.image
         res = { ...res, screenshot: undefined }
         void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: res }) }).catch(() => undefined)
-      } else if (res.screenshot) res = { ...res, screenshot: undefined } // a blank picture's diagnosis stays in the stored row only
+      } else if (res.screenshot) { blankShot = res.screenshot?.diag ? JSON.stringify(res.screenshot.diag).slice(0, 300) : "blank"; res = { ...res, screenshot: undefined } } // a blank picture's diagnosis stays in the stored row only
       if (res.page_pending === true) {
         // Same wall clock — do not stack another full TOOL_WAIT_MS after timeout.
         const left = Math.max(0, deadline - Date.now())
@@ -842,8 +915,11 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         const troubleLeft = looks.filter((l: Json) => l.trouble).length < TROUBLE_SIGHT_MAX
         if (newPage || (reasons.length && troubleLeft)) {
           // No picture came with the step (the extension sends one only now and then): take one, so every new page gets its look.
-          const image = shotImage || await captureShot(env, run)
-          const sight = image && !looksBlank(image) ? await describeShot(sightEnv((n) => Deno.env.get(n)), image, 12_000, fetch, reasons) : ""
+          const shot = shotImage ? { image: shotImage, note: undefined } : await captureShotDetailed(env, run)
+          const image = shot.image
+          const looked = image ? await describeShotDetailed(sightEnv((n) => Deno.env.get(n)), image, 20_000, fetch, reasons) : { text: "", diag: { bytes: 0, skipped: shot.note ?? "no picture" } }
+          const sight = looked.text
+          const sightDiag = { source: shotImage ? "read_page" : "server_capture", ...looked.diag, ...(blankShot ? { blank_from_extension: blankShot } : {}) }
           if (sight) {
             if (res.page && typeof res.page === "object") res = { ...res, page: { ...res.page, sight } }
             else res = { ...res, sight }
@@ -852,7 +928,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
           }
           // Recorded even when no picture or no text came back: the page counts as looked at (no 10 s wait for a picture on every
           // later step of it), and a failed trouble look still counts against the cap.
-          await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "sight", key, trouble: reasons.length ? reasons.join("; ") : null, ...(sight ? {} : { empty: true }) }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+          await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "sight", key, trouble: reasons.length ? reasons.join("; ") : null, ...(sight ? { chars: sight.length } : { empty: true }), diag: sightDiag }, done_at: new Date().toISOString() }) }).catch(() => undefined)
         }
       }
       // Recipe replays are the server's evidence, not Broods' business.
@@ -1024,22 +1100,28 @@ async function endTurn(run: Json): Promise<void> {
 
 /** A fresh screenshot of the run's tab (a screenshot step the extension answers), or "" when it does not come in time. */
 async function captureShot(env: Env, run: Json): Promise<string> {
+  return (await captureShotDetailed(env, run)).image
+}
+
+/** captureShot, with why no picture came (for the sight guard row). */
+async function captureShotDetailed(env: Env, run: Json): Promise<{ image: string; note?: string }> {
   const docGen = typeof run.doc_gen === "number" ? run.doc_gen : 0
   const [cmd] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "screenshot", args: {}, note: "Taking a picture of the tab", doc_gen: docGen, tab_id: run.tab_id ?? null }) }).catch(() => [null])
-  if (!cmd) return ""
+  if (!cmd) return { image: "", note: "the screenshot step could not be stored" }
   for (const until = Date.now() + 10_000; Date.now() < until;) {
     await sleep(400)
     const row = (await svc(env, `drive_commands?id=eq.${cmd.id}&select=status,result`).catch(() => null))?.[0]
     if (row?.status === "done") {
-      const image = typeof row.result?.image === "string" ? row.result.image : ""
+      const image = typeof row.result?.image === "string" && row.result.image !== "(sent)" ? row.result.image : ""
       void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...row.result, image: image ? "(sent)" : row.result?.image } }) }).catch(() => undefined)
-      return image
+      return image ? { image } : { image: "", note: `extension answered without a picture: ${String(row.result?.error ?? (row.result?.blank ? "blank" : "no image field")).slice(0, 160)}` }
     }
-    if (row?.status === "cancelled" || row?.status === "expired") break
+    if (row?.status === "cancelled" || row?.status === "expired") return { image: "", note: `screenshot step ${row.status}` }
   }
   await abandonCommand(env, cmd.id, "result_lost").catch(() => undefined)
-  return ""
+  return { image: "", note: "no picture within 10 s" }
 }
+
 
 /** A Broods client acting for the run's person, or null when Broods is not set up on the server. */
 async function broodsClient(run: Json): Promise<BroodsClient | null> {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { cleanSight, describeShot, fewerFields, sightEnv, sightKey } from "../../supabase/functions/_shared/drive-sight"
+import { cleanSight, describeShot, describeShotDetailed, fewerFields, sightEnv, sightKey } from "../../supabase/functions/_shared/drive-sight"
 
 describe("sight: the server describes the screenshot Broods cannot see", () => {
   const env = { baseUrl: "https://router.test/v1", apiKey: "k", model: "cx/gpt-6-luna" }
@@ -26,7 +26,7 @@ describe("sight: the server describes the screenshot Broods cannot see", () => {
   test("off, failing or slow sight returns nothing and never holds a run up", async () => {
     expect(await describeShot(null, "QUJD")).toBe("")
     expect(await describeShot(env, "A".repeat(20_000), 5000, (async () => new Response("no", { status: 500 })) as typeof fetch)).toBe("")
-    expect(await describeShot(env, "A".repeat(5_300), 5000, (async () => new Response(JSON.stringify({ choices: [{ message: { content: "blank page" } }] }))) as typeof fetch)).toBe("")
+    expect(await describeShot(env, "A".repeat(1_500), 5000, (async () => new Response(JSON.stringify({ choices: [{ message: { content: "blank page" } }] }))) as typeof fetch)).toBe("")
     expect(await describeShot(env, "A".repeat(20_000), 50, ((_u: unknown, init?: RequestInit) => new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("timeout"))))) as typeof fetch)).toBe("")
     expect(sightEnv(() => undefined)).toBeNull()
   })
@@ -62,4 +62,22 @@ test("sight asks 9router for one JSON answer (a cc/ Claude model streams unless 
   const vars: Record<string, string> = { NINE_ROUTER_BASE_URL: "https://r.example/v1", NINE_ROUTER_API_KEY: "k" }
   expect(sightEnv((n) => vars[n])?.model).toBe("cc/claude-sonnet-5")
   expect(sightEnv((n) => ({ ...vars, ODDS_SIGHT_MODEL: "cx/gpt-6-luna" } as Record<string, string>)[n])?.model).toBe("cx/gpt-6-luna")
+})
+
+test("each look says why it gave what it gave: picture size, a skip and its reason, the HTTP status and a short error, never the key", async () => {
+  const env = { baseUrl: "https://r.example/v1", apiKey: "secret-key-123456789", model: "cc/claude-sonnet-5" }
+  const small = await describeShotDetailed(env, "A".repeat(1_000))
+  expect(small.text).toBe("")
+  expect(small.diag.skipped).toContain("too small")
+  // A plain white form at quality 50 can be ~6 KB: it is described now (the extension already refused blank pictures by their pixels).
+  let sent = ""
+  const ok = await describeShotDetailed(env, "data:image/jpeg;base64," + "A".repeat(8_000), 5000, (async (_u: unknown, init?: RequestInit) => { sent = String(init?.body); return new Response(JSON.stringify({ choices: [{ message: { content: "OPEN: the phone country list" } }] })) }) as typeof fetch)
+  expect(ok.text).toBe("OPEN: the phone country list")
+  expect(ok.diag).toMatchObject({ bytes: 6000, status: 200 })
+  expect(sent).toContain("data:image/jpeg;base64,AAAA")
+  expect(sent).not.toContain("base64,data:")
+  const bad = await describeShotDetailed(env, "A".repeat(20_000), 5000, (async () => new Response("upstream said: bearer secret-key-123456789 is invalid", { status: 401 })) as typeof fetch)
+  expect(bad.diag.status).toBe(401)
+  expect(bad.diag.error).not.toContain("secret-key-123456789")
+  expect((await describeShotDetailed(null, "A".repeat(20_000))).diag.skipped).toContain("not set up")
 })

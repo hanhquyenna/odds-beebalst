@@ -33,13 +33,23 @@ export function cleanSight(text: string): string {
     .slice(0, 1200)
 }
 
+/** What happened to one look, for the trace (the guard row): never the image, never a key. */
+export type SightDiag = { bytes: number; skipped?: string; status?: number; error?: string; ms?: number; model?: string }
+
 /**
- * What the screenshot shows, as text for an agent that cannot see; "" when sight is off, slow or fails (never holds a run up).
- * `image` is the base64 JPEG the extension took of the tab.
+ * Smallest picture worth describing. The extension already refuses a blank tab by its pixels (shotSpread in background.js), so this
+ * only stops an empty or broken string: a plain white form at 1024 px, JPEG quality 50, can be under 8 KB and still be the page.
  */
-export async function describeShot(env: SightEnv | null, image: string, timeoutMs = 12_000, fetcher: typeof fetch = fetch, trouble: string[] = []): Promise<string> {
-  // An unpainted (white) tab says nothing about the page; described, it read as "blank page" (see looksBlank in drive-vision.ts).
-  if (!env || !image || (image.length * 3) / 4 < 8_000) return ""
+export const MIN_SHOT_BYTES = 1_500
+
+/** describeShot, with why it gave what it gave. */
+export async function describeShotDetailed(env: SightEnv | null, image: string, timeoutMs = 12_000, fetcher: typeof fetch = fetch, trouble: string[] = []): Promise<{ text: string; diag: SightDiag }> {
+  const data = String(image ?? "").replace(/^data:image\/[a-z+]+;base64,/i, "")
+  const bytes = Math.round((data.length * 3) / 4)
+  if (!env) return { text: "", diag: { bytes, skipped: "sight not set up (no 9router address or key on the server)" } }
+  if (bytes < MIN_SHOT_BYTES) return { text: "", diag: { bytes, skipped: `picture too small (${bytes} bytes)` } }
+  const mime = data.startsWith("iVBOR") ? "image/png" : data.startsWith("UklG") ? "image/webp" : "image/jpeg"
+  const t0 = Date.now()
   try {
     const res = await fetcher(`${env.baseUrl}/chat/completions`, {
       method: "POST",
@@ -51,18 +61,35 @@ export async function describeShot(env: SightEnv | null, image: string, timeoutM
         max_tokens: 400,
         messages: [
           { role: "system", content: SIGHT_PROMPT },
-          { role: "user", content: [{ type: "text", text: trouble.length ? `Screenshot of the application tab, taken because ${trouble.join(" and ")}. Start with one line that explains it (which value a box really shows, the exact error, what is open or covering the form).` : "Screenshot of the application tab." }, { type: "image_url", image_url: { url: `data:image/jpeg;base64,${image}` } }] },
+          { role: "user", content: [{ type: "text", text: trouble.length ? `Screenshot of the application tab, taken because ${trouble.join(" and ")}. Start with one line that explains it (which value a box really shows, the exact error, what is open or covering the form).` : "Screenshot of the application tab." }, { type: "image_url", image_url: { url: `data:${mime};base64,${data}` } }] },
         ],
       }),
       signal: AbortSignal.timeout(timeoutMs),
     })
-    if (!res.ok) return ""
-    const body = (await res.json().catch(() => null)) as { choices?: Array<{ message?: { content?: unknown } }> } | null
-    const text = body?.choices?.[0]?.message?.content
-    return typeof text === "string" ? cleanSight(text) : ""
-  } catch {
-    return ""
+    const raw = await res.text().catch(() => "")
+    const ms = Date.now() - t0
+    if (!res.ok) return { text: "", diag: { bytes, status: res.status, error: safeError(raw), ms, model: env.model } }
+    let body: { choices?: Array<{ message?: { content?: unknown } }> } | null = null
+    try { body = JSON.parse(raw) } catch { return { text: "", diag: { bytes, status: res.status, error: `not JSON: ${safeError(raw)}`, ms, model: env.model } } }
+    const content = body?.choices?.[0]?.message?.content
+    const text = typeof content === "string" ? cleanSight(content) : Array.isArray(content) ? cleanSight(content.map((c: { text?: unknown }) => (typeof c?.text === "string" ? c.text : "")).join("\n")) : ""
+    return { text, diag: { bytes, status: res.status, ms, model: env.model, ...(text ? {} : { error: `no text in the answer: ${safeError(raw)}` }) } }
+  } catch (e) {
+    return { text: "", diag: { bytes, error: safeError(String((e as Error)?.name === "TimeoutError" ? `timed out after ${timeoutMs} ms` : (e as Error)?.message ?? e)), ms: Date.now() - t0, model: env.model } }
   }
+}
+
+/** A short error text for the trace, with anything key-like taken out. */
+function safeError(text: string): string {
+  return String(text ?? "").replace(/(sk|key|token|bearer)[-_ :=]*[A-Za-z0-9._-]{8,}/gi, "$1 (hidden)").replace(/\s+/g, " ").slice(0, 240)
+}
+
+/**
+ * What the screenshot shows, as text for an agent that cannot see; "" when sight is off, slow or fails (never holds a run up).
+ * `image` is the base64 JPEG the extension took of the tab.
+ */
+export async function describeShot(env: SightEnv | null, image: string, timeoutMs = 12_000, fetcher: typeof fetch = fetch, trouble: string[] = []): Promise<string> {
+  return (await describeShotDetailed(env, image, timeoutMs, fetcher, trouble)).text
 }
 
 /** Sight descriptions per run at most when something went wrong (a new page's first look does not count). */

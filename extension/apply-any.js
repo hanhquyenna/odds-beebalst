@@ -104,6 +104,13 @@
   }
   /** The words a field is asked with: its <label>, aria-label(ledby), a sibling/parent question line — never a generic placeholder. */
   function labelOf(el) {
+    // An upload box's own label is often only its button ("Attach" on Greenhouse); the question is the group around it
+    // (role=group aria-labelledby -> "Cover Letter*"), with the required star.
+    if ((el.type || "").toLowerCase() === "file") {
+      const group = el.parentElement?.closest("[aria-labelledby]")
+      const named = group ? group.getAttribute("aria-labelledby").split(/\s+/).map((id) => textOf(document.getElementById(id))).join(" ").trim() : ""
+      if (named && realAsk(named, true) && !/^(attach|upload|browse|choose( a)? file|select( a)? file|enter manually|dropbox|google drive)$/i.test(named)) return named
+    }
     if (el.id) {
       // Its own form's label first: some sites render the form twice (desktop + mobile) with the same ids.
       const sel = `label[for="${CSS.escape(el.id)}"]`
@@ -2123,6 +2130,13 @@
       ...(missingJobPage() ? { closed: true, closed_reason: "The job page was not found (404)." } : {}),
       ...(dialog ? { dialog: { title: textOf(dialog.querySelector("h1, h2, h3, [class*='title' i]")).slice(0, 160) || textOf(dialog).slice(0, 160), note: "A pop-up is open: these fields and buttons are only the pop-up's. Complete it (fill + continue) to get past it." } } : {}),
       fields: out,
+      // A dropdown or list left open over the form (a phone-country list, a select menu): said plainly, so it is closed (Escape) before review.
+      ...(() => {
+        const menu = deepAll(".select__menu, [class*='select__menu'], [role='listbox'], .iti__country-list:not(.iti__hide), [class*='dropdown-menu'][class*='show']").find((m) => shown(m) && !oddsOwn(m) && m.getBoundingClientRect().height > 20)
+        if (!menu) return {}
+        const owner = menu.closest(".select__container, .select, [class*='field'], .iti, [class*='question']")
+        return { open_list: (owner ? textOf(owner.querySelector("label, legend") || owner).slice(0, 80) : "a list") || "a list" }
+      })(),
       // No form, and the page asks for applications by e-mail ("send your CV to jobs@…", a mailto link): the person's to send.
       ...(() => {
         if (out.filter((f) => f.kind !== "checkbox").length >= 2) return {}
