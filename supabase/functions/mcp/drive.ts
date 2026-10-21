@@ -304,10 +304,15 @@ export function emptyUploads(page: Json): string[] {
 /** Age and date-of-birth questions: the facts never hold them, so like diversity questions they are "Prefer not to say" or empty. */
 export const AGE_FIELD = /\b(age|ages|age range|age group|year range|date of birth|birth ?date|birth ?year|year of birth|born|dob|how old|leeftijd|geboortedatum|geboortejaar|geburtsdatum|alter)\b/i
 const PREFER_NOT = /prefer not|rather not|decline|don.t wish|do not wish|not to (say|disclose|answer)|niet (zeggen|delen)|zeg ik liever niet/i
-/** A filled age / birth question the agent did not answer itself (a page or browser autofill guessed it): to clear or set prefer-not. */
-export function strayAge(page: Json, filledByAgent: Set<string>): Json[] {
+/** An age / birth question, not a birthplace one. */
+export const isAgeQuestion = (text: string): boolean => AGE_FIELD.test(text) && !/\b(where|place|country|city|town)\b/i.test(text)
+/**
+ * A filled age / birth question: the person keeps those out of applications (like diversity questions), so it must say "Prefer not to
+ * say" or stay empty, whoever filled it (a browser or site autofill, or an answer saved from an earlier page).
+ */
+export function strayAge(page: Json): Json[] {
   const fields: Json[] = Array.isArray(page?.fields) ? page.fields : []
-  return fields.filter((f) => f?.kind !== "file" && f?.kind !== "checkbox" && AGE_FIELD.test(String(f?.label ?? "")) && String(f?.value ?? "").trim() && !PREFER_NOT.test(String(f?.value ?? "")) && !filledByAgent.has(String(f?.id)))
+  return fields.filter((f) => f?.kind !== "file" && f?.kind !== "checkbox" && isAgeQuestion(String(f?.label ?? "")) && String(f?.value ?? "").trim() && !PREFER_NOT.test(String(f?.value ?? "")))
 }
 /** The run tried to attach the CV and it never went in: a CV box the page does not call one ("Attach" on Greenhouse) is still empty. */
 export function cvNeverAttached(uploads: Json[]): boolean {
@@ -627,16 +632,14 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       }
       const reviewed = await freshPage(env, run)
       if (reviewed) {
-        // An age or birth answer Broods did not give (a browser or site autofill guessed it): Prefer not to say, or empty. Sent back once.
-        const fills = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.fill&status=eq.done&select=args`).catch(() => null)) ?? []
-        const mine = new Set<string>(fills.flatMap((r: Json) => (Array.isArray(r?.args?.fields) ? r.args.fields.map((f: Json) => String(f?.id)) : [])))
-        const stray = strayAge(reviewed, mine)
+        // An age or birth answer (an autofill guessed it, or an answer saved from an earlier form): Prefer not to say, or empty. Sent back once.
+        const stray = strayAge(reviewed)
         if (stray.length) {
           const sentAge = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.age&select=id&limit=1`).catch(() => null))?.[0]
           if (!sentAge) {
             await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "age", ids: stray.map((f) => f.id) }, done_at: new Date().toISOString() }) }).catch(() => undefined)
             const list = stray.map((f) => `${f.id} "${String(f.label).slice(0, 80)}" holds "${String(f.value).slice(0, 40)}"`).join("; ")
-            return { text: `Not done yet: ${list}, which you did not write (an autofill guessed it). Age and birth questions are like diversity questions: choose "Prefer not to say" / "Decline" when it is one of the options; otherwise clear it (fill the field with value "" or click its clear button). Then finish review.`, error: true }
+            return { text: `Not done yet: ${list}. The person keeps age and birth out of applications, whatever person_answers or an autofill say. Age and birth questions are like diversity questions: choose "Prefer not to say" / "Decline" when it is one of the options; otherwise clear it (fill the field with value "" or click its clear button). Then finish review.`, error: true }
           }
         }
         // A list or dropdown left open over the form (the phone-country list): closed with Escape before the person reviews it.
@@ -1185,7 +1188,8 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
   // What the person answered in Odds since (Broods' own questions included): Broods fills those in when it carries on.
   // Everything the person ever answered in Odds (their own words, question by question): Broods fills those in on every run, any job.
   const answered = ((await svc(env, `application_questions?user_id=eq.${run.user_id}&answer=neq.&select=question,answer&order=updated_at.desc&limit=150`).catch(() => null)) ?? [])
-    .filter((a: Json) => typeof a?.question === "string" && a.question.trim())
+    // Age and birth answers never go to Broods (the person keeps them out of applications; one saved from a form read "1945 - 1964").
+    .filter((a: Json) => typeof a?.question === "string" && a.question.trim() && !isAgeQuestion(a.question))
   const task = resume
     ? { run_id: run.id, resume, ...(run.mode === "copilot" ? { mode: "copilot" } : {}), has_cover_letter: Boolean(letter), person_answers: answered, goal: run.mode === "copilot" ? COPILOT_GOAL : "Carry on with the same application in the same tab: read_page first, then go on until only Submit is left (finish review), or something only the person can do (finish needs_you)." }
     : {
