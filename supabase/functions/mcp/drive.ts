@@ -915,11 +915,11 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         const troubleLeft = looks.filter((l: Json) => l.trouble).length < TROUBLE_SIGHT_MAX
         if (newPage || (reasons.length && troubleLeft)) {
           // No picture came with the step (the extension sends one only now and then): take one, so every new page gets its look.
-          const shot = shotImage ? { image: shotImage, note: undefined } : await captureShotDetailed(env, run)
+          const shot: { image: string; note?: string; scrolled?: boolean } = shotImage ? { image: shotImage } : await captureShotDetailed(env, run)
           const image = shot.image
           const looked = image ? await describeShotDetailed(sightEnv((n) => Deno.env.get(n)), image, 20_000, fetch, reasons) : { text: "", diag: { bytes: 0, skipped: shot.note ?? "no picture" } }
           const sight = looked.text
-          const sightDiag = { source: shotImage ? "read_page" : "server_capture", ...looked.diag, ...(blankShot ? { blank_from_extension: blankShot } : {}) }
+          const sightDiag = { source: shotImage ? "read_page" : "server_capture", ...(shot.scrolled ? { scrolled_top: true } : {}), ...looked.diag, ...(blankShot ? { blank_from_extension: blankShot } : {}) }
           if (sight) {
             if (res.page && typeof res.page === "object") res = { ...res, page: { ...res.page, sight } }
             else res = { ...res, sight }
@@ -1098,14 +1098,39 @@ async function endTurn(run: Json): Promise<void> {
   } catch { /* the closing line is only a cost, never a fault */ }
 }
 
+/** The first extension version whose screenshot clip follows the scrolled viewport. */
+export const SHOT_CLIP_FIXED = "0.15.138"
+/** "0.15.135" < "0.15.138"; anything unreadable counts as older. */
+export function versionBelow(version: string, than: string): boolean {
+  const a = version.split(".").map((n) => Number.parseInt(n, 10))
+  const b = than.split(".").map((n) => Number.parseInt(n, 10))
+  if (a.some((n) => !Number.isFinite(n))) return true
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] ?? 0, y = b[i] ?? 0
+    if (x !== y) return x < y
+  }
+  return false
+}
+
 /** A fresh screenshot of the run's tab (a screenshot step the extension answers), or "" when it does not come in time. */
 async function captureShot(env: Env, run: Json): Promise<string> {
   return (await captureShotDetailed(env, run)).image
 }
 
 /** captureShot, with why no picture came (for the sight guard row). */
-async function captureShotDetailed(env: Env, run: Json): Promise<{ image: string; note?: string }> {
+async function captureShotDetailed(env: Env, run: Json): Promise<{ image: string; note?: string; scrolled?: boolean }> {
   const docGen = typeof run.doc_gen === "number" ? run.doc_gen : 0
+  // Extensions before 0.15.138 clip the picture at the top of the document (y 0) instead of the part on screen: scrolled down, Chrome
+  // draws that region white. Those get the page scrolled to the top first, so the picture shows the real page.
+  let scrolled = false
+  const version = String((await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.ext&select=result&order=id.desc&limit=1`).catch(() => null))?.[0]?.result?.version ?? "")
+  if (!version || versionBelow(version, SHOT_CLIP_FIXED)) {
+    for (let i = 0; i < 3; i++) {
+      const moved = await runQuick(env, run, "scroll", { dy: -3000 }, "Scrolling to the top for a picture")
+      scrolled = true
+      if (!moved || !(Number(moved.scrollY) > 0)) break
+    }
+  }
   const [cmd] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "screenshot", args: {}, note: "Taking a picture of the tab", doc_gen: docGen, tab_id: run.tab_id ?? null }) }).catch(() => [null])
   if (!cmd) return { image: "", note: "the screenshot step could not be stored" }
   for (const until = Date.now() + 10_000; Date.now() < until;) {
@@ -1114,7 +1139,7 @@ async function captureShotDetailed(env: Env, run: Json): Promise<{ image: string
     if (row?.status === "done") {
       const image = typeof row.result?.image === "string" && row.result.image !== "(sent)" ? row.result.image : ""
       void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...row.result, image: image ? "(sent)" : row.result?.image } }) }).catch(() => undefined)
-      return image ? { image } : { image: "", note: `extension answered without a picture: ${String(row.result?.error ?? (row.result?.blank ? "blank" : "no image field")).slice(0, 160)}` }
+      return image ? { image, scrolled } : { image: "", scrolled, note: `extension answered without a picture: ${String(row.result?.error ?? (row.result?.blank ? "blank" : "no image field")).slice(0, 160)}` }
     }
     if (row?.status === "cancelled" || row?.status === "expired") return { image: "", note: `screenshot step ${row.status}` }
   }

@@ -1951,7 +1951,10 @@ async function shotViaDebugger(tabId) {
       const vw = Math.max(1, Math.round(m?.cssVisualViewport?.clientWidth || m?.layoutViewport?.clientWidth || 1000))
       const vh = Math.max(1, Math.round(m?.cssVisualViewport?.clientHeight || m?.layoutViewport?.clientHeight || 700))
       const scale = Math.min(1, 1024 / vw)
-      const clip = { x: 0, y: 0, width: vw, height: vh, scale }
+      // The clip is in page coordinates: at the scroll position, or a scrolled page comes out as a white picture of its top.
+      const px = Math.max(0, Math.round(m?.cssVisualViewport?.pageX ?? m?.cssLayoutViewport?.pageX ?? 0))
+      const py = Math.max(0, Math.round(m?.cssVisualViewport?.pageY ?? m?.cssLayoutViewport?.pageY ?? 0))
+      const clip = { x: px, y: py, width: vw, height: vh, scale }
       const tries = []
       const take = async (how, extra) => {
         const shot = await chrome.debugger.sendCommand(target, "Page.captureScreenshot", { format: "jpeg", quality: 50, clip, ...extra }).catch((e) => ({ error: String(e?.message || e) }))

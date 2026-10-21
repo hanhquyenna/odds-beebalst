@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { AGE_FIELD, emptyUploads, strayAge } from "../../supabase/functions/mcp/drive"
+import { AGE_FIELD, emptyUploads, SHOT_CLIP_FIXED, strayAge, versionBelow } from "../../supabase/functions/mcp/drive"
 
 test("an empty upload box blocks review: a required one, a letter box, or an 'Attach' box once the CV is in", () => {
   const page = { cv_attached: true, fields: [{ id: "f7", kind: "file", label: "Attach", value: "", filled: true, required: false }] }
@@ -20,4 +20,11 @@ test("an age or birth answer the agent did not write is sent back; prefer-not an
   expect(strayAge(page, new Set(["f18"]))).toEqual([])
   expect(strayAge({ fields: [{ id: "f18", kind: "combobox", label, value: "Prefer not to say" }] }, new Set())).toEqual([])
   expect(strayAge({ fields: [{ id: "f18", kind: "combobox", label, value: "" }] }, new Set())).toEqual([])
+})
+
+test("extensions before the clip fix get the page scrolled to the top before a server picture", () => {
+  expect(versionBelow("0.15.135", SHOT_CLIP_FIXED)).toBe(true)
+  expect(versionBelow("0.15.138", SHOT_CLIP_FIXED)).toBe(false)
+  expect(versionBelow("0.16.0", SHOT_CLIP_FIXED)).toBe(false)
+  expect(versionBelow("", SHOT_CLIP_FIXED)).toBe(true)
 })

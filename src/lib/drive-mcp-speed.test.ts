@@ -24,8 +24,9 @@ test("MCP navigation action returns the resulting page without a second model re
     const out=JSON.parse(json.result.content[0].text) as {page_pending:boolean;page:{url:string}}
     expect(out.page_pending).toBe(false)
     expect(out.page.url).toEndWith("/application")
-    // The new page also gets its one look (a screenshot step and its guard row), never a second model request.
-    expect(writes.map(x=>x.tool).filter(t=>t!=="screenshot"&&t!=="guard")).toEqual(["click","read_page"])
+    // The new page also gets its one look (a screenshot step and its guard row; an old extension's page is scrolled to the top
+    // first), never a second model request.
+    expect(writes.map(x=>x.tool).filter(t=>t!=="screenshot"&&t!=="guard"&&t!=="scroll")).toEqual(["click","read_page"])
     expect(writes[1].args).toEqual({after_action:true})
   } finally {
     globalThis.fetch=original
