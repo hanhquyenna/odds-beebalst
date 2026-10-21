@@ -306,13 +306,15 @@ export const AGE_FIELD = /\b(age|ages|age range|age group|year range|date of bir
 const PREFER_NOT = /prefer not|rather not|decline|don.t wish|do not wish|not to (say|disclose|answer)|niet (zeggen|delen)|zeg ik liever niet/i
 /** An age / birth question, not a birthplace one. */
 export const isAgeQuestion = (text: string): boolean => AGE_FIELD.test(text) && !/\b(where|place|country|city|town)\b/i.test(text)
+/** The one age answer odds gives for everyone: the "under 29" side of a choice that splits at 29 (visa and sponsorship options). */
+const UNDER_29 = /\b(under|below|younger than|less than|up to)\s*(29|30)\b|<\s*(29|30)\b|\b29\s*(or\s*|and\s*)?(under|younger|below)\b/i
 /**
  * A filled age / birth question: the person keeps those out of applications (like diversity questions), so it must say "Prefer not to
  * say" or stay empty, whoever filled it (a browser or site autofill, or an answer saved from an earlier page).
  */
 export function strayAge(page: Json): Json[] {
   const fields: Json[] = Array.isArray(page?.fields) ? page.fields : []
-  return fields.filter((f) => f?.kind !== "file" && f?.kind !== "checkbox" && isAgeQuestion(String(f?.label ?? "")) && String(f?.value ?? "").trim() && !PREFER_NOT.test(String(f?.value ?? "")))
+  return fields.filter((f) => f?.kind !== "file" && f?.kind !== "checkbox" && isAgeQuestion(String(f?.label ?? "")) && String(f?.value ?? "").trim() && !PREFER_NOT.test(String(f?.value ?? "")) && !UNDER_29.test(String(f?.value ?? "")))
 }
 /** The run tried to attach the CV and it never went in: a CV box the page does not call one ("Attach" on Greenhouse) is still empty. */
 export function cvNeverAttached(uploads: Json[]): boolean {

@@ -79,6 +79,8 @@ ANSWERS (facts = person + person_answers; the same question → the same answer)
 - Voluntary EEO (gender unless known, ethnicity, disability, veteran, pronouns) → "Prefer not to say" / "Decline".
 - Age, age range, date of birth, birth year: never answered. "Prefer not to say" when offered, else leave it empty; a value already
   there (an autofill, a saved answer, even one that looks right) → set "Prefer not to say" or clear it (its clear button).
+  One exception: a choice that splits at 29 (visa or sponsorship options such as "under 29" / "over 29", the highly skilled migrant
+  salary threshold). The person is under 29: pick the under-29 option, and say so in say.
 - Open questions (motivation, why us, a case, a recent news item): answer yourself in 2-4 first-person sentences, specific to the
   employer and job, from experience, education and cv_excerpt. These are never questions for the person.
 - Leave to the person ONLY: religion, family, salary history, criminal or legal declarations, passwords.

@@ -23,6 +23,14 @@ test("an age or birth answer the agent did not write is sent back; prefer-not an
   expect(strayAge({ fields: [{ id: "f18", kind: "combobox", label, value: "" }] })).toEqual([])
 })
 
+test("the under-29 side of a visa choice that splits at 29 stands; any other age value is still sent back", () => {
+  const label = "What is your age?"
+  expect(strayAge({ fields: [{ id: "f1", kind: "radio", label, value: "I require visa sponsorship and I am under 29 years of age" }] })).toEqual([])
+  expect(strayAge({ fields: [{ id: "f1", kind: "combobox", label, value: "29 or younger" }] })).toEqual([])
+  expect(strayAge({ fields: [{ id: "f1", kind: "combobox", label, value: "Over 29" }] }).map((f) => f.id)).toEqual(["f1"])
+  expect(strayAge({ fields: [{ id: "f1", kind: "combobox", label, value: "25-34" }] }).map((f) => f.id)).toEqual(["f1"])
+})
+
 test("extensions before the clip fix get the page scrolled to the top before a server picture", () => {
   expect(versionBelow("0.15.135", SHOT_CLIP_FIXED)).toBe(true)
   expect(versionBelow("0.15.138", SHOT_CLIP_FIXED)).toBe(false)
