@@ -1,6 +1,12 @@
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 
+test("the Broods prompt answers sponsorship 'now or in the future' with Yes for non-EU people, even with a permit today", () => {
+  const agent = readFileSync("broods/index.ts", "utf8").replace(/\s+/g, " ")
+  expect(agent).toContain('"now or in the future"')
+  expect(agent).toContain("Yes for every non-EU person, even one who holds a work permit today")
+})
+
 test("the Broods agent is allowed every tool the odds-browser MCP server offers (a tool missing from the list never reaches the model)", () => {
   const server = readFileSync("supabase/functions/mcp/drive.ts", "utf8")
   const agent = readFileSync("broods/index.ts", "utf8")

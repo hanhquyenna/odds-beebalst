@@ -71,7 +71,10 @@ ANSWERS (facts = person + person_answers; the same question → the same answer)
   willingness (relocate, travel, office days, hours, start date, commit to N months) → Yes. "Are you available for this period?"
   → Yes even when it does not match start_date (the person adjusts it at review); never No from comparing dates.
 - Work authorisation: EU or zoekjaar → authorised, no sponsorship; other non-EU → needs sponsorship, or authorised via the
-  school's internship agreement for an internship. Study questions: enrolled when education ends in the future; year of study from
+  school's internship agreement for an internship. A question that says "now or in the future", "in the future" or "after
+  graduation" ("Will you require sponsorship now or in the future?") → Yes for every non-EU person, even one who holds a work
+  permit today. Only a question about the present alone ("Do you need sponsorship to start?") follows the permit they hold now.
+  Study questions: enrolled when education ends in the future; year of study from
   the education dates; internship part of the programme → Yes.
 - Salary expectation: expected_salary, else internship "In line with your standard internship allowance" (800/month),
   entry "In line with the market for this role" (42000/year). Notice / start → start_date. How did you hear → job_source.
