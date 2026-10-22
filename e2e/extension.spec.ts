@@ -192,7 +192,7 @@ async function resumeRealBroods(runId: string): Promise<void> {
   const token = `buat_${body}.${b64(new Uint8Array(await crypto.subtle.sign("HMAC", ck, enc.encode(body))))}`
   const task = { run_id: runId, resume: "Your last turn ended without a step. Carry on in drive mode with a tool call: read_page, then go on until finish.", has_cover_letter: false, person_answers: [], goal: "Carry on with the same application in the same tab until only Submit is left (finish review), or something only the person can do (finish needs_you)." }
   const client = new BroodsClient({ apiKey: key, userToken: token, baseUrl: "https://gateway.broods.app" })
-  await client.runAsync({ agentId: "js76teefba050scj7h6wp8n04x8ga3ac", eventId: crypto.randomUUID(), conversationKey: `odds-test-${runId}`, input: JSON.stringify(task) })
+  await client.runAsync({ agentId: "js7cpyn0a2tgc39bgw9fnmqgtd8gs4dp", eventId: crypto.randomUUID(), conversationKey: `odds-test-${runId}`, input: JSON.stringify(task) })
 }
 async function startRealBroods(runId: string, url: string, title: string, person: Record<string, string>, oddsFilled?: unknown): Promise<void> {
   const env = readFileSync(join(import.meta.dirname, "..", ".env.local"), "utf8")
@@ -216,7 +216,7 @@ async function startRealBroods(runId: string, url: string, title: string, person
   const task = { ...(route ? { route } : {}), ...(oddsFilled && typeof oddsFilled === "object" ? { odds_filled: oddsFilled } : {}), site_playbook, run_id: runId, job: { title, url }, person: { dutch_level: "basic", languages: "English (fluent)", job_source: source, worked_at_this_employer_before: "No", ...person }, person_answers: [], has_cover_letter: false, goal: "Apply to this job in the person's browser tab with the browser tools until only Submit is left (finish review), or something only the person can do (finish needs_you)." }
   // Started exactly as production does: a background run (202 accepted), nothing holds a stream open.
   const client = new BroodsClient({apiKey:key,userToken:token,baseUrl:"https://gateway.broods.app"})
-  await client.runAsync({agentId:"js76teefba050scj7h6wp8n04x8ga3ac",eventId:crypto.randomUUID(),conversationKey:`odds-test-${runId}`,input:JSON.stringify(task)})
+  await client.runAsync({agentId:"js7cpyn0a2tgc39bgw9fnmqgtd8gs4dp",eventId:crypto.randomUUID(),conversationKey:`odds-test-${runId}`,input:JSON.stringify(task)})
   console.log(`REAL start ${runId}: accepted, ${site_playbook.lessons.length} learned hints`)
 
 }
