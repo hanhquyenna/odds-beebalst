@@ -156,8 +156,7 @@ The AI **plans and checks; the script clicks**. Shared helper: `supabase/functio
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | Optional on **apply-agent** for gaps beyond rules. |
 | `APPLY_AGENT_FORWARD_URL` | Optional Broods async URL; apply-agent fans out lifecycle pings. |
 | `APPLY_AGENT_BROODS_API_KEY` | Broods runtime key (`bsk_…`) for Apply agents. |
-| `APPLY_AGENT_BROODS_AGENT_ID` | Broods agent id for `apply-stuck` (see `broods/index.ts`, [BROODS-APPLY.md](BROODS-APPLY.md)). |
-| `APPLY_AGENT_BROODS_ROAM_AGENT_ID` | Broods agent id for `apply-roam` free-roam browse. |
+| `ODDS_DRIVE_AGENT_ID` | The one Broods agent, `odds-apply` (see `broods/index.ts`): it drives runs and answers `apply-agent` picks. |
 | `APPLY_AGENT_BROODS_BASE_URL` | Default `https://gateway.broods.app`. |
 
 Edge Function `apply-agent` (`supabase/functions/apply-agent`): bearer auth; lifecycle → `200`; `suggest-answers` → rules first (`apply-form`, zoekjaar → no sponsor), then optional LLM; returns `{ answers: [...] }` in the same request.

@@ -1,7 +1,8 @@
 /**
  * Odds Apply on Broods (project odds-apply; `broods deploy` targets production).
  * One agent, odds-apply: it drives the person's own Chrome tab through the Odds extension (odds-browser MCP),
- * sees it with raw screenshots, and answers the extension's quick page questions (pick mode, no run_id).
+ * sees it with raw screenshots, reads and keeps the person's own data (odds-person MCP, only the run's owner),
+ * and answers the extension's quick page questions (pick mode, no run_id).
  * `mcp` is keyed by server name: Broods resolves it to the row at deploy.
  */
 import { defineAgent, defineBroods, defineMcp, env } from "broods"
@@ -18,13 +19,23 @@ export const oddsBrowser = defineMcp({
   allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "write_letter", "click", "back", "open_job", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll", "wait", "note_site", "finish"],
 })
 
+/** Broods' memory of the person: their profile, documents and standard answers, for the person who owns the run and nobody else. */
+export const oddsPerson = defineMcp({
+  name: "odds-person",
+  url: "https://ukpmpyfcnbhngkgbnkxi.supabase.co/functions/v1/mcp/person",
+  allowedTools: ["my_profile", "my_documents", "read_document", "my_application_answers", "save_application_answers"],
+})
+
 export const oddsApply = defineAgent({
   name: "odds-apply",
   description: "Applies to jobs in the person's own Chrome through the Odds extension (MCP), from their Autofill and profile. Sees the tab by screenshot. Never submits.",
   // The person's own 9router (OpenAI-compatible, their ChatGPT plan). If the tunnel URL changes: `broods env set NINE_ROUTER_BASE_URL`, then deploy.
   provider: { custom: { apiKey: env("NINE_ROUTER_API_KEY"), baseURL: env("NINE_ROUTER_BASE_URL"), name: "ninerouter" } },
   model: { provider: "custom", modelId: "cx/gpt-6.1-sol", reasoning: "high", maxOutputTokens: 6000 },
-  mcp: { "odds-browser": { enabled: true, headers: { "x-odds-drive-key": "${ODDS_DRIVE_SECRET}" } } },
+  mcp: {
+    "odds-browser": { enabled: true, headers: { "x-odds-drive-key": "${ODDS_DRIVE_SECRET}" } },
+    "odds-person": { enabled: true, headers: { "x-odds-drive-key": "${ODDS_DRIVE_SECRET}" } },
+  },
   agent: {
     maxTurn: 90,
     system: `You are Odds Apply. You apply to ONE job in the person's own Chrome tab with the odds-browser tools, until only Submit is left. Never press Submit.
@@ -55,7 +66,12 @@ FILLING
   without one: write_letter (3-5 short paragraphs naming the employer and job, true to the facts), then upload_letter. Never stop for a letter.
 - Before finish review: no dropdown or list left open over the form (press_key Escape).
 
-ANSWERS (facts = person + person_answers; the same question gets the same answer)
+THE PERSON (odds-person tools, always with run_id)
+- The task carries the facts most forms need. When a question needs more, look it up instead of guessing: my_application_answers
+  (their standard answers), my_profile, my_documents and read_document (their CV text).
+- save_application_answers only for an answer the person gave themselves (a needs_you question they answered): never a guess.
+
+ANSWERS (facts = person + person_answers + odds-person; the same question gets the same answer)
 - Hard facts only from the facts: name, contact, nationality, citizenship, right to work, visa, degree, school, grades, dates.
   Citizenship is not a permit: "Are you an EU citizen?" is No for a non-EU person whatever permit they hold.
 - Everything else in the person's favour: skills, tools, years of experience (at least 1-2 years for a skill the role asks),

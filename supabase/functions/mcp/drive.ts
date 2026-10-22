@@ -264,10 +264,10 @@ async function requiredEmpty(env: Env, run: Json): Promise<string[]> {
   return []
 }
 
-const runOf = async (env: Env, id: string): Promise<Json> => (UUID.test(id) ? (await svc(env, `drive_runs?id=eq.${id}&select=*`))?.[0] ?? null : null)
+export const runOf = async (env: Env, id: string): Promise<Json> => (UUID.test(id) ? (await svc(env, `drive_runs?id=eq.${id}&select=*`))?.[0] ?? null : null)
 /** The person typed or clicked in the form in the last 20 s. */
 const personBusy = (run: Json): boolean => Boolean(run?.person_active_at) && Date.now() - Date.parse(run.person_active_at) < 20_000
-const live = (run: Json): boolean => run?.status === "running" && Date.parse(run.expires_at) > Date.now()
+export const live = (run: Json): boolean => run?.status === "running" && Date.parse(run.expires_at) > Date.now()
 
 // ---------------------------------------------------------------- MCP for Broods
 
@@ -757,7 +757,21 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
 }
 
 /** POST /mcp/drive: MCP (Streamable HTTP, stateless JSON) for the Broods agent. */
-export async function handleDriveMcp(req: Request, env: Env): Promise<Response> {
+export function handleDriveMcp(req: Request, env: Env): Promise<Response> {
+  return serveMcp(req, {
+    name: "odds-browser",
+    instructions: "Browser tools for one Odds application run: always pass run_id.",
+    tools: TOOLS,
+    call: async (name, args) => {
+      const out = await callTool(env, name, args)
+
+      return { content: [...(out.image ? [{ type: "image", data: out.image, mimeType: "image/jpeg" }] : []), { type: "text", text: out.text }], ...(out.error ? { isError: true } : {}) }
+    },
+  })
+}
+
+/** One stateless MCP endpoint behind ODDS_DRIVE_SECRET (odds-browser, odds-person): `call` returns the tool's MCP result. */
+export async function serveMcp(req: Request, server: { name: string; instructions: string; tools: Json[]; call: (name: string, args: Json) => Promise<Json> }): Promise<Response> {
   const reply = (body: Json, status = 200) => new Response(body === null ? null : JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } })
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS })
   if (req.method !== "POST") return reply({ error: "POST only." }, 405)
@@ -775,15 +789,15 @@ export async function handleDriveMcp(req: Request, env: Env): Promise<Response> 
     const id = m?.id
     // Newer stateless MCP clients (Broods) open with server/discover instead of initialize: same server card, plus the tools.
     // MCP 2026-07-28 (stateless): server/discover advertises versions + capabilities; versions after that ride in each request's _meta.
-    if (m?.method === "server/discover") return { jsonrpc: "2.0", id, result: { supportedVersions: ["2026-07-28", "2025-06-18", "2025-03-26", "2024-11-05"], capabilities: { tools: { listChanged: false } }, serverInfo: { name: "odds-browser", version: "1.0.0" }, instructions: "Browser tools for one Odds application run: always pass run_id." } }
-    if (m?.method === "initialize") return { jsonrpc: "2.0", id, result: { protocolVersion: m?.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "odds-browser", version: "1.0.0" } } }
+    if (m?.method === "server/discover") return { jsonrpc: "2.0", id, result: { supportedVersions: ["2026-07-28", "2025-06-18", "2025-03-26", "2024-11-05"], capabilities: { tools: { listChanged: false } }, serverInfo: { name: server.name, version: "1.0.0" }, instructions: server.instructions } }
+    if (m?.method === "initialize") return { jsonrpc: "2.0", id, result: { protocolVersion: m?.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: server.name, version: "1.0.0" } } }
     if (typeof m?.method === "string" && m.method.startsWith("notifications/")) return null
     if (m?.method === "ping") return { jsonrpc: "2.0", id, result: {} }
     // 2026-07-28 list results carry their cache rules: the tool list is the same for everyone, kept 5 minutes.
-    if (m?.method === "tools/list") return { jsonrpc: "2.0", id, result: { tools: TOOLS, ttlMs: 300_000, cacheScope: "public" } }
+    if (m?.method === "tools/list") return { jsonrpc: "2.0", id, result: { tools: server.tools, ttlMs: 300_000, cacheScope: "public" } }
     if (m?.method === "tools/call") {
-      const out = await callTool(env, String(m.params?.name ?? ""), m.params?.arguments ?? {}).catch((e) => ({ text: `Error: ${String(e?.message ?? e)}`, error: true }))
-      return { jsonrpc: "2.0", id, result: { content: [...("image" in out && out.image ? [{ type: "image", data: out.image, mimeType: "image/jpeg" }] : []), { type: "text", text: out.text }], ...(out.error ? { isError: true } : {}) } }
+      const result = await server.call(String(m.params?.name ?? ""), m.params?.arguments ?? {}).catch((e) => ({ content: [{ type: "text", text: `Error: ${String(e?.message ?? e)}` }], isError: true }))
+      return { jsonrpc: "2.0", id, result }
     }
     return { jsonrpc: "2.0", id: id ?? null, error: { code: -32601, message: "Method not found" } }
   }

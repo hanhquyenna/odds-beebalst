@@ -5,7 +5,7 @@
 // Deploy: supabase functions deploy apply-agent --project-ref ukpmpyfcnbhngkgbnkxi --use-api
 // Secrets: APPLY_AGENT_WEBHOOK_SECRET; OPENAI_API_KEY (preferred) or ANTHROPIC_API_KEY; APPLY_AGENT_MODEL;
 // optional APPLY_AGENT_FORWARD_URL (+ APPLY_AGENT_FORWARD_SECRET) for async Broods logging.
-// Broods: APPLY_AGENT_BROODS_API_KEY + APPLY_AGENT_BROODS_AGENT_ID (stuck) + optional ROAM_AGENT_ID
+// Broods: APPLY_AGENT_BROODS_API_KEY + ODDS_DRIVE_AGENT_ID (odds-apply, answering in pick mode)
 // + APPLY_AGENT_BROODS_USER_TOKEN_SECRET; optional APPLY_AGENT_BROODS_BASE_URL.
 import {
   acceptActionPick,
@@ -27,13 +27,9 @@ type BroodsScanPick = {
 
 function broodsConfigured(): boolean {
   const key = (Deno.env.get("APPLY_AGENT_BROODS_API_KEY") ?? "").trim()
-  const agentId = (Deno.env.get("APPLY_AGENT_BROODS_AGENT_ID") ?? "").trim()
+  const agentId = (Deno.env.get("ODDS_DRIVE_AGENT_ID") ?? "").trim()
   const secret = (Deno.env.get("APPLY_AGENT_BROODS_USER_TOKEN_SECRET") ?? "").trim()
   return Boolean(key && agentId && secret.startsWith("bsig_"))
-}
-
-function broodsRoamAgentId(): string {
-  return (Deno.env.get("APPLY_AGENT_BROODS_ROAM_AGENT_ID") ?? "").trim()
 }
 
 /** Broods user token (buat_…) — same algorithm as broods `signUserToken`. */
@@ -172,24 +168,10 @@ async function broodsRunPick(
   }
 }
 
-/** Stuck pick (~6–8s; gpt-6.1-sol, medium effort). */
-async function broodsStuckPick(userPayload: Record<string, unknown>, timeoutMs = 15000): Promise<BroodsScanPick | null> {
-  const agentId = (Deno.env.get("APPLY_AGENT_BROODS_AGENT_ID") ?? "").trim()
-  return broodsRunPick(agentId, userPayload, timeoutMs)
-}
-
-/** Free-roam browse when stuck pick is empty (~12s). */
-async function broodsRoamPick(userPayload: Record<string, unknown>): Promise<BroodsScanPick | null> {
-  const roamId = broodsRoamAgentId()
-  if (!roamId) return null
-  return broodsRunPick(roamId, { ...userPayload, roam: true }, 25000)
-}
-
-async function broodsBestPick(userPayload: Record<string, unknown>): Promise<BroodsScanPick | null> {
-  const stuck = await broodsStuckPick(userPayload)
-  if (stuck && (stuck.action !== "none" || stuck.stage === "account" || stuck.stage === "captcha")) return stuck
-  const roam = await broodsRoamPick(userPayload)
-  return roam ?? stuck
+/** One pick from the odds-apply agent: no run_id, so it answers in pick mode with no tools. */
+async function broodsPick(userPayload: Record<string, unknown>): Promise<BroodsScanPick | null> {
+  const agentId = (Deno.env.get("ODDS_DRIVE_AGENT_ID") ?? "").trim()
+  return broodsRunPick(agentId, userPayload, 25000)
 }
 
 const CORS = {
@@ -417,7 +399,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
     // Stuck / force: race Broods agent when mini still has no click.
     if ((forceLlm || pick.action === "none") && broodsConfigured()) {
-      const broods = await broodsBestPick({
+      const broods = await broodsPick({
         kind: "suggest-action",
         host,
         status,
@@ -458,7 +440,7 @@ Click text must be an exact button label from the list. answers only for empty r
     }).slice(0, 3200)
     const miniPromise = cheapJsonChat(system, user, 120)
     const broodsPromise = broodsConfigured()
-      ? broodsBestPick({
+      ? broodsPick({
         kind: "suggest-scan",
         host: typeof (body as { host?: string }).host === "string" ? (body as { host: string }).host : null,
         status: typeof (body as { status?: string }).status === "string" ? (body as { status: string }).status : null,
@@ -555,7 +537,7 @@ Click text must be an exact button label from the list. answers only for empty r
   // Broods-only: every question goes to Broods (one call for the whole step); no rules, no small model.
   if ((body as { broods_only?: boolean }).broods_only === true) {
     const askable = questions.filter((q) => !isDeniedQuestion(q.label)).slice(0, 30)
-    const broods = askable.length && broodsConfigured() ? await broodsStuckPick({
+    const broods = askable.length && broodsConfigured() ? await broodsPick({
       kind: "suggest-answers",
       title: (body as { title?: string | null }).title ?? null,
       employer: (body as { employer?: string | null }).employer ?? null,
@@ -587,7 +569,7 @@ Click text must be an exact button label from the list. answers only for empty r
   const filled = new Set(answers.map((a) => a.key))
   const left = gaps.filter((q) => !filled.has(q.key))
   if (left.length && broodsConfigured()) {
-    const broods = await broodsStuckPick({
+    const broods = await broodsPick({
       kind: "suggest-answers",
       title: (body as { title?: string | null }).title ?? null,
       employer: (body as { employer?: string | null }).employer ?? null,
