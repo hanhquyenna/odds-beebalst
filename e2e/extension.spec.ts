@@ -903,6 +903,14 @@ test("a key odds refuses shows Connect, but one refusal never deletes it (a depl
   expect(fake.calls).toHaveLength(0)
 })
 
+/** The apply queue for a panel test: queue_jobs puts the job in, apply_queue reads it back as waiting. */
+async function fakePanelQueue(context: BrowserContext): Promise<string[]> {
+  const queued: string[] = []
+  await context.route("**/rest/v1/rpc/queue_jobs*", (route) => { queued.push(...(((route.request().postDataJSON() ?? {}) as { p_ids?: string[] }).p_ids ?? [])); return route.fulfill({ json: 1 }) })
+  await context.route("**/rest/v1/apply_queue*", (route) => route.fulfill({ json: queued.map((id) => ({ posting_id: id, state: "waiting", reason: null, message: null, added_at: new Date().toISOString(), started_at: null, updated_at: new Date().toISOString() })) }))
+  return queued
+}
+
 test("the odds app opens in the panel as production serves it (refusing frames), signed in by the extension, with the job dropped over it", async ({ context, fake }) => {
   fake.answer = { status: "added", saved: true, chance_pct: 4.4, job: { id: "e2e-adyen-fin-analyst", title: "Junior Financial Analyst", company: "Adyen", city: "Amsterdam" } }
   // The backend of the app is the usual fake; odds itself is the real HTTPS site of oddsSite() above, with production's headers (it may not be framed).
@@ -928,15 +936,17 @@ test("the odds app opens in the panel as production serves it (refusing frames),
   await expect(app.locator("[data-apply-panel]").getByText("Junior Financial Analyst").first()).toBeVisible({ timeout: 25000 })
   expect(fake.sessions).toBeGreaterThanOrEqual(1)
   await shot(page, "ext-panel-app")
-  // Apply opens the employer's form in this same tab (like Simplify), never a new one.
-  await context.route("https://jobs.example.com/**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><h1>Apply</h1>" }))
+  // Apply puts the job in the queue: Odds fills it in its own window later; this tab stays on the job, and no tab opens.
+  const queued = await fakePanelQueue(context)
   const pagesBefore = context.pages().length
-  await app.locator("[data-apply-panel]").getByRole("button", { name: /Apply with Odds|Start application/ }).first().click()
-  await page.waitForURL("https://jobs.example.com/e2e-adyen-fin-analyst", { timeout: 10000 })
+  await app.locator("[data-apply-panel]").getByRole("button", { name: "Apply with Odds" }).first().click()
+  await expect(app.locator("[data-apply-panel] [data-queue-apply]")).toContainText("In your queue")
+  expect(queued).toEqual(["e2e-adyen-fin-analyst"])
+  expect(page.url()).toBe(JOB)
   expect(context.pages().length).toBe(pagesBefore)
 })
 
-test("the side panel on a job page: the job card, one Apply button that opens the employer's form, People one tap away, drawn by the odds app itself", async ({ context, fake }) => {
+test("the side panel on a job page: the job card, one Apply button that puts it in the queue, People one tap away, drawn by the odds app itself", async ({ context, fake }) => {
   test.setTimeout(120_000)
   fake.answer = { status: "added", saved: true, chance_pct: 4.4, job: { id: "e2e-adyen-fin-analyst", title: "Junior Financial Analyst", company: "Adyen", city: "Amsterdam" } }
   await mockBackend(context, FLOW_POSTINGS, [], true)
@@ -960,7 +970,7 @@ test("the side panel on a job page: the job card, one Apply button that opens th
   const app = page.frameLocator("#odds-panel-frame").frameLocator("#app")
   // The job added from its page shows as the apply card at once (never the app's own home or job page).
   await expect(app.locator("[data-apply-panel]").getByText("Junior Financial Analyst").first()).toBeVisible({ timeout: 25000 })
-  // No employer form on LinkedIn's page: the one odds button is Apply (it opens the employer's form in this tab and fills it).
+  // No employer form on LinkedIn's page: the one odds button is Apply (it puts the job in the queue).
   const panel = app.locator("[data-apply-panel]")
   await expect(panel.getByRole("button", { name: /Apply with Odds/ })).toBeVisible({ timeout: 15000 })
   await expect(panel.getByText("Junior Financial Analyst").first()).toBeVisible()
@@ -971,12 +981,16 @@ test("the side panel on a job page: the job card, one Apply button that opens th
   await expect(panel.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true")
   await page.waitForTimeout(800)
   await page.locator("#odds-panel-frame").screenshot({ path: "test-results/ext-apply-panel-people.png" })
-  await context.route("https://jobs.example.com/**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><h1>Apply</h1>" }))
-  // Like Simplify: the employer's form opens in this same tab (no new tab or window).
+  // Apply: into the queue, and the panel says where it stands there; the queue strip at the foot opens the whole queue.
+  const queued = await fakePanelQueue(context)
   const pagesBefore = context.pages().length
   await panel.getByRole("button", { name: "Apply with Odds" }).first().click()
-  await page.waitForURL("https://jobs.example.com/e2e-adyen-fin-analyst", { timeout: 10000 })
+  await expect(panel.locator("[data-queue-apply]")).toContainText("In your queue")
+  expect(queued).toEqual(["e2e-adyen-fin-analyst"])
   expect(context.pages().length).toBe(pagesBefore)
+  await panel.getByRole("button", { name: /Your queue/ }).click()
+  await expect(panel.getByRole("region", { name: "Apply queue" }).getByRole("heading", { name: "1 waiting for Odds" })).toBeVisible()
+  await page.locator("#odds-panel-frame").screenshot({ path: "test-results/ext-apply-panel-queued.png" })
 })
 
 test("the panel reads a job page Odds does not hold, keeps it for everyone, and shows the job without a press", async ({ context, fake, extensionId }) => {

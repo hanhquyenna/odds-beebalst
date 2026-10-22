@@ -14,6 +14,10 @@ import { PANEL_FILL_MS } from "@/lib/panel-fill"
 import { formatAge } from "@/lib/format"
 import type { Posting } from "@/lib/types"
 import { useJobChance } from "@/lib/use-job-chance"
+import { AgentMark, ApplyInbox, NeedsCard } from "@/components/web/ApplyInbox"
+import { addToQueue, leaveQueue, useApplyQueue } from "@/lib/apply-queue"
+import { queueCounts, queueWords } from "@/lib/apply-queue-words"
+import { toast } from "sonner"
 
 const JobDetail = lazy(() => import("@/components/JobDetail").then((m) => ({ default: m.JobDetail })))
 
@@ -63,8 +67,10 @@ export function ApplyPanel(): React.JSX.Element | null {
 
   return (
     <div data-apply-panel className="fixed inset-0 z-50 flex flex-col gap-3 overflow-y-auto bg-background p-3 [&>*]:shrink-0">
+      <PanelNeeds />
       <JobCard info={info} post={post} onInsights={post ? () => open("overview") : undefined} />
       <OddsButton info={info} post={post} />
+      <PanelQueue />
       <SaveAnswers info={info} />
       {post ? <ChanceCard post={post} tabId={page.tabId} url={page.url} /> : null}
       <Attach info={info} post={post} />
@@ -75,6 +81,86 @@ export function ApplyPanel(): React.JSX.Element | null {
       ) : null}
       <Button variant="ghost" size="sm" className="self-center" onClick={() => setAway(page.url)}>My jobs</Button>
       <Button variant="ghost" size="sm" className="self-center" onClick={() => toExtension({ type: "panel-open-logins" })}>Saved logins</Button>
+    </div>
+  )
+}
+
+/** Apply on a job page: into the queue, then where it stands there. Pressing again while it waits takes it out. */
+function QueueApply({ post, look }: { post: Posting; look: string }): React.JSX.Element {
+  const data = useData()
+  const queue = useApplyQueue(data.session !== null)
+  const [busy, setBusy] = useState(false)
+  const item = queue.byId.get(post.id)
+  const ahead = item ? queue.items.filter((i) => (i.state === "waiting" || i.state === "working") && i.added_at < item.added_at).length : 0
+  const press = (): void => {
+    setBusy(true)
+    data.setSaved(post.id, true)
+    addToQueue([post.id])
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "That did not go through. Try again."))
+      .finally(() => setBusy(false))
+  }
+  if (!item || item.state === "sent") {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <button type="button" disabled={busy} onClick={press} className={`${look} ${busy ? "" : "odds-fill-pulse"}`}>
+          <Face label={busy ? "Adding…" : item ? "Apply again" : "Apply with Odds"} sub="" />
+        </button>
+        <p className="px-1 text-sm leading-snug text-muted-foreground">Odds fills and checks it in the background. It only stops for a check or a new account.</p>
+      </div>
+    )
+  }
+  const words = queueWords(item)
+  const line = item.state === "waiting" ? (ahead === 0 ? "Next in line. You can close this tab." : `${ahead + 1}${ahead === 1 ? "nd" : ahead === 2 ? "rd" : "th"} in line. You can close this tab.`) : words.why
+
+  return (
+    <div role="status" data-queue-apply={item.state} className="flex items-center gap-3 rounded-2xl border-[1.5px] border-line bg-card px-4 py-3">
+      <AgentMark size={34} done={item.state === "review"} />
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="text-base font-extrabold">{item.state === "waiting" ? "In your queue" : words.label}</span>
+        <span className="text-sm leading-snug text-muted-foreground">{line}</span>
+      </span>
+      {item.state === "waiting" ? <Button variant="ghost" size="sm" disabled={busy} onClick={() => { setBusy(true); void leaveQueue(post.id).finally(() => setBusy(false)) }}>Remove</Button> : null}
+    </div>
+  )
+}
+
+/** The stops only the person can do, on top of whatever page is in front: a check or an account somewhere in the queue. */
+function PanelNeeds(): React.JSX.Element | null {
+  const data = useData()
+  const queue = useApplyQueue(data.session !== null)
+  const needs = queue.items.filter((i) => i.state === "needs_you")
+  if (needs.length === 0) return null
+  const posts = new Map([...data.postings, ...data.keptExtra].map((p) => [p.id, p]))
+
+  return (
+    <section aria-label="Needs you" className="flex flex-col gap-2">
+      {needs.map((item) => <NeedsCard key={item.posting_id} item={item} post={posts.get(item.posting_id)} />)}
+    </section>
+  )
+}
+
+/** The queue in one line at the foot of the panel; opened, the whole queue and its report, the same as the web app's. */
+function PanelQueue(): React.JSX.Element | null {
+  const data = useData()
+  const queue = useApplyQueue(data.session !== null)
+  const [open, setOpen] = useState(false)
+  if (!queue.loaded || queue.items.length === 0) return null
+  const working = queue.items.filter((i) => i.state === "working").length
+  const counts = queueCounts(queue.items)
+  const waiting = queue.items.filter((i) => i.state === "waiting").length
+  const parts = [working ? `${working} working` : "", waiting ? `${waiting} waiting` : "", counts.ready ? `${counts.ready} ready` : "", counts.needs ? `${counts.needs} ${counts.needs === 1 ? "needs" : "need"} you` : "nothing needs you"].filter(Boolean)
+
+  return (
+    <div className="flex flex-col gap-2">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex w-full cursor-pointer items-center gap-3 rounded-2xl border-[1.5px] border-line bg-card px-3.5 py-3 text-left">
+        <AgentMark size={30} done={working === 0 && queue.items.every((i) => i.state !== "waiting")} />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="text-sm font-extrabold">Your queue</span>
+          <span className="truncate text-[0.8125rem] text-muted-foreground">{parts.join(" · ")}</span>
+        </span>
+        <span className="text-[0.8125rem] font-bold text-brand-ink">{open ? "Close" : "Open"}</span>
+      </button>
+      {open ? <ApplyInbox /> : null}
     </div>
   )
 }
@@ -218,6 +304,11 @@ function OddsButton({ info, post }: { info: PanelInfo; post: Posting | null }): 
     )
   }
   const kind = page.kind ?? null
+  // On a job page (no form here yet, nothing running in this tab): Apply puts the job in the queue. Odds fills it in its own window, only
+  // stops for a check or a new account, and the person sends it at the end (the queue strip and the report below).
+  if (post && !post.local && !post.closed_at && !page.form && !state && kind !== "create_account" && kind !== "sign_in") {
+    return <QueueApply post={post} look={look} />
+  }
   // An account step (like Simplify): Odds fills your email and a strong password it keeps for this site, presses the site's button,
   // then fills the application that follows in this tab. Sign-in uses the password Odds made here, or you type yours.
   if ((kind === "create_account" || kind === "sign_in") && state !== "filling") {

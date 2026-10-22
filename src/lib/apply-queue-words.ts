@@ -102,3 +102,47 @@ export function queueCounts(items: readonly Pick<QueueItem, "state">[]): Record<
 
   return out
 }
+
+/** How far back the report looks: a queue run is the applications Odds touched in the last day. */
+export const REPORT_HOURS = 24
+
+/** The report once Odds has nothing left to do: what came out of the run, in counts the person can act on. */
+export interface QueueReport {
+  /** Applications Odds touched in this run. */
+  total: number
+  /** Filled and checked: the person sends them. */
+  ready: number
+  /** Stopped on a step only the person can do (a check, an account, …). */
+  needs: number
+  sent: number
+  /** Closed, or could not be finished. */
+  skipped: number
+  /** From the first one started to the last change, in whole minutes; null when nothing has started. */
+  minutes: number | null
+}
+
+/**
+ * The report, or null while Odds is still working (the agent bar shows progress then) or when nothing happened in the last day. The
+ * person pressed Apply and walked away: this is what they come back to.
+ */
+export function queueReport(items: readonly Pick<QueueItem, "state" | "added_at" | "started_at" | "updated_at">[], now: number = Date.now()): QueueReport | null {
+  if (items.some((i) => i.state === "waiting" || i.state === "working")) return null
+  const since = now - REPORT_HOURS * 3_600_000
+  const run = items.filter((i) => Date.parse(i.updated_at) >= since)
+  if (run.length === 0) return null
+  const counts = queueCounts(run)
+  const starts = run.map((i) => Date.parse(i.started_at ?? i.added_at)).filter(Number.isFinite)
+  const last = Math.max(...run.map((i) => Date.parse(i.updated_at)))
+  const minutes = run.some((i) => i.started_at) && starts.length ? Math.max(1, Math.round((last - Math.min(...starts)) / 60_000)) : null
+
+  return { total: run.length, ready: counts.ready, needs: counts.needs, sent: counts.sent, skipped: counts.failed, minutes }
+}
+
+/** The report's headline: what the person has to do next, first. */
+export function reportHeadline(r: QueueReport): string {
+  if (r.ready > 0) return `${r.ready} of ${r.total} ready to send`
+  if (r.needs > 0) return `${r.needs} of ${r.total} ${r.needs === 1 ? "needs" : "need"} you`
+  if (r.sent === r.total) return r.total === 1 ? "Sent" : `All ${r.total} sent`
+
+  return `Queue done: ${r.total} ${r.total === 1 ? "application" : "applications"}`
+}

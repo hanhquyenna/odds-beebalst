@@ -76,8 +76,13 @@ test.describe("the apply queue in the web app", () => {
     await page.goto("/")
     await goTab(page, "Tracker")
     const inbox = page.getByRole("region", { name: "Apply queue" })
-    await expect(inbox.getByRole("heading", { name: /Apply queue/ })).toBeVisible()
-    for (const title of ["Needs you", "Ready to review", "Odds is working on these", "Could not finish"]) await expect(inbox.getByRole("region", { name: title })).toBeVisible()
+    // The agent's line first: what Odds is doing now. No report while it still works.
+    await expect(inbox.getByRole("heading", { name: "Odds is working on 1 application" })).toBeVisible()
+    await expect(inbox.getByRole("region", { name: "Report" })).toHaveCount(0)
+    // The stop that needs the person is its own card at the top, with the tab to do it in.
+    const needs = inbox.getByRole("region", { name: "Needs you" })
+    await expect(needs.getByText(/A check is in the way/)).toBeVisible()
+    await expect(needs.getByRole("button", { name: "Go to the tab" })).toBeVisible()
     await expect(inbox.getByText("Security check")).toBeVisible()
     await expect(inbox.getByText("The form would not load.")).toBeVisible()
     await expect(inbox.locator("[data-queue-card]")).toHaveCount(5)
@@ -90,11 +95,11 @@ test.describe("the apply queue in the web app", () => {
     await expect(inbox.getByText("Did you press Submit on the site?")).toBeVisible()
     expect(fake.calls.some((c) => c.name === "queue_sent")).toBe(false)
     await inbox.getByRole("button", { name: "Yes, I sent it" }).click()
-    await expect(inbox.getByRole("region", { name: "Sent" })).toBeVisible()
+    await expect(inbox.locator('[data-queue-state="sent"]')).toHaveCount(1)
     expect(fake.calls.filter((c) => c.name === "queue_sent")).toHaveLength(1)
   })
 
-  test("Open the form asks the extension to focus that application's tab", async ({ page }) => {
+  test("Review & send asks the extension to focus that application's tab", async ({ page }) => {
     await fakeQueue(page, [row(0, "review")])
     await page.addInitScript(() => {
       ;(window as unknown as { __asked: unknown[] }).__asked = []
@@ -102,11 +107,26 @@ test.describe("the apply queue in the web app", () => {
     })
     await page.goto("/")
     await goTab(page, "Tracker")
-    await page.getByRole("button", { name: "Open the form" }).click()
+    await page.getByRole("button", { name: "Review & send" }).click()
     await expect.poll(() => page.evaluate(() => (window as unknown as { __asked: unknown[] }).__asked.length)).toBe(1)
     const asked = await page.evaluate(() => (window as unknown as { __asked: Array<{ reveal: boolean; postingId: string }> }).__asked[0])
     expect(asked.reveal).toBe(true)
     expect(asked.postingId).toBe(FLOW_POSTINGS[0].id)
+  })
+
+  test("once Odds has nothing left to do, the report says what came out of the run", async ({ page }) => {
+    const recent = (i: number, state: string, reason: string | null = null): Row => ({ ...row(i, state, reason), started_at: new Date(Date.now() - 50 * 60_000).toISOString(), updated_at: new Date(Date.now() - (10 - i) * 60_000).toISOString() })
+    await fakeQueue(page, [recent(0, "review"), recent(1, "review"), recent(2, "failed", "closed"), recent(3, "sent")])
+    await page.goto("/")
+    await goTab(page, "Tracker")
+    const inbox = page.getByRole("region", { name: "Apply queue" })
+    await expect(inbox.getByRole("heading", { name: "2 of 4 ready to send" })).toBeVisible()
+    const report = inbox.getByRole("region", { name: "Report" })
+    await expect(report.getByText("Ready to send")).toBeVisible()
+    await expect(report.getByText("Skipped (closed or stuck)")).toBeVisible()
+    await expect(inbox.getByRole("button", { name: "Review & send" })).toHaveCount(2)
+    await expect(inbox.getByRole("region", { name: "Needs you" })).toHaveCount(0)
+    await shot(page, "queue-report")
   })
 
   test("an empty queue shows nothing on the tracker", async ({ page }) => {

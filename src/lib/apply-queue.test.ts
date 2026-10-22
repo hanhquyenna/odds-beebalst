@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { QUEUE_PARALLEL, queueDone, queueNext } from "../../supabase/functions/_shared/apply-queue"
-import { groupOf, groupQueue, queueActions, queueCounts, queueWords, type QueueItem } from "./apply-queue-words"
+import { groupOf, groupQueue, queueActions, queueCounts, queueReport, queueWords, reportHeadline, type QueueItem } from "./apply-queue-words"
 
 const item = (state: QueueItem["state"], reason: QueueItem["reason"] = null, message: string | null = null, updated = "2026-10-18T09:00:00Z"): QueueItem =>
   ({ posting_id: `${state}-${reason}-${updated}`, state, reason, message, added_at: "2026-10-18T08:00:00Z", started_at: null, updated_at: updated })
@@ -129,5 +129,36 @@ describe("how a job ended", () => {
     expect(await queueDone(db.svc, "u1", { posting_id: "a", state: "waiting" })).toBe(false)
     expect(await queueDone(db.svc, "u1", { posting_id: "a", state: "working" })).toBe(false)
     expect(db.patches).toEqual([])
+  })
+})
+
+describe("the report after a queue run", () => {
+  const now = Date.parse("2026-10-18T12:00:00Z")
+  const at = (state: QueueItem["state"], started: string | null, updated: string, reason: QueueItem["reason"] = null): QueueItem =>
+    ({ ...item(state, reason, null, updated), posting_id: `${state}-${updated}`, started_at: started })
+
+  test("no report while Odds is still filling or has some waiting: the agent bar shows progress instead", () => {
+    expect(queueReport([at("review", "2026-10-18T10:00:00Z", "2026-10-18T10:20:00Z"), at("working", "2026-10-18T10:05:00Z", "2026-10-18T10:30:00Z")], now)).toBeNull()
+    expect(queueReport([at("waiting", null, "2026-10-18T10:30:00Z")], now)).toBeNull()
+  })
+  test("once nothing is left: ready, needs you, sent and skipped are counted, with how long it took", () => {
+    const r = queueReport([
+      at("review", "2026-10-18T10:00:00Z", "2026-10-18T10:20:00Z"),
+      at("review", "2026-10-18T10:05:00Z", "2026-10-18T10:42:00Z"),
+      at("needs_you", "2026-10-18T10:10:00Z", "2026-10-18T10:15:00Z", "captcha"),
+      at("failed", "2026-10-18T10:12:00Z", "2026-10-18T10:13:00Z", "closed"),
+      at("sent", "2026-10-18T10:01:00Z", "2026-10-18T10:30:00Z"),
+    ], now)!
+    expect(r).toEqual({ total: 5, ready: 2, needs: 1, sent: 1, skipped: 1, minutes: 42 })
+    expect(reportHeadline(r)).toBe("2 of 5 ready to send")
+  })
+  test("only the last day counts, and an old queue gives no report", () => {
+    expect(queueReport([at("review", "2026-10-16T10:00:00Z", "2026-10-16T10:20:00Z")], now)).toBeNull()
+    expect(queueReport([at("review", "2026-10-16T10:00:00Z", "2026-10-16T10:20:00Z"), at("review", "2026-10-18T11:00:00Z", "2026-10-18T11:10:00Z")], now)?.total).toBe(1)
+  })
+  test("the headline puts what the person has to do first", () => {
+    expect(reportHeadline({ total: 3, ready: 0, needs: 1, sent: 2, skipped: 0, minutes: 5 })).toBe("1 of 3 needs you")
+    expect(reportHeadline({ total: 2, ready: 0, needs: 0, sent: 2, skipped: 0, minutes: 5 })).toBe("All 2 sent")
+    expect(reportHeadline({ total: 2, ready: 0, needs: 0, sent: 0, skipped: 2, minutes: 5 })).toBe("Queue done: 2 applications")
   })
 })
