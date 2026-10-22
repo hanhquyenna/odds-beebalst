@@ -6,7 +6,7 @@ import { fieldPattern, playbookFor, sanitizeLesson, siteIdentity, structuralFiel
 
 // Broods drives the person's own Chrome through the Odds extension.
 //
-//   Broods agent (odds-apply) ──MCP tools──▶ POST /mcp/drive (this file, shared secret) ──queue──▶ drive_commands
+//   Broods agent (odds-agent) ──MCP tools──▶ POST /mcp/browser (this file, shared secret) ──queue──▶ drive_commands
 //   Odds extension (the person's tab) ──/ext/drive-next──▶ takes a command, does it in the tab ──/ext/drive-result──▶ back to Broods
 //
 // One run per application (drive_runs). Broods only reaches a run by its id, the extension only with the person's own key. The extension
@@ -756,10 +756,10 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
   return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, error: `The browser did not answer (${kind}). Call read_page again.` }), error: true }
 }
 
-/** POST /mcp/drive: MCP (Streamable HTTP, stateless JSON) for the Broods agent. */
+/** POST /mcp/browser: MCP (Streamable HTTP, stateless JSON) for the Broods agent. */
 export function handleDriveMcp(req: Request, env: Env): Promise<Response> {
   return serveMcp(req, {
-    name: "odds-browser",
+    name: "browser",
     instructions: "Browser tools for one Odds application run: always pass run_id.",
     tools: TOOLS,
     call: async (name, args) => {
@@ -770,7 +770,7 @@ export function handleDriveMcp(req: Request, env: Env): Promise<Response> {
   })
 }
 
-/** One stateless MCP endpoint behind ODDS_DRIVE_SECRET (odds-browser, odds-person): `call` returns the tool's MCP result. */
+/** One stateless MCP endpoint behind ODDS_DRIVE_SECRET (browser, supabase): `call` returns the tool's MCP result. */
 export async function serveMcp(req: Request, server: { name: string; instructions: string; tools: Json[]; call: (name: string, args: Json) => Promise<Json> }): Promise<Response> {
   const reply = (body: Json, status = 200) => new Response(body === null ? null : JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } })
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS })
@@ -881,7 +881,7 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
         person_answers: answered,
         has_cover_letter: Boolean(letter),
         ...(run.mode === "copilot" ? { mode: "copilot" } : {}),
-        goal: run.mode === "copilot" ? COPILOT_GOAL : "Apply to this job in the person's browser tab with the odds-browser tools until only Submit is left (finish review), or something only the person can do (finish needs_you).",
+        goal: run.mode === "copilot" ? COPILOT_GOAL : "Apply to this job in the person's browser tab with the browser tools until only Submit is left (finish review), or something only the person can do (finish needs_you).",
       }
   // A background run: Broods accepts it (202) and keeps working on its side for as long as the form takes. Holding the stream open
   // here capped every run at this function's ~150 s wall clock ("Caller stopped reading the stream" cancelled real applications).

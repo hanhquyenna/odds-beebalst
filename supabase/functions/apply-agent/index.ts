@@ -5,7 +5,7 @@
 // Deploy: supabase functions deploy apply-agent --project-ref ukpmpyfcnbhngkgbnkxi --use-api
 // Secrets: APPLY_AGENT_WEBHOOK_SECRET; OPENAI_API_KEY (preferred) or ANTHROPIC_API_KEY; APPLY_AGENT_MODEL;
 // optional APPLY_AGENT_FORWARD_URL (+ APPLY_AGENT_FORWARD_SECRET) for async Broods logging.
-// Broods: APPLY_AGENT_BROODS_API_KEY + ODDS_DRIVE_AGENT_ID (odds-apply, answering in pick mode)
+// Broods: APPLY_AGENT_BROODS_API_KEY + ODDS_DRIVE_AGENT_ID (odds-agent, answering in pick mode)
 // + APPLY_AGENT_BROODS_USER_TOKEN_SECRET; optional APPLY_AGENT_BROODS_BASE_URL.
 import {
   acceptActionPick,
@@ -168,7 +168,7 @@ async function broodsRunPick(
   }
 }
 
-/** One pick from the odds-apply agent: no run_id, so it answers in pick mode with no tools. */
+/** One pick from odds-agent: no run_id, so it answers in pick mode with no tools. */
 async function broodsPick(userPayload: Record<string, unknown>): Promise<BroodsScanPick | null> {
   const agentId = (Deno.env.get("ODDS_DRIVE_AGENT_ID") ?? "").trim()
   return broodsRunPick(agentId, userPayload, 25000)

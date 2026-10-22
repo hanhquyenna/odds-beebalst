@@ -9,7 +9,7 @@
 // Every one of those reads and writes is filtered by the user id the key belongs to. Nothing calls a paid service (no Apify, no models).
 // @ts-ignore: bundled from src/lib by scripts/build-mcp-core.sh
 import { driveExt, handleDriveMcp } from "./drive.ts"
-import { handlePersonMcp } from "./person.ts"
+import { handleSupabaseMcp } from "./supabase.ts"
 import * as core from "./core.js"
 import { handleOAuth, unauthorized } from "./oauth.ts"
 import { accessFor, contentOf, driveEnv, linkOf, pushIfConnected } from "../_shared/drive.ts"
@@ -1826,9 +1826,9 @@ export async function handle(req: Request, env: Env): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS })
   if (new URL(req.url).pathname.includes("/ext/")) return handleExt(req, env)
   // Broods' browser tools (one agent drives the person's tab through the Odds extension).
-  if (/\/drive\/?$/.test(new URL(req.url).pathname)) return handleDriveMcp(req, env)
+  if (/\/browser\/?$/.test(new URL(req.url).pathname)) return handleDriveMcp(req, env)
   // Broods' view of the person who owns a live run: their profile, documents and standard answers, nobody else's.
-  if (/\/person\/?$/.test(new URL(req.url).pathname)) return handlePersonMcp(req, env, ME_TOOLS, async (userId, name, args) => callMe(env, { id: userId, email: await emailOf(env, { id: userId, email: null, key: "" }), key: "" }, name, cleanArgs(args)))
+  if (/\/supabase\/?$/.test(new URL(req.url).pathname)) return handleSupabaseMcp(req, env, ME_TOOLS, async (userId, name, args) => callMe(env, { id: userId, email: await emailOf(env, { id: userId, email: null, key: "" }), key: "" }, name, cleanArgs(args)))
   const oauth = await handleOAuth(req, env, CORS)
   if (oauth) return oauth
   if (req.method === "GET" && new URL(req.url).pathname.endsWith("/file")) return serveFile(req, env)
