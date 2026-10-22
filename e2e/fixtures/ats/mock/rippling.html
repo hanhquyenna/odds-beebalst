@@ -1,0 +1,126 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Software Engineering Intern - Quillstone Fintech</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 "Basel",system-ui,sans-serif;color:#202020;background:#fff}
+.nav-top{padding:14px 16px;border-bottom:1px solid #e6e2dc;font-weight:700}
+main{max-width:680px;margin:0 auto;padding:16px}
+.stepper{display:flex;gap:6px;list-style:none;padding:0;margin:0 0 16px;flex-wrap:wrap}
+.stepper li{flex:1;min-width:110px;border-top:3px solid #e6e2dc;padding-top:6px;font-size:13px;color:#777}.stepper li.on{border-color:#7a005d;color:#7a005d;font-weight:700}.stepper li.done{border-color:#c9a3c0}
+.f{margin:14px 0;position:relative}.f>label,.lbl{display:block;font-weight:600;margin-bottom:5px}
+input:not([type=checkbox]):not([type=radio]):not([type=file]),textarea{width:100%;padding:10px;border:1px solid #cfc9c1;border-radius:6px;font:inherit}
+button{font:inherit;padding:10px 18px;border-radius:6px;border:1px solid #cfc9c1;background:#fff;cursor:pointer}
+.primary{background:#7a005d;border-color:#7a005d;color:#fff}
+.dd>button{width:100%;text-align:left}.dd>button::after{content:" \25BE";float:right}
+ul[role=listbox]{list-style:none;margin:2px 0 0;padding:4px 0;border:1px solid #cfc9c1;border-radius:6px;background:#fff;position:absolute;left:0;right:0;z-index:3;box-shadow:0 2px 6px #0001}
+li[role=option]{padding:7px 12px;cursor:pointer}li[role=option]:hover{background:#f6eef4}
+.spins{display:flex;gap:16px}.spin{display:flex;align-items:center;gap:4px}
+[role=spinbutton]{min-width:64px;text-align:center;padding:8px;border:1px solid #cfc9c1;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+.bar{display:flex;justify-content:space-between;margin-top:18px}
+dl{display:grid;grid-template-columns:40% 60%;gap:4px}dt{font-weight:600}dd{margin:0}
+.err{color:#c4161c;font-size:13px;margin-top:4px}
+.ck{position:fixed;inset:0;background:#0007;display:flex;align-items:center;justify-content:center;z-index:9;padding:16px}.ck>div{background:#fff;padding:18px;border-radius:8px;max-width:460px}
+[hidden]{display:none!important}
+</style></head><body>
+<div class="ck" id="cookie" role="dialog" aria-modal="true" aria-label="Cookie preferences"><div>
+<h3>Cookie preferences</h3><p>We use cookies to keep this site secure and to understand how candidates use it.</p>
+<button type="button" class="primary" id="ck-all">Accept all</button> <button type="button" id="ck-rej">Reject non-essential</button>
+</div></div>
+<div class="nav-top">Quillstone Fintech · Careers</div>
+<main>
+<section id="jd" data-step="Job description">
+<h1>Software Engineering Intern</h1>
+<p>Amsterdam · Internship · Engineering · Hybrid</p>
+<p>Quillstone builds invoicing and payments software for small businesses. You will ship features to production with a mentor, write tests and join code reviews.</p>
+<ul><li>Studying computer science or similar</li><li>Some TypeScript, Go or Python experience</li><li>Available for 6 months, at least 32 hours per week</li></ul>
+<button type="button" class="primary" id="apply">Apply now</button>
+</section>
+<form id="rp-form" novalidate hidden>
+<ol class="stepper" id="stepper"><li>Personal information</li><li>Resume</li><li>Questions</li><li>Review</li></ol>
+<section data-step="Personal information">
+<div class="f" data-req="First name"><label for="fn">First name *</label><input id="fn" name="first_name" required></div>
+<div class="f" data-req="Last name"><label for="ln">Last name *</label><input id="ln" name="last_name" required></div>
+<div class="f" data-req="Email"><label for="em">Email *</label><input id="em" type="email" name="email" required></div>
+<div class="f" data-req="Phone"><label for="ph">Phone *</label><input id="ph" type="tel" name="phone" required></div>
+<div class="f" data-req="Current location"><div class="lbl" id="loc-l">Current location *</div>
+<div class="dd" data-opts="Amsterdam, NL|Rotterdam, NL|Utrecht, NL|The Hague, NL|Eindhoven, NL|Other city in the Netherlands|Outside the Netherlands"><button type="button" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="loc-l"><span class="v">Select</span></button><input type="hidden" name="location"></div></div>
+</section>
+<section data-step="Resume" hidden>
+<div class="f" data-req="Resume"><div class="lbl" id="cv-l">Resume *</div>
+<button type="button" id="cv-btn">Upload file</button> <span id="cv-name"></span> <button type="button" id="cv-rm" hidden>Remove</button>
+<input type="file" id="cv" name="resume" class="sr" tabindex="-1" accept=".pdf,.doc,.docx" aria-labelledby="cv-l"></div>
+<div class="f"><label for="li">LinkedIn URL</label><input id="li" type="url" name="linkedin"></div>
+<div class="f"><label for="gh">GitHub or portfolio URL</label><input id="gh" type="url" name="github"></div>
+</section>
+<section data-step="Questions" hidden>
+<div class="f" data-req="Are you authorized to work in the Netherlands?"><div class="lbl" id="wa-l">Are you authorized to work in the Netherlands? *</div>
+<div class="dd" id="wa" data-opts="Yes, I am an EU/EEA citizen|Yes, I have a residence permit|No"><button type="button" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="wa-l"><span class="v">Select</span></button><input type="hidden" name="work_auth"></div></div>
+<div class="f" data-req="Will you require visa sponsorship?" id="visa-f" hidden><div class="lbl" id="vs-l">Will you require visa sponsorship? *</div>
+<div class="dd" data-opts="Yes|No"><button type="button" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="vs-l"><span class="v">Select</span></button><input type="hidden" name="visa" id="visa-h"></div></div>
+<div class="f" data-req="Earliest start date"><div class="lbl">Earliest start date *</div><div class="spins">
+<div class="spin"><button type="button" class="dn" aria-label="Decrease month">-</button><div role="spinbutton" tabindex="0" aria-label="Start month" aria-valuemin="1" aria-valuemax="12" aria-valuetext="Not set">MM</div><button type="button" class="up" aria-label="Increase month">+</button><input type="hidden" name="start_month"></div>
+<div class="spin"><button type="button" class="dn" aria-label="Decrease year">-</button><div role="spinbutton" tabindex="0" aria-label="Start year" aria-valuemin="2026" aria-valuemax="2028" aria-valuetext="Not set">YYYY</div><button type="button" class="up" aria-label="Increase year">+</button><input type="hidden" name="start_year"></div></div></div>
+<div class="f" data-req="English proficiency"><div class="lbl" id="en-l">English proficiency *</div>
+<div class="dd" data-opts="Basic|Conversational|Professional working|Full professional|Native"><button type="button" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="en-l"><span class="v">Select</span></button><input type="hidden" name="english"></div></div>
+<div class="f"><div class="lbl" id="src-l">How did you hear about us?</div>
+<div class="dd" data-opts="LinkedIn|University|Hacker News|Friend or employee|Other"><button type="button" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="src-l"><span class="v">Select</span></button><input type="hidden" name="source"></div></div>
+</section>
+<section data-step="Review" hidden>
+<h2>Review your application</h2>
+<dl id="summary"></dl>
+<div class="f" data-req="Privacy consent"><label><input type="checkbox" name="consent" required> I agree to Quillstone processing my data under the candidate privacy notice. *</label></div>
+</section>
+<div class="bar"><button type="button" id="back">Back</button><button type="button" class="primary" id="next">Continue</button><button type="submit" class="primary" id="final" hidden>Submit application</button></div>
+</form>
+</main>
+<script>
+window.sent=0
+const Q=(s,r=document)=>r.querySelector(s),QA=(s,r=document)=>[...r.querySelectorAll(s)]
+const shown=el=>!!el&&el.getClientRects().length>0
+// A .f wrapper is empty when its hidden values, choices, file or text inputs are unset.
+function empty(f){const i=QA("input,select,textarea",f),h=i.filter(x=>x.type=="hidden");if(h.length)return h.some(x=>!x.value);const b=i.filter(x=>x.type=="radio"||x.type=="checkbox");if(b.length)return!b.some(x=>x.checked);const fl=i.find(x=>x.type=="file");if(fl)return!fl.files.length;return!i.length||i.some(x=>!x.value.trim())}
+function mark(f,bad){let e=Q(":scope>.err",f);if(bad&&!e){e=document.createElement("div");e.className="err";e.setAttribute("role","alert");e.textContent="This field is required";f.append(e)}if(!bad&&e)e.remove()}
+function check(s){let ok=true;for(const f of QA(".f[data-req]",s)){const bad=shown(f)&&empty(f);mark(f,bad);if(bad)ok=false}return ok}
+const clr=f=>{if(f&&!empty(f))mark(f,false)}
+const missing=s=>s?QA(".f[data-req]",s).filter(f=>shown(f)&&empty(f)).map(f=>f.dataset.req):[]
+const cur=(r=document)=>QA("[data-step]",r).find(shown)
+for(const t of["input","change","click"])document.addEventListener(t,e=>clr(e.target.closest&&e.target.closest(".f")))
+window.mockStatus=()=>{const s=cur();return{platform:"rippling",step:s?s.dataset.step:"",final:shown(Q("#final")),required_empty:missing(s),sent:window.sent||0}}
+
+for(const id of["ck-all","ck-rej"])Q("#"+id).addEventListener("click",()=>{Q("#cookie").hidden=true})
+Q("#apply").addEventListener("click",()=>{Q("#jd").hidden=true;Q("#rp-form").hidden=false;show(0)})
+const steps=QA("section[data-step]",Q("#rp-form"));let at=0
+function show(i){at=i;steps.forEach((s,j)=>s.hidden=j!=i);const last=i==steps.length-1
+  QA("#stepper li").forEach((li,j)=>li.className=j==i?"on":j<i?"done":"")
+  Q("#back").style.visibility=i?"visible":"hidden";Q("#next").hidden=last;Q("#final").hidden=!last
+  if(last)summary();scrollTo(0,0)}
+Q("#next").addEventListener("click",()=>{if(check(steps[at]))show(at+1)})
+Q("#back").addEventListener("click",()=>{if(at)show(at-1)})
+function summary(){const d=Q("#summary"),f=Q("#rp-form").elements,v=n=>f.namedItem(n).value;d.innerHTML=""
+  const rows=[["Name",v("first_name")+" "+v("last_name")],["Email",v("email")],["Phone",v("phone")],["Location",v("location")],["Resume",Q("#cv").files[0]?.name||""],["Work authorization",v("work_auth")],["Start",v("start_month")+"/"+v("start_year")],["English",v("english")]]
+  for(const[k,v]of rows){const dt=document.createElement("dt"),dd=document.createElement("dd");dt.textContent=k;dd.textContent=v;d.append(dt,dd)}}
+// Custom dropdown: options exist only while open; the pick lands in the hidden input.
+function closeAll(){for(const l of QA(".dd [role=listbox]")){l.parentNode.querySelector("button").setAttribute("aria-expanded","false");l.remove()}}
+for(const dd of QA(".dd")){const b=Q("button",dd),h=Q("input[type=hidden]",dd)
+  b.addEventListener("click",()=>{const open=Q("[role=listbox]",dd);closeAll();if(open)return
+    const l=document.createElement("ul");l.setAttribute("role","listbox")
+    for(const o of dd.dataset.opts.split("|")){const li=document.createElement("li");li.setAttribute("role","option");li.setAttribute("aria-selected",String(h.value==o));li.textContent=o
+      li.addEventListener("click",()=>{h.value=o;Q(".v",b).textContent=o;closeAll();clr(dd.closest(".f"));if(dd.id=="wa")auth(o)});l.append(li)}
+    dd.append(l);b.setAttribute("aria-expanded","true")})}
+document.addEventListener("click",e=>{if(!e.target.closest(".dd"))closeAll()})
+function auth(o){const no=o=="No";Q("#visa-f").hidden=!no;if(!no){Q("#visa-h").value="";Q("#visa-f .v").textContent="Select"}}
+// Spinbuttons: arrows, +/- buttons, Home/End and typed digits set the hidden value.
+for(const sp of QA(".spin")){const el=Q("[role=spinbutton]",sp),h=Q("input",sp),min=+el.getAttribute("aria-valuemin"),max=+el.getAttribute("aria-valuemax");let buf=""
+  const set=v=>{v=Math.min(max,Math.max(min,v));h.value=String(v);el.textContent=String(v);el.setAttribute("aria-valuenow",String(v));el.removeAttribute("aria-valuetext");clr(sp.closest(".f"))}
+  const step=d=>set(h.value?+h.value+d:min)
+  Q(".up",sp).addEventListener("click",()=>step(1));Q(".dn",sp).addEventListener("click",()=>step(-1))
+  el.addEventListener("keydown",e=>{if(e.key=="ArrowUp"){e.preventDefault();step(1)}else if(e.key=="ArrowDown"){e.preventDefault();step(-1)}else if(e.key=="Home")set(min);else if(e.key=="End")set(max);else if(/^\d$/.test(e.key)){buf=(buf+e.key).slice(-String(max).length);if(+buf>=min||buf.length==String(max).length)set(+buf)}})
+  el.addEventListener("blur",()=>{buf=""})}
+const cv=Q("#cv")
+Q("#cv-btn").addEventListener("click",()=>cv.click())
+Q("#cv-rm").addEventListener("click",()=>{cv.value="";cv.dispatchEvent(new Event("change",{bubbles:true}))})
+cv.addEventListener("change",()=>{const f=cv.files[0];Q("#cv-name").textContent=f?f.name:"";Q("#cv-rm").hidden=!f;Q("#cv-btn").textContent=f?"Replace file":"Upload file"})
+// Enter on an earlier step acts as Continue; only the review step really submits.
+Q("#rp-form").addEventListener("submit",e=>{e.preventDefault();if(at<steps.length-1){Q("#next").click();return}window.sent=(window.sent||0)+1;check(steps[at])})
+</script>
+</body></html>

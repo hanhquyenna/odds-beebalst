@@ -1,0 +1,82 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Regulatory Affairs Intern - Alpenrose Pharma Careers</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 "72",Arial,sans-serif;color:#32363a;background:#f7f7f7}
+.sapHdr{background:#354a5f;color:#fff;padding:12px 16px;font-size:16px}
+main{max-width:780px;margin:0 auto;padding:16px}
+.section{background:#fff;border:1px solid #d9d9d9;margin:14px 0;padding:6px 16px 14px}
+.section>h2{font-size:16px;border-bottom:1px solid #e5e5e5;padding-bottom:6px}
+.f{margin:12px 0}.f>label,.lbl{display:block;margin-bottom:3px;color:#5a6772}
+.req{color:#bb0000}
+input:not([type=checkbox]):not([type=radio]):not([type=file]),select{width:100%;padding:7px;border:1px solid #89919a;border-radius:2px;font:inherit;background:#fff}
+button{font:inherit;padding:7px 16px;border:1px solid #0a6ed1;background:#fff;color:#0a6ed1;border-radius:4px;cursor:pointer}
+.emph{background:#0a6ed1;color:#fff}
+.dlg{position:fixed;inset:0;background:#0009;display:flex;align-items:center;justify-content:center;z-index:9;padding:16px}
+.dlg>div{background:#fff;max-width:560px;width:100%;border-radius:4px;padding:16px}
+.dlg .body{max-height:260px;overflow:auto;border:1px solid #e5e5e5;padding:8px;margin:8px 0}
+.err{color:#bb0000;font-size:12px;margin-top:3px}
+[hidden]{display:none!important}
+</style></head><body>
+<div class="dlg" id="dps" data-step="Data Privacy Statement" role="dialog" aria-modal="true" aria-labelledby="dps-title"><div>
+<h2 id="dps-title">Data Privacy Statement</h2>
+<div class="body"><p>Alpenrose Pharma AG and its affiliates ("Alpenrose") collect and process the personal data you submit in this application for the purpose of evaluating your candidacy.</p><p>Your data may be shared with hiring managers in Switzerland and the Netherlands. It is retained for up to 24 months unless you withdraw your consent.</p><p>You have the right to access, rectify and erase your data. Contact privacy@alpenrose.example for requests.</p></div>
+<p id="dps-msg" class="err" hidden>You must accept the Data Privacy Statement before you can apply.</p>
+<button type="button" id="dps-decline">Decline</button> <button type="button" class="emph" id="dps-accept">Accept</button>
+</div></div>
+<div class="sapHdr">Alpenrose Pharma · Career Site</div>
+<main id="page" hidden>
+<h1>Regulatory Affairs Intern</h1>
+<p>Requisition ID: 48213 · Leiden, NL · Internship (6 months)</p>
+<form id="sf-form" data-step="Application" novalidate>
+<div class="section"><h2>Candidate Profile</h2>
+<div class="f" data-req="First Name"><label for="firstName">First Name <span class="req">*</span></label><input id="firstName" name="firstName" required></div>
+<div class="f" data-req="Last Name"><label for="lastName">Last Name <span class="req">*</span></label><input id="lastName" name="lastName" required></div>
+<div class="f" data-req="Email"><label for="contactEmail">Email <span class="req">*</span></label><input id="contactEmail" type="email" name="contactEmail" required></div>
+<div class="f" data-req="Phone"><label for="cellPhone">Phone <span class="req">*</span></label><input id="cellPhone" type="tel" name="cellPhone" required></div>
+<div class="f" data-req="Country/Region"><label for="country">Country/Region <span class="req">*</span></label>
+<select id="country" name="country" required><option value="">No Selection</option><option>Austria</option><option>Belgium</option><option>China</option><option>France</option><option>Germany</option><option>India</option><option>Italy</option><option>Netherlands</option><option>Poland</option><option>Spain</option><option>Switzerland</option><option>Turkey</option><option>United Kingdom</option><option>United States</option></select></div>
+<div class="f" data-req="City"><label for="city">City <span class="req">*</span></label><input id="city" name="city" required></div>
+<div class="f"><label for="linkedin">LinkedIn Profile</label><input id="linkedin" type="url" name="linkedin"></div>
+</div>
+<div class="section"><h2>Resume and Cover Letter</h2>
+<div class="f" data-req="Resume"><label for="resume">Resume <span class="req">*</span></label><input id="resume" type="file" name="resume" accept=".pdf,.doc,.docx" required></div>
+<div class="f"><label for="cover">Cover Letter</label><input id="cover" type="file" name="coverLetter" accept=".pdf,.doc,.docx"></div>
+</div>
+<div class="section"><h2>Education</h2>
+<div class="f" data-req="Highest Education Level"><label for="edu">Highest Education Level <span class="req">*</span></label><select id="edu" name="edu" required><option value="">No Selection</option><option>Secondary school</option><option>Bachelor's degree (in progress)</option><option>Bachelor's degree</option><option>Master's degree (in progress)</option><option>Master's degree</option><option>PhD</option></select></div>
+<div class="f" data-req="University"><label for="uni">University <span class="req">*</span></label><input id="uni" name="university" required></div>
+<div class="f" data-req="Graduation Date"><label for="grad">Graduation Date (expected) <span class="req">*</span></label><input id="grad" type="date" name="graduationDate" required></div>
+</div>
+<div class="section"><h2>Application Questions</h2>
+<div class="f" data-req="Are you eligible to work in the Netherlands?"><label for="elig">Are you eligible to work in the Netherlands? <span class="req">*</span></label><select id="elig" name="elig" required><option value="">No Selection</option><option>Yes</option><option>No</option></select></div>
+<div class="f" data-req="Will you require visa sponsorship?" id="visa-f" hidden><label for="visa">Will you require visa sponsorship to work in the Netherlands? <span class="req">*</span></label><select id="visa" name="visa"><option value="">No Selection</option><option>Yes</option><option>No</option></select></div>
+<div class="f" data-req="Earliest Start Date"><label for="start">Earliest Start Date <span class="req">*</span></label><input id="start" type="date" name="startDate" required></div>
+<div class="f" data-req="Hours per week"><label for="hours">Hours per week available <span class="req">*</span></label><select id="hours" name="hours" required><option value="">No Selection</option><option>16</option><option>24</option><option>32</option><option>40</option></select></div>
+<div class="f"><label for="src">How did you hear about this position?</label><select id="src" name="source"><option value="">No Selection</option><option>Alpenrose career site</option><option>LinkedIn</option><option>University</option><option>Referral</option><option>Other</option></select></div>
+</div>
+<div class="section"><h2>Consent</h2>
+<div class="f" data-req="Consent to talent pool"><label><input type="checkbox" id="consent" name="consent" required> I agree that Alpenrose may store my profile for this and future vacancies. <span class="req">*</span></label></div>
+</div>
+<button type="submit" class="emph" id="final">Submit</button>
+</form>
+</main>
+<script>
+window.sent=0
+const Q=(s,r=document)=>r.querySelector(s),QA=(s,r=document)=>[...r.querySelectorAll(s)]
+const shown=el=>!!el&&el.getClientRects().length>0
+// A .f wrapper is empty when its hidden values, choices, file or text inputs are unset.
+function empty(f){const i=QA("input,select,textarea",f),h=i.filter(x=>x.type=="hidden");if(h.length)return h.some(x=>!x.value);const b=i.filter(x=>x.type=="radio"||x.type=="checkbox");if(b.length)return!b.some(x=>x.checked);const fl=i.find(x=>x.type=="file");if(fl)return!fl.files.length;return!i.length||i.some(x=>!x.value.trim())}
+function mark(f,bad){let e=Q(":scope>.err",f);if(bad&&!e){e=document.createElement("div");e.className="err";e.setAttribute("role","alert");e.textContent="This field is required";f.append(e)}if(!bad&&e)e.remove()}
+function check(s){let ok=true;for(const f of QA(".f[data-req]",s)){const bad=shown(f)&&empty(f);mark(f,bad);if(bad)ok=false}return ok}
+const clr=f=>{if(f&&!empty(f))mark(f,false)}
+const missing=s=>s?QA(".f[data-req]",s).filter(f=>shown(f)&&empty(f)).map(f=>f.dataset.req):[]
+const cur=(r=document)=>QA("[data-step]",r).find(shown)
+for(const t of["input","change","click"])document.addEventListener(t,e=>clr(e.target.closest&&e.target.closest(".f")))
+window.mockStatus=()=>{const s=cur();return{platform:"successfactors",step:s?s.dataset.step:"",final:shown(Q("#final")),required_empty:missing(s),sent:window.sent||0}}
+
+Q("#dps-decline").addEventListener("click",()=>{Q("#dps-msg").hidden=false})
+Q("#dps-accept").addEventListener("click",()=>{Q("#dps").hidden=true;Q("#page").hidden=false})
+Q("#elig").addEventListener("change",e=>{const no=e.target.value=="No";Q("#visa-f").hidden=!no;if(!no)Q("#visa").value=""})
+Q("#sf-form").addEventListener("submit",e=>{e.preventDefault();window.sent=(window.sent||0)+1;check(e.target)})
+</script>
+</body></html>

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Finance Intern - Polder Systems Careers</title>
+<style>
+body{font-family:Arial,sans-serif;margin:0;color:#333}header{background:#0875e1;color:#fff;padding:12px 16px}main{max-width:780px;margin:0 auto;padding:16px}
+button{font:inherit;cursor:pointer}.wd-btn{background:#0875e1;color:#fff;border:0;border-radius:16px;padding:8px 20px}.wd-btn.sec{background:#fff;color:#333;border:1px solid #999}
+[data-automation-id^=formField]{margin:14px 0;display:flex;flex-direction:column;gap:4px;max-width:440px}
+input{font:inherit;padding:6px}[data-opts]{text-align:left;padding:6px;border:1px solid #999;border-radius:4px;background:#fff}
+[role=listbox]{border:1px solid #bbb;margin:0;padding:0;list-style:none;background:#fff}[role=option]{padding:6px;cursor:pointer}[role=option]:hover{background:#e6f0fb}
+ol[data-automation-id=progressBar]{display:flex;gap:12px;padding:0;list-style:none;font-size:12px}ol li[aria-current=step]{font-weight:700;color:#0875e1}
+.dz{border:2px dashed #aaa;padding:20px;text-align:center}.vh{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+#startDialog{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center}#startDialog>div{background:#fff;padding:24px;border-radius:8px}
+.err{color:#de2e21;font-size:12px}.date{display:flex;gap:4px}.date input{width:64px}footer{display:flex;gap:8px;margin-top:20px}dt{font-weight:700;margin-top:8px}[hidden]{display:none!important}
+</style></head><body>
+<header data-automation-id="header">Polder Systems Careers</header>
+<main>
+<section id="landing" data-automation-id="jobPostingPage">
+<h2 data-automation-id="jobPostingHeader">Finance Intern</h2>
+<dl data-automation-id="job-posting-details"><dt>Locations</dt><dd data-automation-id="locations">Utrecht, Netherlands</dd><dt>Time type</dt><dd data-automation-id="time">Full time</dd><dt>Job requisition ID</dt><dd data-automation-id="requisitionId">R-10482</dd></dl>
+<div data-automation-id="jobPostingDescription"><p>Polder Systems makes billing software for energy cooperatives. Our finance team is looking for an intern for five to six months.</p>
+<ul><li>Support the monthly close and reconciliations</li><li>Automate reports in Excel and Power BI</li><li>Work with controllers in Utrecht and Ghent</li></ul>
+<p>You study finance, accounting or economics, speak English fluently and can work at least 24 hours per week.</p></div>
+<button type="button" class="wd-btn" data-automation-id="adventureButton">Apply</button>
+</section>
+<div id="startDialog" role="dialog" aria-modal="true" data-automation-id="wd-Popup" aria-labelledby="startTitle" hidden><div><h3 id="startTitle">Start Your Application</h3><button type="button" class="wd-btn" data-automation-id="applyManually">Apply Manually</button> <button type="button" class="wd-btn sec" data-automation-id="closeButton">Cancel</button></div></div>
+<div id="flow" hidden>
+<h2>Finance Intern</h2>
+<ol data-automation-id="progressBar"></ol>
+<div id="mount" data-automation-id="applyFlowPage"><p data-automation-id="loadingSpinner">Loading...</p></div>
+</div>
+</main>
+<script>
+window.sent=0
+const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)]
+const vis=e=>!!e&&e.getClientRects().length>0
+const fire=e=>e.dispatchEvent(new Event('change',{bubbles:true}))
+function isEmpty(q){const h=$$('.v',q),c=h.length?h:$$('input,select,textarea',q),b=c.filter(x=>x.type==='radio'||x.type==='checkbox');if(b.length)return!b.some(x=>x.checked);const f=c.find(x=>x.type==='file');if(f)return!f.files.length;return c.some(x=>!x.value.trim())}
+const lbl=q=>(q.dataset.label||($('.lbl',q)||$('label,legend',q)).textContent).replace(/[*✱]/g,'').replace(/\s+/g,' ').trim()
+const reqs=()=>$$('[data-req]').filter(vis)
+function validate(){let ok=true;for(const q of reqs()){const bad=isEmpty(q);let e=$('.err',q);if(bad&&!e){e=document.createElement('div');e.className='err';e.setAttribute('role','alert');e.textContent='This field is required';q.append(e)}if(!bad&&e)e.remove();if(bad)ok=false}return ok}
+function val(n){const e=$$(`[name="${n}"]`),b=e.filter(x=>x.type==='radio'||x.type==='checkbox');return b.length?(b.find(x=>x.checked)||{}).value||'':(e[0]||{}).value||''}
+function refresh(){for(const el of $$('[data-if]')){const[n,v]=el.dataset.if.split('=');el.hidden=val(n)!==v}}
+function onChange(e){refresh();const q=e.target.closest&&e.target.closest('[data-req]');if(q&&!isEmpty(q))$('.err',q)?.remove()}
+document.addEventListener('input',onChange,true);document.addEventListener('change',onChange,true)
+
+const STEPS=['My Information','My Experience','Application Questions','Voluntary Disclosures','Review']
+const T=(id,l,req,x='')=>`<div data-automation-id="formField-${id}"${req?' data-req':''}><label for="${id}">${l}${req?'<abbr title="required">*</abbr>':''}</label><input id="${id}" name="${id}" data-automation-id="${id}" ${x}${req?' aria-required="true"':''}></div>`
+const S=(id,l,opts,req,cond='')=>`<div data-automation-id="formField-${id}"${req?' data-req':''}${cond}><label id="${id}-l" for="${id}">${l}${req?'<abbr title="required">*</abbr>':''}</label><button type="button" id="${id}" data-automation-id="${id}" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="${id}-l ${id}" data-opts="${opts}">Select One</button><input type="hidden" class="v" name="${id}"></div>`
+const HTML=`
+<section data-step="My Information" hidden><h3>My Information</h3>
+${S('source','How Did You Hear About Us?','Job Board|LinkedIn|University or Career Fair|Employee Referral|Company Website',1)}
+${S('countryDropdown','Country','Netherlands|Belgium|Germany|France|Spain|Poland',1)}
+<h4>Legal Name</h4>
+${T('legalNameSection_firstName','First Name',1)}${T('legalNameSection_lastName','Last Name',1)}
+<h4>Address</h4>
+${T('addressSection_addressLine1','Address Line 1',0)}${T('addressSection_city','City',1)}${T('addressSection_postalCode','Postal Code',1)}
+<h4>Email Address</h4>${T('email','Email Address',1,'type="email"')}
+<h4>Phone</h4>${S('phone-device-type','Phone Device Type','Mobile|Home|Work',1)}${T('phone-number','Phone Number',1,'type="tel"')}
+</section>
+<section data-step="My Experience" hidden><h3>My Experience</h3>
+<h4>Education</h4>
+${T('school','School or University',1)}
+${S('degree','Degree',"High School Diploma|Bachelor's Degree|Master's Degree|Other",1)}
+${T('fieldOfStudy','Field of Study',0)}
+<div data-automation-id="formField-endDate" data-req><span class="lbl" id="grad-l">To (Actual or Expected)<abbr title="required">*</abbr></span><div class="date" role="group" aria-labelledby="grad-l"><input class="v" data-automation-id="dateSectionMonth-input" role="spinbutton" aria-label="Month" aria-valuemin="1" aria-valuemax="12" placeholder="MM" inputmode="numeric" maxlength="2"><input class="v" data-automation-id="dateSectionYear-input" role="spinbutton" aria-label="Year" aria-valuemin="2000" aria-valuemax="2035" placeholder="YYYY" inputmode="numeric" maxlength="4"></div></div>
+<h4>Resume/CV</h4>
+<div data-automation-id="formField-resume" data-req><span class="lbl">Resume/CV<abbr title="required">*</abbr></span><div class="dz" data-automation-id="file-upload-drop-zone"><p>Choose a file or drop it here</p><button type="button" class="wd-btn sec" data-automation-id="select-files">Select files</button><input type="file" class="vh" id="resume" data-automation-id="file-upload-input-ref" accept=".pdf,.doc,.docx" tabindex="-1"><div data-automation-id="file-upload-successful"></div></div></div>
+<h4>Websites</h4>${T('linkedinQuestion','LinkedIn Profile URL',0,'type="url"')}
+</section>
+<section data-step="Application Questions" hidden><h3>Application Questions</h3>
+${S('q-auth','Are you legally authorized to work in the Netherlands?','Yes|No',1)}
+${S('q-sponsor','Will you now or in the future require sponsorship for an employment visa?','Yes|No',1,' data-if="q-auth=No" hidden')}
+${S('q-hours','How many hours per week are you available?','16 - 24|24 - 32|32 - 40',1)}
+${T('q-allowance','What is your expected monthly internship allowance in EUR?',1,'inputmode="numeric"')}
+${S('q-english','What is your level of English?','Native|Fluent|Good|Basic',1)}
+</section>
+<section data-step="Voluntary Disclosures" hidden><h3>Voluntary Disclosures</h3>
+${S('gender','Gender','Male|Female|Non-binary|Prefer not to say',1)}
+${S('ethnicity','Ethnicity','Asian|Black|Hispanic or Latino|White|Two or More Races|Prefer not to say',0)}
+<div data-automation-id="formField-agreementCheckbox" data-req><span class="lbl">Terms and Conditions<abbr title="required">*</abbr></span><label><input type="checkbox" data-automation-id="agreementCheckbox"> I have read and consent to the terms and conditions</label></div>
+</section>
+<section data-step="Review" hidden><h3>Review</h3><dl id="summary"></dl>
+<form id="wd-submit-form" novalidate><button type="submit" class="wd-btn" data-automation-id="pageFooterSubmitButton">Submit</button></form>
+</section>
+<footer><button type="button" class="wd-btn sec" data-automation-id="pageFooterBackButton">Back</button><button type="button" class="wd-btn" data-automation-id="pageFooterNextButton">Save and Continue</button></footer>`
+
+let phase='Job description',cur=-1
+function show(i){cur=i;phase=STEPS[i];$$('#mount section').forEach((s,j)=>{s.hidden=j!==i})
+ $('[data-automation-id=pageFooterNextButton]').hidden=i===4;$('[data-automation-id=pageFooterBackButton]').hidden=i===0
+ $('[data-automation-id=progressBar]').innerHTML=STEPS.map((s,j)=>`<li${j===i?' aria-current="step"':''}>${s}</li>`).join('');if(i===4)summary();window.scrollTo(0,0)}
+function shown(q){const f=$('input[type=file]',q);if(f)return f.files[0]?.name||'';const c=$('input[type=checkbox]',q);if(c)return c.checked?'Yes':'No';const v=$$('.v',q);return v.length?v.map(x=>x.value).join('/'):$('input',q).value}
+function summary(){const dl=$('#summary');dl.innerHTML=''
+ for(const s of $$('#mount section').slice(0,4)){const h=document.createElement('dt');h.textContent=s.dataset.step;dl.append(h)
+  for(const q of $$('[data-automation-id^=formField]',s)){if(q.hidden)continue;const d=document.createElement('dd');d.textContent=lbl(q)+': '+(shown(q)||'-');dl.append(d)}}}
+function wire(){const m=$('#mount')
+ m.addEventListener('click',e=>{const b=e.target.closest('[data-opts]'),o=e.target.closest('[role=option]')
+  if(o){const f=o.closest('[data-automation-id^=formField]'),btn=$('[data-opts]',f),h=$('.v',f);btn.textContent=o.textContent;h.value=o.textContent;o.parentElement.remove();btn.setAttribute('aria-expanded','false');fire(h);return}
+  if(b){const open=b.nextElementSibling;if(open&&open.matches('[role=listbox]')){open.remove();b.setAttribute('aria-expanded','false');return}
+   const u=document.createElement('ul');u.setAttribute('role','listbox');for(const t of b.dataset.opts.split('|')){const li=document.createElement('li');li.setAttribute('role','option');li.dataset.automationId='promptOption';li.dataset.automationLabel=t;li.textContent=t;u.append(li)}
+   b.after(u);b.setAttribute('aria-expanded','true')}})
+ m.addEventListener('keydown',e=>{const t=e.target;if(t.getAttribute('role')!=='spinbutton'||!['ArrowUp','ArrowDown'].includes(e.key))return;e.preventDefault()
+  const mn=+t.getAttribute('aria-valuemin'),mx=+t.getAttribute('aria-valuemax'),n=Math.min(mx,Math.max(mn,(+t.value||(e.key==='ArrowUp'?mn-1:mx+1))+(e.key==='ArrowUp'?1:-1)));t.value=mx===12?String(n).padStart(2,'0'):String(n);t.setAttribute('aria-valuenow',n);t.dispatchEvent(new Event('input',{bubbles:true}))})
+ const file=$('#resume'),dz=$('[data-automation-id=file-upload-drop-zone]')
+ $('[data-automation-id=select-files]').addEventListener('click',()=>file.click())
+ dz.addEventListener('dragover',e=>e.preventDefault());dz.addEventListener('drop',e=>{e.preventDefault();file.files=e.dataTransfer.files;fire(file)})
+ file.addEventListener('change',()=>{$('[data-automation-id=file-upload-successful]').textContent=file.files[0]?'Successfully Uploaded: '+file.files[0].name:''})
+ $('[data-automation-id=pageFooterNextButton]').addEventListener('click',()=>{if(validate())show(cur+1)})
+ $('[data-automation-id=pageFooterBackButton]').addEventListener('click',()=>show(cur-1))
+ $('#wd-submit-form').addEventListener('submit',e=>{e.preventDefault();window.sent=(window.sent||0)+1})}
+
+$('[data-automation-id=adventureButton]').addEventListener('click',()=>{$('#startDialog').hidden=false;phase='Start Your Application'})
+$('[data-automation-id=closeButton]').addEventListener('click',()=>{$('#startDialog').hidden=true;phase='Job description'})
+$('[data-automation-id=applyManually]').addEventListener('click',()=>{$('#startDialog').hidden=true;$('#landing').hidden=true;$('#flow').hidden=false;phase='My Information'
+ setTimeout(()=>{$('#mount').innerHTML=HTML;wire();show(0)},600)})
+window.mockStatus=()=>({platform:'workday',step:phase,final:vis($('[data-automation-id=pageFooterSubmitButton]')),required_empty:reqs().filter(isEmpty).map(lbl),sent:window.sent||0})
+</script>
+</body></html>

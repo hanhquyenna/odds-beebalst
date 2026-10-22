@@ -1,0 +1,103 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Junior QA Tester Intern - Copperleaf Games Careers</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 "Helvetica Neue",Arial,sans-serif;color:#2b2b2b;background:#fff}
+.jv-header{background:#14213d;color:#fff;padding:12px 16px;font-size:18px}
+main{max-width:700px;margin:0 auto;padding:16px}
+.jv-choice{display:flex;flex-wrap:wrap;gap:12px}.jv-choice button{flex:1;min-width:200px;padding:18px}
+.f{margin:12px 0;position:relative}.f>label,.lbl{display:block;font-weight:600;margin-bottom:4px}
+input:not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea{width:100%;padding:8px;border:1px solid #b5b5b5;border-radius:3px;font:inherit}
+.row{display:flex;gap:8px}.opt label{display:inline-block;font-weight:400;margin-right:16px}
+button{font:inherit;padding:8px 16px;border:1px solid #fca311;background:#fff;border-radius:3px;cursor:pointer}
+.jv-button-primary{background:#fca311;color:#14213d;font-weight:600}
+.combo{width:100%;text-align:left;border-color:#b5b5b5}
+ul[role=listbox]{list-style:none;margin:2px 0 0;padding:0;border:1px solid #b5b5b5;background:#fff;position:absolute;left:0;right:0;z-index:3;max-height:180px;overflow:auto}
+li[role=option]{padding:6px 10px;cursor:pointer}li[role=option]:hover,li[aria-selected=true]{background:#fff3dc}
+.bar{display:flex;gap:8px;margin-top:16px}.note{background:#fff8e6;border:1px solid #f5d38a;padding:8px;margin:8px 0}
+.err{color:#c1121f;font-size:13px;margin-top:4px}
+[hidden]{display:none!important}
+</style></head><body>
+<div class="jv-header">Copperleaf Games · Careers</div>
+<main>
+<h1>Junior QA Tester Intern</h1>
+<p>Utrecht, Netherlands · Internship · Quality Assurance</p>
+<section id="start" data-step="Start">
+<h2>How would you like to apply?</h2>
+<div class="jv-choice"><button type="button" class="jv-button-primary" data-go="autofill">Autofill with resume</button><button type="button" data-go="contact" id="manual">Apply manually</button></div>
+</section>
+<form id="jv-form" novalidate>
+<section id="autofill" data-step="Upload Resume" hidden>
+<h2>Autofill with resume</h2>
+<div class="f" data-req="Resume"><label for="af-resume">Upload your resume *</label><input type="file" id="af-resume" name="autofill_resume" accept=".pdf,.doc,.docx"></div>
+<div class="bar"><button type="button" data-go="start">Back</button><button type="button" class="jv-button-primary" id="af-next">Continue</button></div>
+</section>
+<section id="contact" data-step="Contact Information" hidden>
+<h2>Contact Information</h2>
+<p class="note" id="af-note" hidden>We couldn't read all details from your resume. Please complete the fields below.</p>
+<div class="f" data-req="First Name"><label for="fn">First Name *</label><input id="fn" name="firstName" required></div>
+<div class="f" data-req="Last Name"><label for="ln">Last Name *</label><input id="ln" name="lastName" required></div>
+<div class="f" data-req="Email"><label for="em">Email *</label><input id="em" type="email" name="email" required></div>
+<div class="f" data-req="Phone"><label for="ph">Phone *</label><input id="ph" type="tel" name="phone" required></div>
+<div class="f" data-req="Country"><div class="lbl" id="country-l">Country *</div>
+<button type="button" class="combo" id="country-btn" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="country-l" aria-controls="country-list"><span class="v">Select a country</span></button>
+<ul id="country-list" role="listbox" hidden><li role="option">Netherlands</li><li role="option">Belgium</li><li role="option">Germany</li><li role="option">France</li><li role="option">Poland</li><li role="option">Other</li></ul>
+<input type="hidden" id="country-h" name="country"></div>
+<div class="f" data-req="City"><label for="city">City *</label><input id="city" name="city" required></div>
+<div class="f" data-req="Resume" id="resume-f"><label for="resume">Resume *</label><input type="file" id="resume" name="resume" accept=".pdf,.doc,.docx"></div>
+<p id="resume-done" hidden>Resume attached: <b id="resume-name"></b></p>
+<div class="bar"><button type="button" data-go="start">Back</button><button type="button" class="jv-button-primary" data-go="questions" data-check>Continue</button></div>
+</section>
+<section id="questions" data-step="Questions" hidden>
+<h2>Questions</h2>
+<div class="f opt" data-req="Are you authorized to work in the Netherlands?"><div class="lbl">Are you authorized to work in the Netherlands? *</div><label><input type="radio" name="auth" value="Yes"> Yes</label><label><input type="radio" name="auth" value="No"> No</label></div>
+<div class="f opt" data-req="Will you require visa sponsorship?" id="sponsor-f" hidden><div class="lbl">Will you require visa sponsorship? *</div><label><input type="radio" name="sponsor" value="Yes"> Yes</label><label><input type="radio" name="sponsor" value="No"> No</label></div>
+<div class="f" data-req="Earliest start date"><div class="lbl" id="start-l">Earliest start date *</div><div class="row">
+<input type="number" id="start-m" name="start_month" min="1" max="12" placeholder="MM" aria-label="Start month"><input type="number" id="start-y" name="start_year" min="2026" max="2028" placeholder="YYYY" aria-label="Start year"></div></div>
+<div class="f" data-req="Hours per week"><label for="hours">How many hours per week can you work? *</label><select id="hours" name="hours"><option value="">Select</option><option>Less than 20</option><option>20-32</option><option>32-40</option></select></div>
+<div class="f" data-req="English level"><label for="eng">English level *</label><select id="eng" name="english"><option value="">Select</option><option>Basic</option><option>Good</option><option>Fluent</option><option>Native</option></select></div>
+<div class="bar"><button type="button" data-go="contact">Back</button><button type="button" class="jv-button-primary" data-go="additional" data-check>Continue</button></div>
+</section>
+<section id="additional" data-step="Additional Information" hidden>
+<h2>Additional Information (optional)</h2>
+<div class="f"><label for="li">LinkedIn Profile</label><input id="li" type="url" name="linkedin"></div>
+<div class="f"><label for="cl">Cover Letter</label><textarea id="cl" name="coverLetter" rows="5"></textarea></div>
+<div class="bar"><button type="button" data-go="questions">Back</button><button type="button" data-go="eeo">Skip</button><button type="button" class="jv-button-primary" data-go="eeo" data-check>Continue</button></div>
+</section>
+<section id="eeo" data-step="Voluntary Self-Identification" hidden>
+<h2>Voluntary Self-Identification</h2>
+<p>Providing this information is voluntary.</p>
+<div class="f"><label for="gender">Gender</label><select id="gender" name="gender"><option value="">Select</option><option>Female</option><option>Male</option><option>Non-binary</option><option>Decline to self-identify</option></select></div>
+<div class="f"><label for="eth">Ethnicity</label><select id="eth" name="ethnicity"><option value="">Select</option><option>Asian</option><option>Black or African</option><option>Hispanic or Latino</option><option>Middle Eastern or North African</option><option>White</option><option>Two or more</option><option>Decline to self-identify</option></select></div>
+<div class="f" data-req="Privacy consent"><label><input type="checkbox" id="consent" name="consent"> I have read and agree to the Copperleaf Games applicant privacy policy. *</label></div>
+<div class="bar"><button type="button" data-go="additional">Back</button><button type="submit" class="jv-button-primary" id="final">Submit application</button></div>
+</section>
+</form>
+</main>
+<script>
+window.sent=0
+const Q=(s,r=document)=>r.querySelector(s),QA=(s,r=document)=>[...r.querySelectorAll(s)]
+const shown=el=>!!el&&el.getClientRects().length>0
+// A .f wrapper is empty when its hidden values, choices, file or text inputs are unset.
+function empty(f){const i=QA("input,select,textarea",f),h=i.filter(x=>x.type=="hidden");if(h.length)return h.some(x=>!x.value);const b=i.filter(x=>x.type=="radio"||x.type=="checkbox");if(b.length)return!b.some(x=>x.checked);const fl=i.find(x=>x.type=="file");if(fl)return!fl.files.length;return!i.length||i.some(x=>!x.value.trim())}
+function mark(f,bad){let e=Q(":scope>.err",f);if(bad&&!e){e=document.createElement("div");e.className="err";e.setAttribute("role","alert");e.textContent="This field is required";f.append(e)}if(!bad&&e)e.remove()}
+function check(s){let ok=true;for(const f of QA(".f[data-req]",s)){const bad=shown(f)&&empty(f);mark(f,bad);if(bad)ok=false}return ok}
+const clr=f=>{if(f&&!empty(f))mark(f,false)}
+const missing=s=>s?QA(".f[data-req]",s).filter(f=>shown(f)&&empty(f)).map(f=>f.dataset.req):[]
+const cur=(r=document)=>QA("[data-step]",r).find(shown)
+for(const t of["input","change","click"])document.addEventListener(t,e=>clr(e.target.closest&&e.target.closest(".f")))
+window.mockStatus=()=>{const s=cur();return{platform:"jobvite",step:s?s.dataset.step:"",final:shown(Q("#final")),required_empty:missing(s),sent:window.sent||0}}
+
+// Buttons with data-go switch steps; data-check validates the current step first.
+function go(id){for(const s of QA("[data-step]"))s.hidden=s.id!=id;scrollTo(0,0)}
+document.addEventListener("click",e=>{const b=e.target.closest&&e.target.closest("[data-go]");if(!b)return;if(b.hasAttribute("data-check")&&!check(b.closest("[data-step]")))return;go(b.dataset.go)})
+Q("#manual").addEventListener("click",()=>{Q("#af-note").hidden=true;Q("#resume-f").hidden=false;Q("#resume-done").hidden=true})
+Q("#af-next").addEventListener("click",()=>{if(!check(Q("#autofill")))return;const f=Q("#af-resume").files[0];Q("#resume-name").textContent=f.name;Q("#resume-f").hidden=true;Q("#resume-done").hidden=false;Q("#af-note").hidden=false;go("contact")})
+const cb=Q("#country-btn"),cl=Q("#country-list")
+cb.addEventListener("click",()=>{cl.hidden=!cl.hidden;cb.setAttribute("aria-expanded",String(!cl.hidden))})
+for(const o of QA("[role=option]",cl))o.addEventListener("click",()=>{for(const x of QA("[role=option]",cl))x.setAttribute("aria-selected",String(x==o));Q(".v",cb).textContent=o.textContent;Q("#country-h").value=o.textContent;cl.hidden=true;cb.setAttribute("aria-expanded","false");clr(cb.closest(".f"))})
+document.addEventListener("click",e=>{if(!cl.hidden&&!e.target.closest(".f[data-req=Country]")){cl.hidden=true;cb.setAttribute("aria-expanded","false")}})
+for(const r of QA("input[name=auth]"))r.addEventListener("change",()=>{const no=r.value=="No";Q("#sponsor-f").hidden=!no;if(!no)for(const s of QA("input[name=sponsor]"))s.checked=false})
+// Enter on an earlier step must not count as a submit.
+Q("#jv-form").addEventListener("submit",e=>{e.preventDefault();if(!shown(Q("#final")))return;window.sent=(window.sent||0)+1;check(e.target)})
+</script>
+</body></html>

@@ -630,13 +630,6 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     if (link?.document_id) args = { ...args, doc: link.document_id }
   }
   if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
-  // Looking costs time: a screenshot is for something that did not take. Two looks in the last few steps with nothing failing → refused.
-  if (name === "screenshot") {
-    const recent = (await svc(env, `drive_commands?run_id=eq.${run.id}&order=id.desc&limit=4&select=tool,status,result`).catch(() => null)) ?? []
-    const looks = recent.filter((c: Json) => c.tool === "screenshot" || c.tool === "click_at").length
-    const failed = recent.some((c: Json) => c.status !== "done" || c.result?.ok === false || (Array.isArray(c.result?.results) && c.result.results.some((r: Json) => r?.ok === false)) || (Array.isArray(c.result?.errors) && c.result.errors.length))
-    if (looks >= 2 && !failed) return { text: "No screenshot needed: nothing failed in the last steps. Use the page each action returns (or read_page) and carry on.", error: true }
-  }
   const { run_id: _r, say, ...rest } = args ?? {}
   const note = typeof say === "string" && say.trim() ? say.trim().slice(0, 300) : null
   const docGen = typeof run.doc_gen === "number" ? run.doc_gen : 0

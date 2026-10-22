@@ -1,0 +1,96 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Robotics Intern (m/f/d) - Tulpenhof Robotics</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 Inter,system-ui,sans-serif;color:#1c1c28;background:#f5f6fa}
+.top{background:#fff;padding:14px 16px;border-bottom:1px solid #e4e6ef;font-weight:700}
+main{max-width:640px;margin:0 auto;padding:16px}
+.wiz{background:#fff;border-radius:10px;padding:20px;border:1px solid #e4e6ef}
+.progress{color:#6b6f80;font-size:13px}.bar-track{height:4px;background:#e4e6ef;border-radius:2px;margin:6px 0 14px}.bar-fill{height:4px;background:#3c50e0;border-radius:2px}
+.f{margin:14px 0}.f>label,.lbl{display:block;font-weight:600;margin-bottom:6px}
+input:not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea{width:100%;padding:10px;border:1px solid #ccd0dd;border-radius:6px;font:inherit;background:#fff}
+.row{display:flex;gap:8px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-block;padding:7px 14px;border:1px solid #ccd0dd;border-radius:999px;background:#fff;cursor:pointer;font:inherit}
+.chip[aria-pressed=true],.chip:has(input:checked){background:#3c50e0;border-color:#3c50e0;color:#fff}
+.sr{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+.nav{display:flex;justify-content:space-between;margin-top:18px}
+button{font:inherit;padding:10px 18px;border-radius:6px;border:1px solid #ccd0dd;background:#fff;cursor:pointer}
+.btn-primary{background:#3c50e0;border-color:#3c50e0;color:#fff}
+.cnt{font-size:12px;color:#6b6f80;text-align:right}.err{color:#d6293e;font-size:13px;margin-top:4px}
+[hidden]{display:none!important}
+</style></head><body>
+<div class="top">JOIN · Tulpenhof Robotics</div>
+<main>
+<h1>Robotics Intern (m/f/d)</h1>
+<p>Eindhoven · Internship · 6 months</p>
+<div class="wiz">
+<div class="progress" id="progress">Step 1 of 4</div><div class="bar-track"><div class="bar-fill" id="fill" style="width:25%"></div></div>
+<form id="join-form" novalidate>
+<section data-step="Contact details">
+<h2>Contact details</h2>
+<div class="f" data-req="First name"><label for="fn">First name *</label><input id="fn" name="firstName" required></div>
+<div class="f" data-req="Last name"><label for="ln">Last name *</label><input id="ln" name="lastName" required></div>
+<div class="f" data-req="Email"><label for="em">Email *</label><input id="em" type="email" name="email" required></div>
+<div class="f" data-req="Phone number"><label for="ph">Phone number *</label><input id="ph" type="tel" name="phone" required></div>
+<div class="f"><label for="city">City</label><input id="city" name="city"></div>
+</section>
+<section data-step="CV" hidden>
+<h2>Your CV</h2>
+<div class="f" data-req="CV"><label for="cv">Upload CV *</label><input type="file" id="cv" name="cv" accept=".pdf,.doc,.docx" required></div>
+<div class="f"><label for="li">LinkedIn profile</label><input id="li" type="url" name="linkedin"></div>
+</section>
+<section data-step="Questions" hidden>
+<h2>A few questions</h2>
+<div class="f" data-req="Do you have a work permit for the Netherlands?"><div class="lbl" id="wp-l">Do you have a work permit for the Netherlands? *</div>
+<div class="chips" role="group" aria-labelledby="wp-l" data-for="wp-h"><button type="button" class="chip" aria-pressed="false">EU/EEA citizen</button><button type="button" class="chip" aria-pressed="false">Yes, residence permit</button><button type="button" class="chip" aria-pressed="false">No</button></div><input type="hidden" id="wp-h" name="workPermit"></div>
+<div class="f" data-req="Do you need visa sponsorship?" id="visa-f" hidden><div class="lbl" id="vs-l">Do you need visa sponsorship? *</div>
+<div class="chips" role="group" aria-labelledby="vs-l" data-for="vs-h"><button type="button" class="chip" aria-pressed="false">Yes</button><button type="button" class="chip" aria-pressed="false">No</button></div><input type="hidden" id="vs-h" name="visaSponsorship"></div>
+<div class="f" data-req="Which languages do you speak?"><div class="lbl">Which languages do you speak? *</div>
+<div class="chips"><label class="chip"><input type="checkbox" class="sr" name="languages" value="English">English</label><label class="chip"><input type="checkbox" class="sr" name="languages" value="Dutch">Dutch</label><label class="chip"><input type="checkbox" class="sr" name="languages" value="German">German</label><label class="chip"><input type="checkbox" class="sr" name="languages" value="French">French</label></div></div>
+<div class="f" data-req="English level"><div class="lbl" id="el-l">English level *</div>
+<div class="chips" role="group" aria-labelledby="el-l" data-for="el-h"><button type="button" class="chip" aria-pressed="false">B1</button><button type="button" class="chip" aria-pressed="false">B2</button><button type="button" class="chip" aria-pressed="false">C1</button><button type="button" class="chip" aria-pressed="false">C2</button><button type="button" class="chip" aria-pressed="false">Native</button></div><input type="hidden" id="el-h" name="englishLevel"></div>
+<div class="f" data-req="Earliest start date"><div class="lbl">Earliest start date *</div><div class="row">
+<select name="startMonth" aria-label="Start month" required><option value="">Month</option><option>January</option><option>February</option><option>March</option><option>April</option><option>May</option><option>June</option><option>July</option><option>August</option><option>September</option><option>October</option><option>November</option><option>December</option></select>
+<select name="startYear" aria-label="Start year" required><option value="">Year</option><option>2026</option><option>2027</option><option>2028</option></select></div></div>
+<div class="f" data-req="Expected internship allowance"><label for="sal">Expected internship allowance (EUR per month) *</label><input id="sal" type="number" min="0" step="50" name="salaryExpectation" required></div>
+</section>
+<section data-step="Final details" hidden>
+<h2>Almost done</h2>
+<div class="f"><label for="mot">Why are you interested in Tulpenhof Robotics?</label><textarea id="mot" name="motivation" rows="5" maxlength="500"></textarea><div class="cnt"><span id="cnt">0</span> / 500</div></div>
+<div class="f"><label for="src">How did you hear about us?</label><select id="src" name="source"><option value="">Please choose</option><option>JOIN</option><option>LinkedIn</option><option>University</option><option>Friends</option></select></div>
+<div class="f" data-req="Privacy policy"><label><input type="checkbox" id="consent" name="privacy" required> I accept the privacy policy of Tulpenhof Robotics. *</label></div>
+</section>
+<div class="nav"><button type="button" id="back" hidden>Back</button><span></span><button type="button" class="btn-primary" id="next">Continue</button><button type="submit" class="btn-primary" id="final" hidden>Submit application</button></div>
+</form>
+</div>
+</main>
+<script>
+window.sent=0
+const Q=(s,r=document)=>r.querySelector(s),QA=(s,r=document)=>[...r.querySelectorAll(s)]
+const shown=el=>!!el&&el.getClientRects().length>0
+// A .f wrapper is empty when its hidden values, choices, file or text inputs are unset.
+function empty(f){const i=QA("input,select,textarea",f),h=i.filter(x=>x.type=="hidden");if(h.length)return h.some(x=>!x.value);const b=i.filter(x=>x.type=="radio"||x.type=="checkbox");if(b.length)return!b.some(x=>x.checked);const fl=i.find(x=>x.type=="file");if(fl)return!fl.files.length;return!i.length||i.some(x=>!x.value.trim())}
+function mark(f,bad){let e=Q(":scope>.err",f);if(bad&&!e){e=document.createElement("div");e.className="err";e.setAttribute("role","alert");e.textContent="This field is required";f.append(e)}if(!bad&&e)e.remove()}
+function check(s){let ok=true;for(const f of QA(".f[data-req]",s)){const bad=shown(f)&&empty(f);mark(f,bad);if(bad)ok=false}return ok}
+const clr=f=>{if(f&&!empty(f))mark(f,false)}
+const missing=s=>s?QA(".f[data-req]",s).filter(f=>shown(f)&&empty(f)).map(f=>f.dataset.req):[]
+const cur=(r=document)=>QA("[data-step]",r).find(shown)
+for(const t of["input","change","click"])document.addEventListener(t,e=>clr(e.target.closest&&e.target.closest(".f")))
+window.mockStatus=()=>{const s=cur();return{platform:"join",step:s?s.dataset.step:"",final:shown(Q("#final")),required_empty:missing(s),sent:window.sent||0}}
+
+const steps=QA("section[data-step]");let at=0
+function show(i){at=i;steps.forEach((s,j)=>s.hidden=j!=i);const last=i==steps.length-1
+  Q("#back").hidden=i==0;Q("#next").hidden=last;Q("#final").hidden=!last
+  Q("#progress").textContent="Step "+(i+1)+" of "+steps.length;Q("#fill").style.width=((i+1)/steps.length*100)+"%";scrollTo(0,0)}
+Q("#next").addEventListener("click",()=>{if(check(steps[at]))show(at+1)})
+Q("#back").addEventListener("click",()=>show(at-1))
+for(const g of QA(".chips[data-for]"))for(const b of QA("button",g))b.addEventListener("click",()=>{
+  for(const o of QA("button",g))o.setAttribute("aria-pressed",String(o==b))
+  Q("#"+g.dataset.for).value=b.textContent
+  if(g.dataset.for=="wp-h"){const no=b.textContent=="No";Q("#visa-f").hidden=!no;if(!no){Q("#vs-h").value="";for(const o of QA("#visa-f button"))o.setAttribute("aria-pressed","false")}}
+})
+Q("#mot").addEventListener("input",e=>{Q("#cnt").textContent=e.target.value.length})
+// Enter on an earlier step acts as Continue; only the last step really submits.
+Q("#join-form").addEventListener("submit",e=>{e.preventDefault();if(at<steps.length-1){Q("#next").click();return}window.sent=(window.sent||0)+1;check(steps[at])})
+</script>
+</body></html>

@@ -225,10 +225,12 @@ const REST = "https://ukpmpyfcnbhngkgbnkxi.supabase.co/rest/v1"
 const restKey = (): string => (process.env.REAL_SR_KEY || readFileSync(String(process.env.REAL_SR_KEY_FILE), "utf8")).trim()
 async function rest(path: string, init: RequestInit = {}): Promise<Array<Record<string, unknown>>> {
   const key = restKey()
-  const headers = new Headers({ apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=representation" })
+  // A new-style sb_secret_ key is not a JWT: it goes in apikey alone, and Supabase refuses it as a Bearer token.
+  const headers = new Headers({ apikey: key, ...(key.startsWith("eyJ") ? { Authorization: `Bearer ${key}` } : {}), "Content-Type": "application/json", Prefer: "return=representation" })
   new Headers(init.headers).forEach((value, name) => headers.set(name, value))
   const res = await fetch(`${REST}/${path}`, { ...init, headers: headers })
   const text = await res.text()
+  if (!res.ok) throw new Error(`Supabase ${res.status} on ${path.split("?")[0]}: ${text.slice(0, 200)}`)
   return text ? (JSON.parse(text) as Array<Record<string, unknown>>) : []
 }
 const realPlaybooks=new Map<string,Awaited<ReturnType<typeof loadRealPlaybook>>>()
@@ -5700,7 +5702,7 @@ test("Broods acts by sight when the page tools cannot: screenshot of the tab, a 
 
 
 // ---- Real sites, real Broods (REAL_BROODS=1 only: costs model calls and needs network). A made-up person; nothing is ever submitted. ----
-const REAL_JOBS: Array<{ name: string; url: string; title: string; board?: boolean }> = [
+const REAL_JOBS: Array<{ name: string; url: string; title: string; board?: boolean; mock?: boolean }> = [
   { name: "greenhouse-dept", url: "https://job-boards.greenhouse.io/dept/jobs/8105170", title: "Junior Paid Search (SEA) Consultant" },
   { name: "lever-tomtom", url: "https://jobs.eu.lever.co/tomtom/669fa744-174e-4682-81b3-fa85322cafc5", title: "Senior Applied Scientist - Graph Optimization" },
   { name: "ashby-prosus", url: "https://jobs.ashbyhq.com/prosus/eeb0e0d9-9d3f-4321-8acd-11558dde7c7d", title: "ML Engineering Intern - LLM Research & Development" },
@@ -5713,11 +5715,17 @@ const REAL_JOBS: Array<{ name: string; url: string; title: string; board?: boole
   { name: "unilever-digital-finance", url: "https://careers.unilever.com/en/job/rotterdam/internship-27-digital-finance/34155/101567837152/", title: "Internship 27 Digital Finance" },
   { name: "hunkemoller-business-control", url: "https://jobs.hunkemoller.nl/en/vacancies/internship-business-control-hilversum-jr78429", title: "Internship Business Control" },
   { name: "linkedin-marketing", url: "https://www.linkedin.com/jobs/view/4479270692", title: "Marketing & Communications Intern", board: true },
-] as Array<{ name: string; url: string; title: string; board?: boolean }>
+] as Array<{ name: string; url: string; title: string; board?: boolean; mock?: boolean }>
 // REAL_JOBS_FILE=<set.json> ([{id, title, ats, url}]): run these jobs instead (the loop test's job set).
 if (process.env.REAL_JOBS_FILE) {
   const set = JSON.parse(readFileSync(process.env.REAL_JOBS_FILE, "utf8")) as Array<{ id: string; title: string; ats?: string; url: string }>
   REAL_JOBS.splice(0, REAL_JOBS.length, ...set.map((j) => ({ name: `${(j.ats || "site").toLowerCase().replace(/\W+/g, "")}-${j.id}`, url: j.url, title: j.title, board: /linkedin\.|glassdoor\.|indeed\.|magnet\.me/.test(j.url) })))
+}
+// REAL_MOCK=1: the mock ATS forms in e2e/fixtures/ats/mock instead, each on its own odds-mock.test host (real Broods, made-up employers, no learned hints written for real sites).
+const MOCK_ATS = ["greenhouse", "lever", "workday", "smartrecruiters", "ashby", "teamtailor", "recruitee", "homerun", "workable", "bamboohr", "personio", "jazzhr", "icims", "taleo", "successfactors", "jobvite", "breezy", "join", "pinpoint", "rippling"]
+if (process.env.REAL_MOCK === "1") {
+  const only = process.env.REAL_MOCK_ONLY?.split(",")
+  REAL_JOBS.splice(0, REAL_JOBS.length, ...MOCK_ATS.filter((p) => !only || only.includes(p)).map((p) => ({ name: `mock-${p}`, url: `https://${p}.odds-mock.test/jobs/data-analyst-intern`, title: "Data Analyst Intern", mock: true })))
 }
 const TEST_PERSON = { first_name: "Test", last_name: "Applicant", email: "odds.test.applicant@gmail.com", phone: "+31 6 1234 5678", lives_in: "Amsterdam, Netherlands", nationality_group: "Non-EU nationality", work_permit: "Orientation year (zoekjaar) permit: may work in the Netherlands without sponsorship", education: "Master, Business Analytics, Vrije Universiteit Amsterdam, Sep 2025–Aug 2027", experience: "Data Analyst, Shopee, 2022–2024", linkedin: "https://www.linkedin.com/in/test-applicant", start_date: "1 February 2027", hours_per_week: "40", role_values: "learning fast; international teams; measurable impact", languages: "English (fluent); Vietnamese (native); Dutch (basic)", skills: "Python, SQL, Linux, Bash, Excel, Tableau, data analysis", academic_performance: "8/10 average (top 20% of the cohort)", gpa: "8.0 / 10" }
 for (const job of REAL_JOBS) {
@@ -5726,6 +5734,10 @@ for (const job of REAL_JOBS) {
     test.setTimeout(960_000)
     await context.unroute("https://*.linkedin.com/**")
     await connect(context)
+    if (job.mock) {
+      const html = readFileSync(join(import.meta.dirname, `fixtures/ats/mock/${job.name.slice("mock-".length)}.html`), "utf8")
+      await context.route(`https://${new URL(job.url).host}/**`, (route) => route.fulfill({ contentType: "text/html", body: html }))
+    }
     let page = await context.newPage()
     let applicationUi:typeof page | null=null
     fake.realBroods = { title: job.title, person: TEST_PERSON, log: [] }
@@ -5800,6 +5812,13 @@ for (const job of REAL_JOBS) {
       const filled = inputs.filter((el) => el.type !== "hidden" && el.type !== "password" && (el.type === "file" ? (el.files?.length ?? 0) > 0 : String(el.value || "").trim())).length
       return { url: location.href, requiredEmpty, fileName, filled, title: document.title }
     }).catch(() => ({ url: last.url(), requiredEmpty: [] as string[], fileName: "", filled: 0, title: "" }))
+    // A mock form's own oracle sees custom widgets the input scan cannot (hidden values, unticked consent, files in drop zones).
+    const mock = job.mock ? await last.evaluate(() => (window as unknown as { mockStatus?: () => { step: string; final: boolean; required_empty: string[] } }).mockStatus?.()).catch(() => undefined) : undefined
+    if (job.mock) {
+      expect(outcome, `mock ${job.name} must reach review: ${outcome}/${reason} — ${message.slice(0, 200)}`).toBe("review")
+      expect(mock?.final, `mock ${job.name} stopped at step ${mock?.step}`).toBe(true)
+      expect(mock?.required_empty, "Review with empty required fields (mock oracle)").toEqual([])
+    }
     const humanEvidence =
       outcome === "signin" ||
       (outcome === "needs_you" && (
@@ -5852,6 +5871,7 @@ for (const job of REAL_JOBS) {
       required_empty: pageSnap.requiredEmpty,
       filled_controls: pageSnap.filled,
       submits,
+      mock,
       blocker: humanEvidence && !reviewOk ? message.slice(0, 300) : null,
     }, null, 2))
     console.log(`REAL ${job.name}: ${outcome} fill_ms=${fill_ms} ui_ms=${ui_ms} steps=${modelSteps} — ${message.slice(0, 200)}`)

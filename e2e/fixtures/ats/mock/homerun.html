@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Junior Frontend Developer at Stroopwafel Studio</title>
+<style>
+body{font-family:'Inter',Arial,sans-serif;margin:0;color:#14142b;background:#fbfaf7}main{max-width:560px;margin:0 auto;padding:32px 16px}
+.progress{height:4px;background:#e6e4dc;border-radius:2px;margin-bottom:24px}.progress div{height:4px;background:#ff5a36;border-radius:2px;width:0}
+.screen h2{font-size:24px}.q{margin:14px 0;display:flex;flex-direction:column;gap:6px}input:not([type=checkbox]),textarea{font:inherit;padding:10px;border:1px solid #c9c6bb;border-radius:8px}
+.btn{background:#ff5a36;color:#fff;border:0;border-radius:8px;padding:12px 24px;cursor:pointer;font:inherit}.btn.ghost{background:none;color:#14142b;border:1px solid #c9c6bb}
+.toggle{display:flex;gap:8px}.toggle button{flex:1;padding:12px;border:1px solid #c9c6bb;border-radius:8px;background:#fff;cursor:pointer;font:inherit}.toggle button[aria-pressed=true]{border-color:#ff5a36;background:#fff1ec}
+.drop{border:2px dashed #c9c6bb;border-radius:12px;padding:28px;text-align:center;cursor:pointer}.vh{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0 0 0 0)}
+.nav{display:flex;gap:8px;margin-top:20px}.counter{font-size:12px;color:#6e6b63;text-align:right}.err{color:#d02c12;font-size:13px}dt{font-weight:600;margin-top:8px}dd{margin:0}[hidden]{display:none!important}
+</style></head><body>
+<main id="hr-app" data-homerun-form>
+<div class="progress" aria-hidden="true"><div id="bar"></div></div>
+<p id="counter" class="counter"></p>
+<section class="screen" data-step="Introduction"><h1>Junior Frontend Developer</h1><p>Stroopwafel Studio - Utrecht - 32 to 40 hours</p>
+<p>We are a twelve-person studio building web shops for Dutch bakeries and food brands. You will build React components with our senior developers and talk to clients directly. Applying takes about five minutes.</p>
+<button type="button" class="btn" id="start">Apply now</button></section>
+<section class="screen" data-step="Name" hidden><h2>What's your name?</h2>
+<div class="q" data-req><label for="first">First name</label><input id="first" name="first_name" autocomplete="given-name"></div>
+<div class="q" data-req><label for="last">Last name</label><input id="last" name="last_name" autocomplete="family-name"></div></section>
+<section class="screen" data-step="Email" hidden><h2>What's your email address?</h2><div class="q" data-req><label for="email">Email address</label><input id="email" name="email" type="email" autocomplete="email"></div></section>
+<section class="screen" data-step="Phone" hidden><h2>What's your phone number?</h2><div class="q" data-req><label for="phone">Phone number</label><input id="phone" name="phone" type="tel" autocomplete="tel"></div></section>
+<section class="screen" data-step="Location" hidden><h2>Where do you live?</h2><div class="q" data-req><label for="city">City</label><input id="city" name="city" autocomplete="address-level2"></div></section>
+<section class="screen" data-step="CV" hidden><h2>Upload your CV</h2><div class="q" data-req><span class="lbl" id="cv-l">CV</span>
+<div class="drop" id="drop" role="button" tabindex="0" aria-labelledby="cv-l"><p>Choose a file or drop it here</p><p class="counter">PDF or Word, max 20 MB</p><input type="file" id="cv" name="cv" class="vh" accept=".pdf,.doc,.docx" tabindex="-1"><p id="cv-name"></p></div></div></section>
+<section class="screen" data-step="LinkedIn" hidden><h2>Do you have a LinkedIn profile?</h2><p>Optional. Leave it empty and continue if you do not have one.</p><div class="q"><label for="linkedin">LinkedIn URL</label><input id="linkedin" name="linkedin" type="url"></div></section>
+<section class="screen" data-step="Work permit" hidden><h2>Are you allowed to work in the Netherlands?</h2>
+<div class="q" data-req><span class="lbl" id="perm-l">Are you allowed to work in the Netherlands?</span><div class="toggle" role="group" aria-labelledby="perm-l"><button type="button" aria-pressed="false">Yes</button><button type="button" aria-pressed="false">No</button></div><input type="hidden" class="v" name="permit"></div>
+<div class="q" data-req data-if="permit=No" hidden><span class="lbl" id="visa-l">Do you need visa sponsorship from us?</span><div class="toggle" role="group" aria-labelledby="visa-l"><button type="button" aria-pressed="false">Yes</button><button type="button" aria-pressed="false">No</button></div><input type="hidden" class="v" name="sponsorship"></div></section>
+<section class="screen" data-step="Start date" hidden><h2>When can you start?</h2><div class="q" data-req><label for="start-date">Earliest start date</label><input id="start-date" name="start_date" type="date"></div></section>
+<section class="screen" data-step="Motivation" hidden><h2>Why do you want to join Stroopwafel Studio?</h2><div class="q" data-req><label for="motivation">Your motivation</label><textarea id="motivation" name="motivation" rows="6" maxlength="500"></textarea><div class="counter"><span id="m-count">0</span> / 500</div></div></section>
+<section class="screen" data-step="Privacy" hidden><h2>One last thing</h2><div class="q" data-req><label><input type="checkbox" name="privacy"> I agree that Stroopwafel Studio keeps my data for this application for up to four weeks</label></div></section>
+<section class="screen" data-step="Review" hidden><h2>Check your application</h2><dl id="summary"></dl>
+<form id="hr-submit" novalidate><button type="submit" class="btn" id="submit">Submit application</button></form></section>
+<div class="nav" id="nav" hidden><button type="button" class="btn ghost" id="back">Back</button><button type="button" class="btn" id="continue">Continue</button></div>
+</main>
+<script>
+window.sent=0
+const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)]
+const vis=e=>!!e&&e.getClientRects().length>0
+const fire=e=>e.dispatchEvent(new Event('change',{bubbles:true}))
+function isEmpty(q){const h=$$('.v',q),c=h.length?h:$$('input,select,textarea',q),b=c.filter(x=>x.type==='radio'||x.type==='checkbox');if(b.length)return!b.some(x=>x.checked);const f=c.find(x=>x.type==='file');if(f)return!f.files.length;return c.some(x=>!x.value.trim())}
+const lbl=q=>(q.dataset.label||($('.lbl',q)||$('label,legend',q)).textContent).replace(/[*✱]/g,'').replace(/\s+/g,' ').trim()
+const reqs=()=>$$('[data-req]').filter(vis)
+function validate(){let ok=true;for(const q of reqs()){const bad=isEmpty(q);let e=$('.err',q);if(bad&&!e){e=document.createElement('div');e.className='err';e.setAttribute('role','alert');e.textContent='This field is required';q.append(e)}if(!bad&&e)e.remove();if(bad)ok=false}return ok}
+function val(n){const e=$$(`[name="${n}"]`),b=e.filter(x=>x.type==='radio'||x.type==='checkbox');return b.length?(b.find(x=>x.checked)||{}).value||'':(e[0]||{}).value||''}
+function refresh(){for(const el of $$('[data-if]')){const[n,v]=el.dataset.if.split('=');el.hidden=val(n)!==v}}
+function onChange(e){refresh();const q=e.target.closest&&e.target.closest('[data-req]');if(q&&!isEmpty(q))$('.err',q)?.remove()}
+document.addEventListener('input',onChange,true);document.addEventListener('change',onChange,true)
+
+const screens=$$('.screen'),last=screens.length-1
+let cur=0
+function show(i){cur=i;screens.forEach((s,j)=>{s.hidden=j!==i});$('#nav').hidden=i===0;$('#continue').hidden=i===last
+ $('#bar').style.width=Math.round(i/last*100)+'%';$('#counter').textContent=i===0?'':`Question ${Math.min(i,last-1)} of ${last-1}`
+ if(i===last)summary();const f=$('input:not([type=hidden]):not(.vh),textarea',screens[i]);if(f)f.focus()}
+function summary(){const dl=$('#summary');dl.innerHTML=''
+ for(const s of screens.slice(1,last))for(const q of $$('.q',s)){if(q.hidden)continue;const f=$('input[type=file]',q),c=$('input[type=checkbox]',q),h=$('.v',q)
+  const v=f?(f.files[0]?.name||''):c?(c.checked?'Yes':'No'):h?h.value:$('input,textarea',q).value
+  const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=lbl(q);dd.textContent=v||'-';dl.append(dt,dd)}}
+function next(){if(cur<last&&validate())show(cur+1)}
+$('#start').addEventListener('click',()=>show(1))
+$('#continue').addEventListener('click',next)
+$('#back').addEventListener('click',()=>show(Math.max(1,cur-1)))
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.matches('input:not([type=checkbox]):not([type=file])')&&!e.target.closest('form')){e.preventDefault();next()}})
+for(const g of $$('.toggle'))for(const b of g.children)b.addEventListener('click',()=>{for(const o of g.children)o.setAttribute('aria-pressed',String(o===b));const h=g.nextElementSibling;h.value=b.textContent;fire(h)})
+const cv=$('#cv'),drop=$('#drop')
+drop.addEventListener('click',e=>{if(e.target!==cv)cv.click()})
+drop.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();cv.click()}})
+drop.addEventListener('dragover',e=>e.preventDefault());drop.addEventListener('drop',e=>{e.preventDefault();cv.files=e.dataTransfer.files;fire(cv)})
+cv.addEventListener('change',()=>{$('#cv-name').textContent=cv.files[0]?cv.files[0].name:''})
+$('#motivation').addEventListener('input',e=>{$('#m-count').textContent=e.target.value.length})
+$('#hr-submit').addEventListener('submit',e=>{e.preventDefault();window.sent=(window.sent||0)+1})
+show(0)
+window.mockStatus=()=>({platform:'homerun',step:screens[cur].dataset.step,final:vis($('#submit')),required_empty:reqs().filter(isEmpty).map(lbl),sent:window.sent||0})
+</script>
+</body></html>

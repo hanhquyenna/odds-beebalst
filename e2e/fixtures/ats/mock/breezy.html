@@ -1,0 +1,97 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Design Intern - Saltmarsh Studio</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 "Open Sans",Arial,sans-serif;color:#30343b;background:#f4f5f7}
+.brand{background:#fff;border-bottom:1px solid #e1e3e8;padding:14px 16px;font-weight:700}
+main{max-width:700px;margin:0 auto;padding:16px}
+.panel{background:#fff;border-radius:6px;padding:20px;border:1px solid #e1e3e8}
+.f{margin:14px 0;position:relative}.f>label,.lbl{display:block;font-weight:600;margin-bottom:4px}
+.f small{color:#7a808a;font-weight:400}
+input:not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea{width:100%;padding:9px;border:1px solid #c9ccd3;border-radius:4px;font:inherit;background:#fff}
+.tel{display:flex;gap:6px}.tel select{width:110px;flex:none}
+button{font:inherit;padding:9px 16px;border-radius:4px;border:1px solid #c9ccd3;background:#fff;cursor:pointer}
+.button-primary{background:#4d6cfa;border-color:#4d6cfa;color:#fff}
+.toggle button[aria-pressed=true]{background:#4d6cfa;color:#fff;border-color:#4d6cfa}
+.dd>button{width:100%;text-align:left}
+ul[role=listbox]{list-style:none;margin:2px 0 0;padding:0;border:1px solid #c9ccd3;border-radius:4px;background:#fff;position:absolute;left:0;right:0;z-index:3}
+li[role=option]{padding:7px 10px;cursor:pointer}li[role=option]:hover{background:#eef1ff}
+.dz{display:block;border:2px dashed #c9ccd3;border-radius:6px;padding:20px;text-align:center;cursor:pointer}.dz.over{border-color:#4d6cfa}
+.sr{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+.err{color:#d93025;font-size:13px;margin-top:4px}
+.ck{position:fixed;left:0;right:0;bottom:0;top:0;background:#0006;display:flex;align-items:flex-end;z-index:9}.ck>div{background:#fff;padding:16px;width:100%}
+[hidden]{display:none!important}
+</style></head><body>
+<div class="ck" id="cookie" role="dialog" aria-modal="true" aria-label="Cookie consent"><div>
+<p>This site uses cookies to provide a better experience. You can accept all cookies or keep only the ones that are strictly necessary.</p>
+<button type="button" class="button-primary" id="ck-all">Accept all</button> <button type="button" id="ck-rej">Reject non-essential</button>
+</div></div>
+<div class="brand">Saltmarsh Studio</div>
+<main>
+<section class="panel" id="position" data-step="Job description">
+<h1>Design Intern</h1>
+<p>Amsterdam · Internship · Design</p>
+<p>Saltmarsh Studio is a small product design studio. You will work on interface design for climate and mobility clients, from early sketches to Figma prototypes.</p>
+<ul><li>Portfolio showing UI or visual design work</li><li>Available for at least 5 months</li><li>Comfortable presenting in English</li></ul>
+<button type="button" class="button-primary" id="apply">Apply to Position</button>
+</section>
+<section class="panel" id="application" data-step="Application" hidden>
+<h2>Apply to Design Intern</h2>
+<form id="breezy-form" novalidate>
+<div class="f" data-req="Full Name"><label for="name">Full Name *</label><input id="name" name="name" autocomplete="name" required></div>
+<div class="f" data-req="Email Address"><label for="email">Email Address *</label><input id="email" type="email" name="email_address" required></div>
+<div class="f" data-req="Phone Number"><label for="phone">Phone Number *</label><div class="tel"><select name="phone_country" aria-label="Country code"><option>+31</option><option>+32</option><option>+49</option><option>+33</option><option>+44</option><option>+1</option></select><input id="phone" type="tel" name="phone_number" required></div></div>
+<div class="f"><label for="loc">Location <small>(optional)</small></label><input id="loc" name="location"></div>
+<div class="f" data-req="Resume"><div class="lbl" id="cv-l">Resume *</div>
+<label class="dz" id="dz" for="cv">Choose a file or drop it here<br><small>PDF, DOC or DOCX</small><br><b id="cv-name"></b></label>
+<input type="file" id="cv" name="resume" class="sr" accept=".pdf,.doc,.docx" aria-labelledby="cv-l" required></div>
+<div class="f"><label for="cover">Cover Letter <small>(optional)</small></label><textarea id="cover" name="cover_letter" rows="4"></textarea></div>
+<div class="f"><label for="li">LinkedIn <small>(optional)</small></label><input id="li" type="url" name="linkedin"></div>
+<div class="f" data-req="Portfolio URL"><label for="pf">Portfolio URL *</label><input id="pf" type="url" name="portfolio" required></div>
+<div class="f" data-req="Are you authorized to work in the Netherlands?"><div class="lbl" id="auth-l">Are you authorized to work in the Netherlands? *</div>
+<div class="toggle" role="group" aria-labelledby="auth-l" data-for="auth-h"><button type="button" aria-pressed="false">Yes</button> <button type="button" aria-pressed="false">No</button></div><input type="hidden" id="auth-h" name="q_auth"></div>
+<div class="f" data-req="Will you require visa sponsorship?" id="visa-f" hidden><div class="lbl" id="visa-l">Will you require visa sponsorship? *</div>
+<div class="toggle" role="group" aria-labelledby="visa-l" data-for="visa-h"><button type="button" aria-pressed="false">Yes</button> <button type="button" aria-pressed="false">No</button></div><input type="hidden" id="visa-h" name="q_visa"></div>
+<div class="f" data-req="How many hours per week can you work?"><div class="lbl" id="hrs-l">How many hours per week can you work? *</div>
+<div class="dd" id="hrs"><button type="button" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="hrs-l"><span class="v">Select...</span></button></div><input type="hidden" id="hrs-h" name="q_hours"></div>
+<div class="f"><label for="src">How did you hear about us?</label><select id="src" name="q_source"><option value="">Select...</option><option>Instagram</option><option>LinkedIn</option><option>Dribbble</option><option>Friend</option><option>Other</option></select></div>
+<div class="f" data-req="Privacy consent"><label><input type="checkbox" id="consent" name="gdpr" required> I agree to the processing of my personal data by Saltmarsh Studio for recruitment. *</label></div>
+<button type="submit" class="button-primary" id="final">Submit application</button>
+</form>
+</section>
+</main>
+<script>
+window.sent=0
+const Q=(s,r=document)=>r.querySelector(s),QA=(s,r=document)=>[...r.querySelectorAll(s)]
+const shown=el=>!!el&&el.getClientRects().length>0
+// A .f wrapper is empty when its hidden values, choices, file or text inputs are unset.
+function empty(f){const i=QA("input,select,textarea",f),h=i.filter(x=>x.type=="hidden");if(h.length)return h.some(x=>!x.value);const b=i.filter(x=>x.type=="radio"||x.type=="checkbox");if(b.length)return!b.some(x=>x.checked);const fl=i.find(x=>x.type=="file");if(fl)return!fl.files.length;return!i.length||i.some(x=>!x.value.trim())}
+function mark(f,bad){let e=Q(":scope>.err",f);if(bad&&!e){e=document.createElement("div");e.className="err";e.setAttribute("role","alert");e.textContent="This field is required";f.append(e)}if(!bad&&e)e.remove()}
+function check(s){let ok=true;for(const f of QA(".f[data-req]",s)){const bad=shown(f)&&empty(f);mark(f,bad);if(bad)ok=false}return ok}
+const clr=f=>{if(f&&!empty(f))mark(f,false)}
+const missing=s=>s?QA(".f[data-req]",s).filter(f=>shown(f)&&empty(f)).map(f=>f.dataset.req):[]
+const cur=(r=document)=>QA("[data-step]",r).find(shown)
+for(const t of["input","change","click"])document.addEventListener(t,e=>clr(e.target.closest&&e.target.closest(".f")))
+window.mockStatus=()=>{const s=cur();return{platform:"breezy",step:s?s.dataset.step:"",final:shown(Q("#final")),required_empty:missing(s),sent:window.sent||0}}
+
+for(const id of["ck-all","ck-rej"])Q("#"+id).addEventListener("click",()=>{Q("#cookie").hidden=true})
+Q("#apply").addEventListener("click",()=>{Q("#position").hidden=true;Q("#application").hidden=false})
+for(const g of QA(".toggle"))for(const b of QA("button",g))b.addEventListener("click",()=>{
+  for(const o of QA("button",g))o.setAttribute("aria-pressed",String(o==b))
+  Q("#"+g.dataset.for).value=b.textContent
+  if(g.dataset.for=="auth-h"){const no=b.textContent=="No";Q("#visa-f").hidden=!no;if(!no){Q("#visa-h").value="";for(const o of QA("#visa-f button"))o.setAttribute("aria-pressed","false")}}
+})
+// The hours listbox only exists in the DOM while it is open.
+const hrs=Q("#hrs"),hb=Q("button",hrs)
+hb.addEventListener("click",()=>{let l=Q("[role=listbox]",hrs);if(l){l.remove();hb.setAttribute("aria-expanded","false");return}
+  l=document.createElement("ul");l.setAttribute("role","listbox")
+  for(const o of["Less than 16","16-24","24-32","32-40"]){const li=document.createElement("li");li.setAttribute("role","option");li.textContent=o
+    li.addEventListener("click",()=>{Q("#hrs-h").value=o;Q(".v",hb).textContent=o;l.remove();hb.setAttribute("aria-expanded","false");clr(hrs.closest(".f"))});l.append(li)}
+  hrs.append(l);hb.setAttribute("aria-expanded","true")})
+const dz=Q("#dz"),cv=Q("#cv")
+dz.addEventListener("dragover",e=>{e.preventDefault();dz.classList.add("over")})
+dz.addEventListener("dragleave",()=>dz.classList.remove("over"))
+dz.addEventListener("drop",e=>{e.preventDefault();dz.classList.remove("over");cv.files=e.dataTransfer.files;cv.dispatchEvent(new Event("change",{bubbles:true}))})
+cv.addEventListener("change",()=>{Q("#cv-name").textContent=cv.files.length?cv.files[0].name:""})
+Q("#breezy-form").addEventListener("submit",e=>{e.preventDefault();window.sent=(window.sent||0)+1;check(e.target)})
+</script>
+</body></html>

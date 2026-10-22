@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Job Application for Data Analyst Intern at Northwind Data</title>
+<style>
+body{font-family:Arial,sans-serif;margin:0;color:#222}#app_body{max-width:720px;margin:0 auto;padding:24px 16px}
+.field{margin:14px 0;display:flex;flex-direction:column;gap:4px}input,select,textarea{font:inherit;padding:6px}
+.select__control{border:1px solid #bbb;border-radius:4px;padding:6px;display:flex;justify-content:space-between;cursor:pointer;background:#fff}
+.select__menu{border:1px solid #bbb;margin:0;padding:0;list-style:none;background:#fff}.select__option,.select__menu li{padding:6px;cursor:pointer}.select__option:hover,.select__menu li:hover{background:#eef}
+.err{color:#c00;font-size:12px}.btn{background:#1a7f5a;color:#fff;border:0;padding:10px 18px;border-radius:4px;cursor:pointer;font:inherit}
+[hidden]{display:none!important}
+</style></head><body>
+<div id="app_body">
+<div id="header"><h1 class="app-title">Data Analyst Intern</h1><span class="company-name">at Northwind Data</span><div class="location">Amsterdam, North Holland, Netherlands</div></div>
+<div id="content" class="job__description">
+<p>Northwind Data builds forecasting tools for European grocery chains. As a Data Analyst Intern you join our insights team for six months, starting in February.</p>
+<h3>What you will do</h3><ul><li>Clean and model sales data in SQL and Python</li><li>Build dashboards for store managers</li><li>Present findings to the product team every sprint</li></ul>
+<h3>Who you are</h3><ul><li>Bachelor or Master student in a quantitative field</li><li>Fluent in English. Dutch is not required</li><li>Available 32 to 40 hours per week</li></ul>
+<p>We offer a monthly internship allowance of EUR 750, a laptop and a travel allowance.</p>
+<button type="button" id="apply_button" class="btn">Apply for this job</button>
+</div>
+<form id="application_form" class="application--form" novalidate hidden>
+<h2>Apply for this job</h2><p>* indicates a required field</p>
+<div class="field" data-req><label for="first_name">First Name *</label><input id="first_name" name="job_application[first_name]" aria-required="true" autocomplete="given-name"></div>
+<div class="field" data-req><label for="last_name">Last Name *</label><input id="last_name" name="job_application[last_name]" aria-required="true" autocomplete="family-name"></div>
+<div class="field" data-req><label for="email">Email *</label><input id="email" type="email" name="job_application[email]" aria-required="true" autocomplete="email"></div>
+<div class="field" data-req><label for="phone">Phone *</label><input id="phone" type="tel" name="job_application[phone]" aria-required="true" autocomplete="tel"></div>
+<div class="field" data-req><label for="candidate-location">Location (City) *</label>
+<input id="candidate-location" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="location-menu" autocomplete="off" placeholder="Start typing...">
+<ul id="location-menu" class="select__menu" role="listbox" hidden></ul><input type="hidden" class="v" name="job_application[location]"></div>
+<div class="field" data-req><label for="resume">Resume/CV *</label><div class="file-upload" data-field="resume"><input id="resume" type="file" name="job_application[resume]" accept=".pdf,.doc,.docx,.txt,.rtf" aria-required="true"><span class="file-types">File types: pdf, doc, docx, txt, rtf</span></div></div>
+<div class="field"><label for="question_linkedin">LinkedIn Profile</label><input id="question_linkedin" type="url" name="job_application[answers_attributes][0][text_value]"></div>
+<div class="field" data-req data-select="Yes|No" data-name="q_auth"><label>Are you legally authorized to work in the Netherlands? *</label></div>
+<div class="field" data-req data-select="Yes|No" data-name="q_visa" data-if="q_auth=No" hidden><label>Will you now or in the future require visa sponsorship? *</label></div>
+<div class="field" data-req data-select="Native|Fluent (C1-C2)|Professional (B2)|Basic (A1-B1)" data-name="q_english"><label>What is your level of English? *</label></div>
+<div class="field" data-req data-select="LinkedIn|University career portal|Friend or referral|Job board|Other" data-name="q_source"><label>How did you hear about this job? *</label></div>
+<div class="field" data-req><label for="q_why">Why do you want to join Northwind Data? *</label><textarea id="q_why" name="job_application[answers_attributes][4][text_value]" rows="5" aria-required="true"></textarea></div>
+<h3>Voluntary Self-Identification</h3>
+<p>Providing this information is optional and will not affect your application.</p>
+<div class="field" data-select="Man|Woman|Non-binary|Decline to self-identify" data-name="gender"><label>Gender</label></div>
+<div class="field" data-select="Asian|Black|Hispanic or Latino|White|Two or more races|Decline to self-identify" data-name="race"><label>Race / Ethnicity</label></div>
+<div class="field" data-req><label><input type="checkbox" name="job_application[data_compliance][gdpr_processing_consent_given]" aria-required="true"> I consent to Northwind Data processing my personal data for this application *</label></div>
+<button type="submit" id="submit_app" class="btn">Submit application</button>
+</form></div>
+<script>
+window.sent=0
+const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)]
+const vis=e=>!!e&&e.getClientRects().length>0
+const fire=e=>e.dispatchEvent(new Event('change',{bubbles:true}))
+function isEmpty(q){const h=$$('.v',q),c=h.length?h:$$('input,select,textarea',q),b=c.filter(x=>x.type==='radio'||x.type==='checkbox');if(b.length)return!b.some(x=>x.checked);const f=c.find(x=>x.type==='file');if(f)return!f.files.length;return c.some(x=>!x.value.trim())}
+const lbl=q=>(q.dataset.label||($('.lbl',q)||$('label,legend',q)).textContent).replace(/[*✱]/g,'').replace(/\s+/g,' ').trim()
+const reqs=()=>$$('[data-req]').filter(vis)
+function val(n){const e=$$(`[name="${n}"]`),b=e.filter(x=>x.type==='radio'||x.type==='checkbox');return b.length?(b.find(x=>x.checked)||{}).value||'':(e[0]||{}).value||''}
+function refresh(){for(const el of $$('[data-if]')){const[n,v]=el.dataset.if.split('=');el.hidden=val(n)!==v}}
+function onChange(e){refresh();const q=e.target.closest&&e.target.closest('[data-req]');if(q&&!isEmpty(q))$('.err',q)?.remove()}
+document.addEventListener('input',onChange,true);document.addEventListener('change',onChange,true)
+
+const CITIES=['Amsterdam, North Holland, Netherlands','Amstelveen, North Holland, Netherlands','Haarlem, North Holland, Netherlands','Rotterdam, South Holland, Netherlands','The Hague, South Holland, Netherlands','Delft, South Holland, Netherlands','Leiden, South Holland, Netherlands','Utrecht, Utrecht, Netherlands','Eindhoven, North Brabant, Netherlands','Groningen, Groningen, Netherlands','Antwerp, Belgium','Berlin, Germany']
+const loc=$('#candidate-location'),menu=$('#location-menu'),locH=$('[name="job_application[location]"]')
+loc.addEventListener('input',()=>{locH.value='';fire(locH);menu.innerHTML='';const t=loc.value.trim().toLowerCase();const m=t.length<2?[]:CITIES.filter(c=>c.toLowerCase().includes(t))
+ for(const c of m){const li=document.createElement('li');li.setAttribute('role','option');li.textContent=c;li.addEventListener('click',()=>{loc.value=c;locH.value=c;menu.hidden=true;loc.setAttribute('aria-expanded','false');fire(locH)});menu.append(li)}
+ menu.hidden=!m.length;loc.setAttribute('aria-expanded',String(!!m.length))})
+
+// ReactSelect-style dropdowns: the menu only exists in the DOM while open.
+let sid=0
+for(const f of $$('[data-select]')){const id='react-select-'+(++sid),l=$('label',f);l.id=id+'-label'
+ const c=document.createElement('div');c.className='select__control';c.tabIndex=0
+ for(const[k,v]of[['role','combobox'],['aria-expanded','false'],['aria-haspopup','listbox'],['aria-labelledby',l.id]])c.setAttribute(k,v)
+ c.innerHTML='<div class="select__value-container"><div class="select__placeholder">Select...</div></div><div class="select__indicator">&#9662;</div>'
+ const h=document.createElement('input');h.type='hidden';h.className='v';h.name=f.dataset.name;f.append(c,h)
+ const close=()=>{$('.select__menu',f)?.remove();c.setAttribute('aria-expanded','false')}
+ const open=()=>{const m=document.createElement('div');m.className='select__menu';m.setAttribute('role','listbox');m.id=id+'-listbox'
+  for(const o of f.dataset.select.split('|')){const d=document.createElement('div');d.className='select__option';d.setAttribute('role','option');d.setAttribute('aria-selected',String(h.value===o));d.textContent=o
+   d.addEventListener('click',()=>{h.value=o;$('.select__value-container',c).innerHTML='<div class="select__single-value"></div>';$('.select__single-value',c).textContent=o;close();fire(h)});m.append(d)}
+  c.after(m);c.setAttribute('aria-expanded','true')}
+ c.addEventListener('click',()=>$('.select__menu',f)?close():open())
+ c.addEventListener('keydown',e=>{if(['Enter',' ','ArrowDown'].includes(e.key)){e.preventDefault();if(!$('.select__menu',f))open()}if(e.key==='Escape')close()})}
+
+$('#apply_button').addEventListener('click',()=>{$('#content').hidden=true;$('#application_form').hidden=false;$('#first_name').focus()})
+$('#application_form').addEventListener('submit',e=>{e.preventDefault();window.sent=(window.sent||0)+1})
+window.mockStatus=()=>({platform:'greenhouse',step:$('#application_form').hidden?'Job description':'Application',final:vis($('#submit_app')),required_empty:reqs().filter(isEmpty).map(lbl),sent:window.sent||0})
+</script>
+</body></html>
