@@ -5156,6 +5156,125 @@ test("a field and a toggle that only take real input (isTrusted): Odds' last run
   expect(JSON.stringify(filled)).toContain('"via":"real_input"')
 })
 
+test("Broods fill: Ashby Yes/No is one choice, the click is kept, via is choice", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const html = readFileSync(join(import.meta.dirname, "fixtures/ats/ashby-yesno-drive.html"), "utf8")
+  await context.route("https://jobs.ashbyhq.com/fixture-drive/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pyn", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: {}, remembered: {} }, cv: null }
+  let filled: Record<string, unknown> = {}
+  let field: { kind?: string; options?: string[] } = {}
+  fake.driveScript = async (cmd) => {
+    const page = await cmd("read_page")
+    field = (page.fields as Array<{ id: string; label: string; kind: string; options?: string[] }>).find((f) => /language model/i.test(f.label))!
+    filled = await cmd("fill", { fields: [{ id: (field as { id: string }).id, value: "No" }] })
+    return { status: "stuck", message: "checked" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://jobs.ashbyhq.com/fixture-drive/apply")
+  await applyFrom(context, page, "https://jobs.ashbyhq.com/fixture-drive/apply")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/checked/, { timeout: 60000 })
+  expect(field).toMatchObject({ kind: "choice", options: ["Yes", "No"] })
+  await expect(page.locator(".yesno button", { hasText: "No" })).toHaveAttribute("aria-pressed", "true")
+  await expect(page.locator(".yesno button", { hasText: "No" })).toHaveClass(/_active_/)
+  const row = (filled.results as Array<{ ok?: boolean; via?: string }>)?.[0]
+  expect(row?.ok).toBe(true)
+  expect(row?.via).toBe("choice")
+})
+
+test("Broods fill: typeahead keeps the option only after a short prefix, via typeahead", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const html = readFileSync(join(import.meta.dirname, "fixtures/ats/typeahead-school.html"), "utf8")
+  await context.route("https://jobs.example-school.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pschool", broods_drive: true, facts: { answers: {}, remembered: {} }, cv: null }
+  let filled: Record<string, unknown> = {}
+  fake.driveScript = async (cmd) => {
+    const page = await cmd("read_page")
+    const school = (page.fields as Array<{ id: string; label: string }>).find((f) => /university/i.test(f.label))!
+    filled = await cmd("fill", { fields: [{ id: school.id, value: "Vrije Universiteit Amsterdam" }] })
+    return { status: "stuck", message: "checked" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://jobs.example-school.com/apply")
+  await applyFrom(context, page, "https://jobs.example-school.com/apply")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/checked/, { timeout: 60000 })
+  await expect(page.locator("#sv")).toHaveText("Vrije Universiteit Amsterdam")
+  const row = (filled.results as Array<{ ok?: boolean; via?: string; value?: string }>)?.[0]
+  expect(row?.ok).toBe(true)
+  expect(row?.via).toBe("typeahead")
+  expect(row?.value).toContain("Vrije Universiteit Amsterdam")
+})
+
+test("Broods fill: a custom dropdown that only echoes into the input is a failure", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const html = readFileSync(join(import.meta.dirname, "fixtures/ats/react-select-unkept.html"), "utf8")
+  await context.route("https://jobs.example-unkept.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "punkept", broods_drive: true, facts: { answers: {}, remembered: {} }, cv: null }
+  let filled: Record<string, unknown> = {}
+  fake.driveScript = async (cmd) => {
+    const page = await cmd("read_page")
+    const team = (page.fields as Array<{ id: string; label: string }>).find((f) => /preferred team/i.test(f.label))!
+    filled = await cmd("fill", { fields: [{ id: team.id, value: "Design" }] })
+    return { status: "stuck", message: "checked" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://jobs.example-unkept.com/apply")
+  await applyFrom(context, page, "https://jobs.example-unkept.com/apply")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/checked/, { timeout: 60000 })
+  await expect(page.locator("#sv")).toHaveText("")
+  const row = (filled.results as Array<{ ok?: boolean; error?: string; tried?: string[] }>)?.[0]
+  expect(row?.ok).toBe(false)
+  expect(row?.error || "").toMatch(/did not keep|invalid/i)
+  expect(row?.tried?.length || 0).toBeGreaterThan(1)
+})
+
+test("Broods fill: aria-invalid after a bad date is a failure until the box's own format sticks", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const html = readFileSync(join(import.meta.dirname, "fixtures/ats/aria-invalid-date.html"), "utf8")
+  await context.route("https://jobs.example-date.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pdate", broods_drive: true, facts: { answers: {}, remembered: {} }, cv: null }
+  let filled: Record<string, unknown> = {}
+  fake.driveScript = async (cmd) => {
+    const page = await cmd("read_page")
+    const start = (page.fields as Array<{ id: string; label: string }>).find((f) => /start date/i.test(f.label))!
+    filled = await cmd("fill", { fields: [{ id: start.id, value: "2022-09" }] })
+    return { status: "stuck", message: "checked" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://jobs.example-date.com/apply")
+  await applyFrom(context, page, "https://jobs.example-date.com/apply")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/checked/, { timeout: 60000 })
+  await expect(page.locator("#start")).toHaveValue("09/2022")
+  await expect(page.locator("#start")).toHaveAttribute("aria-invalid", "false")
+  const row = (filled.results as Array<{ ok?: boolean; via?: string }>)?.[0]
+  expect(row?.ok).toBe(true)
+  expect(row?.via).toBe("own_format")
+})
+
+test("Broods read_page: Next is missing until one scroll to the bottom, then it is listed", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const html = readFileSync(join(import.meta.dirname, "fixtures/ats/next-below-fold.html"), "utf8")
+  await context.route("https://jobs.example-next.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pnext", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  let read: Record<string, unknown> = {}
+  fake.driveScript = async (cmd) => {
+    read = await cmd("read_page")
+    return { status: "stuck", message: "checked" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://jobs.example-next.com/apply")
+  await applyFrom(context, page, "https://jobs.example-next.com/apply")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/checked/, { timeout: 60000 })
+  await expect(page.locator("#next")).toBeVisible()
+  const buttons = (read.buttons as Array<{ text: string }>) || []
+  expect(buttons.some((b) => b.text === "Next")).toBe(true)
+  expect(read.scrolled_for_forward).toBe(true)
+})
+
 test("Fill with Odds from the toolbar: the icon lights up \"Fill\" on a page with a form, one click fills it, nothing drawn over the site", async ({ context, fake }) => {
   test.setTimeout(90_000)
   await connect(context)

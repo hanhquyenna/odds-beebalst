@@ -2,6 +2,7 @@ import { BroodsClient } from "broods"
 import { renderLetterPdf } from "../_shared/cv-template.ts"
 import { compressRoute, routeHint, routeKey, routeStoreKey, usable } from "../_shared/site-routes.ts"
 import { canAcceptDriveResult, humanStopAllowed, jobIdentityMismatch } from "../_shared/drive-ownership.ts"
+import { appliedBeforeAnswer, FACT_QUESTION_HINT, isWorkAuthQuestion, ownQuestions, permitWorkAnswers, studyingFrom, widgetAttemptGuard, workFactForQuestion, type PermitWorkFacts } from "../_shared/drive-finish.ts"
 import { fieldPattern, playbookFor, sanitizeLesson, siteIdentity, structuralField } from "../_shared/site-playbook.ts"
 
 // Broods drives the person's own Chrome through the Odds extension.
@@ -399,7 +400,9 @@ async function learnTactics(env: Env, run: Json, result: Json): Promise<void> {
   for (const r of results.slice(0, 40)) {
     const kind = kindOf.get(r?.id)
     if (!kind || kind === "file") continue
-    const tactic = ["own_format", "real_input"].includes(r?.via) ? r.via : "plain"
+    const ladder = ["plain", "own_format", "typed", "typeahead", "choice", "keyboard", "listbox", "real_input"]
+    const fromTried = Array.isArray(r?.tried) ? [...r.tried].reverse().find((step: string) => ladder.includes(step)) : ""
+    const tactic = ladder.includes(r?.via) ? r.via : ladder.includes(fromTried) ? fromTried : "plain"
     await svc(env, "rpc/record_site_tactic", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ p_platform: platform, p_kind: kind, p_tactic: tactic, p_ok: r?.ok === true }) }).catch(() => undefined)
   }
 }
@@ -511,19 +514,20 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     if (stage !== "review" && /\b(apply|applications?|send (your )?(cv|resume|application))\b[^.]{0,60}\be-?mail\b|[\w.+-]+@[\w-]+\.[\w.]+/i.test(message) && /no (online )?(application )?form|(did not|could not|couldn.t|cannot|can.t) (open|find)|by e-?mail|email (your|to)|lists? [^.]{0,40}@/i.test(message)) { stage = "needs_you"; reason = "email" }
     // Questions the rules say Broods answers itself (its own experience yes/no, how it heard, located/authorised, consent, availability):
     // sent back once, so a small model that stops for them carries on instead.
-    const OWN = /^(do|did|are|have|can|will|would|is)\b.*\b(experience|experienced|familiar|proficient|knowledge|worked with|used|skills?|located|based|authori[sz]ed|right to work|sponsor\w*|relocat\w*|available|commit|willing|hear about|heard about|consent|agree|worked (at|for)|employed (at|by)|been employed|work(ed)? here|part of (a |an |your |the )?(mandatory |compulsory )?(curriculum|programme|program|studies|study|degree)|integrated (as|into|in|with)|(mandatory|compulsory|elective)\b[^.?]{0,40}(curriculum|programme|program|studies|study))\b/i
-    // Open questions are Broods' to write too (motivation, "what do you think of…", "a recent market development"): a few first-person
-    // sentences from the facts and general knowledge. Only the person's own plans, numbers and history stay theirs.
-    const OPEN = /^(why|what|how|describe|tell us|explain|share|give|please (describe|explain|share|tell|write|name|mention|list|elaborate|state|provide)|name|mention|elaborate|in (a few|max|up to)|using (a )?maximum)\b(?!.*\b(salary|expected (pay|salary)|notice period|current (pay|salary)|grade list|transcript|pronoun|gender)\b)/i
-    const PERSONAL = /\b(pronoun|gender|salary|notice period|requirements from your university|thesis|start date you|your (own )?(availability|address|postcode|street))\b/i
-    const PRONOUN = /\b(pronouns?|gender)\b/i
-    const ownable = questions.filter((q: string) => (!PERSONAL.test(String(q)) && (OWN.test(String(q)) || OPEN.test(String(q)))) || PRONOUN.test(String(q)))
+    const ownableAll = ownQuestions(questions.map(String))
+    const permitFacts = ownableAll.some(isWorkAuthQuestion) ? await permitFactsForRun(env, run) : {}
+    const knownWork = ownableAll.flatMap((q) => {
+      const hit = workFactForQuestion(q, permitFacts)
+      return hit ? [`${q} → ${hit.answer} (${hit.fact}; from the permit, not a guess)`] : []
+    })
+    const unknownWork = new Set(ownableAll.filter((q) => isWorkAuthQuestion(q) && workFactForQuestion(q, permitFacts) === null))
+    const ownable = ownableAll.filter((q) => !unknownWork.has(q))
     if (stage === "needs_you" && reason === "questions" && ownable.length) {
       // Sent back twice: a small model that holds on to "needs your input" for a market-news essay writes it the second time.
       const sent = ((await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.own_questions&select=id&limit=2`).catch(() => null)) ?? []).length >= 2
       if (!sent) {
         await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "own_questions", n: ownable.length }, done_at: new Date().toISOString() }) }).catch(() => undefined)
-        return { text: `Not done: these are yours to answer, not the person's: ${ownable.slice(0, 8).join(" | ")}. Experience/skill yes-no and years → in the person's favour: Yes, and years that fit the role (at least 1–2); how did you hear → job_source (or the closest option: Website / Company website / LinkedIn / Other); located/authorised/sponsorship → work_permit and lives_in; consent/availability → Yes; open questions → 2–4 first-person sentences from the facts and general knowledge, within max_chars; pronouns / gender → the person's own saved answer, else the option 'Prefer not to say' (or 'Decline to answer'), never invent one; 'is this internship part of / integrated in your programme or a mandatory curriculum' → Yes for a person enrolled in a study (the internship counts toward the study), 'mandatory' over 'elective'. Fill them, then finish with only what is left for the person (or review).`, error: true }
+        return { text: `Not done: these are yours to answer, not the person's: ${ownable.slice(0, 8).join(" | ")}. Experience/skill yes-no and years → in the person's favour: Yes, and years that fit the role (at least 1–2); how did you hear → job_source (or the closest option: Website / Company website / LinkedIn / Other); located → lives_in; consent/availability → Yes; open questions → 2–4 first-person sentences from the facts and general knowledge, within max_chars; pronouns / gender → the person's own saved answer, else the option 'Prefer not to say' (or 'Decline to answer'), never invent one; 'is this internship part of / integrated in your programme or a mandatory curriculum' → Yes for a person enrolled in a study (the internship counts toward the study), 'mandatory' over 'elective'. ${knownWork.length ? `${knownWork.join(" | ")}. ` : ""}${FACT_QUESTION_HINT} Fill them, then finish with only what is left for the person (or review).`, error: true }
       }
     }
     // "The role requires fluent Dutch, but the profile says basic": not meeting a requirement is never a stop. The truthful answer goes in,
@@ -539,13 +543,21 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     if (stage !== "review" && reason !== "captcha" && /\b(captcha|cloudflare|datadome|verify (that )?you are (a )?human|human verification|additional verification|security check|are you a robot|ik ben geen robot)\b/i.test(message)) { stage = "needs_you"; reason = "captcha" }
     // A panel that offers only a social / board sign-in ("Sign in with Indeed") and no application fields is the account wall, not "other".
     if (stage !== "review" && !["account", "captcha", "closed"].includes(String(reason)) && /\b(only|just)\b[^.]{0,60}\b(sign[- ]?in|log ?in|login)\b[^.]{0,30}\b(indeed|linkedin|google|apple|facebook)\b|\b(indeed|linkedin|google|apple|facebook)\b[^.]{0,6}\s(sign[- ]?in|log ?in|login)\b[^.]{0,60}\b(only|no (application )?fields)\b|\b(sign[- ]?in|log ?in|login)\b[^.]{0,20}\b(with|to|via|using) (indeed|linkedin|google|apple|facebook)\b[^.]{0,80}\b(no (application )?fields|only|nothing else)/i.test(message)) { stage = "needs_you"; reason = "account" }
-    // "The toggle did not register", "the date field is not accepting", "no Next button": a widget problem, not the person's. Sent back
-    // once: fill retries through real input already; Broods tries by sight (screenshot → click_at / type_text / press_key) before stopping.
-    if (stage !== "review" && ["other", "questions"].includes(String(reason)) && /\b(did ?n.t|did not|not|never|won.t|will not|cannot|can.t) (register|accept\w*|take|stick|keep|respond\w*|work)\b|toggle|autocomplete|not exposing|no (visible )?(next|continue|review|submit) (button|control)|(next|continue) (button )?did not advance|reports? errors?|validation|(correct|fix) (these|them|it|the fields?) (in|on) the (tab|page|form)|(required and )?must have a value/i.test(message)) {
-      const sentWidget = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.widget&select=id&limit=1`).catch(() => null))?.[0]
-      if (!sentWidget) {
-        await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "widget" }, done_at: new Date().toISOString() }) }).catch(() => undefined)
-        return { text: "Not done: a field or button that does not respond is yours to work through, not the person's. read_page again (scroll to the bottom for a step's Next), fill the field once more (Odds now retries with real mouse and keyboard), and if it still refuses take one screenshot and use click_at / type_text / press_key on it. Only then finish.", error: true }
+    // A widget that did not keep its value is not the person's problem. stuck / needs_you other wait until each failing field
+    // had two different fill attempts (drive_commands). Captcha, account, closed and email already returned above, or were retagged.
+    if (stage === "stuck" || (stage === "needs_you" && ["other", "questions"].includes(String(reason)))) {
+      const fills = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.fill&status=eq.done&select=args,result&order=id.asc&limit=40`).catch(() => null)) ?? []
+      const seen = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&tool=in.(read_page,fill)&select=tool,result&order=id.desc&limit=6`).catch(() => null)) ?? []
+      let fields: Json[] = []
+      for (const row of seen) {
+        const pageFields = row?.tool === "read_page" ? row?.result?.fields : row?.result?.page?.fields
+        if (Array.isArray(pageFields)) { fields = pageFields; break }
+      }
+      const prior = ((await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.widget_attempts&select=id`).catch(() => null)) ?? []).length
+      const guard = widgetAttemptGuard({ stage, reason: reason ? String(reason) : null, message, fields, fills, priorRefusals: prior })
+      if (!guard.accept) {
+        await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "widget_attempts" }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+        return { text: guard.text, error: true }
       }
     }
     // Review with empty required fields is refused — Broods must leave needs_you/stuck instead.
@@ -833,6 +845,33 @@ async function learnApplyLink(env: Env, postingId: string, pageUrl: string): Pro
 
 const SOURCE: Array<[RegExp, string]> = [[/linkedin\./, "LinkedIn"], [/indeed\./, "Indeed"], [/glassdoor\./, "Glassdoor"], [/magnet\.me/, "Magnet.me"], [/academictransfer\./, "AcademicTransfer"]]
 
+/** needs_sponsorship and right_to_work_nl from the saved permit and study status. Empty when the permit does not decide. */
+async function permitFactsForRun(env: Env, run: Json): Promise<PermitWorkFacts> {
+  const prof = (await svc(env, `profiles?user_id=eq.${run.user_id}&select=data`).catch(() => null))?.[0]?.data ?? {}
+  let studyStatus: unknown = null
+  if (studyingFrom(prof.studying, null) === null) {
+    studyStatus = (await svc(env, `application_answers?user_id=eq.${run.user_id}&select=data`).catch(() => null))?.[0]?.data?.study_status
+  }
+  return permitWorkAnswers(typeof prof.permit === "string" ? prof.permit : "", studyingFrom(prof.studying, studyStatus))
+}
+
+/** Earlier tracker rows at this employer. null when the lookup failed (unknown, so the fact is left out). */
+async function appliedToThisEmployer(env: Env, run: Json, job: Json): Promise<Record<string, string>> {
+  const employer = String(job?.employer_display ?? job?.employer ?? "").trim()
+  if (!employer || !run?.user_id) return {}
+  const rows = await svc(env, `applications?user_id=eq.${run.user_id}&select=posting_id,postings(employer,employer_display)&limit=200`).catch(() => null)
+  if (!Array.isArray(rows)) return {}
+  const names: string[] = []
+  for (const row of rows) {
+    if (run.posting_id && row?.posting_id === run.posting_id) continue
+    const post = row?.postings
+    const linked = Array.isArray(post) ? post[0] : post
+    const name = linked?.employer_display || linked?.employer
+    if (name) names.push(String(name))
+  }
+  const answer = appliedBeforeAnswer(names, employer)
+  return answer ? { applied_to_this_employer_before: answer } : {}
+}
 /** What Odds knows about this person and this job, so Broods never asks it: where the job was found, and whether they worked at or applied to this employer. */
 function jobFacts(job: Json, url: string, facts: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {}
@@ -877,7 +916,7 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
     : {
         run_id: run.id,
         job: { title: job?.title ?? null, employer: job?.employer_display ?? job?.employer ?? null, url: run.url },
-        person: { ...facts, ...jobFacts(job, run.url, facts) },
+        person: { ...facts, ...jobFacts(job, run.url, facts), ...(await appliedToThisEmployer(env, run, job)), ...(await permitFactsForRun(env, run)) },
         person_answers: answered,
         has_cover_letter: Boolean(letter),
         ...(run.mode === "copilot" ? { mode: "copilot" } : {}),
