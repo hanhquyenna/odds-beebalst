@@ -34,7 +34,7 @@ const PICK_RULES = `Return one apply_pick as plain text: the bare JSON object {"
 /** Broods' hands: the Odds MCP server, which carries each command to the person's Odds extension and back. */
 export const oddsBrowser = defineMcp({
   name: "odds-browser",
-  url: "https://ukpmpyfcnbhngkgbnkxi.supabase.co/functions/v1/mcp/drive",
+  url: "https://gdavxkaioqlfvfunmtxd.supabase.co/functions/v1/mcp/drive",
   // Listed explicitly: the agent gets exactly these browser tools.
   allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "write_letter", "click", "back", "open_job", "check_email", "open_link", "click_at", "type_text", "press_key", "scroll", "wait", "note_site", "finish"],
 })

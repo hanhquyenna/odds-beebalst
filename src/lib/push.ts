@@ -3,7 +3,7 @@ import type { Session } from "@/lib/auth"
 import { ANON_KEY, SUPABASE_URL, currentAccessToken, supabase } from "@/lib/supabase"
 
 /** The public half of the push keys. The private half is an Edge Function secret (VAPID_KEYS). */
-const VAPID_PUBLIC_KEY = "BGfltRiA2P9Sv9kfaONUOAf6i8Af1oh7i4J9rzFm2yoXYhb6I7tFNiHWp5Za_dxrM-EyfM1kNbhj7JUMTIyZb7o"
+const VAPID_PUBLIC_KEY = "BDrsOKxgeeqrFawUaofzRWZDTgY698db0yJRRjBNO3N63VTF3eBFNnCA-y-DKGVYl2RV1XbPKhITQ-8h7OdJm_k"
 
 export type Platform = "ios" | "android" | "desktop"
 

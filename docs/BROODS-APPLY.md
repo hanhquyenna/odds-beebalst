@@ -54,7 +54,7 @@ bunx broods deploy --project odds-apply
 
 bunx supabase login
 sh scripts/set-apply-broods-secrets.sh
-bunx supabase functions deploy apply-agent --project-ref ukpmpyfcnbhngkgbnkxi --use-api
+bunx supabase functions deploy apply-agent --project-ref gdavxkaioqlfvfunmtxd --use-api
 ```
 
 Definitions: [`broods/index.ts`](../broods/index.ts).  

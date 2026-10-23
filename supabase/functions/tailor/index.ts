@@ -3,7 +3,7 @@
 // they do not contain. Nothing is saved here: the app shows the draft, the person accepts or edits it, and the app saves it as a new document on that job.
 //   POST /tailor/draft  { kind: "cv" | "cover_letter", job: { title, employer }, document_id?, letter_id?, wanted: [{ name, label, tier, pattern }], facts }
 // The model is called the way apply-agent calls its own (index.ts there): OPENAI_API_KEY first, else ANTHROPIC_API_KEY; TAILOR_MODEL overrides the model.
-// Deploy:  supabase functions deploy tailor --project-ref ukpmpyfcnbhngkgbnkxi --use-api   (config.toml: verify_jwt = false, the sign-in is checked here)
+// Deploy:  supabase functions deploy tailor --project-ref gdavxkaioqlfvfunmtxd --use-api   (config.toml: verify_jwt = false, the sign-in is checked here)
 import { reply, serveRoutes, userFromRequest } from "../_shared/http.ts"
 import { CV_SYSTEM, LETTER_SYSTEM, analyse, assemble, checkLetter, cvUser, jsonOf, leaks, letterChanges, letterUser, mentions, type Ctx, type Facts, type Tailored, type Tier, type Wanted } from "../_shared/tailor-cv.ts"
 

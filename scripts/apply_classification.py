@@ -7,7 +7,7 @@ industry.json: {"<employer key>": "<one of the 23 industries>"}          for emp
 Only empty values are filled; nothing already set is changed. Prints what is still unnamed, so the list is never silently short."""
 import json, os, sys, urllib.request
 
-PAT = os.environ["SUPABASE_ACCESS_TOKEN"]; REF = "ukpmpyfcnbhngkgbnkxi"
+PAT = os.environ["SUPABASE_ACCESS_TOKEN"]; REF = "gdavxkaioqlfvfunmtxd"
 arg = lambda f: json.load(open(sys.argv[sys.argv.index(f) + 1])) if f in sys.argv else {}
 plan = json.load(open(sys.argv[1])); fam_by_hand = arg("--family"); ind_by_hand = arg("--industry")
 q = lambda s: "$q$" + s + "$q$"

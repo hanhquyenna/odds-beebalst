@@ -12,7 +12,7 @@ with source 'wikidata' (worldwide, as the company reports it; never compared wit
 import json, os, re, sys, time, urllib.parse, urllib.request
 
 PAT = os.environ["SUPABASE_ACCESS_TOKEN"]
-REF = "ukpmpyfcnbhngkgbnkxi"
+REF = "gdavxkaioqlfvfunmtxd"
 WRITE = "--write" in sys.argv
 DAYS = int(sys.argv[sys.argv.index("--days") + 1]) if "--days" in sys.argv else 30
 UA = {"User-Agent": "odds-research/0.3 (company facts for a student job app; https://github.com/hanhquyenna/odds-beebalst)"}

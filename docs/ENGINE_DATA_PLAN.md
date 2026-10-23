@@ -28,12 +28,12 @@ reports, not training data.
   (AUC / slope per dataset), `parts.jsonl` (34,549 rows of engine parts + outcome).
 - After changing anything `supabase/functions/mcp/core.src.ts` imports (engine, odds-v2, filters...): run
   `sh scripts/build-mcp-core.sh`, commit `supabase/functions/mcp/core.js`, deploy:
-  `supabase functions deploy mcp --project-ref ukpmpyfcnbhngkgbnkxi --use-api`.
+  `supabase functions deploy mcp --project-ref gdavxkaioqlfvfunmtxd --use-api`.
 - Checks before every commit: `bun run check` (tsc, lint, knip, tests) and `bun run e2e` (landing budget 310 kB, now ~308).
 - Research report: `reports/Applicant count projection.md` (accumulation curve, LinkedIn count meaning, pools, shortlisting,
   scraping/legal). Notes in `research_notes/Applicant count projection/`.
 - Supabase SQL from this machine: the CLI's direct DB is IPv6-only here; use the Management API with
-  `SUPABASE_ACCESS_TOKEN` from `.env.secrets` (`set -a; . ./.env.secrets; set +a`), POST `/v1/projects/ukpmpyfcnbhngkgbnkxi/database/query`.
+  `SUPABASE_ACCESS_TOKEN` from `.env.secrets` (`set -a; . ./.env.secrets; set +a`), POST `/v1/projects/gdavxkaioqlfvfunmtxd/database/query`.
   Dates: use `postings.posted_on` (parsed date), not `posted_at` (free text).
 
 ## Steps

@@ -29,7 +29,7 @@ const PAT = process.env.SUPABASE_ACCESS_TOKEN
 if (!PAT) throw new Error("Set SUPABASE_ACCESS_TOKEN (.env.secrets)")
 async function sql<T>(query: string): Promise<T[]> {
   for (let i = 0; i < 6; i++) {
-    const r = await fetch("https://api.supabase.com/v1/projects/ukpmpyfcnbhngkgbnkxi/database/query", { method: "POST", headers: { Authorization: `Bearer ${PAT}`, "Content-Type": "application/json" }, body: JSON.stringify({ query }) })
+    const r = await fetch("https://api.supabase.com/v1/projects/gdavxkaioqlfvfunmtxd/database/query", { method: "POST", headers: { Authorization: `Bearer ${PAT}`, "Content-Type": "application/json" }, body: JSON.stringify({ query }) })
     if (r.ok) return (await r.json()) as T[]
     if (r.status === 429 || r.status >= 500) { await new Promise((x) => setTimeout(x, 2000 * 2 ** i)); continue }
     throw new Error(`${r.status} ${await r.text()}`)

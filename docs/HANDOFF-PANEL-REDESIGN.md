@@ -41,7 +41,7 @@ Agent tools: read_page, click, click_at, fill, options, type_text, press_key, sc
 2. On-page badge row/card and notifications in the extension (`apply-any.js`, `apply.js` for LinkedIn).
 3. Stop filling (cancel command), Edit for saved answers, people-list button, then Tailor.
 Extension release: bump `extension/manifest.json` (now 0.15.87), `bash scripts/build-extension.sh`, `rsync -a --delete extension/ ~/Downloads/odds-extension/` and re-apply the three localhost:5173 dev-preview edits (panel-frame.js ODDS const, panel.html iframe src, manifest content_scripts match for `http://localhost:5173/*`).
-Deploy MCP: `bunx supabase functions deploy mcp --project-ref ukpmpyfcnbhngkgbnkxi --use-api` (check `bun build --no-bundle supabase/functions/mcp/drive.ts` first). Broods: `bun ./node_modules/.bin/broods deploy --project odds-apply`.
+Deploy MCP: `bunx supabase functions deploy mcp --project-ref gdavxkaioqlfvfunmtxd --use-api` (check `bun build --no-bundle supabase/functions/mcp/drive.ts` first). Broods: `bun ./node_modules/.bin/broods deploy --project odds-apply`.
 
 ## Build progress (updated)
 - Round 13 (49 jobs) finished: 44 scored, ended right 79% (was 83%), reached review 36% (was 37%): no gain. Failures: PwC date/university boxes, Picnic graduation selector, IMC (two Greenhouse forms: market-news answer, study year), Eurofins (Indeed sign-in only), Homerun yes/no labels, Catawiki (test browser closed).

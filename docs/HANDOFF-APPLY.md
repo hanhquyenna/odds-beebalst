@@ -50,7 +50,7 @@ The extension's rules file `extension/job-sites.js` is **built**, not edited: ru
 
 ## 3. Data and database
 
-Project ref: `ukpmpyfcnbhngkgbnkxi` (public; also in `docs/DEPLOY.md`). The app's public URL and anon key are in `.env.local`.
+Project ref: `gdavxkaioqlfvfunmtxd` (public; also in `docs/DEPLOY.md`). The app's public URL and anon key are in `.env.local`.
 
 Tables used by applying (all rows are per user, protected by row-level security):
 - `application_answers`: one row, `data` jsonb of the standard answers (the keys in `ANSWER_KEYS`).
@@ -69,7 +69,7 @@ plus `job_source`, `applied_before`, `adult`, `never_worked_here`. School, degre
 are **derived from the CV's parsed profile**, so the person is not asked for them.
 
 ### Migrations that matter and may not be applied in production
-Check with `supabase migration list --project-ref ukpmpyfcnbhngkgbnkxi` before assuming:
+Check with `supabase migration list --project-ref gdavxkaioqlfvfunmtxd` before assuming:
 `20261014100000_application_questions`, `20261014114440_remote_application_queue`, `20261014213316_claude_desktop_application`,
 `20261014223000_parallel_application_tabs`, `20261014234000_application_question_handoff`, `20261014235247_application_continue`.
 `20261015064739_outreach_relationship_evidence` belongs to another workstream (people), see section 10.
@@ -81,12 +81,12 @@ Without them the phone queue and the question handoff show errors or empty state
 - `.env.secrets` (gitignored; template `.env.secrets.example`): `SUPABASE_ACCESS_TOKEN` (CLI deploys and migrations), `SUPABASE_SERVICE_ROLE_KEY`, `APIFY_TOKEN`.
   **Never print, log or commit these.** The owner once pasted an Apify token into a chat: it should be rotated.
 - Planned for the AI layer (do not exist yet): `ODDS_AGENT_URL` and `ODDS_AGENT_KEY`, set as Supabase function secrets
-  (`supabase secrets set ... --project-ref ukpmpyfcnbhngkgbnkxi`), never in the extension or the repository.
+  (`supabase secrets set ... --project-ref gdavxkaioqlfvfunmtxd`), never in the extension or the repository.
 
 ## 5. Deploy
 
 - **Web app**: pushing to `main` runs `.github/workflows/deploy-odds.yaml` (S3 + CloudFront) when `src/`, `public/`, `index.html` or build files change. CI is `ci.yml`, CodeQL runs too.
-- **Edge functions**: not part of that workflow. `supabase functions deploy <name> --project-ref ukpmpyfcnbhngkgbnkxi --use-api` (see `docs/DEPLOY.md`).
+- **Edge functions**: not part of that workflow. `supabase functions deploy <name> --project-ref gdavxkaioqlfvfunmtxd --use-api` (see `docs/DEPLOY.md`).
 - **Migrations**: `supabase db push` (14-digit versions; two files with one version break it).
 - **Extension**: not published. The owner loads it unpacked from `~/Downloads/odds-extension`. After changing `extension/`, run
   `rsync -a --delete extension/ ~/Downloads/odds-extension/` and the owner presses reload on the card in `chrome://extensions`, then reloads the tabs.

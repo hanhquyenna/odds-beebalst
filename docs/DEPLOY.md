@@ -16,14 +16,14 @@ For whoever deploys odds. State on 5 Oct 2026. CI: `.github/workflows/ci.yml` (t
 - The site must be on **https** at a **fixed address**: iPhones only install and notify from https, and every phone's
   notification registration is tied to the address it was made on.
 
-## 2. Supabase (project `ukpmpyfcnbhngkgbnkxi`)
+## 2. Supabase (project `gdavxkaioqlfvfunmtxd`)
 
 Everything below is already live. CI only has to keep it that way.
 
 - **Edge Functions**: three, each routing by sub-path (see its `index.ts`):
   `account` (`/account/shoo`, `/account` with `{ action }`), `profile` (`/profile/import`, `/profile/read`) and `jobs`
   (`/jobs/add`, `/jobs/check`, `/jobs/check-public`, `/jobs/morning`, `/jobs/welcome`, `/jobs/people`).
-  Deploy with `supabase functions deploy <name> --project-ref ukpmpyfcnbhngkgbnkxi --use-api`.
+  Deploy with `supabase functions deploy <name> --project-ref gdavxkaioqlfvfunmtxd --use-api`.
   `supabase/config.toml` sets which functions are open (`verify_jwt = false`) and which need a signed-in user; the
   CLI reads it, so do not add `--no-verify-jwt` by hand and do not drop that file. If `account` or `jobs`
   ever require a sign-in, QR codes, guest accounts, the hourly checks and the morning message stop working.
@@ -45,7 +45,7 @@ Sign-in is Google only, through Shoo (`src/lib/shoo.ts`, `src/components/ShooCal
 Supabase session by the `account` function (`/account/shoo`) so every row-level policy keeps working.
 
 - To switch it on: set the secret `SHOO_APP_ORIGINS` to the site's origin(s), comma-separated
-  (`supabase secrets set SHOO_APP_ORIGINS=https://your-domain --project-ref ukpmpyfcnbhngkgbnkxi`), then deploy
+  (`supabase secrets set SHOO_APP_ORIGINS=https://your-domain --project-ref gdavxkaioqlfvfunmtxd`), then deploy
   `account`. `config.toml` keeps `account` callable before sign-in (it checks the Shoo token itself).
 - In Supabase, Authentication, URL Configuration: set Site URL to the production address and add it (with `/**`) to
   Redirect URLs. Today the Site URL is `http://localhost:3000`.

@@ -113,7 +113,7 @@ async function pointLatestBroods() {
     // The drive server describes screenshots through 9router itself (Broods passes no image to the model): it needs the new address too.
     const token = supabaseToken()
     if (token) {
-      const sec = Bun.spawn([BUN, "x", "supabase", "secrets", "set", `NINE_ROUTER_BASE_URL=${base}`, "--project-ref", "ukpmpyfcnbhngkgbnkxi"], { cwd: REPO, env: { ...process.env, SUPABASE_ACCESS_TOKEN: token }, stdout: "inherit", stderr: "inherit" })
+      const sec = Bun.spawn([BUN, "x", "supabase", "secrets", "set", `NINE_ROUTER_BASE_URL=${base}`, "--project-ref", "gdavxkaioqlfvfunmtxd"], { cwd: REPO, env: { ...process.env, SUPABASE_ACCESS_TOKEN: token }, stdout: "inherit", stderr: "inherit" })
       if ((await sec.exited) !== 0) log("supabase secrets set failed: sight stays on the old address until the next change")
     } else log("no SUPABASE_ACCESS_TOKEN in .env.secrets: sight keeps the old address")
     writeFileSync(SAVED, base)

@@ -1,7 +1,7 @@
 // Edge Function `apply-agent`: sync HTTPS endpoint Odds calls via APPLY_AGENT_WEBHOOK_URL.
 // Ladder: extension rules and recoverFill, then Broods odds-apply (cx/gpt-6-luna: apply-stuck, then apply-roam), then a person.
 // No OpenAI or Anthropic call on apply, fill, or answer decisions. Lifecycle pings never call a model.
-// Deploy: supabase functions deploy apply-agent --project-ref ukpmpyfcnbhngkgbnkxi --use-api
+// Deploy: supabase functions deploy apply-agent --project-ref gdavxkaioqlfvfunmtxd --use-api
 // Secrets: APPLY_AGENT_WEBHOOK_SECRET;
 // optional APPLY_AGENT_FORWARD_URL (+ APPLY_AGENT_FORWARD_SECRET) for async Broods logging.
 // Broods: APPLY_AGENT_BROODS_API_KEY + APPLY_AGENT_BROODS_AGENT_ID (stuck) + optional ROAM_AGENT_ID
