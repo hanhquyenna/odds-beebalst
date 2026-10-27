@@ -2,7 +2,7 @@
 
 Jobs for international students in the Netherlands, and an AI agent that applies for them in your own Chrome.
 
-This repository is the rebuild. It starts from the parts that live in integrations and are kept as they are:
+This repository is being rebuilt. The tree now starts from the parts that live in integrations and are kept as they are:
 
 - **Google sign-in** through Shoo: `src/lib/shoo.ts`, `src/components/SignIn.tsx`, and the Supabase bridge `supabase/functions/account/shoo.ts`
 - **CI/CD**: `.github/workflows/` (checks on every push, web deploy to https://odds.beeblast.co, edge functions deploy)
