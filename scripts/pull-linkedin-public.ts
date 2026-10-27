@@ -14,7 +14,7 @@ const env = await Bun.file(new URL("../.env.local", import.meta.url)).text()
 const BASE = env.match(/VITE_SUPABASE_URL=(.*)/)?.[1]?.trim()
 const ANON = env.match(/VITE_SUPABASE_(?:ANON|PUBLISHABLE)\w*=(.*)/)?.[1]?.trim()
 const PAT = process.env.SUPABASE_ACCESS_TOKEN
-const REF = "ukpmpyfcnbhngkgbnkxi"
+const REF = "gdavxkaioqlfvfunmtxd"
 const arg = (name: string, fallback: string): string => {
   const i = process.argv.indexOf(name)
 

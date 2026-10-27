@@ -22,7 +22,7 @@ Code: `supabase/functions/drive/`, `supabase/functions/_shared/drive.ts`, `src/l
    non-sensitive; `gmail.send` is restricted — Google may ask for a security assessment before anyone outside test users
    can connect. Until then, keep the app in testing and add each person as a test user.
 6. **Clients → Create client** → Web application.
-   - Authorised redirect URI: `https://ukpmpyfcnbhngkgbnkxi.supabase.co/functions/v1/drive/callback`
+   - Authorised redirect URI: `https://gdavxkaioqlfvfunmtxd.supabase.co/functions/v1/drive/callback`
 7. Copy the client ID and secret.
 8. When it works: **Audience → Publish app**, so anyone can connect (not only test users).
 
@@ -31,15 +31,15 @@ Code: `supabase/functions/drive/`, `supabase/functions/_shared/drive.ts`, `src/l
 Set the two secrets yourself (never paste them in chat or commit them):
 
 ```bash
-supabase secrets set GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... --project-ref ukpmpyfcnbhngkgbnkxi
+supabase secrets set GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... --project-ref gdavxkaioqlfvfunmtxd
 ```
 
 `SHOO_APP_ORIGINS` is already set; it also decides which sites Google may send people back to (plus localhost).
 
 ```bash
 supabase db push
-supabase functions deploy drive --project-ref ukpmpyfcnbhngkgbnkxi --use-api
-supabase functions deploy mcp --project-ref ukpmpyfcnbhngkgbnkxi --use-api
+supabase functions deploy drive --project-ref gdavxkaioqlfvfunmtxd --use-api
+supabase functions deploy mcp --project-ref gdavxkaioqlfvfunmtxd --use-api
 ```
 
 Until the secrets are set, Connect answers "Google Drive is not switched on yet." Nothing else changes.

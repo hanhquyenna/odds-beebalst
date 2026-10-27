@@ -1,7 +1,7 @@
 /** Shared by find-people.ts and find-past-hires.ts: the database call and the fixed rules for "same company" and "in the Netherlands". */
 
 const PAT = process.env.SUPABASE_ACCESS_TOKEN
-const REF = "ukpmpyfcnbhngkgbnkxi"
+const REF = "gdavxkaioqlfvfunmtxd"
 
 export async function sql<T = Record<string, any>>(query: string): Promise<T[]> {
   for (let i = 0; i < 8; i++) {

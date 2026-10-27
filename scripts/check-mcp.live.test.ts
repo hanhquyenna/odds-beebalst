@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test"
 import * as PDFLib from "pdf-lib"
 
 const LIVE = process.env.LIVE_MCP === "1"
-const REF = "ukpmpyfcnbhngkgbnkxi"
+const REF = "gdavxkaioqlfvfunmtxd"
 const URL_ = `https://${REF}.supabase.co`
 const REMOTE = process.env.MCP_URL
 

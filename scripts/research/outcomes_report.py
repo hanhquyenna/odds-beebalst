@@ -20,7 +20,7 @@ def load_rows():
     if len(sys.argv) > 1:
         return json.load(open(sys.argv[1]))
     sql = "select chance, outcome, model, snapshot from public.chance_snapshots where outcome is not null"
-    out = subprocess.run(["supabase", "db", "query", "--linked", "--project-ref", "ukpmpyfcnbhngkgbnkxi", "-o", "json", sql], capture_output=True, text=True)
+    out = subprocess.run(["supabase", "db", "query", "--linked", "--project-ref", "gdavxkaioqlfvfunmtxd", "-o", "json", sql], capture_output=True, text=True)
     raw = out.stdout
     return json.JSONDecoder().raw_decode(raw[raw.find("{"):])[0]["rows"]
 

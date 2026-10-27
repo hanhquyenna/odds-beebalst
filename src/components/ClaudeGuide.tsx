@@ -18,7 +18,7 @@ import type { Posting } from "@/lib/types"
  * The page walks through it in three steps with the person's own CVs and saved jobs: pick a CV, pick a job, copy the message.
  */
 
-const MCP_URL = "https://ukpmpyfcnbhngkgbnkxi.supabase.co/functions/v1/mcp"
+const MCP_URL = "https://gdavxkaioqlfvfunmtxd.supabase.co/functions/v1/mcp"
 const CLAUDE_CONNECTORS = "https://claude.ai/settings/connectors"
 
 const card = "rounded-xl border-[1.5px] bg-card"

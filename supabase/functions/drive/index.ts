@@ -7,7 +7,7 @@
 //   POST /drive/trash       { id }  puts the Drive file in the Drive bin (before the document row is deleted)
 //   POST /drive/disconnect  brings the files back into the bucket, then lets go of Drive
 //   GET  /drive/check       whether Google's client id and secret are a working pair (never shows them)
-// Deploy:  supabase functions deploy drive --project-ref ukpmpyfcnbhngkgbnkxi --use-api   (config.toml: verify_jwt = false,
+// Deploy:  supabase functions deploy drive --project-ref gdavxkaioqlfvfunmtxd --use-api   (config.toml: verify_jwt = false,
 // because Google's redirect carries no sign-in; every other route checks it here.)
 // Secrets: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET; SHOO_APP_ORIGINS (the sites the browser may be sent back to).
 import { reply, serveRoutes, userFromRequest, type AuthUser } from "../_shared/http.ts"

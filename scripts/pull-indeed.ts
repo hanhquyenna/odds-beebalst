@@ -17,7 +17,7 @@ const env = await Bun.file(new URL("../.env.local", import.meta.url)).text()
 const BASE = env.match(/VITE_SUPABASE_URL=(.*)/)?.[1]?.trim()
 const ANON = env.match(/VITE_SUPABASE_(?:ANON|PUBLISHABLE)\w*=(.*)/)?.[1]?.trim()
 const PAT = process.env.SUPABASE_ACCESS_TOKEN
-const REF = "ukpmpyfcnbhngkgbnkxi"
+const REF = "gdavxkaioqlfvfunmtxd"
 const [mode, file] = process.argv.slice(2)
 const dry = process.argv.includes("--dry")
 if (!BASE || !ANON || !file || !["new", "add"].includes(mode)) throw new Error("Usage: bun scripts/pull-indeed.ts new|add <file.json> [--dry]")

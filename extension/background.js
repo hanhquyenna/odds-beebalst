@@ -1,7 +1,7 @@
 // The odds extension's background worker: the only part that talks to odds. Pages and the popup ask it; it holds the key.
 // job-sites.js: which addresses are jobs, by the rules the server uses (built from supabase/functions/_shared/job-sites.ts).
 importScripts("job-sites.js")
-const API = "https://ukpmpyfcnbhngkgbnkxi.supabase.co/functions/v1/mcp"
+const API = "https://gdavxkaioqlfvfunmtxd.supabase.co/functions/v1/mcp"
 // The tests point the extension at a local fake of odds; nothing else may change where it sends the key.
 async function apiBase() {
   const { oddsApi } = await chrome.storage.local.get("oddsApi")

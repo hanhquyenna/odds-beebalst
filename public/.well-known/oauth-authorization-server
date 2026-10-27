@@ -1,8 +1,8 @@
 {
   "issuer": "https://odds.beeblast.co",
   "authorization_endpoint": "https://odds.beeblast.co/connect/claude",
-  "token_endpoint": "https://ukpmpyfcnbhngkgbnkxi.supabase.co/functions/v1/mcp/oauth/token",
-  "registration_endpoint": "https://ukpmpyfcnbhngkgbnkxi.supabase.co/functions/v1/mcp/oauth/register",
+  "token_endpoint": "https://gdavxkaioqlfvfunmtxd.supabase.co/functions/v1/mcp/oauth/token",
+  "registration_endpoint": "https://gdavxkaioqlfvfunmtxd.supabase.co/functions/v1/mcp/oauth/register",
   "response_types_supported": ["code"],
   "grant_types_supported": ["authorization_code"],
   "code_challenge_methods_supported": ["S256"],

@@ -21,7 +21,7 @@ Page opens (the employer's own form when Odds knows it: posting_apply_links)
 - Agent: Broods project `odds-apply`, file `broods/index.ts` (DRIVE_RULES). Model **cx/gpt-6-luna** through 9router
   (`modelId: process.env.ODDS_APPLY_MODEL || "cx/gpt-6-luna"`). Deploy: `bunx broods deploy --project odds-apply`.
 - Hands: MCP server `supabase/functions/mcp/drive.ts` (tools, finish rules, guards). Deploy:
-  `supabase functions deploy mcp --project-ref ukpmpyfcnbhngkgbnkxi --use-api`. **Check it parses first**: `bun build --no-bundle supabase/functions/mcp/drive.ts`
+  `supabase functions deploy mcp --project-ref gdavxkaioqlfvfunmtxd --use-api`. **Check it parses first**: `bun build --no-bundle supabase/functions/mcp/drive.ts`
   (a quote inside a tool description once broke a deploy silently).
 - Extension: `extension/` (apply-any.js = employer forms, background.js, apply.js = LinkedIn Easy Apply). Version 0.15.76.
   Sync for the owner: `rsync -a --delete extension/ ~/Downloads/odds-extension/` (they press reload in chrome://extensions).

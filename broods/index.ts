@@ -15,14 +15,14 @@ export default defineBroods({
 /** Broods' hands and eyes: the Odds MCP server, which carries each command to the person's Odds extension and back. */
 export const browser = defineMcp({
   name: "browser",
-  url: "https://ukpmpyfcnbhngkgbnkxi.supabase.co/functions/v1/mcp/browser",
+  url: "https://gdavxkaioqlfvfunmtxd.supabase.co/functions/v1/mcp/browser",
   allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "write_letter", "click", "back", "open_job", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll", "wait", "note_site", "finish"],
 })
 
 /** Broods' memory of the person: their profile, documents and standard answers, for the person who owns the run and nobody else. */
 export const supabase = defineMcp({
   name: "supabase",
-  url: "https://ukpmpyfcnbhngkgbnkxi.supabase.co/functions/v1/mcp/supabase",
+  url: "https://gdavxkaioqlfvfunmtxd.supabase.co/functions/v1/mcp/supabase",
   allowedTools: ["my_profile", "my_documents", "read_document", "my_application_answers", "save_application_answers"],
 })
 

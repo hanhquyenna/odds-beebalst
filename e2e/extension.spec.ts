@@ -221,7 +221,7 @@ async function startRealBroods(runId: string, url: string, title: string, person
 
 }
 // The bridge reads and writes the drive tables over PostgREST (fast); the key comes from a private file named in REAL_SR_KEY_FILE, never the repo.
-const REST = "https://ukpmpyfcnbhngkgbnkxi.supabase.co/rest/v1"
+const REST = "https://gdavxkaioqlfvfunmtxd.supabase.co/rest/v1"
 const restKey = (): string => (process.env.REAL_SR_KEY || readFileSync(String(process.env.REAL_SR_KEY_FILE), "utf8")).trim()
 async function rest(path: string, init: RequestInit = {}): Promise<Array<Record<string, unknown>>> {
   const key = restKey()

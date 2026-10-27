@@ -54,7 +54,7 @@ the full run. Scripts stop on an Apify credit error.
 
 ## Checking coverage
 
-Run the coverage query in `references/coverage.sql` through the Management API (`POST https://api.supabase.com/v1/projects/ukpmpyfcnbhngkgbnkxi/database/query`
+Run the coverage query in `references/coverage.sql` through the Management API (`POST https://api.supabase.com/v1/projects/gdavxkaioqlfvfunmtxd/database/query`
 with `{"query": ...}`); it returns, for the jobs in scope, how many have contacts, recruiters, hiring managers, past hires, reviews,
 revenue, revenue growth, profit, net worth, headcount growth, LinkedIn facts, news and nothing at all.
 

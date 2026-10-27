@@ -5,7 +5,7 @@
 //   POST /jobs/morning              pg_cron: the morning message (morning.ts, MORNING_SECRET)
 //   POST /jobs/welcome              a signed-in person's first message after turning notifications on (morning.ts)
 //   POST /jobs/people               people at a job's employer, for Google accounts only (people.ts)
-// Deploy:  scripts/build-morning-jobs.sh && supabase functions deploy jobs --project-ref ukpmpyfcnbhngkgbnkxi --use-api
+// Deploy:  scripts/build-morning-jobs.sh && supabase functions deploy jobs --project-ref gdavxkaioqlfvfunmtxd --use-api
 // (config.toml: verify_jwt = false; each route checks its own secret or sign-in.)
 import { serveRoutes } from "../_shared/http.ts"
 import { addJob } from "./add.ts"

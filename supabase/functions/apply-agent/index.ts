@@ -2,7 +2,7 @@
 // Cost plan: rules first → shared ATS patterns (mcp) → cheap model only on gaps.
 // Default model: gpt-6-luna (APPLY_AGENT_MODEL). Prefer OpenAI when both keys exist.
 // Tiny prompts, hard token caps, max 8 answer gaps / call. Lifecycle pings never call an LLM.
-// Deploy: supabase functions deploy apply-agent --project-ref ukpmpyfcnbhngkgbnkxi --use-api
+// Deploy: supabase functions deploy apply-agent --project-ref gdavxkaioqlfvfunmtxd --use-api
 // Secrets: APPLY_AGENT_WEBHOOK_SECRET; OPENAI_API_KEY (preferred) or ANTHROPIC_API_KEY; APPLY_AGENT_MODEL;
 // optional APPLY_AGENT_FORWARD_URL (+ APPLY_AGENT_FORWARD_SECRET) for async Broods logging.
 // Broods: APPLY_AGENT_BROODS_API_KEY + ODDS_DRIVE_AGENT_ID (odds-agent, answering in pick mode)
