@@ -1,0 +1,59 @@
+@font-face { font-family: "odds Inter Tight"; src: url("chrome-extension://__MSG_@@extension_id__/fonts/inter-tight.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+/* The size and shape of the site's own Save button beside it (content-job.js fit() sets --odds-h, --odds-r, --odds-fs from it): beside LinkedIn's
+   32px pill a 32px pill, beside Indeed's 44px rounded square a 44px rounded square. Without one, LinkedIn's size. Quiet: odds orange, no strong fill. */
+#odds-add { all: initial; position: relative; box-sizing: border-box; display: inline-flex; flex: none; align-self: center; align-items: center; justify-content: center; min-width: max(54px, var(--odds-h, 32px)); height: var(--odds-h, 32px); padding: 0 max(12px, calc(var(--odds-h, 32px) * .34)); border-radius: var(--odds-r, 8px); background: #fff; color: #161513; border: 1.5px solid #a39d95; font: 600 var(--odds-fs, 14px)/1 "odds Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif; gap: 7px; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; vertical-align: middle; }
+#odds-add[data-where="inline"] { margin-left: var(--odds-gap, 8px); }
+/* Beside buttons stacked as full-width rows: one more row, as wide as they are. */
+/* Odds stays compact under a wide button: the chip and Auto apply sit side by side, never stretched to the site's button. */
+#odds-add[data-where="stack"] { display: inline-flex; width: auto; min-width: 64px; margin-top: var(--odds-mt, 12px); margin-right: 8px; vertical-align: middle; }
+/* No place found next to LinkedIn's own buttons: it floats at the right edge, above LinkedIn's messaging bar. */
+#odds-add[data-where="float"] { position: fixed; right: 24px; bottom: 96px; z-index: 2147483645; background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, .15); }
+#odds-add .odds-mark { font-weight: 800; letter-spacing: -.045em; }
+#odds-add .odds-text { font-weight: 600; }
+/* A longer message sits under the button, so the button itself keeps its size. */
+#odds-add .odds-note { position: absolute; top: calc(100% + 6px); left: 0; z-index: 2147483647; width: max-content; max-width: 260px; padding: 8px 10px; border-radius: 8px; background: #fff; color: #333; border: 1px solid rgba(0, 0, 0, .15); box-shadow: 0 4px 14px rgba(0, 0, 0, .15); font: 400 13px/1.35 "odds Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif; white-space: normal; }
+
+/* The odds panel: a column on the right, the odds app inside. */
+#odds-panel-frame { position: fixed; top: 0; right: 0; z-index: 2147483647; width: 380px; max-width: 94vw; height: 100vh; border: 0; background: #fffdfb; box-shadow: -8px 0 28px rgba(0, 0, 0, .18); transform: translateX(105%); transition: transform .2s ease-out; will-change: transform; }
+#odds-panel-frame[data-open="true"] { transform: none; }
+@media (prefers-reduced-motion: reduce) { #odds-panel-frame { transition: none; } }
+/* A button floating at the edge steps aside while the panel is open. */
+html[data-odds-panel="open"] #odds-add[data-where="float"] { right: 404px; }
+html[data-odds-panel="open"] #odds-auto[data-where="float"] { right: 404px; }
+
+/* A badge beside a job in a list: as tall as the site's own button or chip beside it (24 to 32px), its corners, compact lettering. */
+.odds-job-chance { all: initial; box-sizing: border-box; position: relative; display: inline-flex; flex: none; align-self: center; align-items: center; justify-content: center; min-width: 50px; height: var(--odds-h, 28px); margin: var(--odds-m, 4px 8px 4px 0); padding: 0 10px; border: 1.5px solid #a39d95; border-radius: var(--odds-r, 8px); background: #fff; color: #161513; font: 600 var(--odds-fs, 13px)/1 "odds Inter Tight", system-ui, sans-serif; gap: 6px; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; vertical-align: middle; z-index: 2; transition: background .15s, border-color .15s; }
+
+#odds-add .odds-note { display: none; }
+#odds-add:hover .odds-note, #odds-add:focus-visible .odds-note { display: block; }
+
+/* Applying with odds (apply.js): a line at the top of LinkedIn's Easy Apply form saying what odds filled in and what is left, and the questions
+   left for the person outlined in odds orange. */
+.odds-apply-bar { all: initial; display: block; box-sizing: border-box; margin: 0 0 12px; padding: 10px 14px; border-radius: 10px; background: #fff4e8; color: #934500; border: 1px solid #f4cda7; font: 600 14px/1.35 "odds Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif; }
+.odds-apply-bar[data-state="busy"] { opacity: .85; }
+.odds-apply-bar[data-state="done"] { background: #eefaf3; color: #0a7a3d; border-color: #9fd9b8; }
+.odds-apply-bar[data-state="problem"] { background: #f5f5f5; color: #555; border-color: #ddd; }
+.odds-ask { outline: 2px solid #f2802a; outline-offset: 4px; border-radius: 6px; }
+/* The same line on an employer's own form (apply-any.js), floating at the bottom right of the page. */
+.odds-apply-bar.odds-apply-float { position: fixed; right: 20px; bottom: 20px; z-index: 2147483646; max-width: 340px; margin: 0; box-shadow: 0 6px 24px rgba(0, 0, 0, .16); }
+
+/* A quiet way into the job, not a Save action. Keep the site's hit target and geometry. */
+
+/* One look for the button and the badges, the same as odds' own chips: white, a 1.5px line, ink lettering, a vermilion dot marking the number,
+   the soft orange of a saved job when it is kept. The site's own height and corners (fit() in content-job.js) still apply. */
+#odds-add .odds-text, .odds-job-chance { letter-spacing: -.01em; }
+#odds-add[data-kind="chance"]::before, .odds-job-chance[data-kind="chance"]::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #f37a12; flex: none; }
+#odds-add:hover, .odds-job-chance:hover { background: #f6f2ec; border-color: #161513; }
+#odds-add[data-state="done"] { background: #fbe5d1; }
+#odds-add[data-state="done"]:hover { background: #f7d9bd; }
+#odds-add[data-state="busy"], .odds-job-chance[data-state="busy"] { cursor: progress; color: #6b665f; border-color: #cfc9c1; }
+#odds-add[data-state="problem"], .odds-job-chance[data-state="problem"] { color: #6b665f; border-style: dashed; border-color: #a39d95; background: #fff; }
+.odds-job-chance:focus-visible, #odds-add:focus-visible { outline: 2px solid #f37a12; outline-offset: 2px; }
+#odds-add[data-where="float"] { background: #fff; box-shadow: 0 2px 10px rgba(22, 21, 19, .14); }
+
+/* The chance chip stays quiet: a soft line, no strong fill. The mascot, its bar and the Auto apply pill draw themselves inside shadow roots (mascot.js, content-job.js). */
+#odds-add, .odds-job-chance { border-color: #D9D2C8; color: #1C1A18; }
+
+/* While the Odds panel is open it carries the status and the buttons, so the message bar and Auto apply are not drawn over the page again. The chance chips stay: pressing one opens that job in the panel. */
+html[data-odds-panel="open"] #odds-auto, html[data-odds-panel="open"] .odds-apply-bar, html[data-odds-panel="open"] [data-odds-mascot],
+html[data-odds-panel="side"] #odds-auto, html[data-odds-panel="side"] .odds-apply-bar, html[data-odds-panel="side"] [data-odds-mascot] { display: none !important; }

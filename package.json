@@ -12,7 +12,16 @@
     "check": "tsc -b && bun run lint && knip --no-progress && bun test src",
     "audit": "bun audit --ignore=GHSA-vfj7-8cjw-p6xm",
     "preview": "vite preview",
-    "test": "bun test src"
+    "test": "bun test src",
+    "extension:sync": "rsync -a --delete extension/ \"$HOME/Downloads/odds-extension/\"",
+    "e2e:accept": "bun run extension:sync && (lsof -ti :4319 | xargs kill -9 2>/dev/null || true) && CI=1 bunx playwright test --project=desktop --grep @accept",
+    "e2e:stress": "bun run extension:sync && (lsof -ti :4319 | xargs kill -9 2>/dev/null || true) && CI=1 bunx playwright test --project=desktop --grep @stress",
+    "extension:zip": "cd extension && zip -r ../public/odds-for-chrome.zip . -x '*.DS_Store' -x '*~'",
+    "perf": "bun scripts/check-bundles.mjs",
+    "bench": "bun scripts/bench.ts",
+    "broods:dev": "broods dev",
+    "broods:deploy": "broods deploy",
+    "broods:whoami": "broods whoami"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
@@ -37,6 +46,8 @@
     "oxlint": "^1.81.0",
     "oxlint-tsgolint": "^7.0.2003",
     "typescript": "~6.0.2",
-    "vite": "^8.3.0"
+    "vite": "^8.3.0",
+    "broods": "^0.50.0",
+    "pdf-lib": "^1.17.1"
   }
 }

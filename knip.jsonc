@@ -1,8 +1,25 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
-  "entry": ["src/**/*.test.{ts,tsx}", "supabase/functions/*/index.ts", "scripts/**/*.ts"],
-  "project": ["e2e/**/*.ts", "src/**/*.{ts,tsx,css}", "scripts/**/*.ts", "supabase/functions/**/*.ts"],
+  "entry": [
+    "src/**/*.test.{ts,tsx}",
+    "scripts/**/*.{ts,mjs}",
+    "supabase/functions/*/index.ts",
+    "supabase/functions/jobs/match.src.ts",
+    "supabase/functions/mcp/core.src.ts",
+    // Registered at runtime by src/lib/push.ts.
+    "public/sw.js"
+  ],
+  "project": ["e2e/**/*.ts", "src/**/*.{ts,tsx,css}", "scripts/**/*.{ts,mjs}", "supabase/functions/**/*.ts"],
+  "ignore": [
+    // Vendored shadcn/ui components: kept whole so `shadcn add` updates stay clean.
+    "src/components/ui/**"
+  ],
   "ignoreExportsUsedInFile": true,
-  // Deno specifiers in supabase/functions (npm:jose), resolved by Deno, not package.json.
-  "ignoreDependencies": ["npm"]
+  // The extension's test makes a throwaway certificate for its local copy of the odds site (e2e/extension.spec.ts).
+  "ignoreBinaries": ["openssl"],
+  "ignoreDependencies": [
+    // Deno specifiers in supabase/functions (jsr:@std/..., npm:web-push), resolved by Deno, not package.json.
+    "jsr",
+    "npm"
+  ]
 }

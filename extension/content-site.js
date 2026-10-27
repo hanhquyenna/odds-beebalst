@@ -1,0 +1,72 @@
+// Runs on odds.beeblast.co only. Lets the odds page and the extension find each other, and carries the key from the page to the extension.
+// The page sends the key only after the person is signed in and taps Allow on /connect/extension.
+const KEY_FORMAT = /^oddsx_[0-9a-f]{48}$/
+
+// After the extension is reloaded or updated, a page that was already open keeps this old script: its messages would throw
+// "Extension context invalidated". It then goes quiet (and stops its timer) instead of filling the error list.
+let syncTimer = 0
+function send(message, callback) {
+  if (!chrome.runtime?.id) { if (syncTimer) clearInterval(syncTimer); return false }
+  try { chrome.runtime.sendMessage(message, callback); return true } catch { if (syncTimer) clearInterval(syncTimer); return false }
+}
+
+function announce(type, extra = {}) {
+  window.postMessage({ source: "odds-extension", type, ...extra }, window.location.origin)
+}
+
+function announcePresent() {
+  send({ type: "status" }, (answer) => {
+    if (chrome.runtime.lastError) {
+      announce("present", { linked: false, boards: {} })
+      return
+    }
+    announce("present", {
+      linked: answer?.connected === true,
+      boards: answer?.boards && typeof answer.boards === "object" ? answer.boards : {},
+    })
+  })
+}
+
+window.addEventListener("message", (event) => {
+  if (event.source !== window || event.origin !== window.location.origin) return
+  const data = event.data
+  if (!data || data.source !== "odds-site") return
+  if (data.type === "ping") announcePresent()
+  if (data.type === "prepare-application" && typeof data.url === "string" && /^https:\/\//.test(data.url) && typeof data.requestId === "string") {
+    const reveal = data.reveal === true
+    const postingId = typeof data.postingId === "string" ? data.postingId : null
+    const sent = send({ type: "apply-in-tab", url: data.url, newTab: true, reveal, postingId }, answer => {
+      const error = chrome.runtime.lastError
+      window.postMessage({ source: "odds-extension", type: "application-started", requestId: data.requestId,
+        ok: !error && answer?.ok === true,
+        message: error ? "Odds could not reach Chrome. Reconnect on Connect and try again." : answer?.message,
+      }, location.origin)
+    })
+    if (!sent) window.postMessage({ source: "odds-extension", type: "application-started", requestId: data.requestId, ok: false, message: "Odds was just updated. Reload this page and press Apply with Odds again." }, location.origin)
+  }
+  // The button on the site asking how a job's application is going, the same question the side panel asks.
+  if (data.type === "application-status" && typeof data.url === "string" && /^https:\/\//.test(data.url)) {
+    send({ type: "application-status", url: data.url, postingId: typeof data.postingId === "string" ? data.postingId : null }, answer => {
+      if (chrome.runtime.lastError) return
+      window.postMessage({ source: "odds-extension", type: "application-status", url: data.url, state: answer?.state || null }, location.origin)
+    })
+  }
+  if (data.type === "application-statuses") {
+    send({ type: "application-statuses" }, answer => {
+      if (chrome.runtime.lastError) return
+      window.postMessage({ source: "odds-extension", type: "apply-activity-sync", runs: Array.isArray(answer?.runs) ? answer.runs : [] }, location.origin)
+    })
+  }
+  if (data.type === "key" && typeof data.key === "string" && KEY_FORMAT.test(data.key)) {
+    send({ type: "set-key", key: data.key }, (answer) =>
+      announce(answer?.connected ? "connected" : "failed", { linked: answer?.connected === true }))
+  }
+})
+announcePresent()
+// Keep tracker chips in sync even when job detail (OddsApply) is closed.
+syncTimer = setInterval(() => {
+  send({ type: "application-statuses" }, (answer) => {
+    if (chrome.runtime.lastError || !Array.isArray(answer?.runs)) return
+    window.postMessage({ source: "odds-extension", type: "apply-activity-sync", runs: answer.runs }, location.origin)
+  })
+}, 2000)
