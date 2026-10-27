@@ -1,0 +1,49 @@
+name: Deploy Supabase
+
+# Edge functions and the database baseline for the project named in repository variable SUPABASE_PROJECT_REF.
+# Needs the Actions secret SUPABASE_ACCESS_TOKEN (a personal access token of the account that owns the project).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/**"
+      - ".github/workflows/deploy-supabase.yaml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-supabase
+  cancel-in-progress: false
+
+jobs:
+  functions:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Validate required configuration
+        run: |
+          set -euo pipefail
+          for name in SUPABASE_ACCESS_TOKEN SUPABASE_PROJECT_REF; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing $name (secret or repository variable)"
+              exit 1
+            fi
+          done
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Deploy edge functions
+        run: supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF" --use-api
+      - name: Smoke-test the sign-in bridge
+        run: |
+          set -euo pipefail
+          # No sign-in token: the function must answer (a 4xx from its own check), not 404 or a platform error.
+          code="$(curl -s -o /dev/null -w '%{http_code}' -X POST "https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/account/shoo" -H 'Content-Type: application/json' -d '{}')"
+          case "$code" in 400|401|422) echo "account/shoo answers ($code)";; *) echo "::error::account/shoo answered $code"; exit 1;; esac
