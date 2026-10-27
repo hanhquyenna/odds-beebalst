@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Canal Analytics - Junior Software Engineer</title>
+<style>
+body{font-family:Helvetica,Arial,sans-serif;margin:0;color:#515357;background:#f9f9f9}.content{max-width:760px;margin:0 auto;padding:24px 16px;background:#fff}
+.posting-categories div{display:inline-block;margin-right:12px;font-size:12px;text-transform:uppercase}
+.postings-btn{background:#579eee;color:#fff;border:0;padding:10px 20px;border-radius:3px;cursor:pointer;font:inherit;font-weight:600}
+ul{padding:0}.application-question{list-style:none;margin:16px 0}.application-question>label,.application-question>.q{display:flex;gap:12px}
+.application-label{width:220px;font-weight:600;flex:none}.application-field{flex:1}
+.application-field input:not([type=radio]):not([type=checkbox]),.application-field select,.application-field textarea{width:100%;padding:6px;font:inherit;box-sizing:border-box}
+.application-field li{list-style:none}.required{color:#ff794f;margin-left:2px}
+.dropdown-results{border:1px solid #ccc;margin:0;padding:0;list-style:none;background:#fff}.dropdown-results li{padding:6px;cursor:pointer}.dropdown-results li:hover{background:#eef}
+.err{color:#c00;font-size:12px;margin-left:232px}.char-count{font-size:12px;text-align:right}[hidden]{display:none!important}
+</style></head><body>
+<div class="content">
+<div class="posting-page" id="posting">
+ <div class="posting-headline"><h2>Junior Software Engineer</h2><div class="posting-categories"><div class="location">Amsterdam</div><div class="department">Engineering - Platform</div><div class="commitment">Full-time</div><div class="workplaceTypes">Hybrid</div></div></div>
+ <div class="section-wrapper page-full-width">
+ <div class="section"><p>Canal Analytics helps Dutch water boards predict flooding with sensor data. We are looking for a Junior Software Engineer who wants to learn fast in a small, friendly platform team.</p></div>
+ <div class="section"><h3>What you will do</h3><ul class="posting-requirements plain-list"><li>Build TypeScript and Go services that ingest sensor readings</li><li>Write tests and review code with senior engineers</li><li>Join the on-call rotation after your first three months</li></ul></div>
+ <div class="section"><h3>What we look for</h3><ul class="posting-requirements plain-list"><li>A degree in computer science or similar, or graduating this year</li><li>Good written and spoken English</li><li>A right to work in the Netherlands, or eligibility for a highly skilled migrant permit</li></ul></div>
+ <div class="section last-section-apply"><button type="button" class="postings-btn template-btn-submit" id="apply-link">Apply for this job</button></div></div>
+</div>
+<div class="application-page" id="application" hidden>
+<div class="posting-headline"><h2>Junior Software Engineer</h2><div class="posting-categories"><div class="location">Amsterdam</div><div class="department">Engineering - Platform</div></div></div>
+<form id="application-form" class="application-form" novalidate>
+<div class="section application-form"><h4>Submit your application</h4><ul>
+<li class="application-question resume" data-req><label><div class="application-label lbl">Resume/CV<span class="required">✱</span></div><div class="application-field"><input type="file" id="resume-upload-input" name="resume" accept=".pdf,.doc,.docx,.odt,.rtf,.txt"></div></label></li>
+<li class="application-question" data-req><label><div class="application-label lbl">Full name<span class="required">✱</span></div><div class="application-field"><input name="name" autocomplete="name"></div></label></li>
+<li class="application-question" data-req><label><div class="application-label lbl">Email<span class="required">✱</span></div><div class="application-field"><input type="email" name="email"></div></label></li>
+<li class="application-question" data-req><label><div class="application-label lbl">Phone<span class="required">✱</span></div><div class="application-field"><input type="tel" name="phone"></div></label></li>
+<li class="application-question" data-req><div class="q"><div class="application-label lbl"><label for="location-input">Current location</label><span class="required">✱</span></div><div class="application-field"><input id="location-input" name="location" class="location-input" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="location-results" autocomplete="off" placeholder="Start typing a city"><input type="hidden" name="selectedLocation" class="v"><div class="dropdown-container"><ul class="dropdown-results" id="location-results" role="listbox" hidden></ul></div></div></div></li>
+<li class="application-question"><label><div class="application-label lbl">Current company</div><div class="application-field"><input name="org"></div></label></li>
+</ul></div>
+<div class="section application-form"><h4>Links</h4><ul>
+<li class="application-question"><label><div class="application-label lbl">LinkedIn URL</div><div class="application-field"><input type="url" name="urls[LinkedIn]"></div></label></li>
+<li class="application-question"><label><div class="application-label lbl">GitHub URL</div><div class="application-field"><input type="url" name="urls[GitHub]"></div></label></li>
+</ul></div>
+<div class="section application-form"><h4>Additional questions</h4><ul>
+<li class="application-question custom-question" data-req><div class="q"><div class="application-label lbl">Are you authorized to work in the Netherlands without visa sponsorship?<span class="required">✱</span></div><div class="application-field"><ul data-qa="multiple-choice"><li><label><input type="radio" name="cards[7f1e][field0]" value="Yes"> <span class="application-answer-alternative">Yes</span></label></li><li><label><input type="radio" name="cards[7f1e][field0]" value="No"> <span class="application-answer-alternative">No</span></label></li></ul></div></div></li>
+<li class="application-question custom-question" data-req data-if="cards[7f1e][field0]=No" hidden><label><div class="application-label lbl">Please describe your residence permit or visa situation<span class="required">✱</span></div><div class="application-field"><textarea name="cards[7f1e][field1]" rows="3"></textarea></div></label></li>
+<li class="application-question custom-question" data-req><label><div class="application-label lbl">Earliest start date<span class="required">✱</span></div><div class="application-field"><input type="date" name="cards[7f1e][field2]"></div></label></li>
+<li class="application-question custom-question" data-req><div class="q"><div class="application-label lbl">Which languages can you work in?<span class="required">✱</span></div><div class="application-field"><ul data-qa="checkboxes"><li><label><input type="checkbox" name="cards[7f1e][field3]" value="English"> English</label></li><li><label><input type="checkbox" name="cards[7f1e][field3]" value="Dutch"> Dutch</label></li><li><label><input type="checkbox" name="cards[7f1e][field3]" value="German"> German</label></li><li><label><input type="checkbox" name="cards[7f1e][field3]" value="French"> French</label></li><li><label><input type="checkbox" name="cards[7f1e][field3]" value="Spanish"> Spanish</label></li></ul></div></div></li>
+<li class="application-question custom-question" data-req><label><div class="application-label lbl">English proficiency<span class="required">✱</span></div><div class="application-field"><select name="cards[7f1e][field4]"><option value="">Select...</option><option>Native or bilingual</option><option>Full professional (C1-C2)</option><option>Professional working (B2)</option><option>Limited working (B1 or below)</option></select></div></label></li>
+<li class="application-question custom-question" data-req><label><div class="application-label lbl">Why Canal Analytics? (max 500 characters)<span class="required">✱</span></div><div class="application-field"><textarea id="motivation" name="cards[7f1e][field5]" rows="5" maxlength="500"></textarea><div class="char-count"><span id="motivation-count">0</span>/500</div></div></label></li>
+</ul></div>
+<div class="section application-form"><h4>Diversity survey (optional)</h4><ul>
+<li class="application-question"><label><div class="application-label lbl">Gender</div><div class="application-field"><select name="surveysResponses[gender]"><option value="">Select...</option><option>Man</option><option>Woman</option><option>Non-binary</option><option>Prefer not to say</option></select></div></label></li>
+</ul></div>
+<div class="section application-form"><h4>Additional information</h4><ul>
+<li class="application-question"><label><div class="application-label lbl">Anything else you want to share</div><div class="application-field"><textarea name="comments" rows="3"></textarea></div></label></li>
+<li class="application-question" data-req><label><input type="checkbox" name="consent[store]"> I agree to the Canal Analytics privacy notice and the processing of my personal data<span class="required">✱</span></label></li>
+</ul></div>
+<button type="submit" class="postings-btn template-btn-submit" id="btn-submit">Submit application</button>
+</form></div></div>
+<script>
+window.sent=0
+const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)]
+const vis=e=>!!e&&e.getClientRects().length>0
+const fire=e=>e.dispatchEvent(new Event('change',{bubbles:true}))
+function isEmpty(q){const h=$$('.v',q),c=h.length?h:$$('input,select,textarea',q),b=c.filter(x=>x.type==='radio'||x.type==='checkbox');if(b.length)return!b.some(x=>x.checked);const f=c.find(x=>x.type==='file');if(f)return!f.files.length;return c.some(x=>!x.value.trim())}
+const lbl=q=>(q.dataset.label||($('.lbl',q)||$('label,legend',q)).textContent).replace(/[*✱]/g,'').replace(/\s+/g,' ').trim()
+const reqs=()=>$$('[data-req]').filter(vis)
+function val(n){const e=$$(`[name="${n}"]`),b=e.filter(x=>x.type==='radio'||x.type==='checkbox');return b.length?(b.find(x=>x.checked)||{}).value||'':(e[0]||{}).value||''}
+function refresh(){for(const el of $$('[data-if]')){const[n,v]=el.dataset.if.split('=');el.hidden=val(n)!==v}}
+function onChange(e){refresh();const q=e.target.closest&&e.target.closest('[data-req]');if(q&&!isEmpty(q))$('.err',q)?.remove()}
+document.addEventListener('input',onChange,true);document.addEventListener('change',onChange,true)
+
+const CITIES=['Amsterdam, North Holland, Netherlands','Amstelveen, Netherlands','Almere, Flevoland, Netherlands','Rotterdam, South Holland, Netherlands','Utrecht, Netherlands','Delft, Netherlands','Leiden, Netherlands','Eindhoven, Netherlands','Nijmegen, Netherlands','Maastricht, Netherlands','Brussels, Belgium','Cologne, Germany']
+const loc=$('#location-input'),res=$('#location-results'),locH=$('[name=selectedLocation]')
+loc.addEventListener('input',()=>{locH.value='';fire(locH);res.innerHTML='';const t=loc.value.trim().toLowerCase();const m=t.length<2?[]:CITIES.filter(c=>c.toLowerCase().includes(t))
+ for(const c of m){const li=document.createElement('li');li.setAttribute('role','option');li.className='dropdown-location';li.textContent=c;li.addEventListener('click',()=>{loc.value=c;locH.value=c;res.hidden=true;loc.setAttribute('aria-expanded','false');fire(locH)});res.append(li)}
+ if(t.length>=2&&!m.length){const li=document.createElement('li');li.className='dropdown-no-results';li.textContent='No location found. Try entering a different location';res.append(li)}
+ res.hidden=t.length<2;loc.setAttribute('aria-expanded',String(m.length>0))})
+$('#motivation').addEventListener('input',e=>{$('#motivation-count').textContent=e.target.value.length})
+$('#apply-link').addEventListener('click',()=>{$('#posting').hidden=true;$('#application').hidden=false})
+$('#application-form').addEventListener('submit',e=>{e.preventDefault();window.sent=(window.sent||0)+1})
+window.mockStatus=()=>({platform:'lever',step:$('#application').hidden?'Job description':'Application',final:vis($('#btn-submit')),required_empty:reqs().filter(isEmpty).map(lbl),sent:window.sent||0})
+</script>
+</body></html>

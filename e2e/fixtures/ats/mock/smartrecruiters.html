@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Junior QA Engineer - Tulip Robotics</title>
+<style>
+body{font-family:'Open Sans',Arial,sans-serif;margin:0;color:#2d2d2d}main{max-width:720px;margin:0 auto;padding:20px 16px}
+.c-spl-button{background:#0056d6;color:#fff;border:0;padding:10px 22px;border-radius:4px;cursor:pointer;font:inherit}.c-spl-button.secondary{background:#fff;color:#0056d6;border:1px solid #0056d6}
+.onetrust-pc-dark-filter{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10}
+#onetrust-banner-sdk{position:fixed;left:0;right:0;bottom:0;background:#fff;padding:20px;z-index:11;box-shadow:0 -2px 8px rgba(0,0,0,.2)}
+#onetrust-banner-sdk button{font:inherit;padding:8px 16px;cursor:pointer}.steps{font-size:13px;color:#666}[hidden]{display:none!important}
+</style></head><body>
+<div id="onetrust-consent-sdk"><div class="onetrust-pc-dark-filter"></div><div id="onetrust-banner-sdk" role="dialog" aria-modal="true" aria-label="Cookie consent"><p id="onetrust-policy-text">We use cookies to run this careers site and, with your permission, to measure how it is used. You can change your choice at any time.</p><button type="button" id="onetrust-reject-all-handler">Reject non-essential</button> <button type="button" id="onetrust-accept-btn-handler">Accept all</button></div></div>
+<main>
+<header class="job-header"><h1 class="job-title">Junior QA Engineer</h1><p class="job-details">Tulip Robotics - Eindhoven, North Brabant, Netherlands - Internship</p></header>
+<oc-oneclick-form>
+<p class="steps" id="stepper"></p>
+<section data-step="Personal information">
+<h2>Personal information</h2>
+<spl-input name="firstName" label="First name" required></spl-input>
+<spl-input name="lastName" label="Last name" required></spl-input>
+<spl-input name="email" label="Email" type="email" required></spl-input>
+<spl-input name="confirmEmail" label="Confirm your email" type="email" required></spl-input>
+<spl-autocomplete name="location" label="City" required options="Eindhoven, Netherlands|Einsiedeln, Switzerland|Helmond, Netherlands|Tilburg, Netherlands|Breda, Netherlands|'s-Hertogenbosch, Netherlands|Amsterdam, Netherlands|Rotterdam, Netherlands|Utrecht, Netherlands|Leuven, Belgium|Aachen, Germany"></spl-autocomplete>
+<spl-input name="phone" label="Phone number" type="tel" required></spl-input>
+<spl-input name="linkedin" label="LinkedIn profile" type="url"></spl-input>
+<spl-file name="resume" label="Resume" accept=".pdf,.doc,.docx,.odt,.rtf" required></spl-file>
+<button type="button" class="c-spl-button" data-test="footer-next">Next</button>
+</section>
+<section data-step="Screening questions" hidden>
+<form id="oneclick-form" novalidate>
+<h2>Screening questions</h2>
+<spl-radio-group name="eligible" label="Are you eligible to work in the Netherlands?" options="Yes|No" required></spl-radio-group>
+<spl-radio-group name="sponsor" label="Will you require visa sponsorship to work in the Netherlands?" options="Yes|No" required data-if="eligible=No" hidden></spl-radio-group>
+<spl-select name="hours" label="How many hours per week can you work?" options="16 hours|24 hours|32 hours|40 hours" required></spl-select>
+<spl-input name="startDate" label="Earliest start date" type="date" required></spl-input>
+<spl-select name="english" label="English level" options="Native|C2 Proficient|C1 Advanced|B2 Upper intermediate|B1 or lower" required></spl-select>
+<spl-textarea name="message" label="Message to the hiring team" maxlength="500"></spl-textarea>
+<spl-checkbox name="consent" label="I agree to the Tulip Robotics privacy policy and the processing of my personal data" required></spl-checkbox>
+<button type="button" class="c-spl-button secondary" data-test="footer-back">Back</button>
+<button type="submit" class="c-spl-button" data-test="footer-submit">Submit</button>
+</form></section>
+</oc-oneclick-form>
+</main>
+<script>
+window.sent=0
+const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)]
+const vis=e=>!!e&&e.getClientRects().length>0
+const CSS=`<style>:host{display:block;margin:14px 0}.lbl{display:block;font-weight:600;margin-bottom:4px}input:not([type=radio]):not([type=checkbox]),textarea,button.sel{font:inherit;padding:8px;width:100%;box-sizing:border-box;border:1px solid #bbb;border-radius:4px;background:#fff;text-align:left;cursor:pointer}fieldset{border:0;padding:0;margin:0}ul{border:1px solid #bbb;margin:2px 0 0;padding:0;list-style:none;background:#fff}li{padding:6px 8px;cursor:pointer}li:hover{background:#eef3fd}.err{color:#d0021b;font-size:12px;margin-top:4px}.count{font-size:12px;color:#666;text-align:right}[hidden]{display:none!important}</style>`
+
+// SmartRecruiters-style form controls. Each one renders into an OPEN shadow root and exposes label, value and empty.
+class Spl extends HTMLElement{
+ connectedCallback(){if(this.s)return;this.s=this.attachShadow({mode:'open'});this.s.innerHTML=CSS+this.tpl(this.label+(this.hasAttribute('required')?' *':''))
+  this.s.addEventListener('input',()=>this.changed());this.s.addEventListener('change',()=>this.changed());if(this.init)this.init()}
+ get label(){return this.getAttribute('label')}
+ get opts(){return(this.getAttribute('options')||'').split('|')}
+ get el(){return this.s.querySelector('input,textarea')}
+ get value(){return this.el.value}
+ get empty(){return!String(this.value).trim()}
+ error(msg){let e=this.s.querySelector('.err');if(!msg){if(e)e.remove();return}if(!e){e=document.createElement('div');e.className='err';e.setAttribute('role','alert');this.s.append(e)}e.textContent=msg}
+ changed(){if(!this.empty)this.error('');this.dispatchEvent(new Event('change',{bubbles:true,composed:true}))}
+}
+const req=el=>el.hasAttribute('required')?' aria-required="true"':''
+customElements.define('spl-input',class extends Spl{tpl(l){return`<label class="lbl" for="i">${l}</label><input id="i" part="input" type="${this.getAttribute('type')||'text'}"${req(this)}>`}})
+customElements.define('spl-textarea',class extends Spl{tpl(l){const m=this.getAttribute('maxlength');return`<label class="lbl" for="i">${l}</label><textarea id="i" rows="4" maxlength="${m}"></textarea><div class="count"><span>0</span> / ${m}</div>`}
+ init(){this.el.addEventListener('input',()=>{this.s.querySelector('.count span').textContent=this.el.value.length})}})
+customElements.define('spl-file',class extends Spl{tpl(l){return`<label class="lbl" for="i">${l}</label><input id="i" type="file" accept="${this.getAttribute('accept')||''}"${req(this)}>`}get value(){return this.el.files.length?this.el.files[0].name:''}})
+customElements.define('spl-checkbox',class extends Spl{tpl(l){return`<label><input type="checkbox" id="i"${req(this)}> ${l}</label>`}get value(){return this.el.checked?'yes':''}})
+customElements.define('spl-radio-group',class extends Spl{tpl(l){return`<fieldset role="radiogroup"><legend class="lbl">${l}</legend>${this.opts.map(o=>`<label><input type="radio" name="r" value="${o}"> ${o}</label> `).join('')}</fieldset>`}get value(){const c=this.s.querySelector('input:checked');return c?c.value:''}})
+customElements.define('spl-select',class extends Spl{
+ tpl(l){return`<span class="lbl" id="l">${l}</span><button type="button" class="sel" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="l">Select an option</button>`}
+ get value(){return this.v||''}
+ init(){const b=this.s.querySelector('button');b.addEventListener('click',()=>{let u=this.s.querySelector('ul');if(u){u.remove();b.setAttribute('aria-expanded','false');return}
+  u=document.createElement('ul');u.setAttribute('role','listbox');for(const o of this.opts){const li=document.createElement('li');li.setAttribute('role','option');li.textContent=o
+   li.addEventListener('click',()=>{this.v=o;b.textContent=o;u.remove();b.setAttribute('aria-expanded','false');this.changed()});u.append(li)}
+  b.after(u);b.setAttribute('aria-expanded','true')})}})
+customElements.define('spl-autocomplete',class extends Spl{
+ tpl(l){return`<label class="lbl" for="i">${l}</label><input id="i" role="combobox" aria-autocomplete="list" aria-expanded="false" autocomplete="off" placeholder="Start typing your city"${req(this)}><ul role="listbox" hidden></ul>`}
+ get value(){return this.v||''}
+ init(){const i=this.el,u=this.s.querySelector('ul');i.addEventListener('input',()=>{this.v='';const t=i.value.trim().toLowerCase();u.innerHTML='';const m=t.length<2?[]:this.opts.filter(o=>o.toLowerCase().includes(t))
+  for(const o of m){const li=document.createElement('li');li.setAttribute('role','option');li.textContent=o;li.addEventListener('click',()=>{i.value=o;this.v=o;u.hidden=true;i.setAttribute('aria-expanded','false');this.changed()});u.append(li)}
+  u.hidden=!m.length;i.setAttribute('aria-expanded',String(!!m.length))})}})
+
+const sections=$$('section[data-step]'),cur=()=>sections.find(s=>!s.hidden),submit=$('[data-test=footer-submit]')
+const reqs=()=>$$('[required]').filter(vis)
+function refresh(){for(const el of $$('[data-if]')){const[n,v]=el.dataset.if.split('=');el.hidden=$(`[name="${n}"]`).value!==v}}
+function show(i){sections.forEach((s,j)=>{s.hidden=j!==i});$('#stepper').textContent=`Step ${i+1} of ${sections.length}: ${sections[i].dataset.step}`;window.scrollTo(0,0)}
+document.addEventListener('change',refresh)
+for(const id of['onetrust-accept-btn-handler','onetrust-reject-all-handler'])$('#'+id).addEventListener('click',()=>$('#onetrust-consent-sdk').remove())
+$('[data-test=footer-next]').addEventListener('click',()=>{let ok=true;for(const e of reqs()){e.error(e.empty?'This field is required':'');if(e.empty)ok=false}
+ const em=$('[name=email]'),ce=$('[name=confirmEmail]');if(ok&&em.value.trim().toLowerCase()!==ce.value.trim().toLowerCase()){ce.error('Email addresses do not match');ok=false}
+ if(ok)show(1)})
+$('[data-test=footer-back]').addEventListener('click',()=>show(0))
+$('#oneclick-form').addEventListener('submit',e=>{e.preventDefault();window.sent=(window.sent||0)+1})
+show(0)
+window.mockStatus=()=>({platform:'smartrecruiters',step:cur().dataset.step,final:vis(submit),required_empty:reqs().filter(e=>e.empty).map(e=>e.label),sent:window.sent||0})
+</script>
+</body></html>

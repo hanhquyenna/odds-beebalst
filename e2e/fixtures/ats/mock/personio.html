@@ -1,0 +1,88 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Working Student Marketing (m/f/d) - Lindgrün Logistics GmbH</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,sans-serif;color:#1f2430;background:#f7f7f9}
+.hd{background:#fff;border-bottom:1px solid #e3e3e8;padding:12px 16px;font-weight:700}
+main{max-width:720px;margin:0 auto;padding:16px}
+.card{background:#fff;border:1px solid #e3e3e8;border-radius:6px;padding:20px}
+.meta{color:#5b6070}.de{color:#7a7f8c;font-weight:400;font-size:13px}
+.f{margin:14px 0}.f>label,.lbl{display:block;font-weight:600;margin-bottom:4px}
+input:not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea{width:100%;padding:9px;border:1px solid #c5c8d0;border-radius:4px;font:inherit;background:#fff}
+button{font:inherit;padding:9px 16px;border-radius:4px;border:1px solid #c5c8d0;background:#fff;cursor:pointer}
+.primary{background:#2c3e8f;border-color:#2c3e8f;color:#fff}
+.dz{display:block;border:2px dashed #b9bdc9;border-radius:6px;padding:22px;text-align:center;cursor:pointer;background:#fafbff}
+.dz.over{border-color:#2c3e8f}.dz small{display:block;color:#7a7f8c}
+.sr{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+.err{color:#c62828;font-size:13px;margin-top:4px}
+.ck{position:fixed;inset:0;background:#0008;display:flex;align-items:flex-end;z-index:9}.ck>div{background:#fff;padding:18px;width:100%}
+[hidden]{display:none!important}
+</style></head><body>
+<div class="ck" id="cookie" role="dialog" aria-modal="true" aria-label="Cookie settings"><div>
+<p><b>We value your privacy</b> <span class="de">Wir respektieren Ihre Privatsphäre</span><br>We use cookies to run this career page and, with your consent, to measure how it is used.</p>
+<button type="button" class="primary" id="ck-all">Accept all</button> <button type="button" id="ck-nec">Necessary only</button>
+</div></div>
+<div class="hd">Lindgrün Logistics GmbH <span class="de">Karriere</span></div>
+<main>
+<section class="card" data-step="Job description" id="jd">
+<h1>Working Student Marketing (m/f/d)</h1>
+<p class="meta">Amsterdam · Working student · 16-20 hours per week · Start: flexible</p>
+<h2>Your tasks <span class="de">Deine Aufgaben</span></h2>
+<ul><li>Support campaigns for our cross-border freight platform</li><li>Prepare social media content and monthly reports</li><li>Help organise trade fair appearances</li></ul>
+<h2>Your profile <span class="de">Dein Profil</span></h2>
+<ul><li>Enrolled student in marketing, communication or business</li><li>Fluent English; German or Dutch is a plus</li></ul>
+<button type="button" class="primary" id="apply">Apply for this position</button>
+</section>
+<section class="card" data-step="Application" id="app" hidden>
+<h1>Apply for: Working Student Marketing (m/f/d)</h1>
+<p class="meta">Fields marked with * are mandatory. <span class="de">Pflichtfelder sind mit * markiert.</span></p>
+<form id="form" novalidate>
+<div class="f" data-req="First name"><label for="first_name">First name <span class="de">Vorname</span> *</label><input id="first_name" name="first_name" autocomplete="given-name" required></div>
+<div class="f" data-req="Last name"><label for="last_name">Last name <span class="de">Nachname</span> *</label><input id="last_name" name="last_name" autocomplete="family-name" required></div>
+<div class="f" data-req="Email"><label for="email">Email <span class="de">E-Mail</span> *</label><input id="email" type="email" name="email" autocomplete="email" required></div>
+<div class="f"><label for="phone">Phone <span class="de">Telefonnummer</span></label><input id="phone" type="tel" name="phone" autocomplete="tel"></div>
+<div class="f" data-req="Location"><label for="location">Location <span class="de">Wohnort</span> *</label><input id="location" name="location" placeholder="City, Country" required></div>
+<div class="f" data-req="CV"><div class="lbl" id="cv-lbl">CV <span class="de">Lebenslauf</span> *</div>
+<label class="dz" id="dz" for="cv"><span>Choose a file or drop it here</span><small>PDF, DOC, DOCX · max. 20 MB <span class="de">Datei auswählen oder hierher ziehen</span></small><b id="cv-name"></b></label>
+<input type="file" id="cv" name="documents[cv]" class="sr" accept=".pdf,.doc,.docx" aria-labelledby="cv-lbl" required></div>
+<div class="f"><label for="other">Other attachments <span class="de">Weitere Anhänge</span></label><input type="file" id="other" name="documents[other]" multiple></div>
+<div class="f"><label for="linkedin">LinkedIn profile</label><input id="linkedin" type="url" name="linkedin" placeholder="https://www.linkedin.com/in/"></div>
+<div class="f" data-req="Salary expectation"><label for="salary">Salary expectation <span class="de">Gehaltsvorstellung</span> * <span class="de">(EUR gross per month)</span></label><input id="salary" type="number" min="0" step="50" name="salary_expectations" required></div>
+<div class="f" data-req="Available from"><label for="available">Available from <span class="de">Verfügbar ab</span> *</label><input id="available" type="date" name="available_from" required></div>
+<div class="f" data-req="Are you authorized to work in the Netherlands?"><label for="permit">Are you authorized to work in the Netherlands? <span class="de">Arbeitserlaubnis für die Niederlande</span> *</label>
+<select id="permit" name="custom[permit]" required><option value="">Please select / Bitte wählen</option><option>Yes</option><option>No</option></select></div>
+<div class="f" data-req="Do you require visa sponsorship?" id="visa-f" hidden><label for="visa">Do you require visa sponsorship? <span class="de">Benötigen Sie ein Visum?</span> *</label>
+<select id="visa" name="custom[visa]"><option value="">Please select</option><option>Yes</option><option>No</option></select></div>
+<div class="f" data-req="English level"><label for="english">English level <span class="de">Englischkenntnisse</span> *</label>
+<select id="english" name="custom[english]" required><option value="">Please select</option><option>Basic (A1-A2)</option><option>Intermediate (B1-B2)</option><option>Fluent (C1-C2)</option><option>Native</option></select></div>
+<div class="f"><label for="source">How did you hear about us? <span class="de">Wie sind Sie auf uns aufmerksam geworden?</span></label>
+<select id="source" name="source"><option value="">Please select</option><option>LinkedIn</option><option>Indeed</option><option>University career portal</option><option>Friend or employee</option><option>Other</option></select></div>
+<div class="f" data-req="Privacy policy"><label><input type="checkbox" id="privacy" name="privacy_policy_acceptance" required> I have read the privacy policy and agree to the processing of my data. * <span class="de">Ich habe die Datenschutzerklärung gelesen.</span></label></div>
+<button type="submit" class="primary" id="final">Submit application</button>
+</form>
+</section>
+</main>
+<script>
+window.sent=0
+const Q=(s,r=document)=>r.querySelector(s),QA=(s,r=document)=>[...r.querySelectorAll(s)]
+const shown=el=>!!el&&el.getClientRects().length>0
+// A .f wrapper is empty when its hidden values, choices, file or text inputs are unset.
+function empty(f){const i=QA("input,select,textarea",f),h=i.filter(x=>x.type=="hidden");if(h.length)return h.some(x=>!x.value);const b=i.filter(x=>x.type=="radio"||x.type=="checkbox");if(b.length)return!b.some(x=>x.checked);const fl=i.find(x=>x.type=="file");if(fl)return!fl.files.length;return!i.length||i.some(x=>!x.value.trim())}
+function mark(f,bad){let e=Q(":scope>.err",f);if(bad&&!e){e=document.createElement("div");e.className="err";e.setAttribute("role","alert");e.textContent="This field is required";f.append(e)}if(!bad&&e)e.remove()}
+function check(s){let ok=true;for(const f of QA(".f[data-req]",s)){const bad=shown(f)&&empty(f);mark(f,bad);if(bad)ok=false}return ok}
+const clr=f=>{if(f&&!empty(f))mark(f,false)}
+const missing=s=>s?QA(".f[data-req]",s).filter(f=>shown(f)&&empty(f)).map(f=>f.dataset.req):[]
+const cur=(r=document)=>QA("[data-step]",r).find(shown)
+for(const t of["input","change","click"])document.addEventListener(t,e=>clr(e.target.closest&&e.target.closest(".f")))
+window.mockStatus=()=>{const s=cur();return{platform:"personio",step:s?s.dataset.step:"",final:shown(Q("#final")),required_empty:missing(s),sent:window.sent||0}}
+
+for(const id of["ck-all","ck-nec"])Q("#"+id).addEventListener("click",()=>{Q("#cookie").hidden=true})
+Q("#apply").addEventListener("click",()=>{Q("#jd").hidden=true;Q("#app").hidden=false;scrollTo(0,0)})
+Q("#permit").addEventListener("change",e=>{const no=e.target.value=="No";Q("#visa-f").hidden=!no;if(!no)Q("#visa").value=""})
+const dz=Q("#dz"),cv=Q("#cv")
+dz.addEventListener("dragover",e=>{e.preventDefault();dz.classList.add("over")})
+dz.addEventListener("dragleave",()=>dz.classList.remove("over"))
+dz.addEventListener("drop",e=>{e.preventDefault();dz.classList.remove("over");cv.files=e.dataTransfer.files;cv.dispatchEvent(new Event("change",{bubbles:true}))})
+cv.addEventListener("change",()=>{Q("#cv-name").textContent=cv.files.length?cv.files[0].name:""})
+Q("#form").addEventListener("submit",e=>{e.preventDefault();window.sent=(window.sent||0)+1;check(e.target)})
+</script>
+</body></html>

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Junior Data Engineer - Harbor Health</title>
+<style>
+body{font-family:'Source Sans Pro',Arial,sans-serif;margin:0;color:#1f2a37;background:#f5f7fa}main{max-width:680px;margin:0 auto;padding:20px 16px;background:#fff}
+.field{margin:16px 0;display:flex;flex-direction:column;gap:4px;position:relative}.lbl,label{font-weight:600}
+input:not([type=checkbox]),select,textarea,.combo{font:inherit;padding:8px;border:1px solid #c5cdd8;border-radius:4px;background:#fff;text-align:left}
+.phone-input{display:flex;gap:6px}.phone-input input{flex:1}.country-picker{font:inherit;padding:8px;border:1px solid #c5cdd8;border-radius:4px;background:#fff;cursor:pointer}
+.pop{border:1px solid #c5cdd8;background:#fff;padding:6px;max-height:220px;overflow:auto}[role=listbox]{margin:0;padding:0;list-style:none}[role=option]{padding:6px;cursor:pointer}[role=option]:hover{background:#e8f1ff}
+.dropzone{border:2px dashed #9aa8ba;border-radius:6px;padding:22px;text-align:center;cursor:pointer}.dropzone.over{background:#eef5ff}.vh{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0 0 0 0)}
+.row{display:flex;gap:8px}.counter{font-size:12px;color:#667;text-align:right}.err{color:#d6293e;font-size:12px}
+.submit{background:#1c64f2;color:#fff;border:0;border-radius:4px;padding:12px 24px;font:inherit;cursor:pointer}[hidden]{display:none!important}
+</style></head><body>
+<main>
+<header><h1 data-testid="offer-title">Junior Data Engineer</h1><p>Harbor Health - Rotterdam, Netherlands - Entry level - Full-time</p></header>
+<p>Harbor Health builds the data platform behind 40 Dutch physiotherapy clinics. You will join our data team to build pipelines in Python and dbt and keep patient data safe.</p>
+<h2>Application form</h2>
+<form id="offer-application-form" data-testid="application-form" novalidate>
+<div class="field" data-req><label for="name">Full name *</label><input id="name" name="candidate[name]" autocomplete="name"></div>
+<div class="field" data-req><label for="email">Email address *</label><input id="email" name="candidate[email]" type="email" autocomplete="email"></div>
+<div class="field" data-req><label class="lbl" for="phone">Phone number *</label>
+<div class="phone-input"><button type="button" class="country-picker" id="cc-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="Country code: Netherlands +31">NL +31</button><input type="tel" id="phone" class="v" name="candidate[phone]" placeholder="6 12345678" autocomplete="tel-national"></div>
+<div class="pop" id="cc-pop" hidden><input type="search" id="cc-search" aria-label="Search country" placeholder="Search country"><ul role="listbox" id="cc-list" aria-label="Country code"></ul></div>
+<input type="hidden" name="candidate[phone_country_code]" value="+31"></div>
+<div class="field" data-req><span class="lbl" id="cv-l">CV *</span>
+<div class="dropzone" id="cv-drop" role="button" tabindex="0" aria-labelledby="cv-l"><p>Choose a file or drop it here</p><p class="counter">PDF, DOC or DOCX, up to 10 MB</p><input type="file" id="cv" name="candidate[cv]" accept=".pdf,.doc,.docx" class="vh" tabindex="-1"><p id="cv-name"></p></div></div>
+<div class="field"><label for="linkedin">LinkedIn profile</label><input id="linkedin" name="candidate[social][linkedin]" type="url"></div>
+<div class="field" data-req><span class="lbl" id="edu-l">Highest completed education *</span><button type="button" class="combo" id="edu" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="edu-l edu">Select an option</button><input type="hidden" class="v" name="candidate[open_question_answers][0]"></div>
+<div class="field" data-req><label for="uni">University or school *</label><input id="uni" name="candidate[open_question_answers][1]"></div>
+<div class="field" data-req><span class="lbl" id="grad-l">Graduation date *</span><div class="row" role="group" aria-labelledby="grad-l"><select name="grad_month" aria-label="Month"><option value="">Month</option><option>January</option><option>February</option><option>March</option><option>April</option><option>May</option><option>June</option><option>July</option><option>August</option><option>September</option><option>October</option><option>November</option><option>December</option></select><select name="grad_year" aria-label="Year"><option value="">Year</option><option>2023</option><option>2024</option><option>2025</option><option>2026</option><option>2027</option><option>2028</option></select></div></div>
+<div class="field" data-req><label for="english">English level *</label><select id="english" name="candidate[open_question_answers][3]"><option value="">Choose...</option><option>Native</option><option>C2</option><option>C1</option><option>B2</option><option>B1 or below</option></select></div>
+<div class="field" data-req><label for="source">How did you hear about us? *</label><select id="source" name="candidate[source]"><option value="">Choose...</option><option>LinkedIn</option><option>Indeed</option><option>University</option><option>Friend or colleague</option><option>Other</option></select></div>
+<div class="field" data-req><label for="motivation">Why are you interested in this position? *</label><textarea id="motivation" name="candidate[cover_letter]" rows="5" maxlength="500"></textarea><div class="counter"><span id="motivation-count">0</span>/500</div></div>
+<div class="field" data-req><label><input type="checkbox" name="candidate[gdpr_consent]"> I have read and agree to the privacy policy of Harbor Health *</label></div>
+<button type="submit" class="submit" data-testid="submit-application">Submit application</button>
+</form></main>
+<script>
+window.sent=0
+const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)]
+const vis=e=>!!e&&e.getClientRects().length>0
+const fire=e=>e.dispatchEvent(new Event('change',{bubbles:true}))
+function isEmpty(q){const h=$$('.v',q),c=h.length?h:$$('input,select,textarea',q),b=c.filter(x=>x.type==='radio'||x.type==='checkbox');if(b.length)return!b.some(x=>x.checked);const f=c.find(x=>x.type==='file');if(f)return!f.files.length;return c.some(x=>!x.value.trim())}
+const lbl=q=>(q.dataset.label||($('.lbl',q)||$('label,legend',q)).textContent).replace(/[*✱]/g,'').replace(/\s+/g,' ').trim()
+const reqs=()=>$$('[data-req]').filter(vis)
+function onChange(e){const q=e.target.closest&&e.target.closest('[data-req]');if(q&&!isEmpty(q))$('.err',q)?.remove()}
+document.addEventListener('input',onChange,true);document.addEventListener('change',onChange,true)
+
+const CC=[['NL','Netherlands','+31'],['BE','Belgium','+32'],['DE','Germany','+49'],['FR','France','+33'],['ES','Spain','+34'],['IT','Italy','+39'],['PL','Poland','+48'],['GB','United Kingdom','+44'],['IN','India','+91'],['CN','China','+86'],['TR','Turkey','+90'],['US','United States','+1']]
+const ccBtn=$('#cc-btn'),pop=$('#cc-pop'),ccList=$('#cc-list'),ccSearch=$('#cc-search'),ccH=$('[name="candidate[phone_country_code]"]')
+function renderCC(){const t=ccSearch.value.trim().toLowerCase();ccList.innerHTML=''
+ for(const[c,n,d]of CC.filter(x=>(x[1]+' '+x[2]).toLowerCase().includes(t))){const li=document.createElement('li');li.setAttribute('role','option');li.setAttribute('aria-selected',String(ccH.value===d));li.textContent=`${n} (${d})`
+  li.addEventListener('click',()=>{ccH.value=d;ccBtn.textContent=`${c} ${d}`;ccBtn.setAttribute('aria-label',`Country code: ${n} ${d}`);pop.hidden=true;ccBtn.setAttribute('aria-expanded','false');$('#phone').focus()});ccList.append(li)}}
+ccBtn.addEventListener('click',()=>{pop.hidden=!pop.hidden;ccBtn.setAttribute('aria-expanded',String(!pop.hidden));if(!pop.hidden){ccSearch.value='';renderCC();ccSearch.focus()}})
+ccSearch.addEventListener('input',renderCC)
+
+const cv=$('#cv'),drop=$('#cv-drop')
+drop.addEventListener('click',e=>{if(e.target!==cv)cv.click()})
+drop.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();cv.click()}})
+drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('over')});drop.addEventListener('dragleave',()=>drop.classList.remove('over'))
+drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('over');cv.files=e.dataTransfer.files;fire(cv)})
+cv.addEventListener('change',()=>{$('#cv-name').textContent=cv.files[0]?cv.files[0].name:''})
+
+const edu=$('#edu'),eduH=edu.nextElementSibling
+edu.addEventListener('click',()=>{const open=$('#edu-list');if(open){open.remove();edu.setAttribute('aria-expanded','false');return}
+ const u=document.createElement('ul');u.id='edu-list';u.className='pop';u.setAttribute('role','listbox')
+ for(const o of['Secondary school (VWO, HAVO or equivalent)','MBO','Bachelor (HBO)','Bachelor (WO / university)','Master','PhD']){const li=document.createElement('li');li.setAttribute('role','option');li.textContent=o
+  li.addEventListener('click',()=>{eduH.value=o;edu.textContent=o;u.remove();edu.setAttribute('aria-expanded','false');fire(eduH)});u.append(li)}
+ edu.after(u);edu.setAttribute('aria-expanded','true')})
+$('#motivation').addEventListener('input',e=>{$('#motivation-count').textContent=e.target.value.length})
+$('#offer-application-form').addEventListener('submit',e=>{e.preventDefault();window.sent=(window.sent||0)+1})
+window.mockStatus=()=>({platform:'recruitee',step:'Application',final:vis($('[data-testid=submit-application]')),required_empty:reqs().filter(isEmpty).map(lbl),sent:window.sent||0})
+</script>
+</body></html>

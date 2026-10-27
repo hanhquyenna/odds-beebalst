@@ -1,0 +1,84 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Policy Intern - Brightwater Housing Trust</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,sans-serif;color:#21262d;background:#fbfbfc}
+.masthead{background:#0f5e57;color:#fff;padding:14px 16px;font-weight:700}
+main{max-width:680px;margin:0 auto;padding:16px}
+.f{margin:16px 0;position:relative}.f>label,.lbl{display:block;font-weight:600;margin-bottom:6px}
+input:not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea{width:100%;padding:9px;border:1px solid #c3c9d0;border-radius:6px;font:inherit;background:#fff}
+.row{display:flex;gap:8px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.card{display:block;border:1px solid #c3c9d0;border-radius:8px;padding:12px;cursor:pointer;background:#fff;font-weight:500}
+.card:has(input:checked){border-color:#0f5e57;box-shadow:0 0 0 2px #0f5e5733}
+.sr{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+ul[role=listbox]{list-style:none;margin:2px 0 0;padding:0;border:1px solid #c3c9d0;border-radius:6px;background:#fff;position:absolute;left:0;right:0;z-index:3}
+li[role=option]{padding:7px 10px;cursor:pointer}li[role=option]:hover{background:#e7f3f1}
+button{font:inherit;padding:10px 18px;border-radius:6px;border:1px solid #0f5e57;background:#0f5e57;color:#fff;cursor:pointer}
+.cnt{font-size:12px;color:#6a737d;text-align:right}.hint{font-size:13px;color:#6a737d;font-weight:400}
+.err{color:#cf222e;font-size:13px;margin-top:4px}
+[hidden]{display:none!important}
+</style></head><body>
+<div class="masthead">Brightwater Housing Trust · Careers</div>
+<main>
+<section id="job" data-step="Job description">
+<h1>Policy Intern</h1>
+<p>The Hague · Internship · 24-32 hours per week</p>
+<p>Brightwater is a non-profit housing association. Our policy team researches affordable housing and advises local governments. You will analyse data, write briefing notes and join stakeholder meetings.</p>
+<button type="button" id="apply">Apply for this job</button>
+</section>
+<section id="apply-form" data-step="Application" hidden>
+<h1>Apply for Policy Intern</h1>
+<form id="pp-form" novalidate>
+<div class="f" data-req="First name"><label for="first_name">First name *</label><input id="first_name" name="first_name" required></div>
+<div class="f" data-req="Last name"><label for="last_name">Last name *</label><input id="last_name" name="last_name" required></div>
+<div class="f" data-req="Email"><label for="email">Email *</label><input id="email" type="email" name="email" required></div>
+<div class="f" data-req="Phone"><label for="phone">Phone *</label><input id="phone" type="tel" name="phone" required></div>
+<div class="f" data-req="Location"><label for="loc">Location * <span class="hint">Start typing and choose from the list</span></label>
+<input id="loc" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="loc-list" autocomplete="off"><ul id="loc-list" role="listbox" hidden></ul><input type="hidden" id="loc-h" name="location"></div>
+<div class="f" data-req="CV"><label for="cv">CV *</label><input id="cv" type="file" name="cv" accept=".pdf,.doc,.docx" required></div>
+<div class="f"><label for="li">LinkedIn URL</label><input id="li" type="url" name="linkedin"></div>
+<div class="f" data-req="Do you have the right to work in the Netherlands?"><div class="lbl">Do you have the right to work in the Netherlands? *</div>
+<div class="cards" role="radiogroup"><label class="card"><input type="radio" class="sr" name="right_to_work" value="Yes" required>Yes</label><label class="card"><input type="radio" class="sr" name="right_to_work" value="No">No, I need sponsorship</label></div></div>
+<div class="f" data-req="How many hours per week can you commit?"><div class="lbl">How many hours per week can you commit? *</div>
+<div class="cards" role="radiogroup"><label class="card"><input type="radio" class="sr" name="hours" value="16">16 hours</label><label class="card"><input type="radio" class="sr" name="hours" value="24">24 hours</label><label class="card"><input type="radio" class="sr" name="hours" value="32">32 hours</label><label class="card"><input type="radio" class="sr" name="hours" value="40">40 hours</label></div></div>
+<div class="f" data-req="University"><label for="uni">University *</label><input id="uni" name="university" required></div>
+<div class="f" data-req="Graduation date"><div class="lbl">Graduation date *</div><div class="row">
+<select name="grad_month" aria-label="Graduation month" required><option value="">Month</option><option>January</option><option>February</option><option>March</option><option>April</option><option>May</option><option>June</option><option>July</option><option>August</option><option>September</option><option>October</option><option>November</option><option>December</option></select>
+<select name="grad_year" aria-label="Graduation year" required><option value="">Year</option><option>2025</option><option>2026</option><option>2027</option><option>2028</option></select></div></div>
+<div class="f" data-req="Why us?"><label for="why">Why us? * <span class="hint">Tell us why you want to work at Brightwater</span></label><textarea id="why" name="why_us" rows="6" maxlength="500" required></textarea><div class="cnt" aria-live="polite"><span id="why-cnt">0</span>/500</div></div>
+<div class="f"><div class="lbl">Gender (optional, for equal opportunities monitoring)</div>
+<div class="cards" role="radiogroup"><label class="card"><input type="radio" class="sr" name="gender" value="Woman">Woman</label><label class="card"><input type="radio" class="sr" name="gender" value="Man">Man</label><label class="card"><input type="radio" class="sr" name="gender" value="Non-binary">Non-binary</label><label class="card"><input type="radio" class="sr" name="gender" value="Prefer not to say">Prefer not to say</label></div></div>
+<div class="f"><label for="src">How did you hear about us?</label><select id="src" name="source"><option value="">Select</option><option>Our website</option><option>LinkedIn</option><option>University careers service</option><option>Word of mouth</option></select></div>
+<div class="f" data-req="Privacy notice"><label><input type="checkbox" name="privacy" required> I have read the Brightwater candidate privacy notice. *</label></div>
+<button type="submit" id="final">Submit application</button>
+</form>
+</section>
+</main>
+<script>
+window.sent=0
+const Q=(s,r=document)=>r.querySelector(s),QA=(s,r=document)=>[...r.querySelectorAll(s)]
+const shown=el=>!!el&&el.getClientRects().length>0
+// A .f wrapper is empty when its hidden values, choices, file or text inputs are unset.
+function empty(f){const i=QA("input,select,textarea",f),h=i.filter(x=>x.type=="hidden");if(h.length)return h.some(x=>!x.value);const b=i.filter(x=>x.type=="radio"||x.type=="checkbox");if(b.length)return!b.some(x=>x.checked);const fl=i.find(x=>x.type=="file");if(fl)return!fl.files.length;return!i.length||i.some(x=>!x.value.trim())}
+function mark(f,bad){let e=Q(":scope>.err",f);if(bad&&!e){e=document.createElement("div");e.className="err";e.setAttribute("role","alert");e.textContent="This field is required";f.append(e)}if(!bad&&e)e.remove()}
+function check(s){let ok=true;for(const f of QA(".f[data-req]",s)){const bad=shown(f)&&empty(f);mark(f,bad);if(bad)ok=false}return ok}
+const clr=f=>{if(f&&!empty(f))mark(f,false)}
+const missing=s=>s?QA(".f[data-req]",s).filter(f=>shown(f)&&empty(f)).map(f=>f.dataset.req):[]
+const cur=(r=document)=>QA("[data-step]",r).find(shown)
+for(const t of["input","change","click"])document.addEventListener(t,e=>clr(e.target.closest&&e.target.closest(".f")))
+window.mockStatus=()=>{const s=cur();return{platform:"pinpoint",step:s?s.dataset.step:"",final:shown(Q("#final")),required_empty:missing(s),sent:window.sent||0}}
+
+Q("#apply").addEventListener("click",()=>{Q("#job").hidden=true;Q("#apply-form").hidden=false})
+Q("#why").addEventListener("input",e=>{Q("#why-cnt").textContent=e.target.value.length})
+// Typing clears the location; only a picked suggestion sets the hidden value.
+const places=["Amsterdam, Netherlands","Almere, Netherlands","Delft, Netherlands","Den Haag (The Hague), Netherlands","Leiden, Netherlands","Rotterdam, Netherlands","Utrecht, Netherlands","Zoetermeer, Netherlands"]
+const li=Q("#loc"),ll=Q("#loc-list"),lh=Q("#loc-h")
+function pick(p){li.value=p;lh.value=p;ll.hidden=true;li.setAttribute("aria-expanded","false");clr(li.closest(".f"))}
+li.addEventListener("input",()=>{lh.value="";ll.innerHTML="";const v=li.value.trim().toLowerCase()
+  for(const p of v.length>1?places.filter(p=>p.toLowerCase().includes(v)):[]){const o=document.createElement("li");o.setAttribute("role","option");o.textContent=p;o.addEventListener("mousedown",e=>{e.preventDefault();pick(p)});ll.append(o)}
+  ll.hidden=!ll.children.length;li.setAttribute("aria-expanded",String(!ll.hidden))})
+li.addEventListener("keydown",e=>{if(e.key=="Enter"){e.preventDefault();if(!ll.hidden&&ll.firstChild)pick(ll.firstChild.textContent)}})
+li.addEventListener("blur",()=>{ll.hidden=true;li.setAttribute("aria-expanded","false")})
+Q("#pp-form").addEventListener("submit",e=>{e.preventDefault();window.sent=(window.sent||0)+1;check(e.target)})
+</script>
+</body></html>

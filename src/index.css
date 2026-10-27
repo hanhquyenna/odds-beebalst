@@ -354,3 +354,41 @@ body.web {
 .buddy .orb, .orb { animation: buddy-hop 1.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .buddy, .lid, .pupil, .orb { animation: none; } }
 
+/* Tracker chooses its row layout from the room beside the sidebar, rather than the viewport alone. */
+.application-tracker {
+  container: applications / inline-size;
+  min-width: 0;
+}
+.application-table-wrap { overflow: auto; }
+.application-table { border-collapse: separate; border-spacing: 0; }
+.application-table th, .application-table td { border-bottom: 1.5px solid var(--line); }
+.application-table tbody tr:last-child td { border-bottom: 0; }
+.application-table .application-name-cell { position: sticky; left: 0; background: var(--card); }
+.application-table .application-next-cell { position: sticky; right: 0; background: var(--card); }
+.application-event { font-size: .8125rem; line-height: 1.45; overflow-wrap: anywhere; }
+.application-event time { display: block; margin-top: .25rem; color: var(--muted-foreground); font-size: .75rem; }
+.application-compact { display: none; }
+@container applications (max-width: 900px) {
+  .application-toolbar .application-tools [data-slot="popover-trigger"] { width: 2.5rem; height: 2.5rem; min-width: 2.5rem; padding: 0; gap: 0; border-radius: .5rem; }
+  .application-toolbar .application-tools [data-slot="popover-trigger"] > span { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .application-toolbar .application-tools [data-slot="popover-trigger"] svg ~ svg { display: none; }
+}
+@container applications (max-width: 779px) {
+  .application-table-wrap { display: none; }
+  .application-compact { display: block; }
+  .application-compact-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; align-items: start; }
+  .application-job { min-width: 0; }
+  .application-status { max-width: 8rem; text-align: right; }
+  .application-status > span { text-align: left; }
+  .application-note { grid-column: 1; grid-row: 2; min-width: 0; }
+  .application-next { grid-column: 2; grid-row: 2; align-self: end; }
+  .application-actions { justify-content: flex-end; }
+}
+@container applications (max-width: 440px) {
+  .application-toolbar { padding-inline: .75rem; }
+  .application-toolbar .application-tools { gap: .375rem; }
+  .application-toolbar .application-tools > div { flex-wrap: nowrap; gap: .375rem; }
+  .application-status { max-width: 7rem; }
+  .application-compact-row { column-gap: .5rem; }
+  .application-actions [data-slot="button"] { min-height: 2.5rem; }
+}

@@ -11,7 +11,7 @@ import { fieldPattern, playbookFor, sanitizeLesson, siteIdentity, structuralFiel
 
 // Broods drives the person's own Chrome through the Odds extension.
 //
-//   Broods agent (odds-apply) ──MCP tools──▶ POST /mcp/drive (this file, shared secret) ──queue──▶ drive_commands
+//   Broods agent (odds-agent) ──MCP tools──▶ POST /mcp/browser (this file, shared secret) ──queue──▶ drive_commands
 //   Odds extension (the person's tab) ──/ext/drive-next──▶ takes a command, does it in the tab ──/ext/drive-result──▶ back to Broods
 //
 // One run per application (drive_runs). Broods only reaches a run by its id, the extension only with the person's own key. The extension
@@ -66,10 +66,9 @@ async function abandonCommand(env: Env, cmdId: number, kind: "never_started" | "
 }
 
 async function svc(env: Env, path: string, init: RequestInit = {}): Promise<Json> {
-  const res = await fetch(`${env.url}/rest/v1/${path}`, {
-    ...init,
-    headers: { apikey: env.serviceKey!, Authorization: `Bearer ${env.serviceKey}`, "Content-Type": "application/json", Prefer: "return=representation", ...(init.headers ?? {}) },
-  })
+  const headers = new Headers({ apikey: env.serviceKey!, Authorization: `Bearer ${env.serviceKey}`, "Content-Type": "application/json", Prefer: "return=representation" })
+  new Headers(init.headers).forEach((value, key) => headers.set(key, value))
+  const res = await fetch(`${env.url}/rest/v1/${path}`, { ...init, headers: headers })
   if (!res.ok) throw new Error(`db ${res.status}`)
   const text = await res.text()
   return text ? JSON.parse(text) : null
@@ -95,10 +94,10 @@ const CHOOSING = ["select", "radio", "choice", "combobox", "listbox", "typeahead
 const STRUCTURE_WORDS = new Set(["http", "https", "www", "com", "net", "org", "linkedin", "profile"])
 /** Where a field the person's own detail went sits, as structure: the field's normalized label and which of the same-labelled fields
  * it is. Null when the label is not plain structure or repeats any word of the value (a label must never carry the person). */
-function placedMapping(page: Json, field: Json, key: string, value: unknown): Json | null {
+function placedMapping(page: Json, field: Json, key: string, value: unknown): Json {
   const label = fieldPattern(field?.label)
   if (!label || !key) return null
-  const words = String(value ?? "").toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 3 && !STRUCTURE_WORDS.has(w))
+  const words = (typeof value === "string" || typeof value === "number" ? String(value) : "").toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 3 && !STRUCTURE_WORDS.has(w))
   if (words.some((w) => label.includes(w))) return null
   const nth = (page?.fields || []).filter((f: Json) => fieldPattern(f?.label) === label).findIndex((f: Json) => f?.id === field.id)
   if (nth < 0) return null
@@ -139,7 +138,7 @@ async function learnRun(env: Env, run: Json, stage: string): Promise<void> {
   let page: Json = null
   // Field placements are judged over the whole run: one wrong placement (Broods had to redo it) outweighs its successes in the same run.
   const placements = new Map<string, { lesson: Json; url: string; outcome: string }>()
-  const place = (lesson: Json | null, url: string, outcome: string) => {
+  const place = (lesson: Json, url: string, outcome: string) => {
     if (!lesson) return
     const k = JSON.stringify(lesson)
     if (!placements.has(k) || outcome === "failure") placements.set(k, { lesson, url, outcome })
@@ -243,7 +242,7 @@ async function freshFields(env: Env, run: Json): Promise<Json[] | null> {
   return page ? (Array.isArray(page.fields) ? page.fields : []) : null
 }
 /** The page right now, read for the server's own check (no model turn), or null if the tab did not answer. */
-async function freshPage(env: Env, run: Json): Promise<Json | null> {
+async function freshPage(env: Env, run: Json): Promise<Json> {
   const docGen = typeof run?.doc_gen === "number" ? run.doc_gen : 0
   const [read] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "read_page", args: { review_check: true }, note: "Checking the page before stopping", doc_gen: docGen }) }).catch(() => [null])
   if (!read) return null
@@ -257,7 +256,7 @@ async function freshPage(env: Env, run: Json): Promise<Json | null> {
   return null
 }
 /** One step the server takes itself (no model turn), e.g. Escape to close a list; waits up to 6 s for the tab's answer. */
-async function runQuick(env: Env, run: Json, tool: string, args: Json, note: string): Promise<Json | null> {
+async function runQuick(env: Env, run: Json, tool: string, args: Json, note: string): Promise<Json> {
   const docGen = typeof run?.doc_gen === "number" ? run.doc_gen : 0
   const [cmd] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool, args, note, doc_gen: docGen }) }).catch(() => [null])
   if (!cmd) return null
@@ -349,10 +348,10 @@ async function pageEmpty(env: Env, run: Json): Promise<string[]> {
   return []
 }
 
-const runOf = async (env: Env, id: string): Promise<Json | null> => (UUID.test(id) ? (await svc(env, `drive_runs?id=eq.${id}&select=*`))?.[0] ?? null : null)
+export const runOf = async (env: Env, id: string): Promise<Json> => (UUID.test(id) ? (await svc(env, `drive_runs?id=eq.${id}&select=*`))?.[0] ?? null : null)
 /** The person typed or clicked in the form in the last 20 s. */
 const personBusy = (run: Json): boolean => Boolean(run?.person_active_at) && Date.now() - Date.parse(run.person_active_at) < 20_000
-const live = (run: Json): boolean => run?.status === "running" && Date.parse(run.expires_at) > Date.now()
+export const live = (run: Json): boolean => run?.status === "running" && Date.parse(run.expires_at) > Date.now()
 
 // ---------------------------------------------------------------- MCP for Broods
 
@@ -391,6 +390,11 @@ const BASE_TOOLS = [
     name: "click",
     description: "Press a button or link (by button id): Apply, Next, Continue, Review, a cookie 'reject/necessary only', a job link. Never Submit/Send (refused). Returns the fresh resulting page, including across navigation; use that page directly.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, id: { type: "string" } }, required: ["run_id", "id"] },
+  },
+  {
+    name: "screenshot",
+    description: "See the tab as an image (when read_page cannot show or move what you need: custom widgets, overlays, canvas). Returns the image and its pixel size.",
+    inputSchema: { type: "object", properties: { run_id: { type: "string" } }, required: ["run_id"] },
   },
   {
     name: "click_at",
@@ -455,14 +459,14 @@ async function personQuestions(env: Env, run: Json, questions: string[]): Promis
   const fields = ((await freshFields(env, run)) ?? []).filter((f: Json) => f?.kind !== "file" && !f?.consent && f?.kind !== "checkbox")
   const clean = (l: string): string => String(l ?? "").replace(/\s*[*✱]\s*$/, "").trim()
   const out = new Map<string, Json>()
-  const add = (label: string, f: Json | null): void => {
+  const add = (label: string, f: Json): void => {
     const exact = clean(f?.label ?? label).slice(0, 300)
     const options = Array.isArray(f?.options) ? f.options.filter((o: unknown) => typeof o === "string" && o.trim() && !/^(select|choose|kies)\b/i.test(o as string)).slice(0, 40) : []
     out.set(questionSlug(exact), { key: questionSlug(exact), label: exact, kind: options.length ? "radio" : "text", ...(options.length ? { options } : {}) })
   }
   for (const q of questions) {
     const qw = words(q)
-    let best: Json | null = null, score = 0
+    let best: Json = null, score = 0
     for (const f of fields) {
       const fw = words(clean(f.label))
       const hit = [...qw].filter((w) => fw.has(w)).length / Math.max(1, Math.min(qw.size, fw.size))
@@ -608,7 +612,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     }
     // About to give up: once per run, the server looks at the real tab first (a screenshot described by the sight model; only the
     // text goes to Broods, never the picture) and Broods tries again with that.
-    if ((stage === "stuck" || (stage === "needs_you" && reason === "other")) && live(run)) {
+    if ((stage === "stuck" || (stage === "needs_you" && reason === "other")) && live(run) && serverVision()) {
       const looked = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.vision_stuck&select=id&limit=1`).catch(() => null))?.[0]
       if (!looked) {
         const image = await captureShot(env, run)
@@ -798,7 +802,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     const link = (await svc(env, `job_documents?user_id=eq.${run.user_id}&posting_id=eq.${encodeURIComponent(run.posting_id)}&kind=eq.cover_letter&select=document_id&limit=1`).catch(() => null))?.[0]
     if (link?.document_id) args = { ...args, doc: link.document_id }
   }
-  if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "check_email", "open_link", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
+  if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
   // The same button three times in the last few steps and the page never changed: pressing it again is not an answer. Said once, plainly.
   if (name === "click" && typeof args?.id === "string") {
     const recentClicks = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.click&order=id.desc&limit=6&select=args,status`).catch(() => null)) ?? []
@@ -835,6 +839,11 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         if (typeof res.shot_image === "string") { shotImage = res.shot_image; const { shot_image: _s, ...rest } = res; res = rest }
         await svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: res }) })
       }
+      // The screenshot tool: the picture goes to the model as an image part, and the stored row keeps no image.
+      if (name === "screenshot" && typeof res.image === "string") {
+        void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...res, image: "(sent)" } }) }).catch(() => undefined)
+        return { text: JSON.stringify({ width: res.width, height: res.height, note: res.note }), image: res.image }
+      }
       // A fill that ran out of its time window (a slow dropdown) leaves the rest "not tried": Odds sends those fields again itself, once more, so Broods gets one answer for the whole fill and never gives up on fields nobody tried.
       if (name === "fill" && Array.isArray(res.results) && Array.isArray(rest.fields)) {
         // One more round at most: two 45 s rounds stay well inside the function's wall clock.
@@ -845,7 +854,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
           if (!fields.length) break
           const [again] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "fill", args: { ...rest, fields }, note: "Filling the rest", doc_gen: docGen, tab_id: run.tab_id ?? null }) }).catch(() => [null])
           if (!again) break
-          let more: Json | null = null
+          let more: Json = null
           for (const until = Date.now() + FILL_WAIT_MS; Date.now() < until;) {
             await sleep(400)
             const r2 = (await svc(env, `drive_commands?id=eq.${again.id}&select=status,result`).catch(() => null))?.[0]
@@ -921,7 +930,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       // Sight: Broods never gets the picture itself (an image in the conversation cost ~40K tokens and was sent again on every later
       // step). The server shows the screenshot to the sight model and hands Broods its short text: once per new page, and again only when
       // the step went wrong (a fill not kept, a click that changed nothing, a new error or pop-up, far fewer fields than before).
-      if (["read_page", "fill", "click", "click_at", "scroll", "upload_cv", "back", "open_job"].includes(name) && live(run)) {
+      if (["read_page", "fill", "click", "click_at", "scroll", "upload_cv", "back", "open_job"].includes(name) && live(run) && serverVision()) {
         const prev = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&id=lt.${cmd.id}&tool=in.(read_page,fill,click,click_at,scroll,upload_cv,back,open_job)&order=id.desc&limit=1&select=result`).catch(() => null))?.[0]?.result
         const before = prev?.page ?? (Array.isArray(prev?.fields) ? prev : null)
         const reasons = ["fill", "click", "click_at", "read_page"].includes(name) ? troubleReasons(name, res, page, before) : []
@@ -981,8 +990,22 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
   return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, error: `The browser did not answer (${kind}). Call read_page again.` }), error: true }
 }
 
-/** POST /mcp/drive: MCP (Streamable HTTP, stateless JSON) for the Broods agent. */
-export async function handleDriveMcp(req: Request, env: Env): Promise<Response> {
+/** POST /mcp/browser: MCP (Streamable HTTP, stateless JSON) for the Broods agent. */
+export function handleDriveMcp(req: Request, env: Env): Promise<Response> {
+  return serveMcp(req, {
+    name: "browser",
+    instructions: "Browser tools for one Odds application run: always pass run_id.",
+    tools: TOOLS,
+    call: async (name, args) => {
+      const out = await callTool(env, name, args)
+
+      return { content: [...(out.image ? [{ type: "image", data: out.image, mimeType: "image/jpeg" }] : []), { type: "text", text: out.text }], ...(out.error ? { isError: true } : {}) }
+    },
+  })
+}
+
+/** One stateless MCP endpoint behind ODDS_DRIVE_SECRET (browser, supabase): `call` returns the tool's MCP result. */
+export async function serveMcp(req: Request, server: { name: string; instructions: string; tools: Json[]; call: (name: string, args: Json) => Promise<Json> }): Promise<Response> {
   const reply = (body: Json, status = 200) => new Response(body === null ? null : JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } })
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS })
   if (req.method !== "POST") return reply({ error: "POST only." }, 405)
@@ -995,21 +1018,20 @@ export async function handleDriveMcp(req: Request, env: Env): Promise<Response> 
   if (calls && !authorized) return reply({ jsonrpc: "2.0", id: Array.isArray(msg) ? null : msg?.id ?? null, error: { code: -32001, message: "Unauthorized." } }, 401)
   // MCP 2026-07-28: every result names its kind; "complete" for all of ours (older clients ignore the extra key).
   const done = (r: Json): Json => (r && typeof r === "object" && "result" in r ? { ...r, result: { resultType: "complete", ...r.result } } : r)
-  const one = async (m: Json): Promise<Json | null> => done(await answer(m))
-  const answer = async (m: Json): Promise<Json | null> => {
+  const one = async (m: Json): Promise<Json> => done(await answer(m))
+  const answer = async (m: Json): Promise<Json> => {
     const id = m?.id
     // Newer stateless MCP clients (Broods) open with server/discover instead of initialize: same server card, plus the tools.
     // MCP 2026-07-28 (stateless): server/discover advertises versions + capabilities; versions after that ride in each request's _meta.
-    if (m?.method === "server/discover") return { jsonrpc: "2.0", id, result: { supportedVersions: ["2026-07-28", "2025-06-18", "2025-03-26", "2024-11-05"], capabilities: { tools: { listChanged: false } }, serverInfo: { name: "odds-browser", version: "1.0.0" }, instructions: "Browser tools for one Odds application run: always pass run_id." } }
-    if (m?.method === "initialize") return { jsonrpc: "2.0", id, result: { protocolVersion: m?.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "odds-browser", version: "1.0.0" } } }
+    if (m?.method === "server/discover") return { jsonrpc: "2.0", id, result: { supportedVersions: ["2026-07-28", "2025-06-18", "2025-03-26", "2024-11-05"], capabilities: { tools: { listChanged: false } }, serverInfo: { name: server.name, version: "1.0.0" }, instructions: server.instructions } }
+    if (m?.method === "initialize") return { jsonrpc: "2.0", id, result: { protocolVersion: m?.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: server.name, version: "1.0.0" } } }
     if (typeof m?.method === "string" && m.method.startsWith("notifications/")) return null
     if (m?.method === "ping") return { jsonrpc: "2.0", id, result: {} }
     // 2026-07-28 list results carry their cache rules: the tool list is the same for everyone, kept 5 minutes.
-    if (m?.method === "tools/list") return { jsonrpc: "2.0", id, result: { tools: TOOLS, ttlMs: 300_000, cacheScope: "public" } }
+    if (m?.method === "tools/list") return { jsonrpc: "2.0", id, result: { tools: server.tools, ttlMs: 300_000, cacheScope: "public" } }
     if (m?.method === "tools/call") {
-      const out = await callTool(env, String(m.params?.name ?? ""), m.params?.arguments ?? {}).catch((e) => ({ text: `Error: ${String(e?.message ?? e)}`, error: true }))
-      // Text only: no image part ever goes to Broods (it kept every picture in the conversation and resent it on each step).
-      return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: out.text }], ...(out.error ? { isError: true } : {}) } }
+      const result = await server.call(String(m.params?.name ?? ""), m.params?.arguments ?? {}).catch((e) => ({ content: [{ type: "text", text: `Error: ${String(e?.message ?? e)}` }], isError: true }))
+      return { jsonrpc: "2.0", id, result }
     }
     return { jsonrpc: "2.0", id: id ?? null, error: { code: -32601, message: "Method not found" } }
   }
@@ -1134,6 +1156,13 @@ async function captureShot(env: Env, run: Json): Promise<string> {
   return (await captureShotDetailed(env, run)).image
 }
 
+/**
+ * The text-sight pipeline: the server shows each screenshot to a vision model and hands Broods its short description (and looks at the tab
+ * when a step goes wrong or the agent is about to stop). Off by default: odds-agent looks at the tab itself with the screenshot tool and
+ * click_at. ODDS_SERVER_VISION=1 turns it on, for a model route that cannot take images.
+ */
+const serverVision = (): boolean => Deno.env.get("ODDS_SERVER_VISION") === "1"
+
 /** captureShot, with why no picture came (for the sight guard row). */
 async function captureShotDetailed(env: Env, run: Json): Promise<{ image: string; note?: string; scrolled?: boolean }> {
   const docGen = typeof run.doc_gen === "number" ? run.doc_gen : 0
@@ -1213,7 +1242,7 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
         person_answers: answered,
         has_cover_letter: Boolean(letter),
         ...(run.mode === "copilot" ? { mode: "copilot" } : {}),
-        goal: run.mode === "copilot" ? COPILOT_GOAL : "Apply to this job in the person's browser tab with the odds-browser tools until only Submit is left (finish review), or something only the person can do (finish needs_you).",
+        goal: run.mode === "copilot" ? COPILOT_GOAL : "Apply to this job in the person's browser tab with the browser tools until only Submit is left (finish review), or something only the person can do (finish needs_you).",
       }
   // A background run: Broods accepts it (202) and keeps working on its side for as long as the form takes. Holding the stream open
   // here capped every run at this function's ~150 s wall clock ("Caller stopped reading the stream" cancelled real applications).
@@ -1278,7 +1307,7 @@ const resumeRun = (run: Json): boolean => run?.mode === "copilot"
 const resumePatch = (run: Json): Json => ({ status: "running", reason: null, message: null, resume_pending: true, resumes: (run.resumes ?? 0) + 1, last_note: "Carrying on where it stopped…", expires_at: new Date(Date.now() + 30 * 60_000).toISOString(), updated_at: new Date().toISOString() })
 
 /** /ext/drive-start | drive-next | drive-result for the person's own extension. */
-export async function driveExt(route: string, req: Request, env: Env, userId: string, ctx: { facts: () => Promise<Record<string, string>>; job: (url: string) => Promise<Json | null> }): Promise<Response> {
+export async function driveExt(route: string, req: Request, env: Env, userId: string, ctx: { facts: () => Promise<Record<string, string>>; job: (url: string) => Promise<Json> }): Promise<Response> {
   const json = (status: number, body: Json) => new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } })
   const body = await req.json().catch(() => null)
   if (route === "drive-playbook") return json(200, { playbook: await sitePlaybook(env, String(body?.page || body?.url || "")) })

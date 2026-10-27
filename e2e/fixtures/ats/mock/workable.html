@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Operations Intern - Tram Logistics</title>
+<style>
+body{font-family:Arial,sans-serif;margin:0;color:#1f2933}main{max-width:720px;margin:0 auto;padding:20px 16px}
+[role=tablist]{display:flex;gap:4px;border-bottom:1px solid #ccd;margin:16px 0}[role=tab]{font:inherit;padding:10px 18px;border:0;background:none;cursor:pointer;border-bottom:3px solid transparent}[role=tab][aria-selected=true]{border-color:#00756a;font-weight:700}
+.btn{background:#00756a;color:#fff;border:0;border-radius:4px;padding:10px 22px;cursor:pointer;font:inherit}
+.field{margin:14px 0;display:flex;flex-direction:column;gap:4px}fieldset{border:0;padding:0}input:not([type=radio]):not([type=checkbox]),textarea,.styles--select{font:inherit;padding:8px;border:1px solid #bbc;border-radius:4px;background:#fff;text-align:left}
+[role=listbox]{border:1px solid #bbc;margin:0;padding:0;list-style:none;background:#fff}[role=option]{padding:6px 8px;cursor:pointer}[role=option]:hover{background:#e7f5f3}
+.row{display:flex;gap:8px}.row input{width:80px}h3{border-bottom:1px solid #eee;padding-bottom:4px}.err{color:#c62828;font-size:12px}[hidden]{display:none!important}
+</style></head><body>
+<main>
+<header><h1 data-ui="job-title">Operations Intern</h1><p data-ui="job-location">Tram Logistics - Amersfoort, Utrecht, Netherlands - Internship - Hybrid</p></header>
+<nav role="tablist" aria-label="Job"><button type="button" role="tab" id="tab-overview" data-ui="overview-tab" aria-selected="true" aria-controls="overview">Overview</button><button type="button" role="tab" id="tab-application" data-ui="application-form-tab" aria-selected="false" aria-controls="application">Application</button></nav>
+<section role="tabpanel" id="overview" aria-labelledby="tab-overview" data-ui="job-description">
+<h2>Description</h2><p>Tram Logistics plans last-mile delivery routes for parcel carriers in the Benelux. Our operations team needs an intern to analyse delivery delays and improve driver schedules.</p>
+<h2>Requirements</h2><ul><li>Student in logistics, supply chain or industrial engineering</li><li>Comfortable with spreadsheets, SQL is a plus</li><li>Fluent English, other languages are welcome</li></ul>
+<h2>Benefits</h2><ul><li>EUR 600 to 800 monthly allowance</li><li>NS business card for train travel</li></ul>
+<button type="button" class="btn" data-ui="apply-button" id="apply">Apply for this job</button>
+</section>
+<section role="tabpanel" id="application" aria-labelledby="tab-application" hidden>
+<form data-ui="application-form" id="application-form" novalidate>
+<h3>Personal information</h3>
+<div class="field" data-req><label for="firstname">First name *</label><input id="firstname" name="firstname" data-ui="firstname" autocomplete="given-name"></div>
+<div class="field" data-req><label for="lastname">Last name *</label><input id="lastname" name="lastname" data-ui="lastname" autocomplete="family-name"></div>
+<div class="field" data-req><label for="email">Email *</label><input id="email" name="email" type="email" data-ui="email" autocomplete="email"></div>
+<div class="field"><label for="headline">Headline</label><input id="headline" name="headline" data-ui="headline"></div>
+<div class="field" data-req><label for="phone">Phone *</label><input id="phone" name="phone" type="tel" data-ui="phone"></div>
+<div class="field"><label for="address">Address</label><input id="address" name="address" data-ui="address"></div>
+<h3>Profile</h3>
+<div class="field" data-req><label for="resume">Resume *</label><input id="resume" name="resume" type="file" data-ui="resume" accept=".pdf,.doc,.docx,.odt,.rtf"></div>
+<div class="field"><label for="linkedin">LinkedIn</label><input id="linkedin" name="linkedin" type="url" data-ui="linkedin"></div>
+<h3>Details</h3>
+<div class="field"><label for="cover_letter">Cover letter</label><textarea id="cover_letter" name="cover_letter" rows="4" data-ui="cover_letter"></textarea></div>
+<h3>Questions</h3>
+<fieldset class="field" data-req data-ui="QA_8811"><legend>Are you eligible to work in the Netherlands? *</legend><label><input type="radio" name="QA_8811" value="Yes"> Yes</label><label><input type="radio" name="QA_8811" value="No"> No</label></fieldset>
+<fieldset class="field" data-req data-ui="QA_8812" data-if="QA_8811=No" hidden><legend>Do you hold or qualify for an orientation year (zoekjaar) permit? *</legend><label><input type="radio" name="QA_8812" value="Yes"> Yes</label><label><input type="radio" name="QA_8812" value="No"> No</label></fieldset>
+<div class="field" data-req data-ui="QA_8813"><span class="lbl" id="start-l">Earliest start date *</span><div class="row" role="group" aria-labelledby="start-l"><input class="v" role="spinbutton" aria-label="Month" aria-valuemin="1" aria-valuemax="12" placeholder="MM" inputmode="numeric" maxlength="2" name="QA_8813_month"><input class="v" role="spinbutton" aria-label="Year" aria-valuemin="2025" aria-valuemax="2030" placeholder="YYYY" inputmode="numeric" maxlength="4" name="QA_8813_year"></div></div>
+<fieldset class="field" data-req data-ui="QA_8814"><legend>Which languages do you speak? *</legend><label><input type="checkbox" name="QA_8814" value="English"> English</label><label><input type="checkbox" name="QA_8814" value="Dutch"> Dutch</label><label><input type="checkbox" name="QA_8814" value="German"> German</label><label><input type="checkbox" name="QA_8814" value="French"> French</label></fieldset>
+<div class="field" data-req data-ui="QA_8815"><label for="salary">Expected monthly allowance (EUR) *</label><input id="salary" name="QA_8815" inputmode="numeric"></div>
+<div class="field" data-req data-ui="QA_8816"><span class="lbl" id="src-l">How did you hear about this job? *</span><button type="button" class="styles--select" id="src" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="src-l src">Select...</button><input type="hidden" class="v" name="QA_8816"></div>
+<div class="field" data-req data-ui="gdpr"><label><input type="checkbox" name="gdpr" data-ui="gdpr-checkbox"> I agree to the processing of my personal data by Tram Logistics for this application *</label></div>
+<button type="submit" class="btn" data-ui="apply-submit">Submit application</button>
+</form></section>
+</main>
+<script>
+window.sent=0
+const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)]
+const vis=e=>!!e&&e.getClientRects().length>0
+const fire=e=>e.dispatchEvent(new Event('change',{bubbles:true}))
+function isEmpty(q){const h=$$('.v',q),c=h.length?h:$$('input,select,textarea',q),b=c.filter(x=>x.type==='radio'||x.type==='checkbox');if(b.length)return!b.some(x=>x.checked);const f=c.find(x=>x.type==='file');if(f)return!f.files.length;return c.some(x=>!x.value.trim())}
+const lbl=q=>(q.dataset.label||($('.lbl',q)||$('label,legend',q)).textContent).replace(/[*✱]/g,'').replace(/\s+/g,' ').trim()
+const reqs=()=>$$('[data-req]').filter(vis)
+function val(n){const e=$$(`[name="${n}"]`),b=e.filter(x=>x.type==='radio'||x.type==='checkbox');return b.length?(b.find(x=>x.checked)||{}).value||'':(e[0]||{}).value||''}
+function refresh(){for(const el of $$('[data-if]')){const[n,v]=el.dataset.if.split('=');el.hidden=val(n)!==v}}
+function onChange(e){refresh();const q=e.target.closest&&e.target.closest('[data-req]');if(q&&!isEmpty(q))$('.err',q)?.remove()}
+document.addEventListener('input',onChange,true);document.addEventListener('change',onChange,true)
+
+function tab(name){for(const t of $$('[role=tab]')){const on=t.getAttribute('aria-controls')===name;t.setAttribute('aria-selected',String(on));$('#'+t.getAttribute('aria-controls')).hidden=!on}}
+$('#tab-overview').addEventListener('click',()=>tab('overview'))
+$('#tab-application').addEventListener('click',()=>tab('application'))
+$('#apply').addEventListener('click',()=>tab('application'))
+for(const s of $$('[role=spinbutton]'))s.addEventListener('keydown',e=>{if(!['ArrowUp','ArrowDown'].includes(e.key))return;e.preventDefault()
+ const mn=+s.getAttribute('aria-valuemin'),mx=+s.getAttribute('aria-valuemax'),n=Math.min(mx,Math.max(mn,(+s.value||(e.key==='ArrowUp'?mn-1:mx+1))+(e.key==='ArrowUp'?1:-1)))
+ s.value=mx===12?String(n).padStart(2,'0'):String(n);s.setAttribute('aria-valuenow',n);s.dispatchEvent(new Event('input',{bubbles:true}))})
+const src=$('#src'),srcH=src.nextElementSibling
+src.addEventListener('click',()=>{const open=$('#src-list');if(open){open.remove();src.setAttribute('aria-expanded','false');return}
+ const u=document.createElement('ul');u.id='src-list';u.setAttribute('role','listbox')
+ for(const o of['LinkedIn','Indeed','University career service','Werkzoeken.nl','Friend or family','Other']){const li=document.createElement('li');li.setAttribute('role','option');li.textContent=o
+  li.addEventListener('click',()=>{srcH.value=o;src.textContent=o;u.remove();src.setAttribute('aria-expanded','false');fire(srcH)});u.append(li)}
+ src.after(u);src.setAttribute('aria-expanded','true')})
+$('#application-form').addEventListener('submit',e=>{e.preventDefault();window.sent=(window.sent||0)+1})
+window.mockStatus=()=>({platform:'workable',step:$('#application').hidden?'Overview':'Application',final:vis($('[data-ui=apply-submit]')),required_empty:reqs().filter(isEmpty).map(lbl),sent:window.sent||0})
+</script>
+</body></html>

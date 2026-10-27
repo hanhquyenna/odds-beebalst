@@ -9,6 +9,7 @@
 // Every one of those reads and writes is filtered by the user id the key belongs to. Nothing calls a paid service (no Apify, no models).
 // @ts-ignore: bundled from src/lib by scripts/build-mcp-core.sh
 import { driveExt, handleDriveMcp } from "./drive.ts"
+import { handleSupabaseMcp } from "./supabase.ts"
 import * as core from "./core.js"
 import { keptChances } from "./kept-chance.ts"
 import { handleOAuth, unauthorized } from "./oauth.ts"
@@ -1185,7 +1186,7 @@ const EXT_DAILY_PAGE_READS = 300
 /** A job we hold, found by the address it was stored under (job boards loaded in bulk kept longer ones: heldFilter finds those by the job's id). */
 const POSTING_COLUMNS = "id,closed_at,region,employer,employer_display,ats,title,url"
 /** The job an employer's application form belongs to, when its address is not a job link Odds holds (see apply-kit). */
-async function formJob(env: Env, url: string, postingId: string | null, title: string): Promise<Json | null> {
+async function formJob(env: Env, url: string, postingId: string | null, title: string): Promise<Json> {
   const clean = url.split("#")[0]!.slice(0, 2000)
   if (!/^https:\/\//.test(clean)) return null
   const byId = (id: string) => rest(env, `postings?id=eq.${encodeURIComponent(id)}&select=${POSTING_COLUMNS}&limit=1`).then((r) => r?.[0] ?? null).catch(() => null)
@@ -1197,7 +1198,7 @@ async function formJob(env: Env, url: string, postingId: string | null, title: s
   if (name.length < 6) return null
   const host = (() => { try { return new URL(clean).hostname.toLowerCase() } catch { return "" } })()
   const rows = await rest(env, `postings?title=ilike.${encodeURIComponent(name.replace(/[*%,()]/g, " ").trim())}&closed_at=is.null&select=${POSTING_COLUMNS}&limit=10`).catch(() => null) ?? []
-  const key = (t: unknown) => String(t ?? "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]/g, "")
+  const key = (t: unknown) => (typeof t === "string" ? t : "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]/g, "")
   // The posting on this very site first (YETI's own Workday), else one whose employer's first name is in the address ("yeti" in yeticoolers…).
   const hostOf = (u: unknown) => { try { return new URL(String(u)).hostname.toLowerCase() } catch { return "" } }
   const firstWord = (p: Json) => key(String(p.employer_display || p.employer || "").split(/\s+/)[0])
@@ -1848,7 +1849,9 @@ export async function handle(req: Request, env: Env): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS })
   if (new URL(req.url).pathname.includes("/ext/")) return handleExt(req, env)
   // Broods' browser tools (one agent drives the person's tab through the Odds extension).
-  if (/\/drive\/?$/.test(new URL(req.url).pathname)) return handleDriveMcp(req, env)
+  if (/\/browser\/?$/.test(new URL(req.url).pathname)) return handleDriveMcp(req, env)
+  // Broods' view of the person who owns a live run: their profile, documents and standard answers, nobody else's.
+  if (/\/supabase\/?$/.test(new URL(req.url).pathname)) return handleSupabaseMcp(req, env, ME_TOOLS, async (userId, name, args) => callMe(env, { id: userId, email: await emailOf(env, { id: userId, email: null, key: "" }), key: "" }, name, cleanArgs(args)))
   const oauth = await handleOAuth(req, env, CORS)
   if (oauth) return oauth
   if (req.method === "GET" && new URL(req.url).pathname.endsWith("/file")) return serveFile(req, env)

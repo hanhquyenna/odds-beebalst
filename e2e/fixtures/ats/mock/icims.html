@@ -1,0 +1,104 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Engineering Intern (Graduation Project) - Careers at Northdyke Engineering</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 "Segoe UI",Arial,sans-serif;color:#222;background:#eef1f4}
+.iCIMS_Header{background:#0b3d5c;color:#fff;padding:14px 16px;font-size:18px;font-weight:600}
+.wrap{max-width:760px;margin:0 auto;padding:16px}
+.iCIMS_JobHeader{background:#fff;padding:12px 16px;border:1px solid #d5dbe1;margin-bottom:12px}
+#icims_content_iframe{width:100%;height:1100px;border:1px solid #d5dbe1;background:#fff;display:block}
+</style></head><body>
+<div class="iCIMS_Header">Northdyke Engineering BV · Careers</div>
+<div class="wrap">
+<div class="iCIMS_JobHeader"><b>Engineering Intern (Graduation Project)</b> · Job ID 2026-1184 · Delft, Netherlands · Internship</div>
+<iframe id="icims_content_iframe" title="Job application" name="icims_content_iframe"></iframe>
+</div>
+<template id="icims-tpl">
+<style>
+*{box-sizing:border-box}body{margin:0;padding:16px;font:15px/1.45 "Segoe UI",Arial,sans-serif;color:#222}
+.iCIMS_InfoMsg{background:#f3f6f9;border-left:4px solid #0b3d5c;padding:10px;margin:10px 0}
+.f{margin:12px 0;position:relative}.f>label,.lbl{display:block;font-weight:600;margin-bottom:4px}
+input:not([type=checkbox]):not([type=radio]):not([type=file]),select{width:100%;padding:8px;border:1px solid #9aa5b1;font:inherit}
+.row{display:flex;gap:8px}.row select{flex:1}
+button{font:inherit;padding:8px 16px;border:1px solid #0b3d5c;background:#fff;color:#0b3d5c;cursor:pointer}
+.iCIMS_PrimaryButton{background:#0b3d5c;color:#fff}
+ul[role=listbox]{list-style:none;margin:0;padding:0;border:1px solid #9aa5b1;background:#fff;position:absolute;left:0;right:0;z-index:2}
+li[role=option]{padding:6px 8px;cursor:pointer}li[role=option]:hover{background:#e6eef5}
+.err{color:#b3261e;font-size:13px;margin-top:4px}
+[hidden]{display:none!important}
+</style>
+<section id="s-account" data-step="Account">
+<h2>Welcome</h2>
+<div class="iCIMS_InfoMsg">Returning candidates can log in. New candidates can apply without creating an account.</div>
+<button type="button" class="iCIMS_PrimaryButton" id="noacct">Apply without an account</button>
+<h3>Log in</h3>
+<div class="f"><label for="login_email">Email Address</label><input id="login_email" type="email" name="login_email"></div>
+<div class="f"><label for="login_pw">Password</label><input id="login_pw" type="password" name="login_pw"></div>
+<button type="button" id="login">Log In</button><div id="login-msg" class="err" hidden>The email address or password is incorrect.</div>
+</section>
+<form id="icims-form" novalidate>
+<section id="s-contact" data-step="Contact Information" hidden>
+<h2>Contact Information</h2>
+<div class="f" data-req="Resume"><label for="resume">Upload your resume *</label><input type="file" id="resume" name="resume" accept=".pdf,.doc,.docx" required></div>
+<div class="f" data-req="First Name"><label for="fname">First Name *</label><input id="fname" name="firstname" required></div>
+<div class="f" data-req="Last Name"><label for="lname">Last Name *</label><input id="lname" name="lastname" required></div>
+<div class="f" data-req="Email"><label for="email">Email *</label><input id="email" type="email" name="email" required></div>
+<div class="f" data-req="Phone Number"><label for="phone">Phone Number *</label><input id="phone" type="tel" name="phone" required></div>
+<div class="f" data-req="City"><label for="city">City *</label><input id="city" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="city-list" autocomplete="off" placeholder="Start typing and pick a city">
+<ul id="city-list" role="listbox" hidden></ul><input type="hidden" id="city-h" name="city"></div>
+<div class="f"><label for="li">LinkedIn Profile</label><input id="li" type="url" name="linkedin"></div>
+<button type="button" id="back1">Back</button> <button type="button" class="iCIMS_PrimaryButton" id="next1">Next</button>
+</section>
+<section id="s-questions" data-step="Candidate Questions" hidden>
+<h2>Candidate Questions</h2>
+<div class="f" data-req="Are you legally authorized to work in the Netherlands?"><label for="q1">Are you legally authorized to work in the Netherlands? *</label><select id="q1" name="q1" required><option value="">Make a Selection</option><option>Yes</option><option>No</option></select></div>
+<div class="f" data-req="Will you require visa sponsorship?"><label for="q2">Will you require visa sponsorship? *</label><select id="q2" name="q2" required><option value="">Make a Selection</option><option>Yes</option><option>No</option></select></div>
+<div class="f" data-req="Highest Level of Education"><label for="edu">Highest Level of Education *</label><select id="edu" name="edu" required><option value="">Make a Selection</option><option>High school</option><option>Bachelor (in progress)</option><option>Bachelor</option><option>Master (in progress)</option><option>Master</option></select></div>
+<div class="f" data-req="University"><label for="uni">University *</label><input id="uni" name="university" required></div>
+<div class="f" data-req="Expected Graduation Date"><div class="lbl" id="grad-l">Expected Graduation Date *</div><div class="row">
+<select id="grad-m" name="grad_month" aria-label="Graduation month" required><option value="">Month</option><option value="01">January</option><option value="02">February</option><option value="03">March</option><option value="04">April</option><option value="05">May</option><option value="06">June</option><option value="07">July</option><option value="08">August</option><option value="09">September</option><option value="10">October</option><option value="11">November</option><option value="12">December</option></select>
+<select id="grad-y" name="grad_year" aria-label="Graduation year" required><option value="">Year</option><option>2026</option><option>2027</option><option>2028</option><option>2029</option></select></div></div>
+<div class="f" data-req="English Proficiency"><label for="eng">English Proficiency *</label><select id="eng" name="english" required><option value="">Make a Selection</option><option>Basic</option><option>Conversational</option><option>Professional</option><option>Native or bilingual</option></select></div>
+<div class="f"><label for="src">How did you hear about us?</label><select id="src" name="source"><option value="">Make a Selection</option><option>Job board</option><option>University</option><option>LinkedIn</option><option>Employee referral</option></select></div>
+<div class="f"><label for="gender">Gender (voluntary)</label><select id="gender" name="eeo_gender"><option value="">Make a Selection</option><option>Female</option><option>Male</option><option>Non-binary</option><option>Prefer not to say</option></select></div>
+<div class="f" data-req="Data privacy consent"><label><input type="checkbox" id="consent" name="consent" required> I agree to the Northdyke candidate privacy notice. *</label></div>
+<button type="button" id="back2">Back</button> <button type="submit" class="iCIMS_PrimaryButton" id="final">Submit application</button>
+</section>
+</form>
+<script>
+const P=parent,Q=s=>document.querySelector(s)
+const show=id=>{for(const s of document.querySelectorAll("[data-step]"))s.hidden=s.id!=id;scrollTo(0,0)}
+for(const t of["input","change","click"])document.addEventListener(t,e=>P.clr(e.target.closest&&e.target.closest(".f")))
+Q("#noacct").addEventListener("click",()=>show("s-contact"))
+Q("#login").addEventListener("click",()=>{Q("#login-msg").hidden=false})
+Q("#back1").addEventListener("click",()=>show("s-account"))
+Q("#back2").addEventListener("click",()=>show("s-contact"))
+Q("#next1").addEventListener("click",()=>{if(P.check(Q("#s-contact")))show("s-questions")})
+const cities=["Amsterdam","Delft","Eindhoven","Groningen","Leiden","Rotterdam","The Hague","Utrecht","Delfgauw"]
+const ci=Q("#city"),cl=Q("#city-list"),ch=Q("#city-h")
+function pick(c){ci.value=c;ch.value=c;cl.hidden=true;ci.setAttribute("aria-expanded","false");P.clr(ci.closest(".f"))}
+ci.addEventListener("input",()=>{ch.value="";cl.innerHTML="";const v=ci.value.trim().toLowerCase()
+for(const c of v?cities.filter(c=>c.toLowerCase().startsWith(v)):[]){const li=document.createElement("li");li.setAttribute("role","option");li.textContent=c;li.addEventListener("mousedown",e=>{e.preventDefault();pick(c)});cl.append(li)}
+cl.hidden=!cl.children.length;ci.setAttribute("aria-expanded",String(!cl.hidden))})
+ci.addEventListener("keydown",e=>{if(e.key=="Enter"&&!cl.hidden&&cl.firstChild){e.preventDefault();pick(cl.firstChild.textContent)}})
+ci.addEventListener("blur",()=>{cl.hidden=true;ci.setAttribute("aria-expanded","false")})
+Q("#icims-form").addEventListener("submit",e=>{e.preventDefault();if(!P.shown(Q("#final")))return;window.sent=(window.sent||0)+1;P.sent=(P.sent||0)+1;P.check(e.target)})
+</script>
+</template>
+<script>
+window.sent=0
+function Q(s,r=document){return r.querySelector(s)}
+function QA(s,r=document){return[...r.querySelectorAll(s)]}
+function shown(el){return!!el&&el.getClientRects().length>0}
+// A .f wrapper is empty when its hidden values, choices, file or text inputs are unset.
+function empty(f){const i=QA("input,select,textarea",f),h=i.filter(x=>x.type=="hidden");if(h.length)return h.some(x=>!x.value);const b=i.filter(x=>x.type=="radio"||x.type=="checkbox");if(b.length)return!b.some(x=>x.checked);const fl=i.find(x=>x.type=="file");if(fl)return!fl.files.length;return!i.length||i.some(x=>!x.value.trim())}
+function mark(f,bad){let e=Q(":scope>.err",f);if(bad&&!e){e=f.ownerDocument.createElement("div");e.className="err";e.setAttribute("role","alert");e.textContent="This field is required";f.append(e)}if(!bad&&e)e.remove()}
+function check(s){let ok=true;for(const f of QA(".f[data-req]",s)){const bad=shown(f)&&empty(f);mark(f,bad);if(bad)ok=false}return ok}
+function clr(f){if(f&&!empty(f))mark(f,false)}
+function missing(s){return s?QA(".f[data-req]",s).filter(f=>shown(f)&&empty(f)).map(f=>f.dataset.req):[]}
+function cur(r=document){return QA("[data-step]",r).find(shown)}
+const fr=Q("#icims_content_iframe")
+fr.srcdoc="<!doctype html><meta charset=utf-8>"+Q("#icims-tpl").innerHTML
+// The oracle lives on the top window and reads the same-origin iframe document.
+window.mockStatus=()=>{const d=fr.contentDocument,s=d&&cur(d);return{platform:"icims",step:s?s.dataset.step:"",final:!!d&&shown(d.getElementById("final")),required_empty:missing(s),sent:window.sent||0}}
+</script>
+</body></html>

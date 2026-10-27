@@ -1,3 +1,4 @@
+import { PostgrestClient } from "@supabase/postgrest-js"
 
 export const SUPABASE_URL: string = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY: string = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -25,3 +26,17 @@ export function currentAccessToken(): string | null {
  * browser, another app) and a request in flight then never settles, which left the page waiting for ever.
  */
 export const REQUEST_TIMEOUT_MS = 30_000
+
+const authedFetch: typeof fetch = (input, init) => {
+  const headers = new Headers(init?.headers)
+  headers.set("apikey", SUPABASE_ANON_KEY)
+  headers.set("Authorization", `Bearer ${accessToken ?? SUPABASE_ANON_KEY}`)
+  const limit = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+
+  return fetch(input, { ...init, headers, signal: init?.signal ? AbortSignal.any([init.signal, limit]) : limit })
+}
+
+/** PostgREST only. Auth is a handful of REST calls in auth.ts, so supabase-js stays out of the bundle. Anon key only. */
+export const supabase: PostgrestClient = new PostgrestClient(`${SUPABASE_URL}/rest/v1`, {
+  fetch: authedFetch,
+})

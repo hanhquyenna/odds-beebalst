@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Marketing Intern - Gouda Games</title>
+<style>
+body{font-family:Helvetica,Arial,sans-serif;margin:0;color:#222}.careersite-header{background:#ffb703;padding:14px 16px;font-weight:700}main{max-width:700px;margin:0 auto;padding:20px 16px}
+.careersite-button{background:#111;color:#fff;border:0;border-radius:999px;padding:12px 26px;cursor:pointer;font:inherit}
+.form-group{margin:16px 0;display:flex;flex-direction:column;gap:4px}input:not([type=checkbox]),select,textarea{font:inherit;padding:8px;border:1px solid #bbb;border-radius:6px}
+.cookie-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20}.cookie-consent{position:fixed;left:16px;right:16px;bottom:16px;max-width:520px;margin:0 auto;background:#fff;padding:20px;border-radius:10px;z-index:21}
+.cookie-consent button{font:inherit;padding:8px 16px;border-radius:999px;cursor:pointer;border:1px solid #111}.cookie-consent .accept{background:#111;color:#fff}
+.counter{font-size:12px;color:#666;text-align:right}.err{color:#c00;font-size:12px}[hidden]{display:none!important}
+</style></head><body>
+<div data-controller="cookie-consent" id="cookie-root"><div class="cookie-backdrop"></div>
+<div class="cookie-consent" role="dialog" aria-modal="true" aria-labelledby="cc-title"><h3 id="cc-title">We value your privacy</h3><p>We use cookies to make the career site work and, if you agree, for analytics and marketing.</p>
+<button type="button" class="accept" data-action="cookie-consent#acceptAll">Accept all</button> <button type="button" data-action="cookie-consent#necessaryOnly">Necessary only</button></div></div>
+<div class="careersite-header">Gouda Games</div>
+<main>
+<section class="job-ad" id="job-ad">
+<h1 class="careersite-job-title">Marketing Intern</h1><p class="job-meta">Marketing - Gouda, Netherlands - Internship</p>
+<p>Gouda Games makes cosy puzzle games played by four million people. As our Marketing Intern you help plan launch campaigns, write store page copy and run our community Discord.</p>
+<h3>You are</h3><ul><li>Studying marketing, communication or media</li><li>A strong English writer. Dutch is a bonus, not a must</li><li>Available for at least 24 hours per week for six months</li></ul>
+<button type="button" class="careersite-button" data-action="click->job-application#open" id="interested">I'm interested</button>
+</section>
+<section id="application" hidden>
+<h2>Apply for Marketing Intern</h2>
+<form class="careersite-form" id="new_candidate" novalidate>
+<div class="form-group" data-req><label for="candidate_first_name">First name *</label><input id="candidate_first_name" name="candidate[first_name]" autocomplete="given-name"></div>
+<div class="form-group" data-req><label for="candidate_last_name">Last name *</label><input id="candidate_last_name" name="candidate[last_name]" autocomplete="family-name"></div>
+<div class="form-group" data-req><label for="candidate_email">Email *</label><input id="candidate_email" name="candidate[email]" type="email" autocomplete="email"></div>
+<div class="form-group" data-req><label for="candidate_phone">Phone *</label><input id="candidate_phone" name="candidate[phone]" type="tel" autocomplete="tel"></div>
+<div class="form-group" data-req><label for="candidate_resume">CV *</label><input id="candidate_resume" name="candidate[resume]" type="file" accept=".pdf,.doc,.docx,.odt"></div>
+<div class="form-group"><label for="candidate_linkedin_url">LinkedIn URL</label><input id="candidate_linkedin_url" name="candidate[linkedin_url]" type="url"></div>
+<div class="form-group" data-req><label for="candidate_location">Which location are you applying for? *</label><select id="candidate_location" name="candidate[location_id]"><option value="">Select location</option><option value="1">Gouda (office)</option><option value="2">Remote within the Netherlands</option></select></div>
+<div class="form-group" data-req><label for="q_permit">Do you have the right to work in the Netherlands? *</label><select id="q_permit" name="candidate[answers_attributes][0][choice]"><option value="">Select...</option><option>Yes</option><option>No</option></select></div>
+<div class="form-group" data-req data-if="candidate[answers_attributes][0][choice]=No" hidden><label for="q_visa">Will you need visa sponsorship to work in the Netherlands? *</label><select id="q_visa" name="candidate[answers_attributes][1][choice]"><option value="">Select...</option><option>Yes</option><option>No</option></select></div>
+<div class="form-group" data-req><label for="q_hours">How many hours per week are you available? *</label><input id="q_hours" name="candidate[answers_attributes][2][number]" type="number" min="8" max="40"></div>
+<div class="form-group" data-req><label for="q_allowance">Expected monthly internship allowance in EUR *</label><input id="q_allowance" name="candidate[answers_attributes][3][number]" type="number" min="0" step="50"></div>
+<div class="form-group" data-req><label for="q_start">Earliest start date *</label><input id="q_start" name="candidate[answers_attributes][4][date]" type="date"></div>
+<div class="form-group" data-req><label for="q_motivation">Why do you want to work at Gouda Games? *</label><textarea id="q_motivation" name="candidate[answers_attributes][5][text]" rows="5" maxlength="500"></textarea><div class="counter"><span id="motivation-count">0</span> / 500</div></div>
+<div class="form-group" data-req><label><input type="checkbox" name="candidate[consent_given]" value="1"> I agree to Gouda Games storing my personal data for this recruitment process, as described in the privacy policy *</label></div>
+<button type="submit" class="careersite-button" id="submit-application">Submit application</button>
+</form></section>
+</main>
+<script>
+window.sent=0
+const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)]
+const vis=e=>!!e&&e.getClientRects().length>0
+function isEmpty(q){const h=$$('.v',q),c=h.length?h:$$('input,select,textarea',q),b=c.filter(x=>x.type==='radio'||x.type==='checkbox');if(b.length)return!b.some(x=>x.checked);const f=c.find(x=>x.type==='file');if(f)return!f.files.length;return c.some(x=>!x.value.trim())}
+const lbl=q=>(q.dataset.label||($('.lbl',q)||$('label,legend',q)).textContent).replace(/[*✱]/g,'').replace(/\s+/g,' ').trim()
+const reqs=()=>$$('[data-req]').filter(vis)
+function val(n){const e=$$(`[name="${n}"]`),b=e.filter(x=>x.type==='radio'||x.type==='checkbox');return b.length?(b.find(x=>x.checked)||{}).value||'':(e[0]||{}).value||''}
+function refresh(){for(const el of $$('[data-if]')){const i=el.dataset.if.lastIndexOf('='),n=el.dataset.if.slice(0,i),v=el.dataset.if.slice(i+1);el.hidden=val(n)!==v}}
+function onChange(e){refresh();const q=e.target.closest&&e.target.closest('[data-req]');if(q&&!isEmpty(q))$('.err',q)?.remove()}
+document.addEventListener('input',onChange,true);document.addEventListener('change',onChange,true)
+
+for(const b of $$('#cookie-root button'))b.addEventListener('click',()=>$('#cookie-root').remove())
+$('#interested').addEventListener('click',()=>{$('#job-ad').hidden=true;$('#application').hidden=false})
+$('#q_motivation').addEventListener('input',e=>{$('#motivation-count').textContent=e.target.value.length})
+$('#new_candidate').addEventListener('submit',e=>{e.preventDefault();window.sent=(window.sent||0)+1})
+window.mockStatus=()=>({platform:'teamtailor',step:$('#application').hidden?'Job description':'Application',final:vis($('#submit-application')),required_empty:reqs().filter(isEmpty).map(lbl),sent:window.sent||0})
+</script>
+</body></html>

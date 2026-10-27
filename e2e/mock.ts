@@ -10,12 +10,14 @@ export const SUPABASE_ORIGIN = "http://supabase.test"
 const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64")
 
 /** Public tables the app reads that have no rows in these fixtures: answered with an empty list, like PostgREST does. */
-const EMPTY_TABLES: ReadonlySet<string> = new Set(["applications", "employer_about", "employer_culture", "employer_facts", "employer_glassdoor_pay", "employer_headcount", "employer_hiring", "employer_money", "employer_news", "employer_teams", "profiles", "documents", "job_documents", "drive_links", "mcp_keys", "saved_jobs", "chance_snapshots", "job_chances", "push_devices", "application_answers", "application_runs", "application_prompts", "application_questions", "application_desktops", "outreach_drafts", "drive_runs", "apply_queue"])
+const EMPTY_TABLES: ReadonlySet<string> = new Set(["drive_runs", "drive_commands", "applications", "employer_about", "employer_culture", "employer_facts", "employer_glassdoor_pay", "employer_headcount", "employer_hiring", "employer_money", "employer_news", "employer_teams", "profiles", "documents", "job_documents", "drive_links", "mcp_keys", "saved_jobs", "chance_snapshots", "job_chances", "push_devices", "application_answers", "application_runs", "application_prompts", "application_questions", "application_desktops", "outreach_drafts"])
 
 /** Functions the job page calls about its employer: these fixtures know nothing about any employer, as for one we have no data on. */
 const EMPTY_RPCS: ReadonlySet<string> = new Set(["rpc/job_company", "rpc/company_research"])
 
 interface Fixtures {
+  /** Exact browser network errors deliberately exercised by a failure-path test. */
+  allowedConsoleErrors: ReadonlyArray<string>
   /** Installs the fake backend and fails the test on any console error, page error or request that reaches the outside. */
   backend: void
   /** Starts as a signed-in person who has finished the first questions (a made-up session; the fake backend answers for them). */
@@ -26,9 +28,10 @@ type Row = Record<string, unknown>
 
 /** The test every spec uses: the real build, a mocked Supabase, and a strict guard on errors and stray requests. */
 export const test = base.extend<Fixtures>({
+  allowedConsoleErrors: [[], { option: true }],
   signedIn: [false, { option: true }],
   backend: [
-    async ({ context, page, signedIn }, use): Promise<void> => {
+    async ({ context, page, signedIn, allowedConsoleErrors }, use): Promise<void> => {
       const problems: string[] = []
       if (signedIn) {
         await context.addInitScript((session) => {
@@ -37,7 +40,7 @@ export const test = base.extend<Fixtures>({
         }, { access_token: "e2e-token", refresh_token: "e2e-refresh", expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: "00000000-0000-4000-8000-000000000001", email: "test.person@example.com" } })
       }
       await mockBackend(context, FLOW_POSTINGS, problems, signedIn)
-      watchPage(page, problems)
+      watchPage(page, problems, allowedConsoleErrors)
       await use()
       expect(problems, "console errors, page errors or un-mocked requests").toEqual([])
     },
@@ -183,9 +186,9 @@ function postingsRows(select: string, id: string | null, postings: Posting[]): R
 }
 
 /** Collects console errors and uncaught exceptions as problems. */
-function watchPage(page: Page, problems: string[]): void {
+function watchPage(page: Page, problems: string[], allowedConsoleErrors: ReadonlyArray<string> = []): void {
   page.on("console", (message): void => {
-    if (message.type() === "error") {
+    if (message.type() === "error" && !allowedConsoleErrors.includes(message.text())) {
       problems.push(`console error: ${message.text()}`)
     }
   })

@@ -1,0 +1,106 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Supply Chain Trainee - Meridian Freight Services Career Section</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 Tahoma,Verdana,sans-serif;color:#222;background:#fff}
+.hdr{background:#4b5d6b;color:#fff;padding:12px 16px;font-size:17px}
+main{max-width:760px;margin:0 auto;padding:16px}
+.trail{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:14px;padding:0;list-style:none}
+.trail li{padding:6px 10px;background:#e7ebee;color:#556}.trail li.on{background:#2f6b9a;color:#fff;font-weight:700}
+.f{margin:12px 0}.f>label,.lbl{display:block;font-weight:700;margin-bottom:3px}
+input:not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea{width:100%;padding:6px;border:1px solid #8a959e;font:inherit}
+.f.opt label{font-weight:400;margin-right:14px}
+.disc{border:1px solid #c9d0d6;padding:10px;max-height:200px;overflow:auto;background:#fafbfc}
+.bar{border-top:1px solid #c9d0d6;margin-top:16px;padding-top:12px;display:flex;gap:8px}
+button{font:inherit;padding:6px 14px;border:1px solid #6b7882;background:#f0f2f4;cursor:pointer}
+.primary{background:#2f6b9a;color:#fff;border-color:#2f6b9a}
+table{border-collapse:collapse;width:100%}td{border-bottom:1px solid #e1e5e8;padding:5px;vertical-align:top}td:first-child{font-weight:700;width:40%}
+.err{color:#c00;font-size:12px;margin-top:3px}.cnt{color:#667;font-size:12px;text-align:right}
+[hidden]{display:none!important}
+</style></head><body>
+<div class="hdr">Meridian Freight Services · Career Section</div>
+<main>
+<h1>Supply Chain Trainee (Job Number: MFS-02417)</h1>
+<ol class="trail" id="trail"></ol>
+<div id="mount"></div>
+</main>
+<template id="t1">
+<h2>Legal Disclaimer</h2>
+<div class="disc"><p>By submitting your application you confirm that the information provided is true and complete. Meridian Freight Services processes your personal data for recruitment purposes only and keeps it for 12 months after the vacancy is closed.</p><p>You may request access to, correction or deletion of your data at any time.</p></div>
+<div class="f" data-req="I have read and accept the legal disclaimer"><label><input type="checkbox" name="disclaimer" value="accepted" required> I have read and accept the legal disclaimer *</label></div>
+<div class="bar"><button type="button" id="decline">Decline</button><button type="submit" class="primary">Accept and Continue</button></div>
+<p id="declined" class="err" hidden>You must accept the legal disclaimer to apply for this job.</p>
+</template>
+<template id="t2">
+<h2>Personal Information</h2>
+<div class="f" data-req="First Name"><label for="first_name">First Name *</label><input id="first_name" name="first_name" required></div>
+<div class="f" data-req="Last Name"><label for="last_name">Last Name *</label><input id="last_name" name="last_name" required></div>
+<div class="f" data-req="Email Address"><label for="email">Email Address *</label><input id="email" type="email" name="email" required></div>
+<div class="f" data-req="Primary Number"><label for="phone">Primary Number *</label><input id="phone" type="tel" name="phone" required></div>
+<div class="f" data-req="City"><label for="city">City *</label><input id="city" name="city" required></div>
+<div class="f" data-req="Country of Residence"><label for="country">Country of Residence *</label><select id="country" name="country" required><option value="">Select</option><option>Netherlands</option><option>Belgium</option><option>Germany</option><option>France</option><option>India</option><option>Other</option></select></div>
+<div class="f" data-req="Resume"><label for="resume">Resume *</label><input id="resume" type="file" name="resume" accept=".pdf,.doc,.docx" required></div>
+<div class="f"><label for="linkedin">LinkedIn Profile URL</label><input id="linkedin" type="url" name="linkedin"></div>
+<div class="bar"><button type="button" class="prev">Previous</button><button type="submit" class="primary">Save and Continue</button></div>
+</template>
+<template id="t3">
+<h2>Questions</h2>
+<div class="f opt" data-req="Are you legally authorized to work in the Netherlands?"><div class="lbl">Are you legally authorized to work in the Netherlands? *</div><label><input type="radio" name="workauth" value="Yes" required> Yes</label><label><input type="radio" name="workauth" value="No"> No</label></div>
+<div class="f opt" data-req="Will you require visa sponsorship?" id="sponsor-f" hidden><div class="lbl">Will you require visa sponsorship? *</div><label><input type="radio" name="sponsor" value="Yes"> Yes</label><label><input type="radio" name="sponsor" value="No"> No</label></div>
+<div class="f" data-req="English Proficiency"><label for="english">English Proficiency *</label><select id="english" name="english" required><option value="">Select</option><option>Elementary</option><option>Intermediate</option><option>Advanced</option><option>Native</option></select></div>
+<div class="f" data-req="Hours per week"><label for="hours">How many hours per week can you work? *</label><input id="hours" type="number" min="16" max="40" name="hours" required></div>
+<div class="f" data-req="Earliest start date"><label for="start">Earliest start date *</label><input id="start" type="date" name="start" required></div>
+<div class="f"><label for="source">How did you hear about us?</label><select id="source" name="source"><option value="">Select</option><option>Career website</option><option>LinkedIn</option><option>University fair</option><option>Referral</option></select></div>
+<div class="f" data-req="Motivation"><label for="motivation">Why do you want to join our trainee programme? *</label><textarea id="motivation" name="motivation" rows="5" maxlength="500" required></textarea><div class="cnt"><span id="cnt">0</span>/500 characters</div></div>
+<div class="bar"><button type="button" class="prev">Previous</button><button type="submit" class="primary">Save and Continue</button></div>
+</template>
+<template id="t4">
+<h2>Review and Submit</h2>
+<p>Please review your application. Use Previous to make changes.</p>
+<table id="review"></table>
+<div class="f" data-req="Electronic signature"><label><input type="checkbox" name="esign" required> I certify that the information in this application is accurate (electronic signature). *</label></div>
+<div class="bar"><button type="button" class="prev">Previous</button><button type="submit" class="primary" id="final">Submit</button></div>
+</template>
+<script>
+window.sent=0
+const Q=(s,r=document)=>r.querySelector(s),QA=(s,r=document)=>[...r.querySelectorAll(s)]
+const shown=el=>!!el&&el.getClientRects().length>0
+// A .f wrapper is empty when its hidden values, choices, file or text inputs are unset.
+function empty(f){const i=QA("input,select,textarea",f),h=i.filter(x=>x.type=="hidden");if(h.length)return h.some(x=>!x.value);const b=i.filter(x=>x.type=="radio"||x.type=="checkbox");if(b.length)return!b.some(x=>x.checked);const fl=i.find(x=>x.type=="file");if(fl)return!fl.files.length;return!i.length||i.some(x=>!x.value.trim())}
+function mark(f,bad){let e=Q(":scope>.err",f);if(bad&&!e){e=document.createElement("div");e.className="err";e.setAttribute("role","alert");e.textContent="This field is required";f.append(e)}if(!bad&&e)e.remove()}
+function check(s){let ok=true;for(const f of QA(".f[data-req]",s)){const bad=shown(f)&&empty(f);mark(f,bad);if(bad)ok=false}return ok}
+const clr=f=>{if(f&&!empty(f))mark(f,false)}
+const missing=s=>s?QA(".f[data-req]",s).filter(f=>shown(f)&&empty(f)).map(f=>f.dataset.req):[]
+const cur=(r=document)=>QA("[data-step]",r).find(shown)
+for(const t of["input","change","click"])document.addEventListener(t,e=>clr(e.target.closest&&e.target.closest(".f")))
+window.mockStatus=()=>{const s=cur();return{platform:"taleo",step:s?s.dataset.step:"",final:shown(Q("#final")),required_empty:missing(s),sent:window.sent||0}}
+
+// Each step is a real page: ?step=N renders it, a GET form carries earlier answers forward.
+const P=new URLSearchParams(location.search),step=Math.min(4,Math.max(1,parseInt(P.get("step"))||1))
+const names=["Legal Disclaimer","Personal Information","Questions","Review and Submit"]
+const labels={first_name:"First Name",last_name:"Last Name",email:"Email Address",phone:"Primary Number",city:"City",country:"Country of Residence",resume:"Resume",linkedin:"LinkedIn Profile URL",workauth:"Authorized to work in the Netherlands",sponsor:"Requires visa sponsorship",english:"English Proficiency",hours:"Hours per week",start:"Earliest start date",source:"How did you hear about us?",motivation:"Motivation"}
+names.forEach((n,i)=>{const li=document.createElement("li");li.textContent=(i+1)+". "+n;if(i+1==step)li.className="on";Q("#trail").append(li)})
+const form=document.createElement("form")
+form.method="get";form.noValidate=true;form.id="taleo-form";form.dataset.step=names[step-1]
+form.append(Q("#t"+step).content.cloneNode(true))
+const named=new Set(QA("[name]",form).map(x=>x.name))
+for(const[k,v]of P){if(k=="step"||named.has(k))continue;form.append(hidden(k,v))}
+if(step<4)form.append(hidden("step",String(step+1)))
+for(const el of QA("[name]",form)){if(el.type=="hidden"||el.type=="file"||!P.has(el.name))continue;const v=P.get(el.name);if(el.type=="radio"||el.type=="checkbox")el.checked=el.value==v;else el.value=v}
+Q("#mount").append(form)
+for(const b of QA(".prev",form))b.addEventListener("click",()=>{const p=new URLSearchParams(P);p.set("step",String(step-1));location.assign("?"+p)})
+if(step==1)Q("#decline").addEventListener("click",()=>{Q("#declined").hidden=false})
+if(step==3){
+  const sync=()=>{const no=!!Q("input[name=workauth][value=No]:checked");Q("#sponsor-f").hidden=!no;if(!no)for(const r of QA("input[name=sponsor]"))r.checked=false}
+  const count=()=>{Q("#cnt").textContent=Q("#motivation").value.length}
+  for(const r of QA("input[name=workauth]"))r.addEventListener("change",sync)
+  Q("#motivation").addEventListener("input",count);sync();count()
+}
+if(step==4)for(const[k,v]of P){if(!labels[k])continue;const tr=document.createElement("tr"),a=document.createElement("td"),b=document.createElement("td");a.textContent=labels[k];b.textContent=v;tr.append(a,b);Q("#review").append(tr)}
+form.addEventListener("submit",e=>{
+  if(step==4){e.preventDefault();window.sent=(window.sent||0)+1;check(form);return}
+  if(!check(form))e.preventDefault()
+})
+
+function hidden(name,value){const h=document.createElement("input");h.type="hidden";h.name=name;h.value=value;return h}
+</script>
+</body></html>

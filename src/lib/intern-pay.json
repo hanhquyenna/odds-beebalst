@@ -1,0 +1,706 @@
+{
+ "employers": {
+  "ABB": {
+   "high": 750,
+   "low": 650,
+   "name": "ABB",
+   "postings": 1
+  },
+  "ABN AMRO Bank N.V.": {
+   "high": 750,
+   "low": 750,
+   "name": "ABN AMRO Bank N.V.",
+   "postings": 3
+  },
+  "AOC International Europe B.V.": {
+   "high": 750,
+   "low": 650,
+   "name": "AOC International Europe B.V.",
+   "postings": 1
+  },
+  "Abbott": {
+   "high": 500,
+   "low": 500,
+   "name": "Abbott",
+   "postings": 1
+  },
+  "B&amp;S": {
+   "high": 500,
+   "low": 500,
+   "name": "B&amp;S",
+   "postings": 1
+  },
+  "Canon Production Printing": {
+   "high": 500,
+   "low": 500,
+   "name": "Canon Production Printing",
+   "postings": 5
+  },
+  "Canpack Netherlands": {
+   "high": 400,
+   "low": 400,
+   "name": "Canpack Netherlands",
+   "postings": 1
+  },
+  "Cefetra Market Research": {
+   "high": 450,
+   "low": 450,
+   "name": "Cefetra Market Research",
+   "postings": 1
+  },
+  "Churned": {
+   "high": 500,
+   "low": 500,
+   "name": "Churned",
+   "postings": 2
+  },
+  "Danone": {
+   "high": 650,
+   "low": 650,
+   "name": "Danone",
+   "postings": 2
+  },
+  "De L'Europe Amsterdam": {
+   "high": 750,
+   "low": 750,
+   "name": "De L'Europe Amsterdam",
+   "postings": 1
+  },
+  "Emmett Green": {
+   "high": 500,
+   "low": 500,
+   "name": "Emmett Green",
+   "postings": 2
+  },
+  "FrieslandCampina": {
+   "high": 600,
+   "low": 600,
+   "name": "FrieslandCampina",
+   "postings": 1
+  },
+  "Haskoning": {
+   "high": 750,
+   "low": 750,
+   "name": "Haskoning",
+   "postings": 1
+  },
+  "Henkel": {
+   "high": null,
+   "low": null,
+   "name": "Henkel",
+   "postings": 4
+  },
+  "Hotelprofessionals": {
+   "high": 750,
+   "low": 750,
+   "name": "Hotelprofessionals",
+   "postings": 2
+  },
+  "Hyatt Regency": {
+   "high": 750,
+   "low": 750,
+   "name": "Hyatt Regency",
+   "postings": 1
+  },
+  "Ish Dance Collective": {
+   "high": 350,
+   "low": 350,
+   "name": "Ish Dance Collective",
+   "postings": 1
+  },
+  "JDE Peet's": {
+   "high": 525,
+   "low": 525,
+   "name": "JDE Peet's",
+   "postings": 1
+  },
+  "Jacobs Douwe Egberts UK": {
+   "high": 525,
+   "low": 525,
+   "name": "Jacobs Douwe Egberts UK",
+   "postings": 2
+  },
+  "Justdiggit": {
+   "high": 400,
+   "low": 400,
+   "name": "Justdiggit",
+   "postings": 1
+  },
+  "Kraft Heinz": {
+   "high": 625,
+   "low": 625,
+   "name": "Kraft Heinz",
+   "postings": 2
+  },
+  "Lely": {
+   "high": 650,
+   "low": 650,
+   "name": "Lely",
+   "postings": 1
+  },
+  "MSD Animal Health Nederland": {
+   "high": 500,
+   "low": 500,
+   "name": "MSD Animal Health Nederland",
+   "postings": 1
+  },
+  "MatchWornShirt": {
+   "high": 500,
+   "low": 500,
+   "name": "MatchWornShirt",
+   "postings": 1
+  },
+  "NH Hotel Group": {
+   "high": 750,
+   "low": 750,
+   "name": "NH Hotel Group",
+   "postings": 6
+  },
+  "OMRON Healthcare EMEA": {
+   "high": 500,
+   "low": 400,
+   "name": "OMRON Healthcare EMEA",
+   "postings": 1
+  },
+  "OMRON Management Center Europe": {
+   "high": 425,
+   "low": 350,
+   "name": "OMRON Management Center Europe",
+   "postings": 1
+  },
+  "Openclaims": {
+   "high": 500,
+   "low": 500,
+   "name": "Openclaims",
+   "postings": 1
+  },
+  "PPHE Hotel Group": {
+   "high": 750,
+   "low": 550,
+   "name": "PPHE Hotel Group",
+   "postings": 7
+  },
+  "Philips": {
+   "high": 700,
+   "low": 500,
+   "name": "Philips",
+   "postings": 23
+  },
+  "PortXL": {
+   "high": 575,
+   "low": 575,
+   "name": "PortXL",
+   "postings": 1
+  },
+  "Rabobank": {
+   "high": 600,
+   "low": 600,
+   "name": "Rabobank",
+   "postings": 9
+  },
+  "Refresco": {
+   "high": 750,
+   "low": 750,
+   "name": "Refresco",
+   "postings": 1
+  },
+  "Rituals (B Corp\u2122)": {
+   "high": 550,
+   "low": 550,
+   "name": "Rituals (B Corp\u2122)",
+   "postings": 1
+  },
+  "Sendcloud": {
+   "high": 750,
+   "low": 500,
+   "name": "Sendcloud",
+   "postings": 1
+  },
+  "TKH Airport Solutions": {
+   "high": 350,
+   "low": 350,
+   "name": "TKH Airport Solutions",
+   "postings": 1
+  },
+  "Thermeleon": {
+   "high": 400,
+   "low": 400,
+   "name": "Thermeleon",
+   "postings": 1
+  },
+  "TriGlobal B.V.": {
+   "high": 500,
+   "low": 500,
+   "name": "TriGlobal B.V.",
+   "postings": 1
+  },
+  "Van Lanschot Kempen": {
+   "high": 1100,
+   "low": 1100,
+   "name": "Van Lanschot Kempen",
+   "postings": 1
+  },
+  "Vanderlande": {
+   "high": 550,
+   "low": 550,
+   "name": "Vanderlande",
+   "postings": 2
+  },
+  "Verder Liquids": {
+   "high": 950,
+   "low": 950,
+   "name": "Verder Liquids",
+   "postings": 1
+  },
+  "WP SEO AI": {
+   "high": 500,
+   "low": 500,
+   "name": "WP SEO AI",
+   "postings": 1
+  },
+  "catawiki": {
+   "high": 600,
+   "low": 600,
+   "name": "Catawiki",
+   "postings": 1
+  },
+  "philips": {
+   "high": 700,
+   "low": 500,
+   "name": "Philips",
+   "postings": 23
+  },
+  "rabobank": {
+   "high": 600,
+   "low": 600,
+   "name": "Rabobank",
+   "postings": 9
+  },
+  "relx": {
+   "high": 750,
+   "low": 750,
+   "name": "RELX",
+   "postings": 1
+  }
+ },
+ "generated": "2026-10-01",
+ "market": {
+  "employers": 45,
+  "high": 1250,
+  "low": 250,
+  "median": 575,
+  "p25": 500,
+  "p75": 725,
+  "postings": 102
+ },
+ "postings": {
+  "p0284dcceb257": [
+   650,
+   650
+  ],
+  "p037c9b553c26": [
+   500,
+   500
+  ],
+  "p05a1425e9b88": [
+   950,
+   950
+  ],
+  "p073cf9735b84": [
+   600,
+   600
+  ],
+  "p0799ee49c451": [
+   400,
+   400
+  ],
+  "p08ef95ce8f77": [
+   500,
+   500
+  ],
+  "p0a369a0e9240": [
+   500,
+   700
+  ],
+  "p0c9406d72067": [
+   750,
+   750
+  ],
+  "p112b54b6a730": [
+   750,
+   750
+  ],
+  "p114a88f94fde": [
+   500,
+   700
+  ],
+  "p11b9a43140c6": [
+   250,
+   250
+  ],
+  "p11c68cedfefd": [
+   500,
+   700
+  ],
+  "p12f9a7b47717": [
+   600,
+   600
+  ],
+  "p1ad6b41de7aa": [
+   750,
+   750
+  ],
+  "p1af9ba375243": [
+   600,
+   600
+  ],
+  "p1dab086120e7": [
+   750,
+   750
+  ],
+  "p1f6be0d24b1b": [
+   500,
+   500
+  ],
+  "p2352de154db7": [
+   500,
+   500
+  ],
+  "p292eaf46d79c": [
+   600,
+   600
+  ],
+  "p296a67e7d0d6": [
+   500,
+   700
+  ],
+  "p2bcf4a8dd6e6": [
+   650,
+   750
+  ],
+  "p30eac7d08da3": [
+   750,
+   750
+  ],
+  "p32d281849548": [
+   525,
+   525
+  ],
+  "p33c94ccb0a17": [
+   750,
+   750
+  ],
+  "p360594420b1a": [
+   550,
+   550
+  ],
+  "p360ec8639a0a": [
+   1100,
+   1100
+  ],
+  "p36c01e11616a": [
+   500,
+   700
+  ],
+  "p37949fe1627d": [
+   500,
+   700
+  ],
+  "p3b53cff32fa3": [
+   525,
+   525
+  ],
+  "p3e52d399eb6b": [
+   500,
+   750
+  ],
+  "p40ae2a1d53a7": [
+   600,
+   600
+  ],
+  "p4587c6c543af": [
+   500,
+   500
+  ],
+  "p4672715b88bb": [
+   750,
+   750
+  ],
+  "p4a18e4ba9b8a": [
+   500,
+   700
+  ],
+  "p4b2f6712afad": [
+   500,
+   700
+  ],
+  "p4b5761f7ee93": [
+   500,
+   700
+  ],
+  "p52f889868d7f": [
+   500,
+   500
+  ],
+  "p56246b355f50": [
+   500,
+   500
+  ],
+  "p566cf18cf443": [
+   625,
+   625
+  ],
+  "p586c2f48b1d0": [
+   450,
+   450
+  ],
+  "p5953965bdce7": [
+   500,
+   700
+  ],
+  "p5d08d15bd0f7": [
+   750,
+   750
+  ],
+  "p5d7ab8063d02": [
+   750,
+   750
+  ],
+  "p5ddb85275cbb": [
+   500,
+   700
+  ],
+  "p691bfd932a54": [
+   600,
+   600
+  ],
+  "p6d02421dc25c": [
+   600,
+   600
+  ],
+  "p6d123d513f52": [
+   550,
+   550
+  ],
+  "p71c337672cfa": [
+   500,
+   700
+  ],
+  "p784ed4c66d35": [
+   750,
+   750
+  ],
+  "p7997cd9d98be": [
+   1000,
+   1250
+  ],
+  "p79ec021f25e0": [
+   750,
+   750
+  ],
+  "p7a3aef5c547c": [
+   750,
+   750
+  ],
+  "p7c15a6f7a72e": [
+   500,
+   700
+  ],
+  "p7d1d3378ab49": [
+   1000,
+   1250
+  ],
+  "p7fec26799cd0": [
+   600,
+   600
+  ],
+  "p8108a327ef3b": [
+   500,
+   700
+  ],
+  "p8216a5f94df1": [
+   525,
+   525
+  ],
+  "p84c324246900": [
+   500,
+   500
+  ],
+  "p84c67690d220": [
+   500,
+   700
+  ],
+  "p85a263a56d1f": [
+   500,
+   500
+  ],
+  "p881b28666eab": [
+   600,
+   600
+  ],
+  "p8ac8df01d4bc": [
+   350,
+   350
+  ],
+  "p997a644d534b": [
+   500,
+   500
+  ],
+  "p9a964880c142": [
+   750,
+   750
+  ],
+  "p9dcedbdca70b": [
+   500,
+   700
+  ],
+  "pa445e7bd0977": [
+   500,
+   700
+  ],
+  "pa480c084a7e3": [
+   750,
+   750
+  ],
+  "pa4fce0262883": [
+   600,
+   600
+  ],
+  "pa6a1338682df": [
+   400,
+   500
+  ],
+  "pa80ae40c1f0e": [
+   750,
+   750
+  ],
+  "paafc04d4921c": [
+   500,
+   700
+  ],
+  "paef0e5376809": [
+   750,
+   750
+  ],
+  "pafd810f57834": [
+   650,
+   750
+  ],
+  "pb43bc556c4f7": [
+   750,
+   750
+  ],
+  "pb7cbcf525487": [
+   500,
+   700
+  ],
+  "pbac0971e5094": [
+   650,
+   650
+  ],
+  "pc0a8461a289e": [
+   500,
+   500
+  ],
+  "pc259afd44a19": [
+   500,
+   500
+  ],
+  "pc726fd44ecea": [
+   750,
+   750
+  ],
+  "pcac7beb3b0fd": [
+   500,
+   500
+  ],
+  "pcc615aa3b9cc": [
+   750,
+   750
+  ],
+  "pcd263fa26421": [
+   500,
+   500
+  ],
+  "pd115054e2c67": [
+   500,
+   700
+  ],
+  "pd423f7c68ca6": [
+   500,
+   700
+  ],
+  "pd6b347106fbc": [
+   1000,
+   1250
+  ],
+  "pdc9c03df3e0f": [
+   625,
+   625
+  ],
+  "pdce04a0df2f9": [
+   500,
+   500
+  ],
+  "pe185de21a08b": [
+   550,
+   550
+  ],
+  "pe1f1b2867346": [
+   500,
+   500
+  ],
+  "pe50ce025a467": [
+   750,
+   750
+  ],
+  "pe5a2db02785e": [
+   550,
+   550
+  ],
+  "pe62a11aa890d": [
+   600,
+   600
+  ],
+  "pec2237f3d38c": [
+   575,
+   575
+  ],
+  "ped240b2b7842": [
+   750,
+   750
+  ],
+  "pef4fea381217": [
+   350,
+   425
+  ],
+  "pf0e1fb672611": [
+   500,
+   700
+  ],
+  "pf14d880f546f": [
+   350,
+   350
+  ],
+  "pf3754c56ed5e": [
+   650,
+   650
+  ],
+  "pf8b4e71b4acd": [
+   750,
+   750
+  ],
+  "pfa2c2eb008f9": [
+   400,
+   400
+  ],
+  "pfe424a4c7698": [
+   400,
+   400
+  ],
+  "pff8fd0a95560": [
+   500,
+   700
+  ]
+ }
+}
