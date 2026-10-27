@@ -4,6 +4,8 @@
   "project": ["e2e/**/*.ts", "src/**/*.{ts,tsx,css}", "scripts/**/*.{ts,mjs}", "supabase/functions/**/*.ts"],
   // Unused exports are not reported while the app is rebuilt: the screens that used them are gone, and the shared core is being consolidated.
   "rules": { "exports": "off", "types": "off", "nsExports": "off", "nsTypes": "off", "duplicates": "off" },
+  // Kept for the rebuilt Applications page (it turns a run into the state the person sees); no screen uses it yet.
+  "ignore": ["src/lib/drive-run-state.ts"],
   "ignoreExportsUsedInFile": true,
   // The extension's test makes a throwaway certificate for its local copy of the odds site (e2e/extension.spec.ts).
   "ignoreBinaries": ["openssl"],
