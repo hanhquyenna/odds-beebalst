@@ -6,7 +6,7 @@ import { createServer, request as httpRequest, type IncomingMessage, type Server
 import { createServer as createTlsServer } from "node:https"
 import { chromium, expect, test as base, type BrowserContext, type Page } from "@playwright/test"
 import { join } from "node:path"
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { FLOW_POSTINGS } from "./fixtures/postings"
 import { mockBackend, shot } from "./mock"
 import { pickSuggestAction } from "../supabase/functions/_shared/apply-agent-suggest"
@@ -5962,6 +5962,36 @@ test("read_page comes with a screenshot of the page (taken through the debugger,
   const shot = readPage.screenshot as { image?: string; width?: number } | undefined
   expect(String(shot?.image ?? "").length).toBeGreaterThan(2000)
   expect(shot?.width).toBeLessThanOrEqual(1280)
+})
+
+test("a build on disk newer than the running one reloads itself when nothing is filling, and waits while something is", async () => {
+  test.setTimeout(60_000)
+  const dir = mkdtempSync(join(tmpdir(), "odds-stale-"))
+  cpSync(EXTENSION, dir, { recursive: true })
+  const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "odds-ext-")), { channel: "chromium", headless: true, args: [`--disable-extensions-except=${dir}`, `--load-extension=${dir}`] })
+  try {
+    const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"))
+    const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as { version: string }
+    // The reload itself is stubbed: Chrome does not bring back an extension loaded from the command line, as Playwright does; in the person's
+    // Chrome (Load unpacked) chrome.runtime.reload() restarts it. What is checked here is the decision.
+    await worker.evaluate(() => { (globalThis as unknown as { reloads: number }).reloads = 0; (chrome.runtime as unknown as { reload(): void }).reload = () => { (globalThis as unknown as { reloads: number }).reloads++ } })
+    const stale = (): Promise<boolean> => worker.evaluate(() => (globalThis as unknown as { reloadIfStale(): Promise<boolean> }).reloadIfStale())
+    const reloads = (): Promise<number> => worker.evaluate(() => (globalThis as unknown as { reloads: number }).reloads)
+    // Same build on disk: nothing happens.
+    expect(await stale()).toBe(false)
+    // A newer build lands on disk while an application is filling: it waits.
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify({ ...manifest, version: "99.0.1" }))
+    await worker.evaluate(() => chrome.storage.local.set({ oddsApplyIntents: { 7: { job: "https://x.example/j", at: Date.now(), status: "filling" } } }))
+    expect(await stale()).toBe(false)
+    expect(await reloads()).toBe(0)
+    // A filling that was left an hour ago does not hold it up; a finished or idle one never does.
+    await worker.evaluate(() => chrome.storage.local.set({ oddsApplyIntents: { 7: { job: "https://x.example/j", at: Date.now() - 3_600_000, status: "filling" }, 8: { job: "https://y.example/j", at: Date.now(), status: "ready" } } }))
+    expect(await stale()).toBe(true)
+    expect(await reloads()).toBe(1)
+    // Unreadable manifest: leaves things alone.
+    writeFileSync(join(dir, "manifest.json"), "not json")
+    expect(await stale()).toBe(false)
+  } finally { await context.close() }
 })
 
 test("a background tab's screenshot is a real picture, and a blank one is never handed on: retried, then reported with why", async ({ context }) => {

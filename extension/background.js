@@ -1774,8 +1774,25 @@ async function pollApplications() {
 chrome.alarms.get("odds-applications").then(alarm => {
   if (!alarm || alarm.periodInMinutes !== 0.5) chrome.alarms.create("odds-applications", { periodInMinutes: 0.5 })
 })
+/**
+ * A build on disk newer than the one running (the unpacked folder was updated) reloads itself once nothing is filling, so an old build
+ * never meets a newer server: runs went wrong that way again and again. The extension's own manifest, read through its address, is
+ * always the file on disk. Nothing is touched while an application filled in the last 20 minutes (a reload would stop it).
+ */
+async function reloadIfStale() {
+  let disk = null
+  try { disk = (await (await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" })).json()).version } catch { return false }
+  if (!disk || disk === chrome.runtime.getManifest().version) return false
+  const { oddsApplyIntents = {} } = await chrome.storage.local.get("oddsApplyIntents")
+  if (Object.values(oddsApplyIntents).some((it) => it?.status === "filling" && Date.now() - it.at < 20 * 60_000)) return false
+  chrome.runtime.reload()
+
+  return true
+}
 chrome.alarms.onAlarm.addListener(alarm => {
-  if (alarm.name === "odds-applications") pollApplications().catch(() => undefined)
+  if (alarm.name === "odds-applications") {
+    reloadIfStale().then((reloading) => { if (!reloading) pollApplications().catch(() => undefined) }).catch(() => undefined)
+  }
 })
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   // The application form sits in a blank frame (HubSpot and similar embeds): Odds' form script goes into the page's frames, where it
