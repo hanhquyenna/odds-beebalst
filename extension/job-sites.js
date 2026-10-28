@@ -1,4 +1,4 @@
-// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts, apply-form.ts and apply-censor.ts (sources cb98512d4121b387). Do not edit.
+// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts, apply-form.ts and apply-censor.ts (sources 9b0e5acb8452eaee). Do not edit.
 (() => {
   var __defProp = Object.defineProperty;
   var __returnValue = (v) => v;
@@ -39,6 +39,7 @@
     resolveAgentAnswer: () => resolveAgentAnswer,
     valueFor: () => valueFor
   });
+  var EU_EEA = new Set(["austrian", "belgian", "bulgarian", "croatian", "cypriot", "czech", "danish", "dutch", "estonian", "finnish", "french", "german", "greek", "hungarian", "irish", "italian", "latvian", "lithuanian", "luxembourgish", "maltese", "polish", "portuguese", "romanian", "slovak", "slovenian", "spanish", "swedish", "icelandic", "liechtensteiner", "norwegian", "swiss", "austria", "belgium", "bulgaria", "croatia", "cyprus", "czechia", "czech republic", "denmark", "netherlands", "the netherlands", "estonia", "finland", "france", "germany", "greece", "hungary", "ireland", "italy", "latvia", "lithuania", "luxembourg", "malta", "poland", "portugal", "romania", "slovakia", "slovenia", "spain", "sweden", "iceland", "liechtenstein", "norway", "switzerland"]);
   function questionKey(label) {
     let t = label.replace(/\s+/g, " ").trim();
     const half = t.length % 2 === 1 ? (t.length - 1) / 2 : -1;
@@ -128,7 +129,7 @@
       return `${currency} ${Math.round(amount / 12)} a month`;
     return text;
   }
-  var DECLINE = /^(decline|prefer not|i (do not|don'?t) wish|i'?d rather not|rather not|choose not|not (to )?(say|disclose|answer)|no answer|pr[eé]f[eè]re(r)? ne pas|je (pr[eé]f[eè]re|ne (souhaite|veux) pas))|\bdecline to (self[- ]identify|answer|state)\b|\bprefer not to (say|answer|disclose)\b|\bne (souhaite|veux) pas (r[eé]pondre|dire|divulguer)\b/i;
+  var DECLINE = /^(decline|prefer not|i (do not|don'?t) wish|i'?d rather not|rather not|choose not|not (to )?(say|disclose|answer)|no answer|pr[eé]f[eè]re(r)? ne pas|je (pr[eé]f[eè]re|ne (souhaite|veux) pas))|\bdecline to (self[- ]identify|answer|state)\b|\bprefer not to (say|answer|disclose)\b|\b(i )?choose not to (identify|say|answer|disclose|specify)\b|\bnot to (identify|specify|state)\b|\bne (souhaite|veux) pas (r[eé]pondre|dire|divulguer)\b/i;
   var DEMOGRAPHIC = /\b(gender|genre|geslacht|geschlecht|race|ethnic\w*|veteran|pronouns?|how old are you|age (group|range|bracket)|lgbt\w*|sexual orientation|transgender|disabilit\w*|health condition|neurodiver\w*|under[- ]represented|caregiving|religio\w*|divulgation volontaire|identit\w* de genre|voluntary (self[- ]?identif|disclosure))\b/i;
   var TRAP_QUESTION = /leave (this|the|it)\b[^.?]{0,24}\b(empty|blank)|if you.?re (a )?human|(do not|don.?t) (fill|complete|enter)\b[^.?]{0,20}\b(this|here)|honey ?pot|bot ?trap|ignore this (field|input)|for (spam|bots) (only|detection)|(^|[\s_-])(hp|gotcha)([\s_-]|$)/i;
   function isTrapQuestion(label) {
@@ -248,6 +249,8 @@
       return pick(a.phone) ?? pick(facts.phone);
     if (/\blinkedin\b/.test(key) && !asks && !isHearQuestion(label))
       return pick(a.linkedin) ?? pick(facts.linkedin);
+    if (asks && /\b(available|availability|commit\w*|beschikbaar)\b/.test(key) && /\b(period|duration|months?|weeks?|internship|traineeship|programme|program|full ?time|part ?time|dates?|start\w*|from|until|till|this role)\b/.test(key) && !/\b(hours?|salary|how many|when|which|what)\b/.test(key))
+      return remembered || "Yes";
     if (asks && /\b(based|living|located|residing|reside|live|resident)\b/.test(key) && /\b(netherlands|nederland|holland|amsterdam|rotterdam|utrecht|the hague|den haag|eindhoven|delft|leiden|groningen|breda|tilburg|nijmegen|maastricht|haarlem|almere)\b/.test(key) && !/relocat|willing|open to|office|days?\b|able|travel/.test(key)) {
       const country = residenceCountry(facts);
       return country ? NL_NAME.test(country) ? "Yes" : "No" : remembered || null;
@@ -317,6 +320,17 @@
       return pick(a.field_of_study);
     if (/\b(university|universiteit|school|college|institution|hogeschool|school name)\b/.test(key) && key.split(" ").length <= 6 && !/\b(high school|year|date|reference|referral|hear|find|about|why)\b/.test(key))
       return pick(a.university);
+    if (/\b(eu|eea|european union)\b[^?]*\b(citizen\w*|national\w*|passport)\b|\b(citizen\w*|national\w*|passport)\b[^?]*\b(eu|eea|european union)\b/.test(key) && !/\b(permit|visa|residence|authori[sz]\w*|right to work|sponsor\w*|allowed to work|eligible)\b/.test(key)) {
+      const w = a.work_authorization ?? "";
+      const nation = (a.nationality ?? "").trim().toLowerCase();
+      if (/\bnot (an? )?(eu|eea)\b|\bnon-?(eu|eea)\b|\boutside (the )?(eu|eea)\b|\b(eu|eea)\b[^.]{0,20}\b(no|not)\b/i.test(w))
+        return "No";
+      if (nation)
+        return EU_EEA.has(nation) ? "Yes" : "No";
+      if (/\b(eu|eea) (citizen|national|passport)/i.test(w))
+        return "Yes";
+      return remembered || null;
+    }
     if (/\b(nationality|nationaliteit|citizenship)\b/.test(key) && key.length <= 90)
       return pick(a.nationality);
     if (/\b(gender|geslacht|geschlecht|genre|sex)\b/.test(key) && !/\b(identity|transgender|pronouns?|orientation|identit)\b/.test(key) && key.length <= 90 && a.gender?.trim())
@@ -414,15 +428,39 @@
   }
   var norm = (t) => t.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9+]+/g, " ").trim();
   function chooseOption(options, answer, label = "") {
+    if (DECLINE.test(answer.trim())) {
+      const d = options.findIndex((o) => DECLINE.test(o.trim()));
+      if (d >= 0)
+        return d;
+    }
     const canon = (t) => norm(t).replace(/\bnoord\b/g, "north").replace(/\bzuid\b/g, "south").replace(/\bfryslan\b/g, "friesland").replace(/\bnederland\b/g, "netherlands").replace(/^the netherlands$/, "netherlands").replace(/^pays bas$|^niederlande$/, "netherlands").replace(/^hollande septentrionale$|^nordholland$/, "north holland").replace(/^hollande meridionale$|^sudholland$/, "south holland").replace(/^brabant septentrional$|^nordbrabant$/, "north brabant").replace(/^frise$/, "friesland").replace(/^zelande$/, "zeeland").replace(/^geldre$/, "gelderland").replace(/^(man|male|mannelijk|homme|mannlich|masculin\w*)\b/, "male").replace(/^(woman|female|vrouw|vrouwelijk|femme|weiblich|feminin\w*)\b/, "female");
     const want = canon(answer);
     const opts = options.map(canon);
     if (/\bdegree\b|\bdiploma\b|\beducation\b/.test(norm(label))) {
       const level = (t) => /\b(phd|doctor\w*)\b/.test(t) ? "phd" : /\b(master\w*|msc|mba|ma|llm)\b/.test(t) ? "master" : /\b(bachelor\w*|bsc|ba|llb)\b/.test(t) ? "bachelor" : /\b(associate|diploma|certificate)\b/.test(t) ? "associate" : null;
       const wanted = level(want);
-      const i = wanted ? opts.findIndex((o, n) => options[n] !== undefined && level(o) === wanted) : -1;
-      if (i >= 0)
-        return i;
+      const exact = opts.findIndex((o, n) => options[n] !== undefined && o === want);
+      if (exact >= 0)
+        return exact;
+      const same = wanted ? opts.map((o, n) => options[n] !== undefined && level(o) === wanted ? n : -1).filter((n) => n >= 0) : [];
+      if (same.length) {
+        const mba = /\b(mba|business administration)\b/.test(want);
+        const science = /\b(msc|bsc|science)\b/.test(want);
+        const arts = /\b(ma|ba|arts)\b/.test(want);
+        const score = (o) => {
+          let v = 0;
+          if (/\b(mba|business administration)\b/.test(o))
+            v += mba ? 6 : -6;
+          if (/\bscience\b|\b(msc|bsc)\b/.test(o))
+            v += science ? 4 : 0;
+          if (/\barts\b|\b(ma|ba)\b/.test(o))
+            v += arts ? 4 : 0;
+          if (/\bdegree\b/.test(o))
+            v += 2;
+          return v;
+        };
+        return same.reduce((best, n) => score(opts[n]) > score(opts[best]) ? n : best, same[0]);
+      }
     }
     const real = (i) => !/^(select an option|select|selecteer|choose|kies|kiezen|make a selection|pick one)\b/.test(opts[i]) && opts[i] !== "";
     if (!want)

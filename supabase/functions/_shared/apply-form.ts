@@ -28,6 +28,9 @@ export interface Facts {
   never_worked_here?: boolean
 }
 
+/** Nationalities whose holders are EU/EEA (or Swiss) citizens, in the words a nationality answer uses. */
+const EU_EEA = new Set(["austrian", "belgian", "bulgarian", "croatian", "cypriot", "czech", "danish", "dutch", "estonian", "finnish", "french", "german", "greek", "hungarian", "irish", "italian", "latvian", "lithuanian", "luxembourgish", "maltese", "polish", "portuguese", "romanian", "slovak", "slovenian", "spanish", "swedish", "icelandic", "liechtensteiner", "norwegian", "swiss", "austria", "belgium", "bulgaria", "croatia", "cyprus", "czechia", "czech republic", "denmark", "netherlands", "the netherlands", "estonia", "finland", "france", "germany", "greece", "hungary", "ireland", "italy", "latvia", "lithuania", "luxembourg", "malta", "poland", "portugal", "romania", "slovakia", "slovenia", "spain", "sweden", "iceland", "liechtenstein", "norway", "switzerland"])
+
 /** How a form asks: a line of text, a number, a longer text, a choice from a list, or yes/no style buttons. */
 export type Kind = "text" | "number" | "textarea" | "select" | "radio" | "checkbox"
 
@@ -157,7 +160,7 @@ function salaryFor(raw: string | undefined, key: string): string | null {
   return text
 }
 
-const DECLINE = /^(decline|prefer not|i (do not|don'?t) wish|i'?d rather not|rather not|choose not|not (to )?(say|disclose|answer)|no answer|pr[eé]f[eè]re(r)? ne pas|je (pr[eé]f[eè]re|ne (souhaite|veux) pas))|\bdecline to (self[- ]identify|answer|state)\b|\bprefer not to (say|answer|disclose)\b|\bne (souhaite|veux) pas (r[eé]pondre|dire|divulguer)\b/i
+const DECLINE = /^(decline|prefer not|i (do not|don'?t) wish|i'?d rather not|rather not|choose not|not (to )?(say|disclose|answer)|no answer|pr[eé]f[eè]re(r)? ne pas|je (pr[eé]f[eè]re|ne (souhaite|veux) pas))|\bdecline to (self[- ]identify|answer|state)\b|\bprefer not to (say|answer|disclose)\b|\b(i )?choose not to (identify|say|answer|disclose|specify)\b|\bnot to (identify|specify|state)\b|\bne (souhaite|veux) pas (r[eé]pondre|dire|divulguer)\b/i
 const DEMOGRAPHIC = /\b(gender|genre|geslacht|geschlecht|race|ethnic\w*|veteran|pronouns?|how old are you|age (group|range|bracket)|lgbt\w*|sexual orientation|transgender|disabilit\w*|health condition|neurodiver\w*|under[- ]represented|caregiving|religio\w*|divulgation volontaire|identit\w* de genre|voluntary (self[- ]?identif|disclosure))\b/i
 
 /** Bot traps ("Leave this field empty if you're human") — never ask the person, always leave empty. */
@@ -295,6 +298,9 @@ export function answerText(label: string, facts: Facts): string | null {
   if (/\b(mobile|phone|telephone|telefon\w*|telefoon\w*|mobiel\w*|portable)\b/.test(key) && !/country|landcode|pays/.test(key)) return pick(a.phone) ?? pick(facts.phone)
   // Bosch / Phenom etc. label the field just "LinkedIn" (no "URL"/"profile"). Skip yes/no and "how did you hear".
   if (/\blinkedin\b/.test(key) && !asks && !isHearQuestion(label)) return pick(a.linkedin) ?? pick(facts.linkedin)
+  // "This internship runs from October 2026 until January 2027. Are you available for this period?" / "Can you commit to 6 months?":
+  // Yes, in the person's favour (they adjust it at review). A start date in Autofill that differs is no reason for a No (GenScript).
+  if (asks && /\b(available|availability|commit\w*|beschikbaar)\b/.test(key) && /\b(period|duration|months?|weeks?|internship|traineeship|programme|program|full ?time|part ?time|dates?|start\w*|from|until|till|this role)\b/.test(key) && !/\b(hours?|salary|how many|when|which|what)\b/.test(key)) return remembered || "Yes"
   // "Are you currently based in the Netherlands?": yes or no from where the person lives, when the question names a Dutch place.
   if (asks && /\b(based|living|located|residing|reside|live|resident)\b/.test(key) && /\b(netherlands|nederland|holland|amsterdam|rotterdam|utrecht|the hague|den haag|eindhoven|delft|leiden|groningen|breda|tilburg|nijmegen|maastricht|haarlem|almere)\b/.test(key) && !/relocat|willing|open to|office|days?\b|able|travel/.test(key)) {
     const country = residenceCountry(facts)
@@ -347,6 +353,16 @@ export function answerText(label: string, facts: Facts): string | null {
   if (/\b(non ?compet\w*|non ?concurrence|noncompete|restrictive covenant)\b|\b(patent|patents|brevets?|confidential\w*|proprietary|exclusive information)\b.*\b(agreement|entente|contract|accord|signed|sign)\b|\b(agreement|entente|signed|sign)\b.*\b(patent|patents|brevets?|confidential\w*|proprietary)\b/.test(key)) return /^no\b/i.test(a.prior_agreements ?? "") ? "No" : remembered || null
   if (/\b(field of study|major|study programme|study program|discipline|area of study|opleiding|studierichting)\b/.test(key)) return pick(a.field_of_study)
   if (/\b(university|universiteit|school|college|institution|hogeschool|school name)\b/.test(key) && key.split(" ").length <= 6 && !/\b(high school|year|date|reference|referral|hear|find|about|why)\b/.test(key)) return pick(a.university)
+  // "Are you an EU citizen?" asks about citizenship only (no permit, visa or right to work in it): a permit is no answer to it, and
+  // "I am not an EU/EEA citizen, but I hold a permit" is a No. Answered "Yes" from those words once (Bynder).
+  if (/\b(eu|eea|european union)\b[^?]*\b(citizen\w*|national\w*|passport)\b|\b(citizen\w*|national\w*|passport)\b[^?]*\b(eu|eea|european union)\b/.test(key) && !/\b(permit|visa|residence|authori[sz]\w*|right to work|sponsor\w*|allowed to work|eligible)\b/.test(key)) {
+    const w = a.work_authorization ?? ""
+    const nation = (a.nationality ?? "").trim().toLowerCase()
+    if (/\bnot (an? )?(eu|eea)\b|\bnon-?(eu|eea)\b|\boutside (the )?(eu|eea)\b|\b(eu|eea)\b[^.]{0,20}\b(no|not)\b/i.test(w)) return "No"
+    if (nation) return EU_EEA.has(nation) ? "Yes" : "No"
+    if (/\b(eu|eea) (citizen|national|passport)/i.test(w)) return "Yes"
+    return remembered || null
+  }
   if (/\b(nationality|nationaliteit|citizenship)\b/.test(key) && key.length <= 90) return pick(a.nationality)
   // Gender from Autofill (the person's own answer, never a guess from a name or photo); empty → the background rule below (Prefer not to say).
   if (/\b(gender|geslacht|geschlecht|genre|sex)\b/.test(key) && !/\b(identity|transgender|pronouns?|orientation|identit)\b/.test(key) && key.length <= 90 && a.gender?.trim()) return a.gender.trim()
@@ -441,6 +457,11 @@ const norm = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[
 
 /** Which of a question's options an answer is: the same words, then one starting with it, then yes/no by meaning. -1 when none fits. */
 export function chooseOption(options: string[], answer: string, label = ""): number {
+  // "Prefer not to say" meets the site's own words for it ("I choose not to identify at this time", "Decline to self-identify").
+  if (DECLINE.test(answer.trim())) {
+    const d = options.findIndex((o) => DECLINE.test(o.trim()))
+    if (d >= 0) return d
+  }
   // The Dutch names and the English ones are the same place: Noord-Holland is North Holland, Nederland is the Netherlands.
   const canon = (t: string): string => norm(t).replace(/\bnoord\b/g, "north").replace(/\bzuid\b/g, "south").replace(/\bfryslan\b/g, "friesland").replace(/\bnederland\b/g, "netherlands").replace(/^the netherlands$/, "netherlands").replace(/^pays bas$|^niederlande$/, "netherlands").replace(/^hollande septentrionale$|^nordholland$/, "north holland").replace(/^hollande meridionale$|^sudholland$/, "south holland").replace(/^brabant septentrional$|^nordbrabant$/, "north brabant").replace(/^frise$/, "friesland").replace(/^zelande$/, "zeeland").replace(/^geldre$/, "gelderland")
     // Gender options in any wording: "Man", "Male (he/him)", "Mannelijk" are one choice; "Woman", "Female", "Vrouw" the other.
@@ -451,8 +472,25 @@ export function chooseOption(options: string[], answer: string, label = ""): num
   if (/\bdegree\b|\bdiploma\b|\beducation\b/.test(norm(label))) {
     const level = (t: string): string | null => (/\b(phd|doctor\w*)\b/.test(t) ? "phd" : /\b(master\w*|msc|mba|ma|llm)\b/.test(t) ? "master" : /\b(bachelor\w*|bsc|ba|llb)\b/.test(t) ? "bachelor" : /\b(associate|diploma|certificate)\b/.test(t) ? "associate" : null)
     const wanted = level(want)
-    const i = wanted ? opts.findIndex((o, n) => options[n] !== undefined && level(o) === wanted) : -1
-    if (i >= 0) return i
+    const exact = opts.findIndex((o, n) => options[n] !== undefined && o === want)
+    if (exact >= 0) return exact
+    // Of the options at that level, the one closest to the answer: MBA only for an MBA ("Master's Degree" chose "Master of Business
+    // Administration" on IMC because it is listed first), Master of Science for an MSc, else the plain degree.
+    const same = wanted ? opts.map((o, n) => (options[n] !== undefined && level(o) === wanted ? n : -1)).filter((n) => n >= 0) : []
+    if (same.length) {
+      const mba = /\b(mba|business administration)\b/.test(want)
+      const science = /\b(msc|bsc|science)\b/.test(want)
+      const arts = /\b(ma|ba|arts)\b/.test(want)
+      const score = (o: string): number => {
+        let v = 0
+        if (/\b(mba|business administration)\b/.test(o)) v += mba ? 6 : -6
+        if (/\bscience\b|\b(msc|bsc)\b/.test(o)) v += science ? 4 : 0
+        if (/\barts\b|\b(ma|ba)\b/.test(o)) v += arts ? 4 : 0
+        if (/\bdegree\b/.test(o)) v += 2
+        return v
+      }
+      return same.reduce((best, n) => (score(opts[n]) > score(opts[best]) ? n : best), same[0])
+    }
   }
   const real = (i: number): boolean => !/^(select an option|select|selecteer|choose|kies|kiezen|make a selection|pick one)\b/.test(opts[i]) && opts[i] !== ""
   if (!want) return -1
