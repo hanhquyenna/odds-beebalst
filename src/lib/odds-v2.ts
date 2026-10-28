@@ -276,7 +276,7 @@ export interface V2Context {
   extraYears?: number
   extraSkills?: ReadonlyArray<string>
   assumeDegree?: boolean
-  /** The posting employer's LinkedIn employee count and average applicants, when known (employer_facts, employer_hiring). */
+  /** The posting employer's LinkedIn employee count and average applicants, when known (employer_facts). */
   employerEmployees?: number | null
 }
 

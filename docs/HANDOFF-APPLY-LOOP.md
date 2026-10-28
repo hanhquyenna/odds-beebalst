@@ -18,8 +18,8 @@ Page opens (the employer's own form when Odds knows it: posting_apply_links)
  └─ 3. finish: review | needs_you (captcha, account, questions, letter, email) | stuck (other, closed)
 ```
 
-- Agent: Broods project `odds-apply`, file `broods/index.ts` (DRIVE_RULES). Model **cx/gpt-6-luna** through 9router
-  (`modelId: process.env.ODDS_APPLY_MODEL || "cx/gpt-6-luna"`). Deploy: `bunx broods deploy --project odds-apply`.
+- Agent: `odds-agent` in Broods project `odds-apply`, file `broods/index.ts`. Model **cx/gpt-6.1-sol** (high reasoning) through 9router.
+  Deploy: `bun --bun x broods deploy --base-url https://gateway.broods.app --project odds-apply --stage production`.
 - Hands: MCP server `supabase/functions/mcp/drive.ts` (tools, finish rules, guards). Deploy:
   `supabase functions deploy mcp --project-ref gdavxkaioqlfvfunmtxd --use-api`. **Check it parses first**: `bun build --no-bundle supabase/functions/mcp/drive.ts`
   (a quote inside a tool description once broke a deploy silently).
@@ -140,7 +140,7 @@ is the next one to do. Successful runs: ~3 steps, ~25–30 s, ~40k tokens (≈12
 
 1. "Tab stopped answering" (Henkel, EU JRC, SmartRecruiters before): the Broods ↔ server ↔ DB ↔ extension relay. Real fix: run the loop
    inside the extension, server only proxies model calls.
-2. gpt-6-luna sometimes ends a turn without a tool call → nudges (30 s, ×3) now; watch whether it is enough.
+2. The model sometimes ends a turn without a tool call → nudges (30 s, ×3) now; watch whether it is enough.
 3. Glassdoor/Indeed: captcha before any form → need employer links (owner's Apify run; input files `research-data/jobcheck/apify_*.json`)
    loaded into `posting_apply_links` (source apify).
 4. Small: Greenhouse pronouns required without "prefer not to say"; Ashby sponsorship toggle; Indeed captcha sometimes tagged stuck.

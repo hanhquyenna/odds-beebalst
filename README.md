@@ -15,7 +15,7 @@ The interview chance is an estimate built from published studies, not a measurem
 
 ## How the data works
 
-Everything shown comes from a table of postings in Supabase (Postgres). Views (`app_jobs`, `active_jobs`, `active_internship_entry`) decide which postings are active, which are duplicates and which level each is, so the app, the tables and the numbers cannot drift apart.
+Everything shown comes from a table of postings in Supabase (Postgres). The view `app_jobs` decides which postings are active, which are duplicates and which level each is, so the app, the tables and the numbers cannot drift apart.
 
 Fields that postings do not state (kind of job, occupation group, industry, minimum years, degree, Dutch, student requirement, requirement tiers) are read from the full text with [TypeSafe](https://typesafe.ai) Jev, and samples were re-checked by independent reviewers. Where a reading is not sure, the field stays empty and the app says so instead of guessing. Every figure traces to a source; the sources are listed in the app under "How it works" and "Research". [docs/DATA.md](docs/DATA.md) says how each part of the data is made, kept current and checked.
 

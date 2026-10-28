@@ -15,7 +15,7 @@ The anon key in `.env.local` reads postings and reference tables. Writing needs 
 ## From posting to screen
 
 1. **Store.** One table, `public.postings`, plus reference tables (`cbs_bands`, `cbs_age_factors`, `tax_params`, `transitions`). Jobs arrive from employer job systems, Magnet.me, AcademicTransfer, LinkedIn and the `jobs` function (`/jobs/add`).
-2. **Show.** The app reads the view `public.app_jobs` (every active posting with its level and duplicate grouping). `active_jobs` is one row per job and `active_internship_entry` its internship and entry part, which the page opens on. Active means not closed and a real job; duplicates are the same employer, title and city. Defined in `supabase/migrations/20261003120000_app_jobs_view.sql`. Keep the first columns of `active_internship_entry` as they are: `active_internship_entry_candidates` is built on it.
+2. **Show.** The app reads the view `public.app_jobs` (every active posting with its level and duplicate grouping). The page opens on its internship and entry jobs (src/lib/filters.ts). Active means not closed and a real job; duplicates are the same employer, title and city. Defined in `supabase/migrations/20261003120000_app_jobs_view.sql`.
 3. **Keep current.** Three scheduled checks in the database, each closing a job with a line in `postings_audit_log`:
    - `jobs/check` (hourly): employer job systems (Workday, Greenhouse, Ashby, Lever, SmartRecruiters, Recruitee, Teamtailor, Personio). Closes after two misses. Runs land in `public.check_runs`.
    - `jobs/check-public` (hourly): Magnet.me, AcademicTransfer and EY pages, oldest checked first. Raise `take` in `supabase/functions/jobs/check-public.ts` if the pool outgrows it.

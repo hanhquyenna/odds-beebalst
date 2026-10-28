@@ -175,7 +175,7 @@ describe("level", () => {
     expect(activeCount(DEFAULT_FILTERS)).toBe(0)
     expect(activeCount({ ...DEFAULT_FILTERS, level: ["Senior"] })).toBe(1)
     expect(activeCount({ ...DEFAULT_FILTERS, posted: "week" })).toBe(1)
-    // The page opens on any time, so its list is exactly the database view active_internship_entry. A shorter window is a filter someone set.
+    // The page opens on any time, so its list is every internship and entry job. A shorter window is a filter someone set.
     expect(DEFAULT_FILTERS.posted).toBe("any")
     expect(activeCount({ ...DEFAULT_FILTERS, posted: "month" })).toBe(1)
   })
