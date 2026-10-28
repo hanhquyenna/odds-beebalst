@@ -971,11 +971,13 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
   const row = (await svc(env, `drive_commands?id=eq.${cmd.id}&select=status,taken_at`))?.[0]
   const kind = row?.status === "queued" || !row?.taken_at ? "never_started" : "result_lost"
   await abandonCommand(env, cmd.id, kind)
-  // Twice in a row no tab took a step: the application is on a page Odds cannot run on (another window, a security check, Chrome's own
-  // error page) or the tab is gone. Retrying only burns minutes; say so to the person now, with what to do.
+  // No tab took a step twice in a row: the application is on a page Odds cannot run on (another window, a security check, Chrome's own
+  // error page) or the tab is gone. Retrying only burns minutes, so Broods is asked to report now, from what it already did (what it
+  // filled, what is left): it knows more than the server does. Only when it is silent three times in a row does the server end the run.
   if (kind === "never_started") {
-    const prev = (await svc(env, `drive_commands?run_id=eq.${run.id}&id=lt.${cmd.id}&order=id.desc&limit=1&select=status,result`).catch(() => null))?.[0]
-    if (prev?.status === "expired" && prev?.result?.timeout === "never_started") {
+    const prevs = ((await svc(env, `drive_commands?run_id=eq.${run.id}&id=lt.${cmd.id}&order=id.desc&limit=2&select=status,result`).catch(() => null)) ?? []) as Json[]
+    const silent = prevs.filter((p) => p?.status === "expired" && p?.result?.timeout === "never_started").length
+    if (silent >= 2) {
       const now = new Date().toISOString()
       const message = "Odds lost the application tab. Open it again and press Auto apply to carry on."
       await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, {
@@ -984,7 +986,10 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       }).catch(() => undefined)
       await cancelOpenCommands(env, run.id, "tab_silent")
       await endTurn(run)
-      return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, run_ended: true, error: "The tab stopped answering twice; Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
+      return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, run_ended: true, error: "The tab stopped answering three times; Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
+    }
+    if (silent === 1) {
+      return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, error: "The tab stopped answering twice. Do not call another browser tool. Call finish now with stage 'stuck', reason 'other' and a message for the person: what you already filled, what you did not get to (required fields, checkboxes, consent), and that the tab stopped answering." }), error: true }
     }
   }
   return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, error: `The browser did not answer (${kind}). Call read_page again.` }), error: true }
