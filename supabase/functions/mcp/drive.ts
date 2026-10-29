@@ -285,14 +285,14 @@ const emptyOf = (page: Json): string[] => {
 /** An upload button's own words, not a question ("Attach" on Greenhouse). */
 const GENERIC_UPLOAD = /^(attach|upload|browse|choose( a)? file|select( a)? files?|add file|enter manually)\*?$/i
 /**
- * Upload boxes still empty that must not be left: a required one ("Cover Letter*"), a letter box, or, once the CV is in, a box the
- * reader could only call "Attach" (Greenhouse draws the question beside it; older extensions read only the button).
+ * Upload boxes still empty that must not be left: a required one ("Cover Letter*"), or, once the CV is in, a box the reader could
+ * only call "Attach" (Greenhouse draws the question beside it; older extensions read only the button). An optional letter box stays empty.
  */
 export function emptyUploads(page: Json): string[] {
   const fields: Json[] = Array.isArray(page?.fields) ? page.fields : []
   return fields
     .filter((f) => f?.kind === "file" && !String(f?.value ?? "").trim() && !/\.(pdf|docx?|txt|rtf)$/i.test(String(f?.file_name ?? "")))
-    .filter((f) => f?.required === true || LETTER_FIELD.test(String(f?.label ?? "")) || (page?.cv_attached === true && GENERIC_UPLOAD.test(String(f?.label ?? "").trim())))
+    .filter((f) => f?.required === true || (page?.cv_attached === true && GENERIC_UPLOAD.test(String(f?.label ?? "").trim())))
     .map((f) => {
       const label = String(f.label ?? f.id).slice(0, 80)
       return LETTER_FIELD.test(label) || GENERIC_UPLOAD.test(label.trim())

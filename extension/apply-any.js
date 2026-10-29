@@ -1386,9 +1386,9 @@
     const control=el.closest("button,input[type=submit]")
     if(!control || !control.form || String(control.type).toLowerCase() !== "submit") return false
     const label = controlLabel(control).trim()
-    // A step forward named after the next step ("Next: Questions", "Continue to experience") is not the final Submit, unless it also
-    // says submit / send / apply.
-    if (/^(next|continue|volgende|verder|suivant|weiter|save and continue|go to step|back|previous|return to (the )?previous|vorige|terug)\b/i.test(label) && !/\b(submit|send|verzend\w*|versturen|apply|solliciteer\w*|absenden|envoyer)\b/i.test(label)) return false
+    // A step forward ("Next: Questions", "Continue to experience", Taleo's "Accept and Continue") is not the final Submit, unless it
+    // also says submit / send / apply.
+    if (/\b(next|continue|volgende|verder|suivant|weiter|save and continue|go to step|back|previous|return to (the )?previous|vorige|terug)\b/i.test(label) && !/\b(submit|send|verzend\w*|versturen|apply|solliciteer\w*|absenden|envoyer)\b/i.test(label)) return false
     return !/^(next|continue|review|save and continue|volgende|verder|suivant|back|previous|reject all(?: cookies)?|deny all(?: cookies)?|necessary only|functional only)$/i.test(label)
   }
   const prefilledFields = new WeakMap()
