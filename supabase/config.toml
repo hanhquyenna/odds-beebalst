@@ -32,3 +32,7 @@ verify_jwt = false
 # Sync apply-agent webhook Odds calls for suggest-answers (+ lifecycle pings). Auth is Bearer APPLY_AGENT_WEBHOOK_SECRET.
 [functions.apply-agent]
 verify_jwt = false
+
+# Drafts a tailored CV or cover letter for one job. Checks the sign-in itself (userFromRequest).
+[functions.tailor]
+verify_jwt = false
