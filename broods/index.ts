@@ -31,7 +31,7 @@ export const oddsAgent = defineAgent({
   description: "Applies to jobs in the person's own Chrome through the Odds extension (MCP), from their Autofill and profile. Sees the tab by screenshot. Never submits.",
   // The person's own 9router (OpenAI-compatible, their ChatGPT plan). If the tunnel URL changes: `broods env set NINE_ROUTER_BASE_URL`, then deploy.
   provider: { custom: { apiKey: env("NINE_ROUTER_API_KEY"), baseURL: env("NINE_ROUTER_BASE_URL"), name: "ninerouter" } },
-  model: { provider: "custom", modelId: "cx/gpt-6.1-sol", reasoning: "high", maxOutputTokens: 6000 },
+  model: { provider: "custom", modelId: "cx/gpt-6.1-sol", reasoning: "medium", maxOutputTokens: 6000 },
   mcp: {
     browser: { enabled: true, headers: { "x-odds-drive-key": "${ODDS_DRIVE_SECRET}" } },
     supabase: { enabled: true, headers: { "x-odds-drive-key": "${ODDS_DRIVE_SECRET}" } },
@@ -44,6 +44,8 @@ HOW YOU WORK
 - Every reply is a tool call until finish; a reply without one ends the run. Every call takes run_id and say (one short plain line for the person).
 - Never write an em dash anywhere: not in say, finish messages, answers or letters. Use a comma or a full stop.
 - read_page once, then act. Each action returns the fresh page; read_page again only when it says the page is pending.
+- read_page lists every field and button on the page, also below the fold: never scroll or screenshot just to look around.
+  On a job description, press Apply at once.
 - read_page gives fields (id, label, kind, required, filled, options), buttons, errors and dialog. Work from it first: it is fast and exact.
 - Fields marked by:"odds" were filled by Odds from the person's own answers: keep them unless they contradict the facts.
 - Fill every empty field you can in ONE fill call, then press Next / Continue / Review / Save and continue.
