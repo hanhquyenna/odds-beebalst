@@ -278,9 +278,11 @@
       else out.push({ kind: t === "number" ? "number" : "text", el, label, widget: widgetOf() })
     }
     // Dropdowns drawn as a button that opens a list (Workday): the button shows the choice, the list is made when it opens.
-    for (const b of document.querySelectorAll('button[aria-haspopup="listbox"], [role="combobox"]:not(input):not(select), [aria-haspopup="listbox"]:not(input):not(select)')) {
+    for (const b of deepAll('button[aria-haspopup="listbox"], [role="combobox"]:not(input):not(select), [aria-haspopup="listbox"]:not(input):not(select)')) {
       if (!shown(b) || b.closest("#odds-add, .odds-job-chance, .odds-apply-bar, nav, header, footer, [role='search']")) continue
-      const by = (b.getAttribute("aria-labelledby") || "").split(/\s+/).filter((id) => id && id !== b.id).map((id) => textOf(document.getElementById(id))).filter(Boolean).join(" ")
+      // Its label is in the same root (a web component's shadow root on SmartRecruiters).
+      const root = b.getRootNode?.() || document
+      const by = (b.getAttribute("aria-labelledby") || "").split(/\s+/).filter((id) => id && id !== b.id).map((id) => textOf(root.getElementById?.(id) || document.getElementById(id))).filter(Boolean).join(" ")
       let label = by || (b.id && textOf(document.querySelector(`label[for="${CSS.escape(b.id)}"]`))) || b.getAttribute("aria-label") || ""
       // A dropdown that names itself by its placeholder ("Select One Required" on Workday): the question is the field's own label above it.
       if (!label || /^\s*(select( one)?|choose|selecteer|kies|please select)\b[\s\w]{0,20}$/i.test(label)) {
@@ -549,7 +551,7 @@
   /** Consent, terms and privacy-notice boxes are ticked: the person chose consent yes in Odds. Answers how many it ticked. Never anything else. */
   function tickConsents() {
     let ticked = 0
-    for (const c of document.querySelectorAll('input[type="checkbox"], [role="checkbox"]:not(input)')) {
+    for (const c of deepAll('input[type="checkbox"], [role="checkbox"]:not(input)')) {
       const on = () => (c.matches("input") ? c.checked : c.getAttribute("aria-checked") === "true")
       if (on() || !shown(c) && !c.closest("label") || c.disabled || c.closest(".odds-apply-bar, nav, header, footer, [id*='cookie' i], [class*='cookie' i], [id*='onetrust' i]")) continue
       const label = (c.matches("input") ? labelOf(c) : "") || c.getAttribute("aria-label") || textOf(c.closest("label, fieldset") || c.parentElement)
@@ -1526,7 +1528,7 @@
   const consentToKeep = (label) => /\b(consent|agree)\b/i.test(label) && /\b(my data|personal data|personal information|employment|retain)\b/i.test(label) && !/\b(gender|ethnic\w*|race|disabilit\w*|veteran|sexual|religio\w*|criminal)\b/i.test(label)
   async function tickRequiredConsents() {
     const dialog = openDialog()
-    for (const box of document.querySelectorAll("input[type=checkbox], [role='checkbox']")) {
+    for (const box of deepAll("input[type=checkbox], [role='checkbox']")) {
       const input = box.matches("input") ? box : null
       const on = () => (input ? input.checked : box.getAttribute("aria-checked") === "true")
       if (prefillTried.has(box) || on() || (dialog ? !dialog.contains(box) : siteChrome(box)) || box.closest(".odds-apply-bar")) continue
@@ -1790,7 +1792,7 @@
     })
     // Checkboxes drawn by the site (Oracle, Workday: the real input hidden, a styled box or role=checkbox shown) — fields() skips them.
     const seenBoxes = new Set(list.filter((f) => f.kind === "checkbox").map((f) => elOf(f)))
-    for (const box of document.querySelectorAll("input[type=checkbox], [role='checkbox']")) {
+    for (const box of deepAll("input[type=checkbox], [role='checkbox']")) {
       if (out.length >= 70 || seenBoxes.has(box) || !inScope(box)) continue
       // The hidden mirror of a button choice (Ashby yes/no): the buttons are the question, never this box.
       if (box.matches("input") && box.tabIndex < 0 && box.parentElement && [...box.parentElement.children].filter((c) => c.tagName === "BUTTON").length >= 2) continue
