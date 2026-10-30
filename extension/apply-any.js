@@ -226,17 +226,28 @@
         if (!el.name || groups.has(el.name)) continue
         groups.add(el.name)
         const radios = deepAll(`input[type="radio"][name="${CSS.escape(el.name)}"]`).filter(shown)
-        const fieldset = el.closest("fieldset")
+        const near = el.closest("fieldset")
+        // A section fieldset ("Questions" over many fields, JazzHR) is not this group's question.
+        const fieldset = near && [...near.querySelectorAll("input, select, textarea")].every((i) => i.name === el.name) ? near : null
         const legend = fieldset?.querySelector("legend")
+        // Else the text beside the choices in their smallest common box (BambooHR: the question in <th>, the radios in <td>).
+        let box = radios[0]?.parentElement
+        while (box && !radios.every((r) => box.contains(r))) box = box.parentElement
+        let ask = null
+        for (let i = 0; i < 3 && box && !ask && !box.matches("form, fieldset, body"); i++, box = box.parentElement) ask = [...box.children].find((c) => !c.querySelector("input") && textOf(c).length > 1)
         // The question over the choices (Ashby puts it in a label of its own, not tied to any one radio), never the first choice's text.
         const title = fieldset ? [...fieldset.querySelectorAll("label")].find((l) => !l.querySelector("input") && !radios.some((r) => l.htmlFor && l.htmlFor === r.id)) : null
-        const label = textOf(legend) || textOf(title) || labelOf(el.closest("[role='radiogroup']") || el)
+        const label = textOf(legend) || textOf(title) || textOf(ask) || labelOf(el.closest("[role='radiogroup']") || el)
         out.push({ kind: "radio", el: radios, label, options: radios.map((r) => labelOf(r)), widget: "plain" })
         continue
       }
       // The search box inside a dropdown drawn as role=combobox (its own entry below): one question, not two.
       if (el.tagName === "INPUT" && el.closest("[role='combobox']:not(input):not(select)")) continue
       let label = labelOf(el)
+      // One box of a group (Workable's start date: Month, Year under "Earliest start date *"): the group's question comes first.
+      const groupBy = el.closest("[role='group'][aria-labelledby]")?.getAttribute("aria-labelledby")?.split(" ")[0]
+      const groupAsk = groupBy ? textOf(document.getElementById(groupBy)).replace(/\s*\*\s*$/, "") : ""
+      if (groupAsk && label && !label.includes(groupAsk)) label = `${groupAsk}: ${label}${/\*\s*$/.test(textOf(document.getElementById(groupBy))) ? " *" : ""}`
       if (t !== "file" && isTrap(el, label)) continue
       // A choice about being considered for other roles has no label of its own on some forms: its options say what it is.
       if (!label && el.tagName === "SELECT" && A.privacyChoice([...el.options].map((o) => o.text.trim())) >= 0) label = "Data privacy option"
@@ -310,6 +321,8 @@
 
   /** The question above a group of buttons: the nearest label, legend or heading in the boxes around it. */
   function choiceLabel(box) {
+    const by = (box.getAttribute?.("aria-labelledby") || "").split(/\s+/).filter(Boolean).map((id) => textOf(document.getElementById(id))).filter(Boolean).join(" ")
+    if (by) return by
     let parent = box.parentElement
     for (let depth = 0; parent && depth < 3; depth++, parent = parent.parentElement) {
       if (parent.matches("form, body, main")) break
@@ -813,7 +826,7 @@
       await sleep(250)
       if (el.matches("input")) await realTypeEl(el, String(value).slice(0, 40))
       const want = String(value).toLowerCase()
-      const shownOptions = () => [...document.querySelectorAll("[role='option'], li[class*='option' i], [class*='option' i]:not(select)")].filter(shown).filter((o) => !/^\s*(searching|loading|zoeken|bezig|laden)\b/i.test(textOf(o)))
+      const shownOptions = () => deepAll("[role='option'], li[class*='option' i], [class*='option' i]:not(select)").filter(shown).filter((o) => !/^\s*(searching|loading|zoeken|bezig|laden)\b/i.test(textOf(o)))
       // (a search list says "Searching…" first: wait for its real lines)
       for (let waited = 0; waited < 4000; waited += 200) { await sleep(200); if (waited >= 600 && shownOptions().length) break }
       const option = shownOptions()
@@ -2065,6 +2078,8 @@
       }
       const f = driveFields.get(args.id)
       if (!f || f.kind !== "file" || !elOf(f)?.isConnected) return { ok: false, error: "not a file field (read_page again)" }
+      // The CV went into a box this step no longer shows (Jobvite's autofill route, then Apply manually): this empty box takes it too.
+      if (uploaded && !deepAll("input[type=file]").some((i) => i !== elOf(f) && shown(i) && i.files?.length) && !(cvStem && textOf(document.body).includes(cvStem))) uploaded = false
       if (uploaded) return { ok: false, cv_attached: true, error: "the CV is already attached on this page (by Odds); this box is another upload, e.g. a cover letter: leave it unless it asks for one" }
       // Broods chose this box for the CV ("Browse on your Device" on Picnic says nothing about a CV): its choice stands.
       const ok = await uploadCv(f, true)

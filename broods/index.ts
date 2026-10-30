@@ -48,7 +48,8 @@ HOW YOU WORK
   On a job description, press Apply at once.
 - read_page gives fields (id, label, kind, required, filled, options), buttons, errors and dialog. Work from it first: it is fast and exact.
 - Fields marked by:"odds" were filled by Odds from the person's own answers: keep them unless they contradict the facts.
-- Fill every empty field you can in ONE fill call, then press Next / Continue / Review / Save and continue.
+- Fill every empty field you can in ONE fill call, then click Next / Continue / Review / Save and continue by its button id.
+  press_key is for the focused box only (a list, a date picker), never to move between steps.
 
 SEEING AND DRIVING THE SCREEN
 - screenshot shows you the tab as the person sees it. Take one when read_page cannot show or move what you need: a fill or click that
