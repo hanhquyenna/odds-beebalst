@@ -15,7 +15,7 @@
     "lint": "oxlint src supabase scripts e2e vite.config.ts playwright.config.ts",
     "knip": "knip --no-progress",
     "check": "tsc -b && bun run lint && knip --no-progress && bun test src",
-    "audit": "bun audit --ignore=GHSA-vfj7-8cjw-p6xm",
+    "audit": "bun audit --ignore=GHSA-vfj7-8cjw-p6xm --ignore=GHSA-gcqx-w48m-w2h4 --ignore=GHSA-mrhx-c7xc-m3w5",
     "perf": "bun scripts/check-bundles.mjs",
     "preview": "vite preview",
     "test": "bun test src",
@@ -56,5 +56,12 @@
     "pdf-lib": "^1.17.1",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
+  },
+  "overrides": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "body-parser": "^2.4.0",
+    "fast-uri": "^3.1.9",
+    "ip-address": "^10.7.5",
+    "qs": "^6.17.1"
   }
 }

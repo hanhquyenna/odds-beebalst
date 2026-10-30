@@ -29,7 +29,7 @@ jobs:
         env:
           VITE_SUPABASE_URL: http://supabase.test
           VITE_SUPABASE_ANON_KEY: e2e-anon-key
-      # braces DoS, reached only through the shadcn CLI at dev time; no patched release yet.
+      # braces DoS, deepmerge prototype poisoning and zod 3 memory DoS: reached only through the shadcn CLI at dev time, no patched release in its range.
       - run: bun run audit
       - run: bunx playwright install --with-deps chromium
       # Type-checks and builds once (fake Supabase env), then drives the build in a browser.
