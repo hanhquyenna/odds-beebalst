@@ -24,7 +24,11 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run lint
       - run: bun run knip
+      # The same fake Supabase env as the e2e build: src/lib/supabase.ts throws at import without one.
       - run: bun test src
+        env:
+          VITE_SUPABASE_URL: http://supabase.test
+          VITE_SUPABASE_ANON_KEY: e2e-anon-key
       # braces DoS, reached only through the shadcn CLI at dev time; no patched release yet.
       - run: bun run audit
       - run: bunx playwright install --with-deps chromium
