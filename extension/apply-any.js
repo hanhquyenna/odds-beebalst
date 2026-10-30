@@ -359,7 +359,9 @@
   /** The options a dropdown shows now: the list that belongs to it, else the visible one on the page. */
   function listed(input) {
     // (a Workday field's chosen chips sit in a listbox of their own: never the open list)
-    const listbox = document.getElementById(input.getAttribute("aria-controls") || "") || document.getElementById(input.getAttribute("aria-owns") || "") || [...document.querySelectorAll("[role='listbox']")].filter((l) => shown(l) && [...l.querySelectorAll("[role='option']")].some((o) => o.getAttribute("data-automation-id") !== "selectedItem")).pop() || input.closest("[class*='container'], div")?.querySelector("[role='listbox']")
+    // A web component keeps its list in the input's own shadow root (SmartRecruiters' spl-autocomplete).
+    const root = input.getRootNode?.() || document
+    const listbox = root.getElementById?.(input.getAttribute("aria-controls") || "") || root.getElementById?.(input.getAttribute("aria-owns") || "") || [...root.querySelectorAll("[role='listbox']")].filter((l) => shown(l) && [...l.querySelectorAll("[role='option']")].some((o) => o.getAttribute("data-automation-id") !== "selectedItem")).pop() || input.closest("[class*='container'], div")?.querySelector("[role='listbox']")
     let options = [...(listbox?.querySelectorAll("[role='option'], [data-automation-id='promptOption']") || [])].filter((o) => shown(o) && o.getAttribute("data-automation-id") !== "selectedItem" && !/^\s*(searching|loading|zoeken|bezig|laden)\b/i.test(textOf(o)))
     // Workday draws each choice three times (menuItem › promptLeafNode › promptOption): the menu item is the one to press.
     if (options.some((o) => o.getAttribute("data-automation-id") === "menuItem")) options = options.filter((o) => o.getAttribute("data-automation-id") === "menuItem")
@@ -1729,6 +1731,7 @@
     // A footer or header inside the application form is the form's own (Homerun's "Next: Questions" sits in <form><footer>), as is
     // one holding form fields or a step's Next / Submit: never site chrome.
     if (hit.closest("form, [role='form']") || hit.querySelector("input:not([type=hidden]), textarea, select")) return false
+    if ([...hit.querySelectorAll("button, [role='button'], input[type=submit]")].some((b) => /^(next|continue|save and continue|submit|review|volgende|verder|weiter|suivant)\b/i.test(controlLabel(b).trim()))) return false
     return true
   }
   /** On a job board's own search results (Glassdoor: /Vacature/vacatures.htm?…), not on a job. */

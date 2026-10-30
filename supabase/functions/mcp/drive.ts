@@ -398,7 +398,7 @@ const BASE_TOOLS = [
   },
   {
     name: "click_at",
-    description: "Click at a point (x, y in pixels of the last screenshot). Submit/Send and password fields are refused. Returns the fresh page snapshot.",
+    description: "Click at a point (x, y in pixels of the last screenshot) for what read_page cannot reach. A button read_page lists (Next, Continue) is clicked by id with click, not here. Submit/Send and password fields are refused. Returns the fresh page snapshot.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, x: { type: "number" }, y: { type: "number" } }, required: ["run_id", "x", "y"] },
   },
   {
@@ -408,7 +408,7 @@ const BASE_TOOLS = [
   },
   {
     name: "press_key",
-    description: "Press one key on the focused element: Enter, Tab, Escape, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Space, Backspace.",
+    description: "Press one key on the focused element: Enter, Tab, Escape, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Space, Backspace. Never to go to the next step: click its Next / Continue button by id (read_page lists it).",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, key: { type: "string" } }, required: ["run_id", "key"] },
   },
   {
@@ -803,10 +803,11 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     if (link?.document_id) args = { ...args, doc: link.document_id }
   }
   if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
-  // The same button three times in the last few steps and the page never changed: pressing it again is not an answer. Said once, plainly.
+  // The same button three times in a row with nothing else done in between: pressing it again is not an answer. Said once, plainly.
   if (name === "click" && typeof args?.id === "string") {
-    const recentClicks = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.click&order=id.desc&limit=6&select=args,status`).catch(() => null)) ?? []
-    if (recentClicks.filter((c: Json) => c?.args?.id === args.id && c.status === "done").length >= 3) {
+    const recent = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=in.(click,fill,press_key,type_text,click_at,upload_cv,upload_letter)&order=id.desc&limit=6&select=tool,args,status`).catch(() => null)) ?? []
+    const streak = recent.findIndex((c: Json) => c?.tool !== "click" || c?.args?.id !== args.id)
+    if ((streak === -1 ? recent.length : streak) >= 3) {
       return { text: "You pressed this button 3 times and the page did not move on. Do not press it again. Read what the page says (errors, a dialog, empty required fields), try something else, or finish with the exact thing that blocks it.", error: true }
     }
   }
