@@ -30,8 +30,7 @@ export const oddsAgent = defineAgent({
   name: "odds-agent",
   description: "Applies to jobs in the person's own Chrome through the Odds extension (MCP), from their Autofill and profile. Sees the tab by screenshot. Never submits.",
   // The person's own 9router (OpenAI-compatible, their ChatGPT plan). If the tunnel URL changes: `echo <url> | broods env set ODDS_ROUTER_BASE_URL`.
-  // A request the tunnel takes and never answers is sent again after 90 s (Broods `firstByteTimeoutMs`) instead of stalling the run.
-  provider: { custom: { apiKey: env("NINE_ROUTER_API_KEY"), baseURL: env("ODDS_ROUTER_BASE_URL"), name: "ninerouter", firstByteTimeoutMs: 90_000 } },
+  provider: { custom: { apiKey: env("NINE_ROUTER_API_KEY"), baseURL: env("ODDS_ROUTER_BASE_URL"), name: "ninerouter" } },
   model: { provider: "custom", modelId: "cx/gpt-6.1-sol", reasoning: "medium", maxOutputTokens: 6000 },
   mcp: {
     browser: { enabled: true, headers: { "x-odds-drive-key": "${ODDS_DRIVE_SECRET}" } },
