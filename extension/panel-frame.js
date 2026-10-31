@@ -14,7 +14,9 @@ function say(text) {
 }
 
 function toApp(message) {
-  app.contentWindow.postMessage({ source: "odds-extension", ...message }, ODDS)
+  // Before the Odds page has loaded the frame is still this extension's own blank page: the message would be refused (an error on
+  // the extension's card every time the panel opens). The app asks again once it is ready ("need-session", "ready").
+  try { app.contentWindow.postMessage({ source: "odds-extension", ...message }, ODDS) } catch { /* frame not on the Odds page yet */ }
 }
 
 /**
@@ -109,6 +111,12 @@ window.addEventListener("message", (event) => {
 })
 
 // Inside a page the cross asks the page to hide the panel; in the browser's own side panel it closes it.
+// Inside a page the arrow beside the cross tucks the panel away and the odds tab rolls back in at the page's edge.
+if (window.parent !== window) {
+  const collapse = document.getElementById("collapse")
+  collapse.hidden = false
+  collapse.onclick = () => window.parent.postMessage({ source: "odds-panel", type: "collapse" }, "*")
+}
 document.getElementById("close").onclick = () => (window.parent !== window ? window.parent.postMessage({ source: "odds-panel", type: "close" }, "*") : window.close())
 // The app announces ready while its script runs, before iframe load fires.
 // Resetting readiness on load loses that handshake and stalls job selection.
@@ -116,6 +124,8 @@ document.getElementById("close").onclick = () => (window.parent !== window ? win
 
 // In the browser's side panel, the page that added a job tells it by way of the background; only the panel of that tab reacts.
 if (window.parent === window) {
+  // While the browser's side panel is open the page never draws a second panel of its own: the background counts these connections.
+  try { chrome.runtime.connect({ name: "odds-side-panel" }) } catch { /* the background wakes on the next message */ }
   chrome.runtime.sendMessage({ type: "panel-ready" }, (answer) => {
     if (!chrome.runtime.lastError && answer?.job) viewJob(answer.job)
   })
@@ -128,9 +138,6 @@ if (window.parent === window) {
   })
 }
 
-const phoneControl = document.getElementById("phone-control")
-chrome.storage.local.get("oddsPhoneControl").then(v => { phoneControl.checked = v.oddsPhoneControl === true })
-phoneControl.addEventListener("change", () => chrome.storage.local.set({ oddsPhoneControl: phoneControl.checked }))
 // Poll immediately on opening and every five seconds while the panel is visible.
 const pollPhone = () => chrome.runtime.sendMessage({ type: "application-poll" }, () => void chrome.runtime.lastError)
 const syncApplyChips = () => chrome.runtime.sendMessage({ type: "application-statuses" }, (answer) => {
@@ -187,7 +194,11 @@ window.addEventListener("message", (event) => {
   if (d.type === "panel-fill" && typeof d.tabId === "number") chrome.runtime.sendMessage({ type: "fill-tab", tabId: d.tabId }, () => { void chrome.runtime.lastError; sendPanelInfo() })
   if (d.type === "apply-here" && typeof d.tabId === "number" && typeof d.url === "string") chrome.runtime.sendMessage({ type: "apply-here", tabId: d.tabId, url: d.url, postingId: typeof d.postingId === "string" ? d.postingId : null }, () => { void chrome.runtime.lastError; sendPanelInfo() })
   if (d.type === "panel-account" && typeof d.tabId === "number") chrome.runtime.sendMessage({ type: "panel-account", tabId: d.tabId, create: d.create === true }, () => { void chrome.runtime.lastError; sendPanelInfo() })
+  if (d.type === "panel-open-logins") chrome.runtime.sendMessage({ type: "panel-open-logins" }, () => void chrome.runtime.lastError)
   if (d.type === "panel-add-job" && typeof d.url === "string") chrome.runtime.sendMessage({ type: "panel-add-job", url: d.url }, () => { void chrome.runtime.lastError; sendPanelInfo() })
+  if (d.type === "panel-chance" && typeof d.tabId === "number" && typeof d.pct === "number") {
+    chrome.runtime.sendMessage({ type: "panel-chance", tabId: d.tabId, url: typeof d.url === "string" ? d.url : "", pct: d.pct, label: typeof d.label === "string" ? d.label : `${d.pct}%` }, () => { void chrome.runtime.lastError })
+  }
   if (d.type === "panel-keep-answers" && typeof d.tabId === "number" && Array.isArray(d.questions)) {
     chrome.runtime.sendMessage({ type: "panel-keep-answers", tabId: d.tabId, url: null, questions: d.questions }, () => { void chrome.runtime.lastError; lastAnswers = { tabId: null, at: 0, items: [] } })
   }

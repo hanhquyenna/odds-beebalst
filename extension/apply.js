@@ -395,8 +395,8 @@
   }
 
   /**
-   * Stuck on Easy Apply: force required consents, one page-scan LLM, then stop if still stuck.
-   * Never loops the LLM.
+   * Stuck on Easy Apply: force required consents, one Broods page scan, then stop if still stuck.
+   * Never loops the scan.
    */
   let scannedSig = ""
   async function assistStuckStep(modal) {
@@ -661,6 +661,7 @@
     const runId = start?.run_id
     if (!runId) return say(modal, start?.error ? `Broods could not start: ${start.error}` : "Broods could not start. Press Apply with Odds again.", "ask")
     let lostSince = 0
+    let idleSince = 0
     let fresh = true
     let endedAt = 0
     let resumedFor = 0
@@ -678,6 +679,7 @@
     for (let i = 0; i < 4000 && modal.isConnected && session?.modal === modal; i++) {
       // The person is filling in: Broods waits, then carries on around what they entered.
       if (!endedAt && Date.now() - person.at < 20000) {
+        idleSince = 0
         say(modal, "You're filling in — Broods waits, then carries on around what you entered.", "filling")
         await ask({ type: "drive", op: "next", run_id: runId, hold: true }, 15000).catch(() => null)
         await sleep(3000)
@@ -692,6 +694,7 @@
       const next = await ask({ type: "drive", op: "next", run_id: runId, fresh }, 35000).catch(() => null)
       // No answer at all is the connection, not Broods: say so and keep trying for 5 minutes.
       if (!next || next.status === "error") {
+        idleSince = 0
         lostSince ||= Date.now()
         if (Date.now() - lostSince > 300000) return say(modal, "Odds lost its connection while Broods was applying. Press Apply with Odds again to carry on.", "ask")
         say(modal, "Connection lost — Odds keeps going as soon as it is back…", "filling")
@@ -701,6 +704,7 @@
       fresh = false
       if (lostSince) { lostSince = 0; say(modal, "Broods is applying in this window…", "filling") }
       if (next.done) {
+        idleSince = 0
         // Ended for the person: keep an ear on the run for 30 minutes so Continue in the tracker carries on here.
         if (!endedAt) {
           endedAt = Date.now()
@@ -717,6 +721,7 @@
       }
       if (endedAt) { endedAt = 0; say(modal, "Broods is carrying on…", "filling") }
       if (next.command) {
+        idleSince = 0
         const cmd = next.command
         const note = typeof cmd.note === "string" ? cmd.note.trim() : ""
         say(modal, note ? `Broods: ${note}` : cmd.tool === "read_page" ? "Broods is reading this step…" : cmd.tool === "fill" ? "Broods is filling in your answers…" : cmd.tool === "click" ? "Broods is moving to the next step…" : "Broods is working…", "filling")
@@ -737,6 +742,10 @@
         const result = await driveModalCommand(modal, cmd, sendResult).catch((e) => ({ error: String(e?.message || e).slice(0, 200) }))
         if (stale) continue
         if (!sent) await sendResult(result)
+      } else {
+        // A healthy edge response without a command is not transport loss. Bound it just like the generic application driver.
+        idleSince ||= Date.now()
+        if (Date.now() - idleSince >= 180000) return say(modal, "Broods' model is unreachable. The fill stopped. Press Apply with Odds to try again.", "ask")
       }
     }
   }

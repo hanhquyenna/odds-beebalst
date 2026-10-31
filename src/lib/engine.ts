@@ -389,11 +389,43 @@ export interface Standing {
  */
 export const middle = (low: number, high: number): number => Math.sqrt(low * high)
 
+export interface DisplayedChance {
+  /** The number shown: tenths below 10 (0.8), whole numbers from 9.5 (12). */
+  pct: number
+  /** The ring and the page badge ("0.8%", "12%"). */
+  label: string
+  /** The sentence under the ring. */
+  perHundred: string
+}
+
+/**
+ * One interview-chance figure for the app, the side panel, the page badge, and the server.
+ * Tenths below 10%, whole numbers from 9.5%. Half-up on tenths in integer math, so 0.45% is 0.5%
+ * on every surface (a binary tenth used to print 0.4 in one place and 0.5 in another).
+ */
+export function displayedChance(p: number): DisplayedChance {
+  const x = p * 100
+  if (!Number.isFinite(x) || x <= 0) {
+    return { pct: 0, label: "0.0%", perHundred: "0.0 in 100 similar applicants get a call" }
+  }
+  if (x >= 9.5) {
+    const n = Math.round(x)
+    return { pct: n, label: `${n}%`, perHundred: `${n} in 100 similar applicants get a call` }
+  }
+  const tenths = Math.floor(x * 10 + 0.5 + 1e-9)
+  const pct = tenths / 10
+  const figure = pct.toFixed(1)
+  return { pct, label: `${figure}%`, perHundred: `${figure} in 100 similar applicants get a call` }
+}
+
 /** A chance as one figure: a decimal below 10% ("3.8%"), whole numbers from there. */
 export function point(p: number): string {
-  const x = p * 100
+  return displayedChance(p).label
+}
 
-  return x >= 9.5 ? `${Math.round(x)}%` : `${x.toFixed(1)}%`
+/** The sentence under the interview chance, the same on the panel and the job page: the number is the one `point` shows. */
+export function chanceSentence(p: number): string {
+  return `${point(p).replace("%", "")} in 100 similar applicants get a call`
 }
 
 export const FACTORS = {

@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test"
 import { SUPABASE_ORIGIN } from "./e2e/mock"
 
-const PORT = 4319
+const PORT = Number(process.env.E2E_PORT) || 4319
 
 /** Browser smoke tests: a production build served by `vite preview`, talking to a fake Supabase that e2e/mock.ts answers. */
 export default defineConfig({

@@ -1,17 +1,12 @@
 import { useState } from "react"
-import { ChevronLeftIcon } from "@/components/icons"
 import logoUrl from "@/logo.svg"
-import { beginShooSignIn, redirectWatch, rememberShooNext, storageAvailable } from "@/lib/shoo"
-
-interface SignInProps {
-  onCancel: () => void
-}
+import { beginShooSignIn, redirectWatch, storageAvailable } from "@/lib/shoo"
 
 const NO_STORAGE = "Sign-in needs site data to remember you. Allow cookies for this site, then try again."
 const STUCK = "Still here? Your browser may have blocked the Google redirect. Try again."
 
 /** The way back into an account: Google only, then the saved profile comes down with it. */
-export function SignIn({ onCancel }: SignInProps): React.JSX.Element {
+export function SignIn(): React.JSX.Element {
   const [busy, setBusy] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -31,7 +26,6 @@ export function SignIn({ onCancel }: SignInProps): React.JSX.Element {
       setError(STUCK)
     })
     try {
-      rememberShooNext("account")
       await beginShooSignIn()
     } catch (caught) {
       cancel()
@@ -42,11 +36,6 @@ export function SignIn({ onCancel }: SignInProps): React.JSX.Element {
 
   return (
     <div className="mx-auto flex w-full max-w-sm flex-1 flex-col py-6 md:my-auto md:flex-none md:rounded-3xl md:border-[1.5px] md:bg-card md:p-10 md:shadow-sm" aria-busy={busy}>
-      <button type="button" onClick={onCancel} disabled={busy} className="flex w-fit cursor-pointer items-center gap-0.5 text-[0.95rem] font-semibold text-brand-ink disabled:cursor-not-allowed">
-        <ChevronLeftIcon weight="bold" className="size-5" aria-hidden="true" />
-        Back
-      </button>
-
       <div className="flex flex-1 flex-col items-center justify-center gap-6 py-10 text-center md:flex-none">
         <div className="flex flex-col items-center gap-4">
           <span className="flex size-20 items-center justify-center rounded-[1.4rem] bg-brand shadow-lg shadow-brand/30">

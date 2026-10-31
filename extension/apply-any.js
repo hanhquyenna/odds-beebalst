@@ -4,7 +4,9 @@
 // form. odds never sends the form: the person checks it and submits it. On a job board's page that is not the form yet, odds presses its Apply.
 ;(() => {
   const A = globalThis.oddsApply
-  const APPLY_BUILD = "2026-10-16-drive-speed-v1"
+  // Chrome loads a hidden page behind the address bar (google.com/search/warmup.html) and prerenders pages: nothing is ever driven there.
+  if (document.prerendering || /^\/search\/warmup\.html/.test(location.pathname)) return
+  const APPLY_BUILD = "2026-10-19-fill-verify-broods-ladder"
   const portalHost = host => /(^|\.)(greenhouse\.io|lever\.co|ashbyhq\.com|myworkdayjobs\.com|smartrecruiters\.com|successfactors\.eu|successfactors\.com|icims\.com)$/.test(host)
   // A form drawn in a blank frame of the page (HubSpot, Framer, Webflow embeds): Odds is put there on purpose (see blankFrameForm) and drives it.
   // A frame of this same page with no address of its own (about:blank, srcdoc, or written by the page's script); a frame from another site has
@@ -102,6 +104,13 @@
   }
   /** The words a field is asked with: its <label>, aria-label(ledby), a sibling/parent question line — never a generic placeholder. */
   function labelOf(el) {
+    // An upload box's own label is often only its button ("Attach" on Greenhouse); the question is the group around it
+    // (role=group aria-labelledby -> "Cover Letter*"), with the required star.
+    if ((el.type || "").toLowerCase() === "file") {
+      const group = el.parentElement?.closest("[aria-labelledby]")
+      const named = group ? group.getAttribute("aria-labelledby").split(/\s+/).map((id) => textOf(document.getElementById(id))).join(" ").trim() : ""
+      if (named && realAsk(named, true) && !/^(attach|upload|browse|choose( a)? file|select( a)? file|enter manually|dropbox|google drive)$/i.test(named)) return named
+    }
     if (el.id) {
       // Its own form's label first: some sites render the form twice (desktop + mobile) with the same ids.
       const sel = `label[for="${CSS.escape(el.id)}"]`
@@ -203,6 +212,15 @@
   const asked = new Set()
 
   /** Every element matching `selector` on the page, including inside open shadow roots (SmartRecruiters' Easy Apply and other component-built forms draw their inputs there). */
+  /** Odds' own bar, pill and mascot tab (some drawn in shadow roots): never a page control. Climbs out of shadow roots to their hosts. */
+  function oddsOwn(el) {
+    for (let n = el; n; ) {
+      if (n.closest?.(".odds-apply-bar, .odds-fill-host, [data-odds-bar], [id^='odds-'], #odds-add, #odds-auto")) return true
+      const root = n.getRootNode?.()
+      n = root && root !== document && root.host ? root.host : null
+    }
+    return false
+  }
   function deepAll(selector, root = document, out = []) {
     for (const el of root.querySelectorAll(selector)) out.push(el)
     for (const host of root.querySelectorAll("*")) if (host.shadowRoot) deepAll(selector, host.shadowRoot, out)
@@ -341,15 +359,49 @@
     // Workday's multi-select shows its picks as chips (selectedItem) in its own container.
     const wd = input.closest?.("[data-automation-id='multiSelectContainer']")
     if (wd) return [...wd.querySelectorAll("[data-automation-id='selectedItem']")].map(textOf).filter(Boolean).join(", ")
-    const control=input.closest("[class*='control' i]") || input.parentElement?.closest("[class*='select' i], [class*='container' i]")
-    const single = textOf(control?.querySelector("[class*='single-value'], [class*='singlevalue' i], [class*='selected-value']"))
-    if (single) return single
-    // A multi-select shows its picks as chips ("English ×"): their labels, joined.
-    const chips = [...(control?.querySelectorAll("[class*='multi-value__label'], [class*='multivaluelabel' i], [class*='multi-value'] > div:first-child") || [])].map(textOf).filter(Boolean).join(", ")
-    if (chips) return chips
+    const control = input.closest("[class*='control' i]") || input.parentElement?.closest("[class*='select' i], [class*='container' i]")
+    // react-select: the choice lives in the single-value sibling. An empty slot means nothing is selected,
+    // even when the search input still shows the words that were typed.
+    const singleEl = control?.querySelector("[class*='single-value'], [class*='singlevalue' i], [class*='selected-value']")
+    if (singleEl) {
+      const t = textOf(singleEl)
+      return PLACEHOLDER.test(t) ? "" : t
+    }
+    // react-select with nothing chosen draws no single-value at all: its input holds only search words, never a choice.
+    if (/\bselect__input\b/.test(String(input.className || "")) && !control?.querySelector("[class*='multi-value']")) return ""
+    // A multi-select shows its picks as chips ("English ×"): their labels, joined. The chip box itself, even empty, is the truth.
+    if (control?.querySelector("[class*='multi-value']")) {
+      return [...control.querySelectorAll("[class*='multi-value__label'], [class*='multivaluelabel' i]")].map(textOf).filter(Boolean).join(", ")
+    }
     // An autocomplete that keeps the chosen suggestion in its own box (Ashby's location), once its list has closed.
     if (input.tagName === "INPUT" && /^(list|both)$/.test(input.getAttribute("aria-autocomplete") || "") && input.getAttribute("aria-expanded") !== "true") return String(input.value || "").trim()
+    // Any dropdown input that shows its choice in its own box once its list is closed (a country-code picker showing "(+31) Netherlands").
+    if (input.tagName === "INPUT" && (input.getAttribute("role") === "combobox" || input.hasAttribute("aria-haspopup")) && input.getAttribute("aria-expanded") !== "true") {
+      const own = String(input.value || "").trim()
+      if (own && !PLACEHOLDER.test(own)) return own
+    }
+    // A button that is the dropdown (aria-haspopup=listbox) shows the choice as its own text.
+    if (input.tagName === "BUTTON" && input.getAttribute("aria-expanded") !== "true") {
+      const t = textOf(input)
+      if (t && !PLACEHOLDER.test(t)) return t
+    }
     return ""
+  }
+  /** Whether the dropdown now shows the option that was picked: its visible text (the list closed) holds that option's words, flags and symbols aside. */
+  /** react-select (Greenhouse, many others): the input holds only search words; the chosen option is the "single-value" beside it. */
+  const reactSelectBox = (input) => (/\bselect__input\b/.test(String(input?.className || "")) ? input.closest("[class*='select__control'], [class*='-control']") : null)
+  const reactSelectChoice = (input) => textOf(reactSelectBox(input)?.querySelector("[class*='single-value'], [class*='multi-value__label']"))
+  function choiceShownNear(input, expected) {
+    if (!input?.isConnected || !expected || input.getAttribute?.("aria-expanded") === "true") return false
+    const norm = (t) => String(t).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "")
+    const want = norm(expected)
+    if (want.length < 2) return false
+    // Typed search words are no choice: on react-select only the chosen value counts (it read "University of Amsterdam" typed in an
+    // empty School box as kept).
+    if (reactSelectBox(input)) return norm(reactSelectChoice(input)).includes(want)
+    const wrap = input.parentElement?.closest("[class*='control' i], [class*='select' i], [class*='dropdown' i], [class*='combo' i], [class*='picker' i], [class*='field' i]") || input.parentElement
+    const seen = norm(`${input.value || ""} ${wrap?.innerText || input.innerText || ""}`)
+    return seen.includes(want)
   }
   /** What a dropdown shows as its choice: a search box's chip, or (a div role=combobox such as MUI's Select) its own text, empty while it shows a prompt. */
   const shownChoice = (input) => {
@@ -359,7 +411,7 @@
     return PLACEHOLDER.test(t) ? "" : t
   }
   /** The options a dropdown shows now: the list that belongs to it, else the visible one on the page. */
-  function listed(input) {
+  function listed(input, loose = true) {
     // (a Workday field's chosen chips sit in a listbox of their own: never the open list)
     // A web component keeps its list in the input's own shadow root (SmartRecruiters' spl-autocomplete).
     const root = input.getRootNode?.() || document
@@ -400,9 +452,11 @@
     if (!dropdownChoices.has(f.el)) {
       let seen = []
       await pickOption(f.el, null, f.label, (list) => { seen = list; return -1 })
-      dropdownChoices.set(f.el, seen.filter((o) => o && !PLACEHOLDER.test(o)).slice(0, 300))
+      const read = seen.filter((o) => o && !PLACEHOLDER.test(o)).slice(0, 300)
+      // Nothing read (another list was open, the menu was slow): not kept, so the next look tries again.
+      if (read.length) dropdownChoices.set(f.el, read)
     }
-    const options = dropdownChoices.get(f.el)
+    const options = dropdownChoices.get(f.el) || []
     if (options.length) f.options = options
     return f.options
   }
@@ -429,7 +483,12 @@
       }
     }
     await sleep(150)
-    let { options, texts } = listed(input)
+    // A list that is drawn a moment after the press (dsm-firmenich: ~600 ms): waited for, and only the box's own list counts meanwhile.
+    let { options, texts } = listed(input, false)
+    if (input.getAttribute("aria-controls") || input.getAttribute("aria-owns")) {
+      for (let waited = 0; texts.length === 0 && waited < 1200; waited += 100) { await sleep(100); ;({ options, texts } = listed(input, false)) }
+      if (texts.length === 0) ({ options, texts } = listed(input))
+    } else ({ options, texts } = listed(input))
     if (!button && texts.length === 0) {
       input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true }))
       await sleep(250)
@@ -445,12 +504,29 @@
       return i
     }
     let i = choose(texts)
+    // A long list that draws only the part in view (a country list that shows Afghanistan to Cayman Islands first): scrolled a page at a time
+    // until the wanted choice is drawn, then picked. Typing in such a box often does nothing, so this comes before typing.
+    if (i < 0 && answer !== null && options.length >= 6) {
+      let box = options[0].parentElement
+      while (box && box !== document.body && !(box.scrollHeight > box.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement
+      if (box && box !== document.body) {
+        box.scrollTop = 0
+        for (let step = 0; step < 80 && i < 0; step++) {
+          const before = box.scrollTop
+          box.scrollTop = before + Math.max(80, box.clientHeight * 0.8)
+          await sleep(120)
+          ;({ options, texts } = listed(input))
+          i = choose(texts)
+          if (box.scrollTop === before) break
+        }
+      }
+    }
     // Some lists open only for typing, or draw their choices from a search: the answer is typed and the match picked.
     // Typing searches the list; only for questions whose answer is a name to look up (a place, a school, a field, a language). A yes/no or legal
     // question is only ever answered with one of its own options — never with a city typed into it ("Amsterdam" in a non-compete question).
     const searchable = /\b(location|city|ville|lieu|plaats|woonplaats|stad|country|pays|land|school|university|universit\w*|[eé]cole|discipline|field of study|institution|degree|dipl[oô]me|nationalit\w*|language|langue|taal|skills?|comp[eé]tences?)\b/i.test(label || "")
     if (i < 0 && !button && answer !== null && input.tagName === "INPUT" && searchable) {
-      typeInto(input, answer)
+      typeInto(input, searchQuery(answer))
       // Remote place searches often take longer than 900 ms. Do not erase the
       // query while the employer is still fetching suggestions.
       for (let waited = 0; waited < 4000; waited += 100) {
@@ -471,8 +547,10 @@
     }
     if (i < 0) { if (input.tagName === "INPUT" || input.getAttribute("aria-expanded") === "true") input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); if (!button) input.blur(); return null }
     const text = texts[i]
-    options[i].dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
-    options[i].click()
+    // Full pointer sequence: react-select and Workday options often open or commit on pointerdown, not on click alone.
+    for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+      options[i].dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0 }))
+    }
     await sleep(120)
     return text
   }
@@ -504,17 +582,38 @@
 
   /** The person's CV in an upload asking for one, from odds. */
   /** known: a validated site recipe names this field as the CV upload (Greenhouse labels it only "Attach"). */
+  /** Whether the page shows this file's name anywhere, in shadow DOM too, however the site writes it ("Kien Phung CV.pdf" shown as "Kien_Phung_CV.pdf"). */
+  function fileNameShown(name) {
+    const norm = (t) => String(t).toLowerCase().replace(/\.[a-z0-9]{2,5}$/i, "").replace(/[^\p{L}\p{N}]+/gu, "")
+    const want = norm(name).slice(0, 18)
+    if (want.length < 4) return false
+    return deepAll("span, p, div, li, a, button, label, strong, td").some((e) => e.children.length === 0 && shown(e) && norm(textOf(e)).includes(want))
+  }
+  /** How long one fill step may work in the tab (the server waits 45 s for it). Every per-field budget is measured against this. */
+  const FILL_STEP_MS = 40000
+  /** Why the CV file could not be had (the server's words), for the upload step's answer to Broods. */
+  let cvLoadError = ""
+  /** A photo box (profile image, avatar, picture), by its words or because it takes images only: never the CV's place. */
+  const imageBox = (el, label) => {
+    const accept = String(el?.getAttribute?.("accept") || "").toLowerCase()
+    const onlyImages = accept && /image/.test(accept) && !/pdf|doc|application/.test(accept)
+    return onlyImages || /\b(profile (image|picture|photo)|photo|picture|avatar|headshot|foto|afbeelding|profielfoto|bild)\b/i.test(`${label} ${el?.name || ""} ${el?.id || ""} ${el?.getAttribute?.("aria-label") || ""}`)
+  }
   async function uploadCv(f, known = false) {
+    // SmartRecruiters' first file box is "Upload profile image": Odds put the CV there, the site refused it, and Broods' upload into
+    // the real CV box was then turned down as "already attached".
+    if (imageBox(f.el, f.label)) return false
     const around = `${f.label} ${f.el.name || ""} ${f.el.id || ""} ${f.el.getAttribute("aria-label") || ""}`
     // On a resume-only step, accept any file input even when the button says "Sélectionner un fichier".
     const resumeStep = known || isResumeAsk(around) || isResumeAsk(textOf(document.querySelector("h1, h2, h3")))
       || (f.kind === "file" && fields().filter((x) => x.kind !== "file").every((x) => answered(x) || !required(elOf(x), x.label)))
     if (uploaded || !cv || (!isResumeAsk(around) && !resumeStep)) return false
     const file = await ask({ type: "cv-file", doc: cv.id }, 15000)
-    if (file?.status !== "ok") return false
+    if (file?.status !== "ok") { cvLoadError = file?.message || "The CV file did not load."; return false }
     const bytes = Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0))
     const transfer = new DataTransfer()
     transfer.items.add(new File([bytes], file.name, { type: file.type }))
+    const fieldsBefore = fields().length
     try { f.el.files = transfer.files } catch { /* some ATS wrap the input */ }
     f.el.dispatchEvent(new Event("input", { bubbles: true }))
     f.el.dispatchEvent(new Event("change", { bubbles: true }))
@@ -524,7 +623,9 @@
       // Sites that take the file and clear their input (Homerun, Lever): the file's name shown beside the box means it is in.
       const box = f.el.closest("form, section, [class*='upload' i], [class*='file' i], [class*='dropzone' i], div")?.parentElement || document.body
       const stem = file.name.replace(/\.[a-z0-9]+$/i, "").slice(0, 24)
-      for (let t = 0; t < 15 && !uploaded; t++) { await sleep(200); uploaded = textOf(box).includes(stem) }
+      // Sites that read the CV and rebuild the form from it (SmartRecruiters' Easy Apply): the upload box is gone, or the form grew its
+      // own experience / education boxes. That is the CV taken in.
+      for (let t = 0; t < 15 && !uploaded; t++) { await sleep(200); uploaded = textOf(box).includes(stem) || fileNameShown(file.name) || !f.el.isConnected || fields().length >= fieldsBefore + 3 }
     }
     if (uploaded) {
       cvInputs.add(f.el); cvStem = file.name.replace(/\.[a-z0-9]+$/i, "").slice(0, 24)
@@ -537,15 +638,22 @@
     let last = Date.now()
     const watch = new MutationObserver(() => { last = Date.now() })
     watch.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true })
+    // (a form drawn in shadow DOM does not show in that observer: its boxes are counted too)
+    const shape = () => fields().length + ":" + fields().filter((x) => answered(x)).length
+    let was = shape()
     const t0 = Date.now()
-    while (Date.now() - last < quietMs && Date.now() - t0 < maxMs) await sleep(150)
+    while (Date.now() - last < quietMs && Date.now() - t0 < maxMs) {
+      await sleep(150)
+      const now = shape()
+      if (now !== was) { was = now; last = Date.now() }
+    }
     watch.disconnect()
   }
   function cvShownAt(el) {
     if (!uploaded) return false
     if (cvInputs.has(el)) return true
     const box = el.closest("form, section, [class*='upload' i], [class*='file' i], [class*='dropzone' i], div")?.parentElement
-    return Boolean(cvStem && box && textOf(box).includes(cvStem))
+    return Boolean(cvStem && ((box && textOf(box).includes(cvStem)) || fileNameShown(cvStem)))
   }
 
   /** Consent, terms and privacy-notice boxes are ticked: the person chose consent yes in Odds. Answers how many it ticked. Never anything else. */
@@ -584,9 +692,23 @@
     const wanted = String(place || full[0] || "").toLowerCase().split(",").map((x) => x.trim()).filter(Boolean)
     for (const q of tries) {
       // The suggestion that names the whole place asked for first (the city, then its country), else the first one.
-      const expectedText = await pickOption(f.el, q, f.label, (texts) => { if (!texts.length) return -1; const i = texts.findIndex((t) => wanted.every((w) => String(t).toLowerCase().includes(w))); return i >= 0 ? i : 0 })
-      if (expectedText !== null && (f.el.value.trim() !== "" || Boolean(document.getElementById("selected-location")?.value))) {
-        return { ok: true, expected: null, expectedOption: -1, expectedText }
+      // Compared without punctuation (Greenhouse writes Master’s, Autofill Master's). Then the usual best-option match; the first
+      // suggestion only for a place search (a city box lists the city first) — on a list like Degree it picked "Master of Business
+      // Administration" for "Master's Degree".
+      const bare = (t) => String(t).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()
+      const placeBox = /\b(city|location|place|town|address|residence|woonplaats|stad|plaats|locatie)\b/i.test(f.label)
+      const expectedText = await pickOption(f.el, q, f.label, (texts) => {
+        if (!texts.length) return -1
+        const i = texts.findIndex((t) => wanted.every((w) => bare(t).includes(bare(w))))
+        if (i >= 0) return i
+        const best = typeof A.chooseOption === "function" ? A.chooseOption(texts, String(q), f.label) : -1
+        if (best >= 0) return best
+        return placeBox ? 0 : -1
+      })
+      if (expectedText !== null) {
+        // react-select keeps the typed words in its input until it loses focus, then drops them: only a chosen value is a fill.
+        if (reactSelectBox(f.el)) { await sleep(150); if (choiceShownNear(f.el, expectedText)) return { ok: true, expected: null, expectedOption: -1, expectedText }; continue }
+        if (f.el.value.trim() !== "" || Boolean(document.getElementById("selected-location")?.value)) return { ok: true, expected: null, expectedOption: -1, expectedText }
       }
     }
     return { ok: false, expected: null, expectedOption: -1, expectedText: null }
@@ -770,6 +892,25 @@
     const got = String(el.value || "")
     return got.includes(String(year)) && (got.includes(String(month + 1).padStart(2, "0")) || MONTHS[month].test(got.replace(/^[^a-z]*/i, "")))
   }
+  /** Leaves the box and waits a moment: true when the site then still says it holds nothing. */
+  async function siteSaysBlank(el) {
+    if (!el?.isConnected) return false
+    el.dispatchEvent(new Event("blur", { bubbles: false }))
+    el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }))
+    await sleep(300)
+    return blankErrorNear(el)
+  }
+  /** A visible "cannot be left blank / is required" message in the field's own block (the site's own verdict that it holds nothing). */
+  function blankErrorNear(el) {
+    const BLANK = /(cannot|can.?t|must not|should not) be (left )?(blank|empty)|darf nicht leer|ne peut pas être vide|mag niet leeg zijn/i
+    let box = el
+    for (let n = 0; n < 4 && box?.parentElement && box.parentElement !== document.body; n++) {
+      box = box.parentElement
+      if ([...box.querySelectorAll("input:not([type=hidden]), textarea, select")].length > 1) break
+    }
+    if (!box) return false
+    return [...box.querySelectorAll("*")].some((n) => n.children.length === 0 && shown(n) && n.textContent.length < 120 && BLANK.test(n.textContent) && !n.contains(el))
+  }
   /** Until when the events on the page are Odds' own real input (watchPerson ignores them). */
   let realInputUntil = 0
   const realInput = (message, ms) => {
@@ -799,6 +940,30 @@
    * The last rung for a field that refused Odds' own events: the same answer through real input. A box gets it typed (in its own shapes
    * too); a choice gets its option clicked; a search list gets the answer typed and the matching option clicked. Never a different answer.
    */
+  /**
+   * The suggestion a search box drew for what was typed, found by where it is (right under the box, as wide as it) and not by its markup:
+   * many sites draw it as plain items with no role. The "Cannot find it? Fill in manually" line is never one.
+   */
+  function suggestionBelow(input, answer) {
+    const r = input.getBoundingClientRect()
+    const want = String(answer).toLowerCase().trim()
+    const head = want.split(",")[0].trim()
+    const found = deepAll("li, [role='option'], [role='menuitem'], a, button, div, span, p").filter((e) => {
+      if (e === input || e.contains(input) || input.contains(e) || !shown(e)) return false
+      const b = e.getBoundingClientRect()
+      if (b.top < r.bottom - 2 || b.top > r.bottom + 420 || b.right < r.left || b.left > r.right + 40) return false
+      const t = textOf(e).toLowerCase().trim()
+      if (!t || t.length > 140 || /cannot find|can.t find|fill in manually|not found|niet gevonden|searching|loading/.test(t)) return false
+      if ([...e.children].some((c) => textOf(c).toLowerCase().trim() === t)) return false
+      return t === want || t.startsWith(want) || (head.length >= 3 && t.startsWith(head))
+    })
+    // The item itself, never a box that holds several of them (clicking its middle would pick another line).
+    const items = found.filter((e) => !found.some((o) => o !== e && e.contains(o)))
+    items.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)
+    return items[0] || null
+  }
+  /** What is typed into a search box: the first part of a place ("Amsterdam" of "Amsterdam, Netherlands"), which is what the site's search finds. */
+  const searchQuery = (value) => (String(value).includes(",") ? String(value).split(",")[0].trim() : String(value)).slice(0, 40)
   async function realRetry(f, value) {
     const el = elOf(f)
     if (["text", "textarea", "date", "month", "number", "tel", "email"].includes(f.kind)) {
@@ -828,16 +993,18 @@
       if (f.kind === "select") return false
       await realClickEl(el)
       await sleep(250)
-      if (el.matches("input")) await realTypeEl(el, String(value).slice(0, 40))
+      if (el.matches("input")) await realTypeEl(el, searchQuery(value))
       const want = String(value).toLowerCase()
       const shownOptions = () => deepAll("[role='option'], li[class*='option' i], [class*='option' i]:not(select)").filter(shown).filter((o) => !/^\s*(searching|loading|zoeken|bezig|laden)\b/i.test(textOf(o)))
       // (a search list says "Searching…" first: wait for its real lines)
       for (let waited = 0; waited < 4000; waited += 200) { await sleep(200); if (waited >= 600 && shownOptions().length) break }
-      const option = shownOptions()
-        .find((o) => { const t = textOf(o).toLowerCase().replace(/^(add new|new entry|nieuw toevoegen|toevoegen|voeg toe)\s*:?\s*/, ""); return t && (t === want || t.startsWith(want) || want.startsWith(t) || (want.length >= 6 && t.includes(want))) })
+      const option = (shownOptions()
+        .find((o) => { const t = textOf(o).toLowerCase().replace(/^(add new|new entry|nieuw toevoegen|toevoegen|voeg toe)\s*:?\s*/, ""); return t && (t === want || t.startsWith(want) || want.startsWith(t) || (want.length >= 6 && t.includes(want))) }) || suggestionBelow(el, value))
       if (option) await realClickEl(option)
       else await realKey("Enter")
       await sleep(250)
+      // A search box keeps typed text that was never chosen only until the person leaves it: leave it (Tab), then see what stayed.
+      if (el.matches("input") && !option) { await realKey("Tab"); await sleep(400) }
       return answered(f)
     }
     return false
@@ -1051,7 +1218,14 @@
         const verify = () => expected !== null ? (f.el.value.trim() === expected.trim() || (/phone|mobile|telefoon/i.test(f.label) && f.el.value.replace(/\D/g, "") === expected.replace(/\D/g, ""))) : f.kind === "select" ? f.el.selectedIndex === expectedOption : f.kind === "radio" ? Boolean(f.el[expectedOption]?.checked) : f.kind === "choice" ? pressed(f.el[expectedOption]) : f.kind === "combobox" ? comboValue(f.el) === expectedText : f.kind === "listbox" ? textOf(f.el).toLowerCase().includes(String(expectedText).toLowerCase()) : answered(f)
         verifications.set(control, verify)
         await sleep(50)
-        ok = verify() && answered(f) && control.getAttribute("aria-invalid") !== "true" && (!control.willValidate || control.validity.valid)
+        ok = verify() && answered(f) && !fieldInvalid(f)
+      }
+      if (!ok && answer !== null && !secretField(f)) {
+        const recovered = await recoverFill(f, String(answer), { allowReal: false, started: Date.now() })
+        if (recovered.ok) {
+          ok = true
+          verifications.set(control, () => answered(f) && !fieldInvalid(f))
+        }
       }
       if (ok) {
         done++
@@ -1156,7 +1330,9 @@
   function stillEmptyGaps() {
     for (const f of fields()) {
       if (answered(f)) continue
-      if (f.kind === "file" && cv && isResumeAsk(`${f.label} ${f.el.name || ""} ${f.el.id || ""}`)) return true
+      // Once the CV is in one box, another CV-sounding box (Ashby's "Autofill from resume" beside its "Resume") is not a gap: it
+      // turned Broods' "ready" into "Answer the outlined questions" on finished Prosus and Bynder forms.
+      if (f.kind === "file" && cv && !uploaded && isResumeAsk(`${f.label} ${f.el.name || ""} ${f.el.id || ""}`)) return true
       if (f.kind !== "file" && answerFor(f.label)) return true
       if (f.kind !== "checkbox" && required(elOf(f), f.label)) return true
       if (f.kind !== "file" && typeof A.isContactLabel === "function" && A.isContactLabel(f.label)) return true
@@ -1169,7 +1345,7 @@
     const states = fields().map((f) => ({
       label: f.label,
       kind: f.kind,
-      required: f.kind === "file" ? Boolean(cv && isResumeAsk(`${f.label} ${f.el.name || ""}`)) : f.kind !== "checkbox" && required(elOf(f), f.label),
+      required: f.kind === "file" ? Boolean(cv && !uploaded && isResumeAsk(`${f.label} ${f.el.name || ""}`)) : f.kind !== "checkbox" && required(elOf(f), f.label),
       answered: answered(f),
       fillFailed: !answered(f) && f.kind !== "file" && Boolean(answerFor(f.label)),
     }))
@@ -1243,12 +1419,12 @@
 
   let agentActionTries = 0
   let agentActionUrl = ""
-  /** Labels already clicked with no page change — next ask forces LLM and skips these. */
+  /** Labels already clicked with no page change. The next ask sets force_llm and skips these. */
   const agentFailedLabels = []
   const AGENT_ACTION_MAX = 3
   /** All "which button?" asks in one application, across pages (kept on the run): a hard stop, never minutes of the same question. */
   const AGENT_RUN_MAX = 12
-  /** When stuck: rules first, then force LLM with exclude so it can take over and finish. Fresh budget per URL. */
+  /** When stuck: rules first, then Broods (apply-stuck, then apply-roam) with exclude. Fresh budget per URL. */
   async function tryAgentClick(status, opts = {}) {
     if (pageHref() !== agentActionUrl) {
       agentActionUrl = pageHref()
@@ -1264,7 +1440,7 @@
     void ask({ type: "apply-hunt", op: "note", agent: true })
     agentActionTries += 1
     const forceLlm = opts.forceLlm === true || agentActionTries > 1 || agentFailedLabels.length > 0
-    say(forceLlm ? "Asking Odds (LLM) how to unblock this step…" : "Asking Odds how to reach the application form…", "filling")
+    say(forceLlm ? "Asking Broods how to unblock this step…" : "Asking Odds how to reach the application form…", "filling")
     const before = `${pageHref()}|${textOf(document.querySelector("h1, h2")).slice(0, 80)}|${fields().map((f) => f.label).slice(0, 8).join("|")}`
     const res = await ask({
       type: "suggest-action",
@@ -1398,7 +1574,14 @@
   // ---- Broods drives this tab (MCP): the extension is the hands, Broods the brain. ----
   // Broods sends one command at a time (read_page, fill, options, click, upload_cv); the extension does it here in the person's own tab and
   // answers. Hard rules, whatever Broods asks: never Submit/Send, never a password or captcha, never a consent box, never another tab.
-  const DRIVE_DENY = /\b(submit|send application|send|verzend\w*|versturen|absenden|envoyer|soumettre|password|wachtwoord|captcha|sign[\s-]?up|register|create (an )?account|create profile|accept all|delete|remove|logout|log out|sign out)\b/i
+  // The only buttons Broods may not press: sending the application itself (the person's own Submit) and a captcha. Everything else on a page
+  // (Create account, Register, Accept, Delete, Sign in…) is its call: it reads the page and chooses.
+  // Test runs against real sites (made-up applicant) set this in storage so that no account is ever made there: Create account / Register / Sign up are refused.
+  let noAccountClicks = false
+  chrome.storage.local.get("oddsNoAccountClicks").then((v) => { noAccountClicks = v?.oddsNoAccountClicks === true }).catch(() => undefined)
+  chrome.storage.onChanged.addListener((changes) => { if (changes.oddsNoAccountClicks) noAccountClicks = changes.oddsNoAccountClicks.newValue === true })
+  const ACCOUNT_BUTTON = /\b(create (an |your )?account|register( now)?|sign[\s-]?up|registreren|account aanmaken)\b/i
+  const DRIVE_DENY = /\b(submit( (my )?application)?|send (my |the )?application|verzend\w*( sollicitatie)?|versturen|absenden|soumettre|captcha)\b/i
   function finalSubmitControl(el) {
     const control=el.closest("button,input[type=submit]")
     if(!control || !control.form || String(control.type).toLowerCase() !== "submit") return false
@@ -1408,10 +1591,31 @@
     if (/\b(next|continue|volgende|verder|suivant|weiter|save and continue|go to step|back|previous|return to (the )?previous|vorige|terug)\b/i.test(label) && !/\b(submit|send|verzend\w*|versturen|apply|solliciteer\w*|absenden|envoyer)\b/i.test(label)) return false
     return !/^(next|continue|review|save and continue|volgende|verder|suivant|back|previous|reject all(?: cookies)?|deny all(?: cookies)?|necessary only|functional only)$/i.test(label)
   }
-  const prefilledFields = new WeakMap()
+  /** Milliseconds from the start of this page's application to the first field Odds filled (reported with the run), and the page's start. */
+  let startT0 = 0
+  let firstFillMs = null
+  const prefilledFields = new (class extends WeakMap { set(k, v) { if (startT0 && firstFillMs === null && String(v || "").trim()) firstFillMs = Math.round(performance.now() - startT0); return super.set(k, v) } })()
   /** While Odds itself fills or clicks (a prefill, a Broods command): the browser's own input/change events after a scripted checkbox
    * click are trusted, and must not read as the person filling in. */
   let oddsActing = 0, oddsActedAt = 0
+  /**
+   * A short log of every click on this page and who made it (Odds acting, the person, or the page itself), kept in this browser: the last 40,
+   * newest last, on the saved logins page under "Activity log". It says what pressed a button such as a site's own "Delete All Data".
+   */
+  const clickAudit = (event) => {
+    try {
+      const el = event.target instanceof Element ? event.target.closest("button, a, input[type=button], input[type=submit], [role=button]") : null
+      const label = el ? (controlLabel(el) || "").slice(0, 70) : ""
+      if (!label) return
+      const who = oddsActing > 0 || Date.now() - oddsActedAt < 400 ? "odds" : event.isTrusted ? "person" : "page"
+      if (/delete|remove|verwijder|supprimer/i.test(label)) console.warn("[odds] click on a delete control:", who, label)
+      chrome.storage.local.get("oddsClickLog").then(({ oddsClickLog = [] }) => {
+        const next = [...oddsClickLog, { t: Date.now(), who, label, host: location.hostname }].slice(-40)
+        return chrome.storage.local.set({ oddsClickLog: next })
+      }).catch(() => undefined)
+    } catch { /* never in the way of the page */ }
+  }
+  document.addEventListener("click", clickAudit, true)
   async function asOdds(work) {
     oddsActing++
     try { return await work() } finally { oddsActing--; oddsActedAt = Date.now() }
@@ -1424,6 +1628,8 @@
   // ---- Site recipes: field mappings Broods runs proved on this ATS/host (label pattern → which contact detail), replayed here so Broods'
   // first read_page already shows them filled. Structure only, from the server's validated playbook: never a value, answer or URL.
   let drivePlaybook = null
+  /** The playbook request started with the page (answered from the local copy at once), shared with driveRecipes. */
+  let earlyPlaybook = null
   /** Recipe replays not yet reported to the server ({lesson, ok}); the next drive-start or command result carries them. */
   let recipeAttempts = []
   /** The same rule as the server's fieldPattern: a label as lowercase words, or null when it holds anything else (a file name, an email). */
@@ -1710,8 +1916,64 @@
       if (f.kind === "listbox") return PLACEHOLDER.test(textOf(f.el)) ? "" : textOf(f.el)
       if (f.kind === "checkbox") return elOf(f).checked ? "checked" : ""
       if (f.kind === "file") return elOf(f).files?.length ? elOf(f).files[0].name : ""
+      // Lever Current location: the pick is the hidden field, not whatever was typed into the search box.
+      if (f.el?.id === "location-input" || f.el?.name === "location") {
+        const sel = document.getElementById("selected-location")
+        if (sel?.value) {
+          try { const parsed = JSON.parse(sel.value); if (parsed?.name) return String(parsed.name).slice(0, 300) } catch { return String(sel.value).slice(0, 300) }
+        }
+      }
       return String(f.el.value ?? "").slice(0, 300)
     } catch { return "" }
+  }
+  /** The site itself rejected the value (aria-invalid, or a pattern/type the box says is wrong). */
+  function fieldInvalid(f) {
+    const nodes = (Array.isArray(f.el) ? f.el : [f.el]).filter(Boolean)
+    if (nodes.some((n) => n.getAttribute?.("aria-invalid") === "true")) return true
+    const el = nodes[0]
+    if (el?.willValidate && el.value && el.validity && !el.validity.valid && !el.validity.valueMissing) return true
+    const control = el?.closest?.("[class*='control' i]")
+    return Boolean(control && control !== el && control.getAttribute("aria-invalid") === "true")
+  }
+  /**
+   * The value is really kept: the visible choice (text, selected option, pressed button, chip, single-value),
+   * and the site has not marked it invalid. A search box that only holds the typed query does not count.
+   */
+  function valueKept(f, value) {
+    if (fieldInvalid(f) || !answered(f)) return false
+    const shown = fieldValue(f)
+    if (!shown) return false
+    const want = String(value ?? "").replace(/\s+/g, " ").trim()
+    if (!want) return true
+    if (sameText(shown, want)) return true
+    if (["choice", "radio", "select", "listbox", "combobox"].includes(f.kind)) {
+      const opts = (f.options || []).map(String)
+      const i = typeof A.chooseOption === "function" && opts.length ? A.chooseOption(opts, want, f.label) : -1
+      if (i >= 0 && sameText(shown, opts[i])) return true
+      if (["combobox", "listbox"].includes(f.kind)) {
+        const parts = want.toLowerCase().split(",").map((s) => s.trim()).filter(Boolean)
+        const got = shown.toLowerCase()
+        if (parts[0] && parts[0].length >= 3 && (got === parts[0] || got.startsWith(`${parts[0]},`) || got.startsWith(`${parts[0]} `)) && parts.slice(1).every((p) => got.includes(p))) return true
+      }
+      return false
+    }
+    if (/\b(mobile|phone|telephone|telefoon\w*|mobiel\w*)\b/i.test(f.label || "")) {
+      const wantD = want.replace(/\D/g, "")
+      const gotD = shown.replace(/\D/g, "")
+      if (wantD.length >= 6 && gotD.endsWith(wantD.slice(-Math.min(wantD.length, 8)))) return true
+    }
+    return false
+  }
+  /** Closest listed option to the answer: the rules' own match, else the option that names the same words. Never a loose first row. */
+  function closestOption(texts, answer) {
+    const list = (texts || []).map(String)
+    const i = typeof A.chooseOption === "function" ? A.chooseOption(list, answer, "") : -1
+    if (i >= 0) return i
+    const head = String(answer || "").toLowerCase().split(",")[0].trim()
+    if (head.length < 3) return -1
+    const named = head.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const re = new RegExp(`(^|[^\\p{L}])${named}($|[^\\p{L}])`, "iu")
+    return list.findIndex((t) => re.test(t.toLowerCase()))
   }
   const secretField = (f) => /password|wachtwoord|captcha|verification code|security code|social security|\bbsn\b|credit card/i.test(f.label) || elOf(f)?.type === "password"
   /** What Broods sees: the step's questions (id, label, kind, required, value, known choices), its buttons, errors, and any captcha/password wall. */
@@ -1740,7 +2002,7 @@
   const landedOnBoardSearch = () => /(^|\.)glassdoor\./i.test(location.hostname) && /\/(vacature|job|jobs|emploi|stellenangebote)\/[^/]*(vacatures|jobs|emplois|stellenangebote)\.htm/i.test(location.pathname)
   function missingJobPage() {
     const headings = [document.title, ...[...document.querySelectorAll("h1,h2")].filter(shown).map(textOf)]
-    if (headings.some(text => /^(404(?:\b|\s)|page (?:was )?not found\b|pagina niet gevonden\b|we can.t find (?:this|that) page\b)/i.test(String(text || "").trim()))) return true
+    if (headings.some(text => /^(404(?:\b|\s)|page (?:was )?not found\b|pagina niet gevonden\b|we can.t find (?:this|that) page\b|(custom )?job error\b)/i.test(String(text || "").trim()))) return true
     // A listing that says it is over, in a heading or a notice near the top, and no form to fill (any site, English / Dutch / German).
     const over = /\b(no longer (available|active|accepting|open)|(job|position|vacancy|listing|posting) (has )?(expired|been filled|closed)|not accepting (new )?applications|applications? (are|is) closed|niet meer beschikbaar|vacature is (gesloten|vervuld)|nicht mehr verfügbar|stelle (ist )?(besetzt|nicht mehr))\b/i
     const notices = [...headings, ...[...document.querySelectorAll("[role='alert'], [class*='alert' i], [class*='notice' i], [class*='message' i], [class*='banner' i], main p")].filter(shown).slice(0, 12).map(textOf)]
@@ -1757,7 +2019,7 @@
     return false
   }
   /** The question a checkbox answers when it is one choice of a group ("Work permit": "I am an EU citizen" / "I need sponsorship"...). */
-  const groupOf = (el) => {
+  function groupOf(el) {
     const legend = el.closest("fieldset")?.querySelector("legend")
     if (legend && textOf(legend)) return textOf(legend)
     const g = el.closest("[role='group'], [role='radiogroup']")
@@ -1767,14 +2029,28 @@
     // A box holding several checkboxes: the text that comes before its first one.
     let c = el.parentElement
     for (let i = 0; i < 6 && c; i++, c = c.parentElement) {
-      const boxes = c.querySelectorAll("input[type=checkbox], [role='checkbox']")
+      const boxes = c.querySelectorAll("input[type=checkbox], [role='checkbox'], input[type=radio]")
       if (boxes.length < 2) continue
       const first = boxes[0]
-      const q = [...c.querySelectorAll("legend, label, h1, h2, h3, h4, h5, h6, p, span, div")].find((n) => !n.querySelector("input, [role='checkbox']") && !n.closest("label")?.querySelector("input") && textOf(n).length > 8 && textOf(n).length < 300 && (n.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING))
+      const q = [...c.querySelectorAll("legend, label, h1, h2, h3, h4, h5, h6, p, span, div")].find((n) => !n.querySelector("input, [role='checkbox']") && !n.closest("label")?.querySelector("input") && !/^(yes|no|ja|nee|oui|non)$/i.test(textOf(n)) && textOf(n).length > 8 && textOf(n).length < 300 && (n.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING))
       // The question may sit one level up, above the box of choices (bunq): keep climbing until text comes before the first choice.
       if (q) return textOf(q)
     }
     return ""
+  }
+  /** Whether a search / typeahead box holds typed text with its suggestion list still open (nothing chosen yet). */
+  function comboTypedOnly(el) {
+    if (!el || !el.matches?.("input") || !String(el.value || "").trim()) return false
+    const combo = el.getAttribute("role") === "combobox" || el.hasAttribute("aria-autocomplete") || el.hasAttribute("aria-haspopup") || el.hasAttribute("list")
+    if (!combo) return false
+    if (el.getAttribute("aria-expanded") === "true") return true
+    try { return Boolean(suggestionBelow(el, el.value)) } catch { return false }
+  }
+  /** The nearest heading above or around a file box ("Resume"): the section it belongs to. */
+  function fileSection(el) {
+    // The closest heading before the box in the page: the section it sits in.
+    const heads = [...document.querySelectorAll("h1, h2, h3, h4, legend, [role=heading]")].filter((h) => (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) && !h.contains(el) && textOf(h).trim().length > 0)
+    return heads.length ? textOf(heads[heads.length - 1]).trim().slice(0, 60) : ""
   }
   function drivePage() {
     driveFields = new Map()
@@ -1788,7 +2064,11 @@
       const id=driveFieldIds.get(node)
       driveFields.set(id, f)
       const consent = f.kind === "checkbox" && Boolean(A.isConsentCheckbox?.(f.label))
-      return { id, label: A.questionText ? A.questionText(f.label).slice(0, 300) : f.label.slice(0, 300), kind: f.kind, required: required(elOf(f), f.label), filled: answered(f) || (f.kind === "file" && (cvShownAt(elOf(f)) || (uploaded && prefilledKeys.get(elOf(f)) === "cv"))), ...(prefilledFields.has(elOf(f)) && prefilledFields.get(elOf(f)) === fieldValue(f) ? { by: "odds", ...(prefilledKeys.get(elOf(f)) ? { key: prefilledKeys.get(elOf(f)) } : {}) } : {}), value: fieldValue(f), ...((f.options?.length || ["combobox", "listbox"].includes(f.kind)) ? (() => { const all = f.options?.length ? f.options : listed(elOf(f)).texts; return all.length > 40 ? { options: all.slice(0, 25).map((o) => String(o).slice(0, 80)), options_total: all.length } : { options: all.map((o) => String(o).slice(0, 120)) } })() : {}), ...(consent ? { consent: true } : {}), ...(f.kind === "checkbox" && groupOf(elOf(f)) ? { group: groupOf(elOf(f)).slice(0, 200) } : {}), ...(charLimit(elOf(f)) ? { max_chars: charLimit(elOf(f)) } : {}) }
+      // A search box (city, school…) whose suggestions are still open holds text that was typed, not a choice made: it is not filled.
+      const typedOnly = comboTypedOnly(elOf(f))
+      // The heading a file box sits under ("Resume", "Cover letter"): its own label is often only "10MB size limit".
+      const section = f.kind === "file" ? fileSection(elOf(f)) : ""
+      return { id, label: A.questionText ? A.questionText(f.label).slice(0, 300) : f.label.slice(0, 300), ...(section ? { section } : {}), ...(typedOnly ? { needs_choice: "suggestions are open: choose one of them" } : {}), kind: f.kind, required: required(elOf(f), f.label), filled: (answered(f) && !typedOnly && !fieldInvalid(f)) || (f.kind === "file" && (cvShownAt(elOf(f)) || (uploaded && prefilledKeys.get(elOf(f)) === "cv"))), ...(fieldInvalid(f) ? { invalid: true } : {}), ...(prefilledFields.has(elOf(f)) && prefilledFields.get(elOf(f)) === fieldValue(f) ? { by: "odds", ...(prefilledKeys.get(elOf(f)) ? { key: prefilledKeys.get(elOf(f)) } : {}) } : {}), value: fieldValue(f), ...((f.options?.length || ["combobox", "listbox"].includes(f.kind)) ? (() => { const all = f.options?.length ? f.options : listed(elOf(f)).texts; return all.length > 40 ? { options: all.slice(0, 25).map((o) => String(o).slice(0, 80)), options_total: all.length } : { options: all.map((o) => String(o).slice(0, 120)) } })() : {}), ...(consent ? { consent: true } : {}), ...(f.kind === "checkbox" && groupOf(elOf(f)) ? { group: groupOf(elOf(f)).slice(0, 200) } : {}), ...(charLimit(elOf(f)) ? { max_chars: charLimit(elOf(f)) } : {}) }
     })
     // Checkboxes drawn by the site (Oracle, Workday: the real input hidden, a styled box or role=checkbox shown) — fields() skips them.
     const seenBoxes = new Set(list.filter((f) => f.kind === "checkbox").map((f) => elOf(f)))
@@ -1814,10 +2094,14 @@
     // Apply controls always count and come first: job boards put "Apply on the employer's website" in the job's own <header>, and
     // a page full of links (Glassdoor's matches, ads) must never push them past the list's end.
     const APPLYISH = /\b(apply|solliciteer|solliciteren|bewerben|postuler|candidat|easy apply|quick apply)/i
-    const controls = [...document.querySelectorAll("a, button, input[type=button], input[type=submit], [role='button']")]
+    // Inside web components too (SmartRecruiters draws its form's buttons in shadow roots): fields were found there, its Continue and
+    // Next never were, and Broods saw only "Apply with Indeed" and the privacy links.
+    // Design-system buttons drawn as custom elements (<spl-button>, <x-button>) with the real button sealed inside: the host is the control.
+    const custom = deepAll("*").filter((el) => /-button$/i.test(el.tagName) && !el.querySelector("button") && !el.shadowRoot?.querySelector("button"))
+    const controls = [...deepAll("a, button, input[type=button], input[type=submit], [role='button']"), ...custom]
     const applyFirst = [...controls.filter((el) => APPLYISH.test(controlLabel(el))), ...controls.filter((el) => !APPLYISH.test(controlLabel(el)))]
     for (const el of applyFirst) {
-      if (!shown(el) || b >= 60 || el.closest(".odds-apply-bar")) continue
+      if (!shown(el) || b >= 60 || oddsOwn(el)) continue
       const text = controlLabel(el).slice(0, 100)
       if (text.length < 1) continue
       if (!inScope(el) && !(APPLYISH.test(text) && !dialog)) continue
@@ -1832,14 +2116,25 @@
       url: pageHref().slice(0, 500),
       title: document.title.slice(0, 200),
       headings: [...document.querySelectorAll("h1, h2, h3")].filter(shown).map(textOf).filter(Boolean).slice(0, 8).map((t) => t.slice(0, 160)),
-      errors: [...document.querySelectorAll('[role="alert"], .error, [aria-invalid="true"]')].filter(shown).map(textOf).filter(Boolean).slice(0, 10).map((t) => t.slice(0, 200)),
+      errors: deepAll('[role="alert"], .error, [aria-invalid="true"]').filter(shown).map(textOf).filter(Boolean).slice(0, 10).map((t) => t.slice(0, 200)),
       captcha: Boolean(blockingCaptcha()),
       // The person's CV is already attached on this page (the site may show it as a file name, not in a box): never upload it again.
       ...(uploaded ? { cv_attached: true } : {}),
+      // The person has a CV and this page has a resume box nothing was put in (required or not): Broods is told, and cannot finish review before it is attached.
+      ...(!uploaded && cv && list.some((f) => f.kind === "file" && isResumeAsk(`${f.label} ${fileSection(elOf(f))}`) && !cvShownAt(elOf(f))) ? { cv_missing: true } : {}),
+      // A dialog is open over the page and only its contents are listed (fields and buttons): said plainly, so it is dealt with first.
+      ...(dialog ? { dialog: { title: textOf(dialog.querySelector("h1, h2, h3, [class*='title' i], header") || dialog).slice(0, 120), text: textOf(dialog).slice(0, 300) } } : {}),
       password_field: [...document.querySelectorAll('input[type="password"]')].some(shown),
       ...(missingJobPage() ? { closed: true, closed_reason: "The job page was not found (404)." } : {}),
       ...(dialog ? { dialog: { title: textOf(dialog.querySelector("h1, h2, h3, [class*='title' i]")).slice(0, 160) || textOf(dialog).slice(0, 160), note: "A pop-up is open: these fields and buttons are only the pop-up's. Complete it (fill + continue) to get past it." } } : {}),
       fields: out,
+      // A dropdown or list left open over the form (a phone-country list, a select menu): said plainly, so it is closed (Escape) before review.
+      ...(() => {
+        const menu = deepAll(".select__menu, [class*='select__menu'], [role='listbox'], .iti__country-list:not(.iti__hide), [class*='dropdown-menu'][class*='show']").find((m) => shown(m) && !oddsOwn(m) && m.getBoundingClientRect().height > 20)
+        if (!menu) return {}
+        const owner = menu.closest(".select__container, .select, [class*='field'], .iti, [class*='question']")
+        return { open_list: (owner ? textOf(owner.querySelector("label, legend") || owner).slice(0, 80) : "a list") || "a list" }
+      })(),
       // No form, and the page asks for applications by e-mail ("send your CV to jobs@…", a mailto link): the person's to send.
       ...(() => {
         if (out.filter((f) => f.kind !== "checkbox").length >= 2) return {}
@@ -1858,7 +2153,7 @@
     const args = cmd.args || {}
     if (cmd.tool === "screenshot") {
       const shot = await ask({ type: "drive-shot" }, 15000).catch(() => null)
-      if (!shot?.image) return { error: shot?.error || "Could not take a screenshot of this tab." }
+      if (!shot?.image) return { error: shot?.error || "Could not take a screenshot of this tab.", ...(shot?.blank ? { blank: true, diag: shot.diag } : {}) }
       driveImageSize = { width: shot.width, height: shot.height, viewportWidth: shot.viewportWidth || innerWidth, viewportHeight: shot.viewportHeight || innerHeight }
       return { image: shot.image, mime: "image/jpeg", width: shot.width, height: shot.height, note: "Coordinates for click_at are pixels in this image." }
     }
@@ -1873,6 +2168,7 @@
       const target = el.closest("a, button, input, select, textarea, label, [role='button'], [role='checkbox'], [role='option'], [role='radio'], [tabindex]") || el
       const words = `${target.innerText || ""} ${target.getAttribute("aria-label") || ""} ${target.value || ""}`.replace(/\s+/g, " ").trim().slice(0, 120)
       if (denyText.test(words) || finalSubmitControl(target)) return { ok: false, error: "Odds never presses this; it is the person's" }
+      if (noAccountClicks && ACCOUNT_BUTTON.test(words)) return { ok: false, error: "No account is made in this test run." }
       if (target.matches("input[type=password]")) return { ok: false, error: "passwords are the person's" }
       await sendResult({ ok: true, clicked: words || target.tagName.toLowerCase(), note: "screenshot or read_page next" })
       // A real click where Broods looked (the site cannot tell it from a person's); Odds' own events only when that is not available.
@@ -1906,6 +2202,18 @@
       if (!/^(Enter|Tab|Escape|ArrowDown|ArrowUp|ArrowLeft|ArrowRight|Space|Backspace)$/.test(key)) return { ok: false, error: "allowed keys: Enter, Tab, Escape, arrows, Space, Backspace" }
       const el = document.activeElement || document.body
       if (key === "Enter" && el.closest("form") && denyText.test((el.closest("form").querySelector("[type=submit]")?.innerText || "") + " ")) return { ok: false, error: "Enter here would submit; the person sends it" }
+      // Escape with a list left open on another box (a country picker that never lost its menu): that box takes the key, or the
+      // focused one closes nothing and the list stays over the form.
+      if (key === "Escape") {
+        const stuck = [...document.querySelectorAll('input[aria-expanded="true"], [role="combobox"][aria-expanded="true"]')].filter((x) => x !== el && x.isConnected && x.getClientRects().length)
+        for (const box of stuck.slice(0, 3)) {
+          box.focus()
+          await sleep(60)
+          if (!(await realKey("Escape"))?.ok) box.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))
+          await sleep(60)
+        }
+        if (stuck.length) { el.focus?.(); if (!document.querySelector('input[aria-expanded="true"], [role="combobox"][aria-expanded="true"]')) return { ok: true, closed: stuck.length } }
+      }
       if ((await realKey(key))?.ok) return { ok: true, via: "real_input" }
       for (const type of ["keydown", "keypress", "keyup"]) el.dispatchEvent(new KeyboardEvent(type, { key: key === "Space" ? " " : key, bubbles: true, cancelable: true }))
       return { ok: true }
@@ -1917,14 +2225,190 @@
     }
     return null
   }
+  /** Which ladder step a field's own handler is, when that first try already kept the value. */
+  function primaryVia(f) {
+    if (f.kind === "choice" || f.kind === "radio" || f.widget === "choice") return "choice"
+    if (f.widget === "typeahead" || f.kind === "combobox") return "typeahead"
+    if (f.kind === "listbox") return "listbox"
+    return "plain"
+  }
+  /** Kept, including a country-code picker that shows only "+31" for "Netherlands +31". */
+  function keptNow(f, value) {
+    if (valueKept(f, value)) return true
+    const stuck = fieldValue(f)
+    if (!stuck || fieldInvalid(f)) return false
+    if (/^\+\d{1,4}$/.test(stuck.trim()) && ["combobox", "listbox", "select"].includes(f.kind)) {
+      const asked = String(value).toLowerCase().replace(/\s*\+\d+.*$/, "").trim()
+      const option = (f.options || listed(elOf(f)).texts || []).find((o) => String(o).toLowerCase().startsWith(asked))
+      if (asked && option && String(option).includes(stuck.trim())) return true
+    }
+    return false
+  }
+  /**
+   * The value did not stick. Try, with no model call: the box's own format, key-by-key typing, a typeahead prefix,
+   * a choice click, then keyboard. `via` is the step that kept the value. `tried` is every step that ran.
+   */
+  async function recoverFill(f, value, opts = {}) {
+    const allowReal = opts.allowReal === true
+    const fillStarted = opts.started || Date.now()
+    const fieldStarted = Date.now()
+    const timeOk = () => Date.now() - fillStarted < FILL_STEP_MS - 4000 && Date.now() - fieldStarted < 6000
+    const tried = []
+    const note = (step) => { if (step && !tried.includes(step)) tried.push(step) }
+    const finish = (ok, via) => ({ ok, via: ok ? via : "", value: fieldValue(f), tried })
+    note(primaryVia(f))
+    if (keptNow(f, value)) return finish(true, primaryVia(f))
+    let realTried = false
+    const tryReal = async () => {
+      if (realTried || !allowReal || !timeOk() || !String(value || "").trim() || secretField(f)) return false
+      realTried = true
+      note("real_input")
+      if (!(await realRetry(f, value).catch(() => false))) return false
+      return keptNow(f, value)
+    }
+    if (driveTactics[f.kind] === "real_input" && await tryReal()) return finish(true, "real_input")
+    const textKind = ["text", "textarea", "date", "month", "number", "tel", "email"].includes(f.kind)
+    if (!keptNow(f, value) && timeOk() && textKind && String(value || "").trim()) {
+      let typedSame = false
+      for (const alt of altShapes(elOf(f), value)) {
+        if (!timeOk()) break
+        if (alt === value) typedSame = true
+        note("own_format")
+        await typeLikePerson(elOf(f), alt)
+        await sleep(80)
+        if (keptNow(f, alt) || keptNow(f, value)) return finish(true, "own_format")
+      }
+      if (!typedSame && timeOk()) {
+        note("typed")
+        await typeLikePerson(elOf(f), value)
+        await sleep(80)
+        if (keptNow(f, value)) return finish(true, "typed")
+      }
+    }
+    const search = f.kind === "combobox" || f.kind === "listbox" || f.widget === "typeahead"
+    if (!keptNow(f, value) && timeOk() && search && elOf(f)?.tagName === "INPUT" && String(value || "").trim()) {
+      const prefix = String(value).trim().split(/[\s,]/)[0].slice(0, 12)
+      if (prefix.length >= 2) {
+        note("typeahead")
+        const input = elOf(f)
+        typeInto(input, prefix)
+        for (let waited = 0; waited < 1100 && timeOk(); waited += 100) {
+          await sleep(100)
+          const { options, texts } = listed(input)
+          const i = closestOption(texts, value)
+          if (i < 0) continue
+          for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+            options[i].dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0 }))
+          }
+          await sleep(100)
+          if (keptNow(f, value) || keptNow(f, texts[i])) return finish(true, "typeahead")
+          break
+        }
+      }
+    }
+    if (!keptNow(f, value) && timeOk() && (f.kind === "choice" || f.kind === "radio")) {
+      const i = typeof A.chooseOption === "function" ? A.chooseOption(f.options || [], value, f.label) : -1
+      if (i >= 0) {
+        note("choice")
+        const target = f.kind === "radio" ? (f.el[i].closest("label") || f.el[i]) : f.el[i]
+        for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+          target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0 }))
+        }
+        await sleep(80)
+        if (keptNow(f, value)) return finish(true, "choice")
+      }
+    }
+    if (!keptNow(f, value) && timeOk() && ["combobox", "listbox", "select", "choice", "radio"].includes(f.kind)) {
+      note("keyboard")
+      const el = elOf(f)
+      try { el.focus?.() } catch { /* ignore */ }
+      if (f.kind === "select") {
+        const i = typeof A.chooseOption === "function" ? A.chooseOption(f.options || [], value, f.label) : -1
+        if (i >= 0) {
+          el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true }))
+          el.selectedIndex = i
+          el.dispatchEvent(new Event("input", { bubbles: true }))
+          el.dispatchEvent(new Event("change", { bubbles: true }))
+          el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }))
+        }
+      } else if (f.kind === "choice" || f.kind === "radio") {
+        const i = typeof A.chooseOption === "function" ? A.chooseOption(f.options || [], value, f.label) : -1
+        const target = i >= 0 ? (f.kind === "radio" ? f.el[i] : f.el[i]) : el
+        try { target.focus?.() } catch { /* ignore */ }
+        for (const key of ["ArrowDown", "Enter"]) {
+          target.dispatchEvent(new KeyboardEvent("keydown", { key, code: key, bubbles: true, cancelable: true }))
+          target.dispatchEvent(new KeyboardEvent("keyup", { key, bubbles: true }))
+        }
+      } else {
+        for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+          el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0 }))
+        }
+        el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true }))
+        await sleep(180)
+        const { options, texts } = listed(el)
+        const i = closestOption(texts, value)
+        const hops = i >= 0 ? Math.min(i + 1, 8) : 3
+        for (let n = 0; n < hops; n++) el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true }))
+        el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }))
+        if (i >= 0 && options[i]) {
+          for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+            options[i].dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0 }))
+          }
+        }
+      }
+      await sleep(80)
+      if (keptNow(f, value)) return finish(true, "keyboard")
+    }
+    if (await tryReal()) return finish(true, "real_input")
+    return finish(false, "")
+  }
+  let soughtForwardFor = ""
+  function hasForward(page) {
+    return (page.buttons || []).some((b) => /^(next|continue|review|volgende|verder|save and continue|doorgaan)\b/i.test(String(b.text || "").trim()) || (b.blocked && /\b(submit|send|apply|verstuur|verzend|solliciteer)\b/i.test(String(b.text || ""))))
+  }
+  /** Required fields are filled and no Next/Continue/Review/Submit is on the page: scroll to the bottom once and read again. */
+  async function maybeRevealForward(page) {
+    const required = (page.fields || []).filter((f) => f.required && f.kind !== "file" && !f.consent)
+    if (!required.length || required.some((f) => !f.filled) || hasForward(page) || page.dialog || page.captcha) return page
+    const stamp = `${pageHref()}|${required.map((f) => f.label).join("|")}`
+    if (soughtForwardFor === stamp) return page
+    soughtForwardFor = stamp
+    const root = document.scrollingElement || document.documentElement
+    const top = Math.max(root.scrollHeight, document.body?.scrollHeight || 0)
+    root.scrollTop = top
+    try { window.scrollTo(0, top) } catch { /* ignore */ }
+    window.dispatchEvent(new Event("scroll"))
+    await sleep(300)
+    const again = drivePage()
+    again.scrolled_for_forward = true
+    return again
+  }
   /** One Broods command, done in this tab. Answers what happened; a click that leaves the page answers before it clicks. */
   async function driveCommandRaw(cmd, sendResult) {
     const args = cmd.args || {}
     // Fields that appeared since (Ashby's Application tab, the next step) get the person's contact details and recipes first, once each.
     if (cmd.tool === "read_page") {
       if (!args.review_check) await drivePrefill()
+      // A form that rebuilds itself (a field appears, a country is chosen) can empty a contact box Odds filled: put it back before Broods reads, so it is never told a box is done that is empty.
+      await prefillContacts(true)
       tickConsents() // (consents and an unanswered pronoun group: the neutral box, before Broods reads what is left)
-      return drivePage()
+      // The application's own privacy statement, open over the form: the page shows nothing but that box, and a form with a password and no
+      // fields looks like an account wall to the server (the run ended there at Yamaha). Odds takes the consent, then Broods reads the form.
+      if (acceptPrivacyStatement()) await sleep(800)
+      const page = await maybeRevealForward(drivePage())
+      // Like a person looking at the screen: a picture of the page goes with what read_page lists (not for the server's own quick checks).
+      // Only when it can matter (it costs the model about 1,500 tokens): the first look at a page, a dialog, no fields, errors, an unchosen search
+      // box, a CV box left empty, or the step before did not work. A page that reads cleanly after a step that worked needs no picture.
+      const doubt = Boolean(page.dialog) || !(page.fields || []).length || (page.errors || []).length > 0 || (page.fields || []).some((f) => f.needs_choice) || page.cv_missing === true
+        || page.url !== lastShotUrl || driveLastFailed
+      if (!args.review_check && window === top && doubt) {
+        lastShotUrl = page.url
+        const shot = await ask({ type: "drive-shot" }, 8000).catch(() => null)
+        if (shot?.image) { driveImageSize = { width: shot.width, height: shot.height, viewportWidth: shot.viewportWidth || innerWidth, viewportHeight: shot.viewportHeight || innerHeight }; return { ...page, screenshot: { image: shot.image, width: shot.width, height: shot.height } } }
+        // No picture rather than a blank one; why it was blank stays on the step for the trace (the server never shows it to Broods).
+        if (shot?.blank) return { ...page, screenshot: { blank: true, diag: shot.diag } }
+      }
+      return page
     }
     if (["screenshot", "click_at", "type_text", "press_key", "scroll"].includes(cmd.tool)) return driveVision(cmd, sendResult, DRIVE_DENY)
     if (cmd.tool === "options") {
@@ -1933,7 +2417,9 @@
       return { id: args.id, options: (await readChoices(f)) || f.options || [] }
     }
     if (cmd.tool === "fill") {
-      const items = Array.isArray(args.fields) ? args.fields.slice(0, 40) : []
+      // Quick boxes first, dropdowns last: one slow dropdown (seconds each) must not leave the text boxes and ticks "not tried".
+      const slow = (it) => (driveFields.get(it?.id)?.kind === "combobox" ? 1 : 0)
+      const items = (Array.isArray(args.fields) ? args.fields.slice(0, 40) : []).map((it, i) => ({ it, i })).sort((a, b) => slow(a.it) - slow(b.it) || a.i - b.i).map(({ it }) => it)
       const results = []
       const sigBefore = `${pageHref()}|${[...driveFields.values()].map((f) => `${f.label}:${fieldValue(f)}`).join("|")}`
       const besideCountry = countryPickerSet([...driveFields.values()])
@@ -1948,8 +2434,10 @@
           results.push({ id: it.id, ok: true, value: fieldValue(f), note: "kept: this is the person's own saved answer (or Odds' consent / decline rule); never change it" })
           continue
         }
-        // The step answers within ~20 s whatever happens (the server stops waiting soon after): fields left over are said to be left over.
-        if (Date.now() - fillStarted > 19000) { results.push({ id: it.id, ok: false, error: "not tried: out of time in this step; fill it again in a new fill call" }); continue }
+        // The step answers within ~40 s whatever happens (the server waits 45 s for a fill): fields left over are said to be left over.
+        // A dropdown that would get only a few seconds is left "not tried" (the server sends it again in a fresh step) rather than
+        // failed in 2 s with no fallback (the last dropdown on GenScript and IMC always lost this way).
+        if (Date.now() - fillStarted > FILL_STEP_MS || (["combobox", "listbox"].includes(f.kind) && FILL_STEP_MS - 4000 - (Date.now() - fillStarted) < 4000)) { results.push({ id: it.id, ok: false, error: "not tried: out of time in this step; fill it again in a new fill call" }); continue }
         // Longer than the box takes: cut at a whole sentence here (the site would cut mid-word) and say so, so Broods can rewrite if needed.
         const limit = charLimit(elOf(f))
         const shortened = limit && value.length > limit ? value.length : 0
@@ -1989,57 +2477,62 @@
             if (widget === "choice" || f.kind === "select" || f.kind === "radio" || f.kind === "choice") return fillButtonChoice(f, value)
             return fillPlainOrCard(f, value, besideCountry)
           })()
-          // One field never holds the step: 8 s at most, then Broods is told it failed and can try another way.
-          const left = Math.max(1500, Math.min(8000, 19000 - (Date.now() - fillStarted)))
+          // One field never holds the step: 8 s at most, then Broods is told it failed and can try another way. Measured against the
+          // whole fill step (FILL_STEP_MS): left at the old 19 s step, every dropdown after the first few got 2 s and no fallbacks.
+          const left = Math.max(1500, Math.min(8000, FILL_STEP_MS - 4000 - (Date.now() - fillStarted)))
           result = await Promise.race([work, sleep(left).then(() => ({ ok: false, error: `the site did not take it within ${Math.round(left / 1000)} s` }))])
         } catch (e) { result = { ok: false, error: String(e?.message || e).slice(0, 120) } }
         await sleep(80)
-        // DOM verification: selected value / typed text must stick before we report ok.
-        let stuck = fieldValue(f)
-        // The page is the judge: a dropdown that shows exactly the asked choice took it, whatever the widget handler reported.
-        let okDom = (Boolean(result.ok) || (["combobox", "listbox", "select"].includes(f.kind) && sameText(stuck, value))) && answered(f) && (stuck.length > 0 || f.kind === "checkbox")
-        // A place search takes the suggestion that starts with the asked place ("Amsterdam" → "Amsterdam, North Holland, Netherlands").
-        if (!okDom && ["combobox", "listbox"].includes(f.kind) && String(value).trim().length >= 3) {
-          // "Amsterdam" or "Amsterdam, Netherlands" asked, "Amsterdam, North Holland, Netherlands" chosen: the same place (first part, then the rest in order).
-          const parts = String(value).toLowerCase().split(",").map((x) => x.trim()).filter(Boolean)
-          const got = stuck.toLowerCase()
-          if (got.startsWith(parts[0]) && parts.slice(1).every((x) => got.includes(x))) okDom = true
+        // The page is the judge: a fill that did not keep the visible value (or left aria-invalid) is a failure, then the ladder runs.
+        // If the first widget path already kept the value, recoverFill short-circuits; otherwise it tries own_format / typed / typeahead / choice / keyboard / real_input.
+        let recovered
+        if (result.ok && valueKept(f, value)) {
+          recovered = { ok: true, via: primaryVia(f), value: fieldValue(f), tried: [primaryVia(f)] }
+        } else if (result.ok && ["combobox", "listbox"].includes(f.kind) && typeof result.expectedText === "string" && choiceShownNear(elOf(f), result.expectedText)) {
+          recovered = { ok: true, via: primaryVia(f), value: String(result.expectedText), tried: [primaryVia(f)] }
+        } else {
+          recovered = await recoverFill(f, value, { allowReal: true, started: fillStarted })
         }
-        // A country-code picker shows only the code once chosen ("+31" for "Netherlands +31"): the code of the asked country is a match.
-        if (!okDom && /^\+\d{1,4}$/.test(stuck.trim()) && ["combobox", "listbox", "select"].includes(f.kind)) {
-          const asked = String(value).toLowerCase().replace(/\s*\+\d+.*$/, "").trim()
-          const option = (f.options || listed(elOf(f)).texts || []).find((o) => String(o).toLowerCase().startsWith(asked))
-          if (asked && option && String(option).includes(stuck.trim())) okDom = true
-        }
-        // A box that did not keep what it got (a masked date "MM/JJJJ", a number-only grade): try the shapes the box itself asks for,
-        // typed key by key like a person — on any site, from its own placeholder / pattern / input type, not from a list of sites.
-        let via = ""
-        const fieldStarted = Date.now()
-        const fallbackTime = () => Date.now() - fillStarted < 15000 && Date.now() - fieldStarted < 5000
-        // Learned for this platform: this kind of field only takes real input. Go there first (no rounds of Odds' own events).
-        if (!okDom && driveTactics[f.kind] === "real_input" && value.trim() && !secretField(f)) {
-          if (await realRetry(f, value).catch(() => false)) { okDom = true; via = "real_input"; stuck = fieldValue(f) }
-        }
-        if (!okDom && ["text", "textarea", "date", "month", "number", "tel"].includes(f.kind) && value.trim()) {
-          for (const alt of altShapes(elOf(f), value)) {
-            if (!fallbackTime()) break
-            await typeLikePerson(elOf(f), alt)
-            await sleep(120)
-            stuck = fieldValue(f)
-            if (stuck && answered(f) && stuck.replace(/\D/g, "").length >= Math.min(2, alt.replace(/\D/g, "").length)) { okDom = true; via = "own_format"; break }
+        let okDom = recovered.ok
+        let via = recovered.via
+        let stuck = recovered.value
+        // A dropdown or search box can show the choice and drop it once focus moves on, because the widget never committed it
+        // (SmartRecruiters' city cleared on the next fill, scroll or key while Odds said "kept"). Focus is moved away and the box read
+        // again: a choice that is gone is not kept, and Broods is told so.
+        let dropped = false
+        if (okDom && ["combobox", "listbox"].includes(f.kind)) {
+          const el = elOf(f)
+          el.dispatchEvent(new FocusEvent("focusout", { bubbles: true, composed: true }))
+          el.dispatchEvent(new Event("blur", { bubbles: true, composed: true }))
+          try { el.blur?.() } catch { /* ignore */ }
+          await sleep(500)
+          const kept = () => valueKept(f, value) || (typeof result.expectedText === "string" && choiceShownNear(el, result.expectedText))
+          if (!kept()) {
+            // Once more the way a person does it: type, wait for the suggestions, and pick the matching one with a real click (widgets
+            // that commit only on a trusted pick); else the recovery ladder. Then read again.
+            let again = { ok: false, via: "" }
+            typeInto(el, String(value).split(",")[0])
+            for (let w = 0; w < 2500 && !listed(el).texts.length; w += 150) await sleep(150)
+            const { options: sugg, texts: shown } = listed(el)
+            const pick = shown.length ? (typeof A.chooseOption === "function" ? A.chooseOption(shown, value, f.label) : -1) : -1
+            const at = pick >= 0 ? pick : shown.findIndex((t) => String(t).toLowerCase().includes(String(value).split(",")[0].trim().toLowerCase()))
+            if (at >= 0 && await realClickEl(sugg[at]).catch(() => false)) { await sleep(300); again = { ok: true, via: "real_pick" } }
+            if (!again.ok || !kept()) again = await recoverFill(f, value, { allowReal: true, started: Date.now() })
+            el.dispatchEvent(new FocusEvent("focusout", { bubbles: true, composed: true }))
+            try { el.blur?.() } catch { /* ignore */ }
+            await sleep(500)
+            if (again.ok && kept()) { via = again.via; stuck = fieldValue(f) }
+            else { okDom = false; via = ""; stuck = fieldValue(f); dropped = true }
           }
         }
-        // Still refused: the same answer once more through real mouse and keyboard (Chrome's debugger), as a person would give it.
-        if (!okDom && value.trim() && !secretField(f) && fallbackTime()) {
-          if (await realRetry(f, value).catch(() => false)) { okDom = true; via = "real_input"; stuck = fieldValue(f) }
-        }
+        const tried = recovered.tried
         // A phone box that reformats what it gets (a country picker in front): the digits Broods meant must still be there.
         let phoneError = ""
         if (okDom && /\b(mobile|phone|telephone|telefoon\w*|mobiel\w*)\b/i.test(f.label)) {
           const want = A.nationalNumber ? A.nationalNumber(value).replace(/\D/g, "") : value.replace(/\D/g, "").slice(-8)
           const full = /^\s*(\+|00)/.test(value) ? value.replace(/\D/g, "").replace(/^00/, "") : ""
           const got = stuck.replace(/\D/g, "")
-          if ((want && !got.endsWith(want)) || (full && /^\s*\+/.test(stuck) && got !== full) || (!full && /^\s*\+/.test(stuck) && got === want)) { okDom = false; phoneError = `the phone box changed it to "${stuck}": set the country code picker to the number's country first, then fill the number again` }
+          if ((want && !got.endsWith(want)) || (full && /^\s*\+/.test(stuck) && got !== full) || (!full && /^\s*\+/.test(stuck) && got === want)) { okDom = false; via = ""; phoneError = `the phone box changed it to "${stuck}": set the country code picker to the number's country first, then fill the number again` }
         }
         // A year alone in a box that wants month and year ("Van: MM/JJJJ" on PwC): Broods is told the shape, so its next fill has the month.
         if (!okDom && !phoneError && /^\s*(19|20)\d{2}\s*$/.test(value)) {
@@ -2047,13 +2540,25 @@
           const hint = `${el?.getAttribute?.("placeholder") || ""} ${el?.getAttribute?.("pattern") || ""} ${stuck || ""} ${f.label}`
           if (/\b(mm|maand|month)\b|\d{2}\s*[/.-]\s*\d{4}|\b(van|tot|from|to|start|end)\b/i.test(hint)) phoneError = "this box wants month and year (MM/YYYY), not a year alone: fill it again with the month from the facts, e.g. 09/2022"
         }
+        // A dropdown that would not take its choice: what it is made of (tags, roles, classes, a short outline; no typed values) goes with the
+        // answer, so the next trace shows the widget and the fix can be made for it.
+        let diag = null
+        if (!okDom && ["combobox", "listbox"].includes(f.kind)) {
+          try {
+            const el = elOf(f)
+            const wrap = el.closest("[class*='control' i], [class*='select' i], [class*='dropdown' i], [class*='combo' i], [class*='picker' i]") || el.parentElement
+            const outline = (n, d = 0) => (d > 3 || !n || n.nodeType !== 1) ? "" : `<${n.tagName.toLowerCase()}${n.getAttribute("role") ? ` role=${n.getAttribute("role")}` : ""}${n.hasAttribute("aria-expanded") ? ` expanded=${n.getAttribute("aria-expanded")}` : ""}${typeof n.className === "string" && n.className ? ` .${n.className.split(/\s+/).slice(0, 3).join(".")}` : ""}>${[...n.children].slice(0, 5).map((c) => outline(c, d + 1)).join("")}`
+            diag = { tag: el.tagName.toLowerCase(), role: el.getAttribute("role") || "", expanded: el.getAttribute("aria-expanded") || "", shows: String(wrap?.innerText || "").replace(/\s+/g, " ").slice(0, 80), outline: outline(wrap || el).slice(0, 500) }
+          } catch { diag = null }
+        }
         // Which contact detail it was (never the value): the server learns where this site wants it.
         const key = okDom ? factKey(value) : null
-        results.push({ id: it.id, ok: okDom, value: stuck, ...(key ? { key } : {}), ...(via ? { via } : {}), ...(shortened ? { note: `this box takes at most ${limit} characters: your ${shortened}-character answer was cut to its last whole sentence` } : {}), ...(okDom ? {} : { error: phoneError || result.error || "no matching option or the site did not keep the value", ...(failedChoices(f) ? { options: failedChoices(f) } : {}) }) })
+        const keptError = phoneError || (dropped ? "the box showed the choice but dropped it when focus moved on (the widget never committed it): open its list, type a few letters, then pick the suggestion itself (click it, or ArrowDown then Enter)" : fieldInvalid(f) ? "the site marked this value invalid" : "the site did not keep the value")
+        results.push({ id: it.id, ok: okDom, value: stuck, ...(diag ? { diag } : {}), ...(key ? { key } : {}), ...(okDom && via ? { via } : {}), ...(tried?.length ? { tried } : {}), ...(shortened ? { note: `this box takes at most ${limit} characters: your ${shortened}-character answer was cut to its last whole sentence` } : {}), ...(okDom ? {} : { error: result.error ? `${keptError}; ${result.error}` : keptError, ...(failedChoices(f) ? { options: failedChoices(f) } : {}) }) })
       }
       const sigAfter = `${pageHref()}|${[...driveFields.values()].map((f) => `${f.label}:${fieldValue(f)}`).join("|")}`
       const unfilled = [...driveFields.entries()]
-        .filter(([, f]) => required(elOf(f), f.label) && !answered(f))
+        .filter(([, f]) => required(elOf(f), f.label) && (!answered(f) || fieldInvalid(f)))
         .map(([id, f]) => ({ id, label: f.label.slice(0, 120) }))
         .slice(0, 20)
       return {
@@ -2079,7 +2584,8 @@
         }
         if (!input) return { ok: false, error: "this button opened no file picker; attach the CV by sight or finish needs_you" }
         const ok = await uploadCv({ el: input, kind: "file", label: `CV ${controlLabel(button)}` }, true)
-        return { ok: Boolean(ok) && Boolean(input.files?.length), value: input.files?.[0]?.name || "", file_name: input.files?.[0]?.name || "" }
+        const took = Boolean(ok) && Boolean(input.files?.length)
+        return { ok: took, value: input.files?.[0]?.name || "", file_name: input.files?.[0]?.name || "", ...(!took && cvLoadError ? { error: `${cvLoadError} The person must fix this in Odds (Documents); finish needs_you reason other with these words.` } : {}) }
       }
       const f = driveFields.get(args.id)
       if (!f || f.kind !== "file" || !elOf(f)?.isConnected) return { ok: false, error: "not a file field (read_page again)" }
@@ -2088,8 +2594,11 @@
       if (uploaded) return { ok: false, cv_attached: true, error: "the CV is already attached on this page (by Odds); this box is another upload, e.g. a cover letter: leave it unless it asks for one" }
       // Broods chose this box for the CV ("Browse on your Device" on Picnic says nothing about a CV): its choice stands.
       const ok = await uploadCv(f, true)
+      // A site that reads the CV and redraws the form empties boxes: wait for it, then put back what it wiped (Broods may finish without reading again).
+      await pageSettled()
+      await prefillContacts(true)
       const name = fieldValue(f) || (ok ? cv?.file_name || "CV attached" : "")
-      return { ok: Boolean(ok), value: name, file_name: name }
+      return { ok: Boolean(ok), value: name, file_name: name, ...(!ok && cvLoadError ? { error: `${cvLoadError} The person must fix this in Odds (Documents); finish needs_you reason other with these words.` } : {}) }
     }
     if (cmd.tool === "upload_letter") {
       const f = driveFields.get(args.id)
@@ -2107,6 +2616,19 @@
       f.el.dispatchEvent(new Event("change", { bubbles: true }))
       await sleep(80)
       return { ok: Boolean(f.el.files?.length), value: fieldValue(f) }
+    }
+    if (cmd.tool === "check_email") {
+      say("Checking your Gmail in the next tab…", "filling")
+      const mail = await ask({ type: "drive-mail", from: String(args.from || "").slice(0, 80), subject: String(args.subject || "").slice(0, 80) }, 40000).catch(() => null)
+      if (!mail || mail.error) return { ok: false, error: mail?.error || "Could not look in Gmail (is the person signed in to Gmail in this Chrome?)" }
+      return { ok: true, ...mail }
+    }
+    if (cmd.tool === "open_link") {
+      const url = String(args.url || "")
+      if (!/^https:\/\//.test(url) || url.length > 2000) return { ok: false, error: "an https link is needed" }
+      await sendResult({ ok: true, note: "opening the link; read_page next" })
+      location.href = url
+      return null
     }
     if (cmd.tool === "open_job") {
       if (!/^https:\/\//.test(driveJobUrl)) return { ok: false, error: "no job link known; use back" }
@@ -2129,6 +2651,13 @@
       if (!el || !el.isConnected) return { ok: false, error: "button gone, read_page again" }
       const text = controlLabel(el)
       if (DRIVE_DENY.test(text) || finalSubmitControl(el)) return { ok: false, error: "Odds never presses this; it is the person's" }
+      if (noAccountClicks && ACCOUNT_BUTTON.test(text)) return { ok: false, error: "No account is made in this test run: leave it to the person (finish needs_you, reason account)." }
+      // Declining the application's own privacy statement ends the registration (Broods took it for a cookie banner's "reject"): it is
+      // Accept that goes on, and Broods is told so.
+      if (isPrivacyDecline(el)) {
+        if (acceptPrivacyStatement()) return { ok: true, clicked: "Accept", note: "That was the application's privacy statement, not cookies: Odds pressed Accept (declining ends the registration). Read the page again." }
+        return { ok: false, error: "That is the application's privacy statement, not a cookie banner: do not decline it. Press Accept." }
+      }
       // Next/Review with empty required fields must not advance — leave Broods on needs_you instead of false Review.
       if (/^(next|continue|review|review your application|continue to next step)$/i.test(text.trim())) {
         const snap = drivePage()
@@ -2146,8 +2675,12 @@
     }
     return { error: `Unknown tool ${cmd.tool}` }
   }
+  /** The page address of the last screenshot sent, and whether the last command failed: a picture goes with the next read when either changes. */
+  let lastShotUrl = ""
+  let driveLastFailed = false
   async function driveCommand(cmd, sendResult) {
     let result = await asOdds(() => driveCommandRaw(cmd, sendResult))
+    if (cmd.tool !== "read_page" && cmd.tool !== "screenshot") driveLastFailed = Boolean(result && (result.ok === false || result.error || (Array.isArray(result.results) && result.results.some((r) => r?.ok === false))))
     if (result && cmd.tool !== "read_page" && cmd.tool !== "screenshot") {
       await sleep(180)
       result = { ...result, page: drivePage() }
@@ -2167,22 +2700,29 @@
       attempts.push({ lesson: pending.lesson, ok: pageHref() !== pending.url && fields().length > 0 })
       await ask({ type: "drive-recipe", pending: null })
     }
-    const reply = await ask({ type: "drive", op: "playbook", page: pageHref() }, 5000)
-    drivePlaybook = reply?.playbook || null
+    const reply = await (earlyPlaybook || ask({ type: "drive", op: "playbook", page: pageHref() }, 5000))
+    drivePlaybook = reply?.playbook || drivePlaybook
     for (const recipe of (reply?.playbook?.recipes || []).slice(0, 3)) {
       const lesson = recipe.lesson
       if (recipe.confidence < 0.6 || recipe.successes < 5 || !["opener", "skip_dialog"].includes(lesson?.kind)) continue
       const dialog = openDialog()
       if ((lesson.kind === "skip_dialog" && !dialog) || (lesson.kind === "opener" && fields().some(f => /name|email|resume|cv/i.test(f.label)))) continue
-      if (!/^(apply( now| on (company website|employer's website|the employer's website))?|easy apply|solliciteren|skip|not now|close|reject all|necessary only|functional only)$/i.test(lesson.button || "") || DRIVE_DENY.test(lesson.button)) continue
-      const matches = [...(dialog || document).querySelectorAll("a,button,[role='button']")].filter(el => shown(el) && !el.disabled && !el.closest(".odds-apply-bar") && controlLabel(el) === lesson.button)
-      if (matches.length !== 1) { attempts.push({ lesson, ok: false }); continue }
+      if (!/^(apply( now| for this job| on (company website|employer's website|the employer's website))?|easy apply|solliciteren|skip|not now|close|reject all|necessary only|functional only)$/i.test(lesson.button || "") || DRIVE_DENY.test(lesson.button)) continue
+      const matches = [...(dialog || document).querySelectorAll("a,button,[role='button']")].filter(el => shown(el) && !el.disabled && !el.closest(".odds-apply-bar") && controlLabel(el).replace(/\s+/g, " ").trim().toLowerCase() === lesson.button.toLowerCase())
+      // The same button twice on a page (Lever has Apply at the top and the bottom, Ashby a link around a button) is one button; different addresses are ambiguous.
+      if (!matches.length || new Set(matches.map((el) => el.getAttribute("href") || "").filter(Boolean)).size > 1) { attempts.push({ lesson, ok: false }); continue }
       const before = pageHref(), beforeFields = fields().length
       await ask({ type: "drive-recipe", pending: { lesson, url: before, at: Date.now() } })
       await ask({ type: "apply-follow" })
+      // A new document (the click loads another page) ends this script: the next page checks the recipe. A single-page site (Ashby) swaps its
+      // content in place, so the script goes on here.
+      let leaving = false
+      addEventListener("pagehide", () => { leaving = true }, { once: true })
       matches[0].click()
       await sleep(600)
-      if (pageHref() !== before) return { navigating: true, attempts }
+      if (leaving || (pageHref() !== before && !fields().length && document.readyState !== "complete")) return { navigating: true, attempts }
+      for (let i = 0; i < 20 && lesson.kind === "opener" && fields().length <= beforeFields && !leaving; i++) await sleep(150)
+      if (leaving) return { navigating: true, attempts }
       await ask({ type: "drive-recipe", pending: null })
       const ok = lesson.kind === "skip_dialog" ? !dialog?.isConnected || !shown(dialog) : fields().length > beforeFields
       attempts.push({ lesson, ok })
@@ -2229,7 +2769,7 @@
     say("Broods is applying in this tab…", "filling")
     // The script filled what it knows; it never decides the form is done. Broods checks the filled page (and does what is left) before review.
     const snap = drivePage()
-    const odds = { filled: (snap?.fields || []).filter((f) => f.by === "odds").length, left: (snap?.fields || []).filter((f) => f.required && !f.filled).length, only_submit_left: onlySubmitLeft() }
+    const odds = { filled: (snap?.fields || []).filter((f) => f.by === "odds").length, left: (snap?.fields || []).filter((f) => f.required && !f.filled).length, only_submit_left: onlySubmitLeft(), first_fill_ms: firstFillMs }
     const start = await ask({ type: "drive", op: "start", copilot: intent.copilot === true, url: intent.job, page: pageHref(), run_id: intent.driveRun || null, odds_filled: odds, recipe_attempts: [...recipes.attempts, ...recipeAttempts.splice(0)] }, 30000).catch(() => null)
     const runId = start?.run_id
     // What this platform's past runs learned: field kinds that only took a value through real input go there first.
@@ -2239,6 +2779,7 @@
       return
     }
     let lostSince = 0
+    let idleSince = 0
     let fresh = true
     // Ended for the person (captcha, sign-in, questions, a letter, stuck): Odds keeps watching the tab for 30 minutes and carries on by
     // itself once they handled it. Broods going quiet is decided by the server (retried once, then said), never by a silent timer here.
@@ -2255,11 +2796,15 @@
       }
       // The person is filling in the form themselves: Broods waits (no step handed out) and picks up 20 s after they stop.
       if (!endedAt && Date.now() - person.at < PERSON_QUIET_MS) {
+        idleSince = 0
         say("You're filling in — Broods waits, then carries on around what you entered.", "filling")
         await ask({ type: "drive", op: "next", run_id: runId, hold: true }, 15000).catch(() => null)
         await sleep(3000)
         continue
       }
+      // The person pressed Apply / Fill with Odds again on a run that has ended (stuck, needs you): that press starts a fresh run, it never
+      // sits behind the old one for the 30 minutes the tab is watched.
+      if (endedAt && wantContinue) return
       // Waiting for the person: once they acted here and went quiet, or the captcha is gone, the same run carries on — no button needed.
       if (endedAt && resumedFor !== endedAt) {
         const handled = (person.at > endedAt && Date.now() - person.at >= PERSON_QUIET_MS) || (endedReason === "captcha" && !blockingCaptcha())
@@ -2272,6 +2817,7 @@
       const next = await ask({ type: "drive", op: "next", run_id: runId, fresh }, 35000).catch(() => null)
       // No answer at all is the connection, not Broods: say so and keep trying for 5 minutes, then carry on where the run is.
       if (!next || next.status === "error") {
+        idleSince = 0
         lostSince ||= Date.now()
         if (Date.now() - lostSince > 300000) {
           say("Odds lost its connection while Broods was applying. Press Apply with Odds again to carry on from here.", "ask")
@@ -2284,6 +2830,7 @@
       fresh = false
       if (lostSince) { lostSince = 0; say("Broods is applying in this tab…", "filling") }
       if (next.done) {
+        idleSince = 0
         if (!endedAt) {
           endedAt = Date.now()
           endedReason = next.reason || ""
@@ -2307,6 +2854,7 @@
       }
       if (endedAt) { endedAt = 0; say("Broods is carrying on…", "filling") }
       if (next.command) {
+        idleSince = 0
         const cmd = next.command
         const note = typeof cmd.note === "string" && cmd.note.trim() ? cmd.note.trim() : ""
         if (note) say(`Broods: ${note}`, "filling")
@@ -2335,6 +2883,13 @@
         // and Broods waits ~25 s for nothing).
         if (!sent && result !== null) await sendResult(result)
         if (["click", "click_at", "back", "open_job"].includes(cmd.tool) && !(result && result.page)) await sleep(1500)
+      } else {
+        // The server answered and Broods sent nothing. Three minutes of that is a dead model, not a slow form (the server ends a hung turn at two).
+        idleSince ||= Date.now()
+        if (Date.now() - idleSince >= 180000) {
+          say("Broods' model is unreachable. The fill stopped. Press Apply with Odds to try again.", "ask")
+          return
+        }
       }
     }
   }
@@ -2361,6 +2916,7 @@
   /** What the bar says when a Broods run ends, by why it ended. */
   function driveEndText(next) {
     const m = next.message || ""
+    if (/model is unreachable/i.test(m)) return [m, "ask"]
     if (next.status === "review") return [m || "Filled in by Broods. Check everything, then send it yourself.", "done"]
     if (next.status === "submitted") return ["You sent it.", "done"]
     if (next.status === "stopped") return [m || "Broods stopped. Continue from the tracker, or finish it yourself.", "ask"]
@@ -2372,7 +2928,7 @@
       closed: "This job is closed: it no longer takes applications.",
     }[next.reason] || ""
     const text = next.reason === "closed" ? why : [why, m].filter(Boolean).join(" ")
-    return [next.status === "needs_you" ? (text || "Broods needs you for a step — open the tab.") : `Odds assist could not move this application forward after assist: ${text || "Broods stopped."}`, "ask"]
+    return [next.status === "needs_you" ? (text || "Broods needs you for a step — open the tab.") : `Couldn't finish this one: ${text || "Odds stopped here."} Finish it in the tab, or press Apply with Odds to try again.`, "ask"]
   }
   /** The employer's own words saying the application went through (a thank-you page or message, with no form left). */
   const SENT = /thank you for (applying|your (application|interest in))|your application (has been|was|is) (successfully )?(submitted|received|sent)|(we have|we've) received your application|application (submitted|received|complete)|bedankt voor je sollicitatie|je sollicitatie is (verzonden|ontvangen)|vielen dank für ihre bewerbung/i
@@ -2422,12 +2978,12 @@
   }
   /** LinkedIn offsite often opens a NEW tab; intent is written a tick later — never silent-quit. */
   async function waitIntent(quiet = false) {
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 60; i++) {
       const { intent } = (await ask({ type: "apply-intent" })) || {}
       if (intent) { watchBoardNudges(); return intent }
       // Heartbeat so Odds never looks idle while the handoff catches up — only in a tab Odds was asked to apply in.
       if (!quiet && (i === 0 || i % 8 === 0)) say("Waiting for Odds to attach this application…", "filling")
-      await sleep(150)
+      await sleep(100)
     }
     return null
   }
@@ -2501,6 +3057,34 @@
     return false
   }
 
+  /** First fill from the browser's own copies: contact details and the site's recipes only, on a form that is plainly this page's. The
+   * full prefill (CV, consents, rule answers) follows with the fresh kit; a field filled here is never filled twice. */
+  async function earlyFill(intent, cached) {
+    if (window.top === window && (atsFrame() || blankFrameForm())) return
+    if (fields().filter((f) => f.kind !== "checkbox").length < 3 || wrongJobPage(String(intent.job || pageHref()))) return
+    // Another job's details never leak in: only the person's own contact facts are used, never the job-specific ones.
+    facts = { ...(cached.facts || {}) }
+    delete facts.job_id
+    cv = cv || cached.cv
+    // A host the browser has no copy for yet answers in a moment or not at all: the contact boxes need no recipe, so it is not waited for long.
+    drivePlaybook = (await Promise.race([earlyPlaybook, sleep(400).then(() => null)]))?.playbook || null
+    await asOdds(async () => {
+      globalThis.oddsDismissCookies?.()
+      if (openDialog() || blockingCaptcha()) return
+      // Plain contact boxes first (instant); recipes then reach the fields the rules do not know, including slow dropdowns.
+      await prefillContacts()
+      await replayMappings()
+    })
+    // Does each field still hold its value after the page had a moment (a form that redraws its boxes when it finishes loading wipes them)?
+    // The ones that lost it are given back to the full fill that follows; the time stamp starts again with the next field that holds.
+    await sleep(400)
+    let lost = 0
+    for (const f of fields()) {
+      const el = elOf(f)
+      if (prefilledFields.has(el) && prefilledFields.get(el) && !answered(f) && f.kind !== "file") { prefilledFields.delete(el); prefillTried.delete(el); prefilledKeys.delete(el); lost++ }
+    }
+    if (lost && !fields().some((f) => prefilledFields.has(elOf(f)))) firstFillMs = null
+  }
   async function start(opts = {}) {
     // A page Odds is not applying in (any site the person just browses) shows nothing at all: the bar is only for application tabs.
     // A tab being handed an application (a site opening the employer form in a new tab) gets a short, silent wait to pick it up.
@@ -2516,27 +3100,39 @@
       // The frame is inert while Odds fills, so it cannot take the keyboard: filling does not wait for it to load.
       autoOpenPanel()
     }
-    // Every page this application loads is counted on the run (it survives reloads): the same page again and again, or too many pages, stops for good.
-    if (!visitNoted) {
-      visitNoted = true
-      const visit = await ask({ type: "apply-hunt", op: "visit" }).catch(() => null)
-      if (visit?.stop) {
-        say(visit.message, "ask")
-        return
+    // Everything the server is asked runs at once, and the first fill does not wait for any of it: it uses the copy of the person's details
+    // kept in this browser and the site recipes kept for this host (both refreshed in the background).
+    startT0 = performance.now()
+    const cachedKit = ask({ type: "apply-kit", url: intent.job, cached: true }, 3000).catch(() => null)
+    earlyPlaybook = ask({ type: "drive", op: "playbook", page: pageHref() }, 5000).catch(() => null)
+    const kitAsked = (async () => {
+      let kit = null
+      // A slow or failed answer (the worker waking, the server busy) is asked again before anything is said; only "connect" means not connected.
+      for (let t = 0; t < 3 && (!kit || kit.status === "error"); t++) {
+        if (t) await sleep(600 * t)
+        kit = await ask({ type: "apply-kit", url: intent.job }, 35000)
       }
+      return kit
+    })()
+    // Every page this application loads is counted on the run (it survives reloads): the same page again and again, or too many pages, stops for good.
+    const visitAsked = visitNoted ? null : ask({ type: "apply-hunt", op: "visit" }).catch(() => null)
+    visitNoted = true
+    const early = await cachedKit
+    if (early?.status === "ok" && early.broods_drive === true && !intent.paused) await earlyFill(intent, early)
+    const visit = await visitAsked
+    if (visit?.stop) {
+      say(visit.message, "ask")
+      return
     }
     // The person went back (browser Back) or paused earlier: stay on their page, push nothing forward, say so in Odds.
-    if (!opts.forced && (intent.paused || await cameBack())) {
+    // (A register / sign-in page reached again by Back is not "the person went back a step": a site that sends the person back after a refused
+    // or declined step puts the same account form on screen again, and Odds carries on with it.)
+    if (!opts.forced && !accountKind() && (intent.paused || await cameBack())) {
       pauseForPerson()
       return
     }
     pausedByPerson = false
-    // A slow or failed answer (the worker waking, the server busy) is asked again before anything is said; only "connect" means not connected.
-    let kit = null
-    for (let t = 0; t < 3 && (!kit || kit.status === "error"); t++) {
-      if (t) await sleep(2000 * t)
-      kit = await ask({ type: "apply-kit", url: intent.job }, 35000)
-    }
+    const kit = await kitAsked
     if (kit?.status === "connect") return say("Connect odds (its icon in the toolbar) to have this form filled in.", "problem")
     if (!kit) return say("Odds could not load your details. Press Apply with Odds again.", "problem")
     if (kit.status !== "ok") return say("Could not load your application details. Open Odds and try again.", "problem")
@@ -2585,8 +3181,8 @@
       // An application form embedded from an ATS (Greenhouse, Lever... in an iframe): the frame drives, this page stays out (one driver per run).
       let embedded = atsFrame()
       // A career page that loads its form a moment later (Nebius' Greenhouse embed): wait for it before driving an empty page.
-      for (let i = 0; !embedded && !blankFrameForm() && fields().filter((f) => f.kind !== "checkbox").length < 3 && i < 2; i++) {
-        await sleep(750)
+      for (let i = 0; !embedded && !blankFrameForm() && fields().filter((f) => f.kind !== "checkbox").length < 3 && i < 10; i++) {
+        await sleep(150)
         embedded = atsFrame()
       }
       if (!embedded && blankFrameForm()) {
@@ -2812,7 +3408,7 @@
         if (await waitForAnswers()) return "moved"
         return "human"
       }
-      say("Odds assist could not move this application forward after assist. Open the tab to continue.", "ask")
+      say("Couldn't finish this one. Finish it in the tab, or press Apply with Odds to try again.", "ask")
       return "stuck"
     }
 
@@ -2899,7 +3495,7 @@
         const scanSig = `${pageHref()}|${heading.slice(0, 80)}`
         if (globalThis.__oddsScanSig === scanSig) {
           // Already confirmed this page — stop after assist (never silent loop).
-          say("Odds assist could not move this application forward after assist. Open the tab to continue.", "ask")
+          say("Couldn't finish this one. Finish it in the tab, or press Apply with Odds to try again.", "ask")
           return
         }
         globalThis.__oddsScanSig = scanSig
@@ -3335,7 +3931,7 @@
    * Create account & Autofill / Sign in & Autofill, pressed by the person in the side panel: their email, the password Odds made for this
    * site (kept in this Chrome only), the site's required agreement box on an account form, then the site's own Create account / Sign in.
    */
-  async function fillAccount({ email, password, create }) {
+  async function fillAccount({ email, password, create, press = true }) {
     const box = accountEmailBox()
     if (box && email && box.value !== email) { type(box, email); if (box.value !== email) await realTypeEl(box, email) }
     for (const pw of passwordBoxes()) {
@@ -3353,16 +3949,59 @@
     const want = create ? ACCOUNT_CREATE : ACCOUNT_SIGNIN
     const pick = (list) => list.find((b) => shown(b) && !b.disabled && want.test(controlLabel(b)) && controlLabel(b).length < 40)
     const scope = passwordBoxes()[0]?.closest("form, [role=dialog], section, main") || document
-    const go = password ? pick([...scope.querySelectorAll("button, input[type=submit], [role=button]")]) || pick([...document.querySelectorAll("button, input[type=submit], [role=button]")]) : null
+    const go = password && press ? pick([...scope.querySelectorAll("button, input[type=submit], [role=button]")]) || pick([...document.querySelectorAll("button, input[type=submit], [role=button]")]) : null
     if (go && !(await realClickEl(go))) go.click()
+    // The real click can land on something over the button (Odds' own panel opens by itself on an application): if the step is still
+    // exactly there two seconds later, the button is pressed from the page too.
+    else if (go) { await sleep(2000); if (!acceptPrivacyStatement() && go.isConnected && shown(go) && passwordBoxes().length && !document.querySelector("[role=dialog], [aria-modal=true], dialog[open]")) go.click() }
+    if (go) for (let i = 0; i < 12; i++) { await sleep(500); if (acceptPrivacyStatement()) break }
+    // A register form that also holds the rest of the application (SuccessFactors: Upload a Resume, then email and password on one page): the
+    // account boxes are not the whole page, so the application is filled here too, now, not only after the account step is gone.
+    if (create && fields().some((f) => f.kind === "file")) {
+      const { intent } = (await ask({ type: "apply-intent" }).catch(() => null)) || {}
+      if (intent) launch(true)
+    }
     void carryOnAfterAccount()
     return { ok: true, pressed: Boolean(go) }
+  }
+  /** Whether this is the Decline / Reject of a privacy statement that belongs to the application (its text names no cookies). */
+  function isPrivacyDecline(el) {
+    if (!/^(decline|reject|disagree|weiger\w*|niet akkoord|refuse\w*)$/i.test(controlLabel(el).trim())) return false
+    for (let e = el.parentElement, depth = 0; e && depth < 8; e = e.parentElement, depth++) {
+      const text = textOf(e)
+      if (text.length > 40000) break
+      if (/\bcookies?\b/i.test(text.slice(0, 300))) return false
+      if (/\b(privacy|data protection|gegevensbescherming|datenschutz)\b/i.test(text.slice(0, 600)) && /\b(statement|verklaring|erkl[aä]rung|policy)\b/i.test(text.slice(0, 600))) return true
+    }
+    return false
+  }
+  /**
+   * A privacy / consent statement some sites open after Create account (Yamaha: "Data Privacy Consent Statement", Accept / Decline / Print): Odds
+   * takes the consent the same way it ticks consent boxes (the person chose consent yes). Only a box whose text is about privacy or consent and
+   * whose button reads plainly Accept / Agree; never "Accept all" on a cookie banner, never Decline.
+   */
+  function acceptPrivacyStatement() {
+    const BTN = /^(i )?(accept|agree)$|^(ik )?(ga )?akkoord$|^accepteren$|^akzeptieren$|^j'accepte$/i
+    for (const b of deepAll("button, input[type=button], input[type=submit], a[role=button], [role=button], a.btn")) {
+      if (!shown(b) || b.disabled || !BTN.test(controlLabel(b).trim())) continue
+      for (let e = b.parentElement, depth = 0; e && depth < 8; e = e.parentElement, depth++) {
+        const text = textOf(e)
+        if (text.length > 40000) break
+        if (!/\b(privacy|data protection|consent|gegevensbescherming|datenschutz|toestemming)\b/i.test(text.slice(0, 600))) continue
+        if (/\bcookies?\b/i.test(text.slice(0, 300))) break
+        if (!e.querySelector("button, input[type=button], input[type=submit], a[role=button], [role=button], a.btn") || ![...e.querySelectorAll("button, input[type=button], input[type=submit], a[role=button], [role=button], a.btn")].some((o) => /^(decline|reject|disagree|weiger\w*|niet akkoord)$/i.test(controlLabel(o).trim()))) continue
+        b.click()
+        return true
+      }
+    }
+    return false
   }
   /** Once the account step is gone (the site moved on, often without a page load: Workday), Odds fills what follows in this tab. */
   async function carryOnAfterAccount() {
     const end = Date.now() + 5 * 60_000
     while (Date.now() < end) {
       await sleep(1000)
+      if (acceptPrivacyStatement()) continue
       if (passwordBoxes().length) continue
       await sleep(1500)
       if (passwordBoxes().length) continue
@@ -3375,7 +4014,7 @@
     if (window !== top) return
     if (message?.type === "odds-page-kind") { lastKind = pageKind(); reply({ kind: lastKind }); return }
     if (message?.type === "odds-account" && typeof message.password === "string") {
-      void fillAccount({ email: String(message.email || ""), password: message.password, create: message.create === true }).then(reply).catch(() => reply({ ok: false }))
+      void fillAccount({ email: String(message.email || ""), password: message.password, create: message.create === true, press: message.press !== false }).then(reply).catch(() => reply({ ok: false }))
       return true
     }
   })

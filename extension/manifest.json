@@ -42,8 +42,8 @@
         "job-sites.js",
         "site-dom.js",
         "panel.js",
-        "content-job.js",
         "mascot.js",
+        "content-job.js",
         "application-handoff.js",
         "apply.js"
       ],
@@ -68,8 +68,8 @@
         "job-sites.js",
         "site-dom.js",
         "panel.js",
-        "content-job.js",
         "mascot.js",
+        "content-job.js",
         "application-handoff.js",
         "apply-any.js"
       ],
@@ -113,6 +113,7 @@
       "all_frames": true
     }
   ],
+  "options_page": "logins.html",
   "web_accessible_resources": [
     {
       "resources": [
