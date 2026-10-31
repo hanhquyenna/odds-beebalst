@@ -5964,7 +5964,9 @@ for (const job of REAL_JOBS) {
         const s = getComputedStyle(el)
         return s.display !== "none" && s.visibility !== "hidden"
       }) as HTMLInputElement[]
-      const requiredEmpty = inputs.filter((el) => el.required && !el.disabled && !(el.type === "checkbox" || el.type === "radio" ? el.checked : (el.type === "file" ? (el.files?.length ?? 0) > 0 : String(el.value || "").trim()))).map((el) => el.name || el.id || el.getAttribute("aria-label") || el.type)
+      // A checkbox or radio group (one name) is answered once any box in it is ticked: "how did you hear" lists mark every box required.
+      const ticked = (el: HTMLInputElement): boolean => el.checked || (Boolean(el.name) && inputs.some((o) => o.name === el.name && o.type === el.type && o.checked))
+      const requiredEmpty = [...new Set(inputs.filter((el) => el.required && !el.disabled && !(el.type === "checkbox" || el.type === "radio" ? ticked(el) : (el.type === "file" ? (el.files?.length ?? 0) > 0 : String(el.value || "").trim()))).map((el) => el.name || el.id || el.getAttribute("aria-label") || el.type))]
       const fileName = (document.querySelector('input[type="file"]') as HTMLInputElement | null)?.files?.[0]?.name ?? ""
       const filled = inputs.filter((el) => el.type !== "hidden" && el.type !== "password" && (el.type === "file" ? (el.files?.length ?? 0) > 0 : String(el.value || "").trim())).length
       return { url: location.href, requiredEmpty, fileName, filled, title: document.title }
