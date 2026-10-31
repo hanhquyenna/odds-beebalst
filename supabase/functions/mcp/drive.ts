@@ -18,10 +18,14 @@ import { fieldPattern, playbookFor, sanitizeLesson, siteIdentity, structuralFiel
 // enforces the hard rules itself (never Submit/Send, passwords, captchas, consent); the tools here only carry commands and results.
 // Secrets: ODDS_DRIVE_SECRET (also set in Broods as ODDS_DRIVE_SECRET), ODDS_DRIVE_AGENT_ID, APPLY_AGENT_BROODS_API_KEY,
 // APPLY_AGENT_BROODS_USER_TOKEN_SECRET, optional APPLY_AGENT_BROODS_BASE_URL.
+//
+// Push (ODDS_DRIVE_PUSH=1): every queued step also wakes the person's extension over their own private Realtime channel drive:<user id>
+// (Realtime Authorization: supabase/migrations/20261031120000_drive_push.sql). A wake names only the run; the extension still takes the
+// step through /ext/drive-next with its key, so the socket never carries a command. Push off, or the socket down: drive-next long-polls.
 
 // deno-lint-ignore no-explicit-any
 type Json = any
-type Env = { url: string; serviceKey?: string }
+type Env = { url: string; serviceKey?: string; anonKey?: string }
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -32,6 +36,9 @@ const TOOL_WAIT_MS = 25_000
 /** A fill works through every field it was given (dropdowns take seconds each): the tab gets 40 s, the server waits a little longer. */
 const FILL_WAIT_MS = 45_000
 const NEXT_WAIT_MS = 20_000
+/** How often a waiting step looks for its result, and drive-next's long-poll for a queued step: one row by key, cheap. */
+const RESULT_POLL_MS = 50
+const NEXT_POLL_MS = 100
 const MAX_STEPS = 120
 /** No step from Broods for this long while the run says running (a step takes seconds): its turn ended without finish. */
 const QUIET_MS = 30_000
@@ -40,17 +47,19 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export { canAcceptDriveResult }
 
-async function cancelOpenCommands(env: Env, runId: string, why: string): Promise<void> {
+async function cancelOpenCommands(env: Env, run: Json, why: string): Promise<void> {
   const patch = {
     status: "cancelled",
     result: { ok: false, cancelled: true, error: why },
     done_at: new Date().toISOString(),
   }
-  await svc(env, `drive_commands?run_id=eq.${runId}&status=in.(queued,taken)`, {
+  await svc(env, `drive_commands?run_id=eq.${run.id}&status=in.(queued,taken)`, {
     method: "PATCH",
     headers: { Prefer: "return=minimal" },
     body: JSON.stringify(patch),
   }).catch(() => undefined)
+  // The run ended: a pushed extension hears it now instead of at its next look.
+  later(wake(env, run))
 }
 
 async function abandonCommand(env: Env, cmdId: number, kind: "never_started" | "result_lost" | "document_changed"): Promise<void> {
@@ -63,6 +72,52 @@ async function abandonCommand(env: Env, cmdId: number, kind: "never_started" | "
       done_at: new Date().toISOString(),
     }),
   }).catch(() => undefined)
+}
+
+/** The command's row once the tab answered it or it was cancelled or expired, or null when `ms` passed first. */
+async function settled(env: Env, id: number, ms: number): Promise<Json> {
+  for (const until = Date.now() + ms; Date.now() < until;) {
+    await sleep(RESULT_POLL_MS)
+    const row = (await svc(env, `drive_commands?id=eq.${id}&select=status,result`).catch(() => null))?.[0]
+    if (["done", "cancelled", "expired"].includes(row?.status)) return row
+  }
+
+  return null
+}
+
+/** Queues one step for the run's tab, on the run's document unless `row` says otherwise; with push on, the tab is woken to take it. */
+async function queueCommand(env: Env, run: Json, row: Json): Promise<Json> {
+  const [cmd] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, doc_gen: typeof run.doc_gen === "number" ? run.doc_gen : 0, ...row }) })
+  later(wake(env, run))
+
+  return cmd
+}
+
+/** Push mode: ODDS_DRIVE_PUSH=1 on this function. */
+const pushOn = (): boolean => (Deno.env.get("ODDS_DRIVE_PUSH") ?? "").trim() === "1"
+
+/** Where the person's extension listens for wakes (their own private channel), or null when push is off. */
+function pushFor(env: Env, userId: string): Json {
+  if (!pushOn() || !env.anonKey) return null
+
+  return { url: `${env.url.replace(/^http/, "ws")}/realtime/v1/websocket`, apikey: env.anonKey, topic: `drive:${userId}` }
+}
+
+/** Tells the person's extension to ask drive-next now: one broadcast on their private channel that names only the run. Never throws. */
+async function wake(env: Env, run: Json): Promise<void> {
+  if (!pushOn() || !run?.user_id || !env.serviceKey) return
+  await fetch(`${env.url}/realtime/v1/api/broadcast`, {
+    method: "POST",
+    headers: { apikey: env.serviceKey, Authorization: `Bearer ${env.serviceKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ messages: [{ topic: `drive:${run.user_id}`, event: "wake", payload: { run_id: run.id }, private: true }] }),
+  }).catch(() => undefined)
+}
+
+/** Work Broods' answer does not wait for: kept running after the response (EdgeRuntime.waitUntil in Supabase), logged if it fails. */
+function later(work: Promise<unknown>): void {
+  const task = work.catch((e) => console.warn("Background work failed:", String((e as Error)?.message ?? e).slice(0, 200)))
+  const runtime = (globalThis as { EdgeRuntime?: { waitUntil: (p: Promise<unknown>) => void } }).EdgeRuntime
+  runtime?.waitUntil(task)
 }
 
 async function svc(env: Env, path: string, init: RequestInit = {}): Promise<Json> {
@@ -116,9 +171,8 @@ export async function siteRoute(env: Env, url: string): Promise<Json> {
   return routeHint(key, best, routeKey(url))
 }
 
-/** A finished run's route, kept for its platform (structure only) so routes that work become the guide. */
-async function recordRoute(env: Env, run: Json, stage: string): Promise<void> {
-  const commands = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&order=id.asc&select=tool,args,result`).catch(() => null)) ?? []
+/** A finished run's route (`commands`: its done steps in order), kept for its platform (structure only) so routes that work become the guide. */
+async function recordRoute(env: Env, run: Json, stage: string, commands: Json[]): Promise<void> {
   if (!commands.length) return
   // The platform is the one the form was on (the last page), not the board the run started from.
   let page: Json = null
@@ -133,9 +187,15 @@ async function recordRoute(env: Env, run: Json, stage: string): Promise<void> {
   await svc(env, "site_routes?on_conflict=platform,route", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ platform: key, route, successes: (row?.successes ?? 0) + (ok ? 1 : 0), failures: (row?.failures ?? 0) + (ok ? 0 : 1), steps_total: (row?.steps_total ?? 0) + Number(run.steps ?? commands.length), ...(ok ? { last_success: new Date().toISOString() } : {}), updated_at: new Date().toISOString() }) }).catch(() => undefined)
 }
 
-async function learnRun(env: Env, run: Json, stage: string): Promise<void> {
-  const commands = await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&order=id.asc&select=tool,args,result`).catch(() => [])
+/** What a finished run (`commands`: its done steps in order) teaches its site's playbook, structure only. */
+async function learnRun(env: Env, run: Json, stage: string, commands: Json[]): Promise<void> {
   let page: Json = null
+  // Each lesson once, at its first outcome (the database keeps only that one per run and site anyway), saved after the walk.
+  const lessons = new Map<string, { url: string; lesson: unknown; outcome: string }>()
+  const keep = (url: string, lesson: unknown, outcome: string): void => {
+    const key = `${siteIdentity(url).host}|${JSON.stringify(sanitizeLesson(lesson))}`
+    if (!lessons.has(key)) lessons.set(key, { url: url, lesson: lesson, outcome: outcome })
+  }
   // Field placements are judged over the whole run: one wrong placement (Broods had to redo it) outweighs its successes in the same run.
   const placements = new Map<string, { lesson: Json; url: string; outcome: string }>()
   const place = (lesson: Json, url: string, outcome: string) => {
@@ -143,7 +203,7 @@ async function learnRun(env: Env, run: Json, stage: string): Promise<void> {
     const k = JSON.stringify(lesson)
     if (!placements.has(k) || outcome === "failure") placements.set(k, { lesson, url, outcome })
   }
-  for (const cmd of commands || []) {
+  for (const cmd of commands) {
     const result = cmd.result || {}, url = page?.url || run.url
     if (cmd.tool === "click" && page) {
       const button = page.buttons?.find((b: Json) => b.id === cmd.args?.id)
@@ -152,7 +212,7 @@ async function learnRun(env: Env, run: Json, stage: string): Promise<void> {
       // A claimed click alone is not success: require a fresh changed page and real form fields.
       const after = result.page
       const moved = after && (after.url !== page.url || JSON.stringify(after.headings) !== JSON.stringify(page.headings) || Boolean(page.dialog) !== Boolean(after.dialog))
-      if (clean && (result.ok === false || moved)) await saveLesson(env, run, url, clean, result.ok !== false && after.fields?.length && ["review", "needs_you"].includes(stage) ? "success" : "failure")
+      if (clean && (result.ok === false || moved)) keep(url, clean, result.ok !== false && after.fields?.length && ["review", "needs_you"].includes(stage) ? "success" : "failure")
     }
     const reached = ["review", "needs_you"].includes(stage)
     if (cmd.tool === "fill" && page) {
@@ -168,8 +228,8 @@ async function learnRun(env: Env, run: Json, stage: string): Promise<void> {
         if (!key) continue
         const method = ["select", "radio", "choice", "combobox", "listbox", "typeahead"].includes(field.kind) ? "choosing" : "typing"
         const lesson = { kind: "widget", field: key, method, autofill_key: key }
-        await saveLesson(env, run, url, lesson, item.ok && ["review", "needs_you"].includes(stage) ? "success" : "failure")
-        await saveLesson(env, run, url, { ...lesson, kind: "mapping" }, item.ok && ["review", "needs_you"].includes(stage) ? "success" : "failure")
+        keep(url, lesson, item.ok && ["review", "needs_you"].includes(stage) ? "success" : "failure")
+        keep(url, { ...lesson, kind: "mapping" }, item.ok && ["review", "needs_you"].includes(stage) ? "success" : "failure")
       }
     }
     if (cmd.tool === "upload_cv" && page && result.ok && reached) {
@@ -177,9 +237,9 @@ async function learnRun(env: Env, run: Json, stage: string): Promise<void> {
       if (field?.kind === "file") place(placedMapping(page, field, "cv", result.file_name), url, "success")
     }
     // Notes are hints; only a failure is stored directly. Successful notes need browser evidence above.
-    if (cmd.tool === "note_site" && cmd.args?.outcome === "failure") await saveLesson(env, run, url, cmd.args.lesson, "failure")
+    if (cmd.tool === "note_site" && cmd.args?.outcome === "failure") keep(url, cmd.args.lesson, "failure")
     if (cmd.tool === "recipe" && result.lesson?.kind === "mapping") { if (!result.ok || reached) place(sanitizeLesson(result.lesson), url, result.ok ? "success" : "failure") }
-    else if (cmd.tool === "recipe" && result.lesson) await saveLesson(env, run, url, result.lesson, result.ok ? "success" : "failure")
+    else if (cmd.tool === "recipe" && result.lesson) keep(url, result.lesson, result.ok ? "success" : "failure")
     for (const attempt of (Array.isArray(result.recipe_attempts) ? result.recipe_attempts : []).slice(0, 12)) {
       const lesson = sanitizeLesson(attempt?.lesson)
       if (lesson?.kind === "mapping" && (attempt.ok !== true || reached)) place(lesson, url, attempt.ok === true ? "success" : "failure")
@@ -190,7 +250,7 @@ async function learnRun(env: Env, run: Json, stage: string): Promise<void> {
         const key = structuralField(field.label)
         if (field.by !== "odds" || !field.filled || !key) continue
         const method = field.kind === "file" ? "upload" : ["select", "radio", "combobox", "listbox", "typeahead"].includes(field.kind) ? "choosing" : "typing"
-        for (const kind of ["widget", "mapping"]) await saveLesson(env, run, snapshot.url || url, { kind, field: key, autofill_key: key, method }, "success")
+        for (const kind of ["widget", "mapping"]) keep(snapshot.url || url, { kind, field: key, autofill_key: key, method }, "success")
       }
       // Fields Odds filled before or between Broods' steps, with the contact detail it used: their placement is evidence too.
       for (const field of snapshot.fields || []) {
@@ -200,78 +260,63 @@ async function learnRun(env: Env, run: Json, stage: string): Promise<void> {
     }
     if (snapshot) page = snapshot
   }
-  for (const p of placements.values()) await saveLesson(env, run, p.url, p.lesson, p.outcome)
+  for (const p of placements.values()) keep(p.url, p.lesson, p.outcome)
+  for (const l of lessons.values()) await saveLesson(env, run, l.url, l.lesson, l.outcome)
 }
-/** Navigation survives document unload: obtain the resulting page internally, without another model turn. */
+/**
+ * Navigation survives document unload: obtain the resulting page internally, without another model turn. The read is queued at once:
+ * the leaving page sent its result as it went and takes no more steps, and the new page's first drive-next carries the read over.
+ */
 async function afterNavigation(env: Env, runId: string, result: Json, budgetMs = TOOL_WAIT_MS): Promise<Json> {
   if (budgetMs < 800) return { ...result, page_pending: false, page: null, error: "document_changed", timeout: "document_changed" }
-  await sleep(Math.min(500, budgetMs / 4))
   const run = await runOf(env, runId)
   const docGen = typeof run?.doc_gen === "number" ? run.doc_gen + 1 : 1
   // Ownership moves to the new document; cancel any other taken work from the old gen.
   await svc(env, `drive_runs?id=eq.${runId}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ doc_gen: docGen, updated_at: new Date().toISOString() }) }).catch(() => undefined)
-  const [read] = await svc(env, "drive_commands", {
-    method: "POST",
-    body: JSON.stringify({ run_id: runId, tool: "read_page", args: { after_action: true }, note: "Checking the next page", doc_gen: docGen }),
-  })
-  const until = Date.now() + Math.max(0, budgetMs - 500)
-  while (Date.now() < until) {
-    await sleep(400)
-    const row = (await svc(env, `drive_commands?id=eq.${read.id}&select=status,result`))?.[0]
-    if (row?.status === "done") {
-      // The picture that rides with a page read goes to the model as an image, never as text inside the page (it was ~100 KB of base64 in the
-      // text: tens of thousands of tokens on every call after a click), and the stored row keeps no image.
-      let page = row.result
-      let shot: string | undefined
-      if (typeof page?.screenshot?.image === "string") {
-        shot = page.screenshot.image
-        page = { ...page, screenshot: undefined }
-        void svc(env, `drive_commands?id=eq.${read.id}`, { method: "PATCH", body: JSON.stringify({ result: page }) }).catch(() => undefined)
-      } else if (page?.screenshot) page = { ...page, screenshot: undefined } // a blank picture's diagnosis stays in the stored row only
-      return { ...result, page_pending: false, page, ...(shot ? { shot_image: shot } : {}) }
-    }
-    if (row?.status === "cancelled" || row?.status === "expired") break
+  const read = await queueCommand(env, { ...run, id: runId, doc_gen: docGen }, { tool: "read_page", args: { after_action: true }, note: "Checking the next page" })
+  const row = await settled(env, read.id, Math.max(0, budgetMs - 500))
+  if (row?.status === "done") {
+    // The picture that rides with a page read goes to the model as an image, never as text inside the page (it was ~100 KB of base64 in the
+    // text: tens of thousands of tokens on every call after a click), and the stored row keeps no image.
+    let page = row.result
+    let shot: string | undefined
+    if (typeof page?.screenshot?.image === "string") {
+      shot = page.screenshot.image
+      page = { ...page, screenshot: undefined }
+      void svc(env, `drive_commands?id=eq.${read.id}`, { method: "PATCH", body: JSON.stringify({ result: page }) }).catch(() => undefined)
+    } else if (page?.screenshot) page = { ...page, screenshot: undefined } // a blank picture's diagnosis stays in the stored row only
+    return { ...result, page_pending: false, page, ...(shot ? { shot_image: shot } : {}) }
   }
   await abandonCommand(env, read.id, "document_changed")
   return { ...result, page_pending: false, page: null, error: "The next page has not answered yet. Read the page again.", timeout: "document_changed" }
 }
 
-/** The page right now, read for the server's own checks (no model turn): its fields, or null if it cannot tell. */
-async function freshFields(env: Env, run: Json): Promise<Json[] | null> {
-  const page = await freshPage(env, run)
+/** A page read's fields, or null when there is no page to tell. */
+function fieldsOf(page: Json): Json[] | null {
   return page ? (Array.isArray(page.fields) ? page.fields : []) : null
 }
 /** The page right now, read for the server's own check (no model turn), or null if the tab did not answer. */
 async function freshPage(env: Env, run: Json): Promise<Json> {
-  const docGen = typeof run?.doc_gen === "number" ? run.doc_gen : 0
-  const [read] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "read_page", args: { review_check: true }, note: "Checking the page before stopping", doc_gen: docGen }) }).catch(() => [null])
+  const read = await queueCommand(env, run, { tool: "read_page", args: { review_check: true }, note: "Checking the page before stopping" }).catch(() => null)
   if (!read) return null
-  for (const until = Date.now() + 12_000; Date.now() < until;) {
-    await sleep(400)
-    const row = (await svc(env, `drive_commands?id=eq.${read.id}&select=status,result`).catch(() => null))?.[0]
-    if (row?.status === "done") return row.result && typeof row.result === "object" ? row.result : {}
-    if (row?.status === "cancelled" || row?.status === "expired") break
-  }
+  const row = await settled(env, read.id, 12_000)
+  if (row?.status === "done") return row.result && typeof row.result === "object" ? row.result : {}
   await abandonCommand(env, read.id, "result_lost").catch(() => undefined)
+
   return null
 }
 /** One step the server takes itself (no model turn), e.g. Escape to close a list; waits up to 6 s for the tab's answer. */
 async function runQuick(env: Env, run: Json, tool: string, args: Json, note: string): Promise<Json> {
-  const docGen = typeof run?.doc_gen === "number" ? run.doc_gen : 0
-  const [cmd] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool, args, note, doc_gen: docGen }) }).catch(() => [null])
+  const cmd = await queueCommand(env, run, { tool, args, note }).catch(() => null)
   if (!cmd) return null
-  for (const until = Date.now() + 6_000; Date.now() < until;) {
-    await sleep(300)
-    const row = (await svc(env, `drive_commands?id=eq.${cmd.id}&select=status,result`).catch(() => null))?.[0]
-    if (row?.status === "done") return row.result ?? {}
-    if (row?.status === "cancelled" || row?.status === "expired") break
-  }
+  const row = await settled(env, cmd.id, 6_000)
+  if (row?.status === "done") return row.result ?? {}
   await abandonCommand(env, cmd.id, "result_lost").catch(() => undefined)
+
   return null
 }
 const LETTER_FIELD = /cover\s*letter|motivation(al)?\s*letter|letter of motivation|motivatiebrief|sollicitatiebrief|lettre de motivation|anschreiben|begeleidende brief/i
 
-/** The page right now, read for the server's own check (no model turn): its required fields that are still empty. [] if it cannot tell. */
 /** What keeps a page from being "filled in": required boxes still empty, a search box with its suggestions open (typed, not chosen), and a CV box nothing was put in. */
 const emptyOf = (page: Json): string[] => {
   const fields: Json[] = Array.isArray(page?.fields) ? page.fields : []
@@ -320,24 +365,15 @@ export function cvNeverAttached(uploads: Json[]): boolean {
   const done = uploads.filter((u) => u && typeof u.result === "object" && u.result !== null)
   return done.some((u) => u.result.ok === false && u.result.cv_attached !== true) && !done.some((u) => u.result.ok === true || u.result.cv_attached === true)
 }
-async function requiredEmpty(env: Env, run: Json): Promise<string[]> {
+/** What is still empty before Submit on `page` (the page read fresh for the check), the CV included. */
+async function requiredEmpty(env: Env, run: Json, page: Json): Promise<string[]> {
   const uploads = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.upload_cv&status=eq.done&select=result`).catch(() => null)) ?? []
   const cv = cvNeverAttached(uploads) ? ["Resume / CV (Odds could not attach it: finish needs_you, saying why)"] : []
-  return [...await pageEmpty(env, run), ...cv]
+  return [...await pageEmpty(env, run, page), ...cv]
 }
-async function pageEmpty(env: Env, run: Json): Promise<string[]> {
-  const docGen = typeof run?.doc_gen === "number" ? run.doc_gen : 0
-  const [read] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "read_page", args: { review_check: true }, note: "Checking everything is filled before Submit", doc_gen: docGen }) }).catch(() => [null])
-  if (!read) return []
-  for (const until = Date.now() + 12_000; Date.now() < until;) {
-    await sleep(400)
-    const row = (await svc(env, `drive_commands?id=eq.${read.id}&select=status,result`).catch(() => null))?.[0]
-    if (row?.status === "done") {
-      return emptyOf(row.result ?? {})
-    }
-    if (row?.status === "cancelled" || row?.status === "expired") break
-  }
-  await abandonCommand(env, read.id, "result_lost").catch(() => undefined)
+/** The required fields still empty on `page`. [] if it cannot tell. */
+async function pageEmpty(env: Env, run: Json, page: Json): Promise<string[]> {
+  if (page) return emptyOf(page)
   // The fresh read did not come back (a slow tab): the last page Broods saw decides instead of "nothing empty" (IMC's unticked consent
   // went to review this way).
   const last = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&tool=in.(read_page,fill,upload_cv,click)&order=created_at.desc&limit=5&select=result`).catch(() => null)) ?? []
@@ -455,8 +491,8 @@ const BASE_TOOLS = [
 const questionSlug = (q: string): string => `broods_${q.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 60)}`
 const words = (t: string): Set<string> => new Set(t.toLowerCase().replace(/[^a-z0-9à-ÿ ]+/g, " ").split(/\s+/).filter((w) => w.length > 2))
 /** Broods' questions matched to the page's own fields (exact label and options), plus every required field still empty on the page. */
-async function personQuestions(env: Env, run: Json, questions: string[]): Promise<Json[]> {
-  const fields = ((await freshFields(env, run)) ?? []).filter((f: Json) => f?.kind !== "file" && !f?.consent && f?.kind !== "checkbox")
+function personQuestions(pageFields: Json[] | null, questions: string[]): Json[] {
+  const fields = (pageFields ?? []).filter((f: Json) => f?.kind !== "file" && !f?.consent && f?.kind !== "checkbox")
   const clean = (l: string): string => String(l ?? "").replace(/\s*[*✱]\s*$/, "").trim()
   const out = new Map<string, Json>()
   const add = (label: string, f: Json): void => {
@@ -545,6 +581,9 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     args = cleanAgentText(name, args, options)
   }
   if (name === "finish") {
+    // One fresh read of the page serves every check below: nothing moves the page while they run.
+    let read: Promise<Json> | undefined
+    const pageNow = (): Promise<Json> => (read ??= freshPage(env, run))
     let stage = ["review", "needs_you", "stuck"].includes(args.stage) ? args.stage : "stuck"
     const questions = Array.isArray(args.questions) ? args.questions.filter((q: unknown) => typeof q === "string").slice(0, 20) : []
     let message = `${String(args.message ?? "").slice(0, 600)}${questions.length ? ` Questions for you: ${questions.join("; ").slice(0, 380)}` : ""}`.trim()
@@ -570,7 +609,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     if (stage !== "review" && ["account", "other"].includes(String(reason)) && /\b(sign(ing)? in|log ?in|account|password)\b/i.test(message)) {
       const sentForm = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.register_form&select=id&limit=1`).catch(() => null))?.[0]
       if (!sentForm) {
-        const page = await freshPage(env, run)
+        const page = await pageNow()
         const others = Array.isArray(page?.fields) ? page.fields.filter((f: Json) => f?.kind !== "checkbox").length : 0
         if (page && page.dialog == null && page.password_field === true && others >= 3 && !signInWall({ ...page, password_field: false })) {
           await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "register_form" }, done_at: new Date().toISOString() }) }).catch(() => undefined)
@@ -581,7 +620,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     // Closed only when the page itself says so (read_page.closed). A Workday page read before it finished drawing looks empty, and a model
     // calls that "page not found": the page is read again, and a page with a form or an Apply button is never closed. Sent back once.
     if (reason === "closed") {
-      const page = await freshPage(env, run)
+      const page = await pageNow()
       const live = page && page.closed !== true && ((Array.isArray(page.fields) && page.fields.length > 0) || (Array.isArray(page.buttons) && page.buttons.some((b: Json) => /\b(apply|solliciteer|next|continue|volgende|create account|sign in)\b/i.test(String(b?.text ?? "")))))
       const sentClosed = page && page.closed !== true ? (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.closed&select=id&limit=1`).catch(() => null))?.[0] : true
       if (live || !sentClosed) {
@@ -595,7 +634,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     }
     // A cover letter is only asked for when the page has a field for one: never invented (Oracle's Personal Info page has none).
     if (reason === "letter" || /cover letter|motivation letter/i.test(message)) {
-      const fields = await freshFields(env, run)
+      const fields = fieldsOf(await pageNow())
       if (fields && !fields.some((f: Json) => LETTER_FIELD.test(String(f?.label ?? "")))) {
         return { text: "There is no cover or motivation letter field on this page: do not ask the person for one. Finish again with only what the page really needs (reason 'questions' for missing details like an address), or carry on filling.", error: true }
       }
@@ -606,7 +645,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     }
     // "Stuck" only because no Next / Continue / Submit is visible (SmartRecruiters draws its own): with nothing required left and the CV
     // in, that is the end of the form, so review (the person checks and submits). The fresh read below decides.
-    if (stage === "stuck" && /\bno\b[^.]{0,40}\b(next|continue|review|submit|send)\b[^.]{0,30}\b(control|button)s?\b|\b(exposes|shows|offers|has) no\b[^.]{0,30}\b(next|continue|review|submit)\b/i.test(message) && (await requiredEmpty(env, run)).length === 0) {
+    if (stage === "stuck" && /\bno\b[^.]{0,40}\b(next|continue|review|submit|send)\b[^.]{0,30}\b(control|button)s?\b|\b(exposes|shows|offers|has) no\b[^.]{0,30}\b(next|continue|review|submit)\b/i.test(message) && (await requiredEmpty(env, run, await pageNow())).length === 0) {
       stage = "review"; reason = null
       message = "Everything is filled in. Check it and press Submit yourself (the Submit button is the site's own)."
     }
@@ -626,7 +665,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     // Review is only true when the page says so: read it fresh, and refuse while a required field is still empty (a site that cleared
     // name/email after reading the CV, a field Broods never saw). Broods is told exactly what is left and carries on.
     if (stage === "review") {
-      const empty = await requiredEmpty(env, run)
+      const empty = await requiredEmpty(env, run, await pageNow())
       if (empty.length) {
         // An "Attach"-only box may be an optional upload the reader could not name: sent back at most twice for it, then it stands.
         const onlyGuessed = empty.every((e) => / an upload box still empty, most likely the cover letter/.test(e))
@@ -636,7 +675,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
           return { text: `Not done yet: these are still empty on the page: ${empty.slice(0, 10).join("; ")}. Fill them (read_page shows them), or finish needs_you if only the person can answer them.`, error: true }
         }
       }
-      const reviewed = await freshPage(env, run)
+      const reviewed = await pageNow()
       if (reviewed) {
         // An age or birth answer (an autofill guessed it, or an answer saved from an earlier form): Prefer not to say, or empty. Sent back once.
         const stray = strayAge(reviewed)
@@ -726,6 +765,10 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       reason = "questions"
       message = `Required fields still empty: ${args.unfilled.slice(0, 8).join("; ")}`.slice(0, 600)
     }
+    // Questions only the person can answer are matched to the page's own fields, so the page is read before the run ends: once it has
+    // ended, the tab's answer to a read is refused as stale (the read waited 12 s and the questions lost the page's words and choices).
+    const asking = Boolean((questions.length || reason === "questions") && run.posting_id)
+    const askedOn = asking ? await pageNow() : null
     const now = new Date().toISOString()
     await svc(env, `drive_runs?id=eq.${run.id}`, {
       method: "PATCH",
@@ -740,17 +783,22 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       }),
     })
     // Stop late fills: queued/taken work must not POST drive-result after Stuck/review.
-    await cancelOpenCommands(env, run.id, `finished:${stage}`)
-    // Questions only the person can answer: they appear in Odds (the job's page) to answer there; saving them carries Broods on.
-    if ((questions.length || reason === "questions") && run.posting_id) {
-      // Asked with the page's own words and choices, so an answer is kept under the same question every time (and reused on the next job
-      // that asks it), and a choice is a choice in Odds, not free text. Every required question still empty on the page is asked at once.
-      const asked = await personQuestions(env, run, questions)
-      if (asked.length) await svc(env, "application_prompts?on_conflict=user_id,posting_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: run.user_id, posting_id: run.posting_id, questions: asked, updated_at: new Date().toISOString() }) }).catch(() => undefined)
-    }
-    await learnRun(env, run, stage).catch(() => console.warn("Site playbook learning unavailable"))
-    // Only runs that ended on the form itself teach a route (a captcha or a closed job says nothing about the platform's route).
-    if (stage === "review" || reason === "questions") await recordRoute(env, { ...run, steps: run.steps }, stage).catch(() => undefined)
+    await cancelOpenCommands(env, run, `finished:${stage}`)
+    // The rest does not change Broods' answer, so it runs after it: the person's questions, the site's lessons, the route.
+    later((async () => {
+      // Questions only the person can answer: they appear in Odds (the job's page) to answer there; saving them carries Broods on.
+      if (asking) {
+        // Asked with the page's own words and choices, so an answer is kept under the same question every time (and reused on the next job
+        // that asks it), and a choice is a choice in Odds, not free text. Every required question still empty on the page is asked at once.
+        const asked = personQuestions(fieldsOf(askedOn), questions)
+        if (asked.length) await svc(env, "application_prompts?on_conflict=user_id,posting_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: run.user_id, posting_id: run.posting_id, questions: asked, updated_at: new Date().toISOString() }) }).catch(() => undefined)
+      }
+      // One read of the run's steps teaches both the playbook and the route.
+      const commands = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&order=id.asc&select=tool,args,result`).catch(() => null)) ?? []
+      await learnRun(env, run, stage, commands).catch(() => console.warn("Site playbook learning unavailable"))
+      // Only runs that ended on the form itself teach a route (a captcha or a closed job says nothing about the platform's route).
+      if (stage === "review" || reason === "questions") await recordRoute(env, { ...run, steps: run.steps }, stage, commands).catch(() => undefined)
+    })())
     await endTurn(run)
     return { text: 'Finished. The run is over: reply with just "Finished".' }
   }
@@ -813,16 +861,14 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
   }
   const { run_id: _r, say, ...rest } = args ?? {}
   const note = typeof say === "string" && say.trim() ? say.trim().slice(0, 300) : null
-  const docGen = typeof run.doc_gen === "number" ? run.doc_gen : 0
-  const [cmd] = await svc(env, "drive_commands", {
-    method: "POST",
-    body: JSON.stringify({ run_id: run.id, tool: name, args: rest, note, doc_gen: docGen, tab_id: run.tab_id ?? null }),
-  })
-  await svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ steps: run.steps + 1, ...(note ? { last_note: note } : {}), updated_at: new Date().toISOString() }) })
+  // The step and the run's count are written together: the tab may take the step while the count is still on its way.
+  const [cmd] = await Promise.all([
+    queueCommand(env, run, { tool: name, args: rest, note, tab_id: run.tab_id ?? null }),
+    svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ steps: run.steps + 1, ...(note ? { last_note: note } : {}), updated_at: new Date().toISOString() }) }),
+  ])
   const deadline = Date.now() + (name === "fill" ? FILL_WAIT_MS : TOOL_WAIT_MS)
   while (Date.now() < deadline) {
-    await sleep(400)
-    const row = (await svc(env, `drive_commands?id=eq.${cmd.id}&select=status,result,taken_at`))?.[0]
+    const row = await settled(env, cmd.id, deadline - Date.now())
     if (row?.status === "done") {
       let res = row.result ?? {}
       // A picture of the page rides with read_page: kept out of the stored row (the database holds no images) and handed to the model as an image.
@@ -838,7 +884,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         const left = Math.max(0, deadline - Date.now())
         res = await afterNavigation(env, run.id, res, left)
         if (typeof res.shot_image === "string") { shotImage = res.shot_image; const { shot_image: _s, ...rest } = res; res = rest }
-        await svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: res }) })
+        later(svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ result: res }) }))
       }
       if (name === "screenshot" && typeof res.image === "string") {
         void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...res, image: "(sent)" } }) }).catch(() => undefined)
@@ -852,21 +898,16 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
           if (!untried.size) break
           const fields = rest.fields.filter((f: Json) => untried.has(f?.id))
           if (!fields.length) break
-          const [again] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "fill", args: { ...rest, fields }, note: "Filling the rest", doc_gen: docGen, tab_id: run.tab_id ?? null }) }).catch(() => [null])
+          const again = await queueCommand(env, run, { tool: "fill", args: { ...rest, fields }, note: "Filling the rest", tab_id: run.tab_id ?? null }).catch(() => null)
           if (!again) break
-          let more: Json = null
-          for (const until = Date.now() + FILL_WAIT_MS; Date.now() < until;) {
-            await sleep(400)
-            const r2 = (await svc(env, `drive_commands?id=eq.${again.id}&select=status,result`).catch(() => null))?.[0]
-            if (r2?.status === "done") { more = r2.result ?? {}; break }
-            if (r2?.status === "cancelled" || r2?.status === "expired") break
-          }
+          const r2 = await settled(env, again.id, FILL_WAIT_MS)
+          const more: Json = r2?.status === "done" ? r2.result ?? {} : null
           if (!more || !Array.isArray(more.results)) break
           res = { ...more, results: [...res.results.filter((r: Json) => !untried.has(r?.id)), ...more.results] }
         }
       }
       // Every fill teaches the platform which way each kind of field takes a value (here, where every result passes, test or real).
-      if (name === "fill") void learnTactics(env, run, res).catch(() => undefined)
+      if (name === "fill") later(learnTactics(env, run, res))
       // Wrong-job / redirect to another employer: stop before further personal fills.
       const page = res.page || (name === "read_page" ? res : null)
       // A captcha wall and nothing to fill: that is the person's, and it is clear at once. The run ends here without more model turns.
@@ -874,7 +915,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         const now = new Date().toISOString()
         const message = "A check is in the way. Tick it in the tab and Odds carries on."
         await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "captcha", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
-        await cancelOpenCommands(env, run.id, "captcha")
+        await cancelOpenCommands(env, run, "captcha")
         await endTurn(run)
         return { text: JSON.stringify({ ok: false, run_ended: true, captcha: true, error: "Captcha: Odds told the person. The run is over: reply with just \"Finished\" (no finish needed)." }), error: true }
       }
@@ -883,7 +924,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         const now = new Date().toISOString()
         const message = "This job is no longer open for applications."
         await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "closed", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
-        await cancelOpenCommands(env, run.id, "closed")
+        await cancelOpenCommands(env, run, "closed")
         await endTurn(run)
         return { text: JSON.stringify({ ok: false, run_ended: true, closed: true, error: "The job is closed: Odds told the person. The run is over: reply with just \"Finished\" (no finish needed)." }), error: true }
       }
@@ -900,7 +941,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
           const now = new Date().toISOString()
           const message = "This site wants you to sign in. Do it in the tab, then press Auto apply again."
           await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "account", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
-          await cancelOpenCommands(env, run.id, "account")
+          await cancelOpenCommands(env, run, "account")
           await endTurn(run)
           return { text: JSON.stringify({ ok: false, run_ended: true, account: true, error: "Sign-in wall: Odds told the person. The run is over: reply with just \"Finished\" (no finish needed)." }), error: true }
         }
@@ -922,26 +963,25 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
               updated_at: now,
             }),
           }).catch(() => undefined)
-          await cancelOpenCommands(env, run.id, "wrong_job")
+          await cancelOpenCommands(env, run, "wrong_job")
           await endTurn(run)
           return { text: JSON.stringify({ ok: false, wrong_job: true, error: idCheck.message, page }), error: true }
         }
       }
       // Sight: Broods never gets the picture itself (an image in the conversation cost ~40K tokens and was sent again on every later
-      // step). The server shows the screenshot to the sight model and hands Broods its short text: once per new page, and again only when
-      // the step went wrong (a fill not kept, a click that changed nothing, a new error or pop-up, far fewer fields than before).
-      // No sight model configured: no picture is taken either (a capture costs a step and up to 10 s for nothing).
+      // step). The server shows the screenshot to the sight model and hands Broods its short text, only when the step went wrong (a fill
+      // not kept, a click that changed nothing, a new error or pop-up, far fewer fields than before): a look at every new page put a
+      // picture and a model call (seconds) on the path of every step that reached one. No sight model configured: no picture either.
       if (["read_page", "fill", "click", "click_at", "scroll", "upload_cv", "back", "open_job"].includes(name) && live(run) && sightEnv((n) => Deno.env.get(n))) {
         const prev = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&id=lt.${cmd.id}&tool=in.(read_page,fill,click,click_at,scroll,upload_cv,back,open_job)&order=id.desc&limit=1&select=result`).catch(() => null))?.[0]?.result
         const before = prev?.page ?? (Array.isArray(prev?.fields) ? prev : null)
         const reasons = ["fill", "click", "click_at", "read_page"].includes(name) ? troubleReasons(name, res, page, before) : []
         if (fewerFields(page, before)) reasons.push("the page lists far fewer fields than before")
         const key = sightKey(page)
-        const looks = ((await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.sight&select=result&limit=60`).catch(() => null)) ?? []).map((r: Json) => r?.result ?? {})
-        const newPage = Boolean(key) && !looks.some((l: Json) => l.key === key)
+        const looks = reasons.length ? ((await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.sight&select=result&limit=60`).catch(() => null)) ?? []).map((r: Json) => r?.result ?? {}) : []
         const troubleLeft = looks.filter((l: Json) => l.trouble).length < TROUBLE_SIGHT_MAX
-        if (newPage || (reasons.length && troubleLeft)) {
-          // No picture came with the step (the extension sends one only now and then): take one, so every new page gets its look.
+        if (reasons.length && troubleLeft) {
+          // No picture came with the step (the extension sends one only now and then): take one.
           const shot: { image: string; note?: string; scrolled?: boolean } = shotImage ? { image: shotImage } : await captureShotDetailed(env, run)
           const image = shot.image
           const looked = image ? await describeShotDetailed(sightEnv((n) => Deno.env.get(n)), image, 20_000, fetch, reasons) : { text: "", diag: { bytes: 0, skipped: shot.note ?? "no picture" } }
@@ -950,12 +990,11 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
           if (sight) {
             if (res.page && typeof res.page === "object") res = { ...res, page: { ...res.page, sight } }
             else res = { ...res, sight }
-            if (reasons.length) res = { ...res, vision: `Odds looked at the tab because ${reasons.join(" and ")}: read sight before your next step.` }
+            res = { ...res, vision: `Odds looked at the tab because ${reasons.join(" and ")}: read sight before your next step.` }
             void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: res }) }).catch(() => undefined)
           }
-          // Recorded even when no picture or no text came back: the page counts as looked at (no 10 s wait for a picture on every
-          // later step of it), and a failed trouble look still counts against the cap.
-          await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "sight", key, trouble: reasons.length ? reasons.join("; ") : null, ...(sight ? { chars: sight.length } : { empty: true }), diag: sightDiag }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+          // Recorded even when no picture or no text came back: a failed look still counts against the cap.
+          await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "sight", key, trouble: reasons.join("; "), ...(sight ? { chars: sight.length } : { empty: true }), diag: sightDiag }, done_at: new Date().toISOString() }) }).catch(() => undefined)
         }
       }
       // Recipe replays are the server's evidence, not Broods' business.
@@ -983,7 +1022,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         method: "PATCH",
         body: JSON.stringify({ status: "needs_you", reason: "other", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }),
       }).catch(() => undefined)
-      await cancelOpenCommands(env, run.id, "tab_silent")
+      await cancelOpenCommands(env, run, "tab_silent")
       await endTurn(run)
       return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, run_ended: true, error: "The tab stopped answering twice; Odds told the person. The run is over: reply with just \"Finished\" (no finish needed)." }), error: true }
     }
@@ -1159,7 +1198,6 @@ async function captureShot(env: Env, run: Json): Promise<string> {
 
 /** captureShot, with why no picture came (for the sight guard row). */
 async function captureShotDetailed(env: Env, run: Json): Promise<{ image: string; note?: string; scrolled?: boolean }> {
-  const docGen = typeof run.doc_gen === "number" ? run.doc_gen : 0
   // Extensions before 0.15.138 clip the picture at the top of the document (y 0) instead of the part on screen: scrolled down, Chrome
   // draws that region white. Those get the page scrolled to the top first, so the picture shows the real page.
   let scrolled = false
@@ -1171,18 +1209,15 @@ async function captureShotDetailed(env: Env, run: Json): Promise<{ image: string
       if (!moved || !(Number(moved.scrollY) > 0)) break
     }
   }
-  const [cmd] = await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "screenshot", args: {}, note: "Taking a picture of the tab", doc_gen: docGen, tab_id: run.tab_id ?? null }) }).catch(() => [null])
+  const cmd = await queueCommand(env, run, { tool: "screenshot", args: {}, note: "Taking a picture of the tab", tab_id: run.tab_id ?? null }).catch(() => null)
   if (!cmd) return { image: "", note: "the screenshot step could not be stored" }
-  for (const until = Date.now() + 10_000; Date.now() < until;) {
-    await sleep(400)
-    const row = (await svc(env, `drive_commands?id=eq.${cmd.id}&select=status,result`).catch(() => null))?.[0]
-    if (row?.status === "done") {
-      const image = typeof row.result?.image === "string" && row.result.image !== "(sent)" ? row.result.image : ""
-      void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...row.result, image: image ? "(sent)" : row.result?.image } }) }).catch(() => undefined)
-      return image ? { image, scrolled } : { image: "", scrolled, note: `extension answered without a picture: ${String(row.result?.error ?? (row.result?.blank ? "blank" : "no image field")).slice(0, 160)}` }
-    }
-    if (row?.status === "cancelled" || row?.status === "expired") return { image: "", note: `screenshot step ${row.status}` }
+  const row = await settled(env, cmd.id, 10_000)
+  if (row?.status === "done") {
+    const image = typeof row.result?.image === "string" && row.result.image !== "(sent)" ? row.result.image : ""
+    void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...row.result, image: image ? "(sent)" : row.result?.image } }) }).catch(() => undefined)
+    return image ? { image, scrolled } : { image: "", scrolled, note: `extension answered without a picture: ${String(row.result?.error ?? (row.result?.blank ? "blank" : "no image field")).slice(0, 160)}` }
   }
+  if (row) return { image: "", note: `screenshot step ${row.status}` }
   await abandonCommand(env, cmd.id, "result_lost").catch(() => undefined)
   return { image: "", note: "no picture within 10 s" }
 }
@@ -1197,7 +1232,7 @@ async function broodsClient(run: Json): Promise<BroodsClient | null> {
   return new BroodsClient({ apiKey: key, baseUrl: base, userToken: await signUserToken(run.user_id, secret) })
 }
 
-/** Asked at most every 10 s per run while it is quiet (drive-next loops every 400 ms). */
+/** Asked at most every 10 s per run while it is quiet (drive-next looks at the run every half second). */
 const turnChecks = new Map<string, { at: number; turn: BroodsTurn }>()
 /** Whether the run's latest Broods turn is still working. Unknown when Odds cannot tell (no turn id kept, Broods not answering). */
 async function broodsTurn(env: Env, run: Json): Promise<BroodsTurn> {
@@ -1302,7 +1337,9 @@ const resumePatch = (run: Json): Json => ({ status: "running", reason: null, mes
 
 /** /ext/drive-start | drive-next | drive-result for the person's own extension. */
 export async function driveExt(route: string, req: Request, env: Env, userId: string, ctx: { facts: () => Promise<Record<string, string>>; job: (url: string) => Promise<Json> }): Promise<Response> {
-  const json = (status: number, body: Json) => new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } })
+  // Every drive-next answer says where the person's extension listens for wakes (push mode), so it connects without another route.
+  const push = route === "drive-next" ? pushFor(env, userId) : null
+  const json = (status: number, body: Json) => new Response(JSON.stringify(push ? { ...body, push } : body), { status, headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } })
   const body = await req.json().catch(() => null)
   if (route === "drive-playbook") return json(200, { playbook: await sitePlaybook(env, String(body?.page || body?.url || "")) })
   if (route === "drive-start") {
@@ -1310,7 +1347,7 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
     const recordAttempts = async (run: Json) => {
       // Which extension build ran this page: a tab still on an old build explains a trace that does not match the code.
       const version = typeof body?.ext_version === "string" ? body.ext_version.slice(0, 20) : "unknown"
-      await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "ext", args: {}, status: "done", result: { version }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+      await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "ext", args: {}, status: "done", result: { version, push: pushOn() }, done_at: new Date().toISOString() }) }).catch(() => undefined)
       for (const attempt of (Array.isArray(body?.recipe_attempts) ? body.recipe_attempts : []).slice(0, 12)) {
         const lesson = sanitizeLesson(attempt?.lesson)
         if (lesson) await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "recipe", args: {}, status: "done", result: { lesson, ok: attempt.ok === true }, done_at: new Date().toISOString() }) }).catch(() => undefined)
@@ -1390,7 +1427,7 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
           updated_at: now,
         }),
       })
-      await cancelOpenCommands(env, run.id, "stopped")
+      await cancelOpenCommands(env, run, "stopped")
     }
     return json(200, { ok: true })
   }
@@ -1403,21 +1440,21 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
   if (route === "drive-result") {
     const id = Number(body?.id)
     if (!Number.isInteger(id)) return json(400, { error: "Bad command." })
-    const cmd = (await svc(env, `drive_commands?id=eq.${id}&run_id=eq.${run.id}&select=id,status,doc_gen`))?.[0]
-    if (!cmd) return json(404, { error: "No such command.", stale: true })
-    const gate = canAcceptDriveResult({
-      runStatus: run.status,
-      cmdStatus: String(cmd.status),
-      runDocGen: typeof run.doc_gen === "number" ? run.doc_gen : 0,
-      cmdDocGen: typeof cmd.doc_gen === "number" ? cmd.doc_gen : 0,
-    })
-    if (!gate.ok) return json(200, { ok: false, stale: true, reason: gate.reason })
-    // CAS: only the taken row may become done (duplicate polls cannot overwrite).
-    const written = await svc(env, `drive_commands?id=eq.${id}&run_id=eq.${run.id}&status=eq.taken`, {
-      method: "PATCH",
-      body: JSON.stringify({ status: "done", result: body?.result ?? {}, done_at: new Date().toISOString() }),
-    })
-    if (!Array.isArray(written) || !written.length) return json(200, { ok: false, stale: true, reason: "not_taken" })
+    const runDocGen = typeof run.doc_gen === "number" ? run.doc_gen : 0
+    // CAS in one write, the gate's own rules as filters: only the taken row of the run's current document becomes done, and only while
+    // the run is live (duplicate polls and late results cannot overwrite). A refused result reads the row to say why.
+    const written = run.status === "running"
+      ? await svc(env, `drive_commands?id=eq.${id}&run_id=eq.${run.id}&status=eq.taken&doc_gen=eq.${runDocGen}&select=id`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "done", result: body?.result ?? {}, done_at: new Date().toISOString() }),
+      })
+      : []
+    if (!Array.isArray(written) || !written.length) {
+      const cmd = (await svc(env, `drive_commands?id=eq.${id}&run_id=eq.${run.id}&select=id,status,doc_gen`))?.[0]
+      if (!cmd) return json(404, { error: "No such command.", stale: true })
+      const gate = canAcceptDriveResult({ runStatus: run.status, cmdStatus: String(cmd.status), runDocGen, cmdDocGen: typeof cmd.doc_gen === "number" ? cmd.doc_gen : 0 })
+      return json(200, { ok: false, stale: true, reason: gate.ok ? "not_taken" : gate.reason })
+    }
     if (!run.last_seen_at || Date.now() - Date.parse(run.last_seen_at) > 15_000) {
       void svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_seen_at: new Date().toISOString() }) }).catch(() => undefined)
     }
@@ -1474,10 +1511,13 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
         body: JSON.stringify({ tab_id: Number(body.tab_id), updated_at: new Date().toISOString() }),
       }).catch(() => undefined)
     }
-    for (let waited = 0; waited < NEXT_WAIT_MS; waited += 400) {
+    // Push mode (ODDS_DRIVE_PUSH=1, the extension's channel joined): one look, answered at once; a wake makes the extension ask again,
+    // so nothing waits here. Otherwise a long-poll.
+    const until = Date.now() + (body?.push === true && pushOn() ? 0 : NEXT_WAIT_MS)
+    for (let looked = 0; ;) {
       const queued = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.queued&order=id.asc&limit=1&select=id,tool,args,note,doc_gen`))?.[0]
       if (queued) {
-        const taken = await svc(env, `drive_commands?id=eq.${queued.id}&status=eq.queued`, {
+        const taken = await svc(env, `drive_commands?id=eq.${queued.id}&status=eq.queued&select=id`, {
           method: "PATCH",
           body: JSON.stringify({
             status: "taken",
@@ -1489,6 +1529,9 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
         })
         if (Array.isArray(taken) && taken.length) return json(200, { command: queued, steps: run.steps, doc_gen: run.doc_gen ?? 0 })
       }
+      // The queue is looked at every 100 ms, the run itself (ended, expired, quiet) every half second.
+      if (Date.now() - looked < 500) { if (Date.now() >= until) break; await sleep(NEXT_POLL_MS); continue }
+      looked = Date.now()
       const fresh = await runOf(env, run.id)
       if (!fresh || !live(fresh)) {
         if (fresh && driveRunExpired(fresh.status, fresh.expires_at)) {
@@ -1498,7 +1541,7 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
             method: "PATCH",
             body: JSON.stringify({ status: "stuck", reason: "other", message, resume_pending: false, fill_ended_at: now, agent_finished_at: now, updated_at: now }),
           }).catch(() => undefined)
-          await cancelOpenCommands(env, run.id, "expired")
+          await cancelOpenCommands(env, run, "expired")
           return json(200, { done: true, status: "stuck", reason: "other", message })
         }
         return json(200, { done: true, status: fresh?.status ?? "failed", reason: fresh?.reason ?? null, message: fresh?.message ?? "The run ended." })
@@ -1509,7 +1552,7 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
       if (quietMs > QUIET_MS && !personBusy(fresh)) {
         const commands = await svc(env, `drive_commands?run_id=eq.${run.id}&tool=not.in.(recipe,broods,guard,ext,vision)&select=id&limit=1`).catch(() => [])
         const decision = quietAction({ turn: await broodsTurn(env, fresh), quietMs, retries: fresh.retries ?? 0, commandCount: Array.isArray(commands) ? commands.length : 0 })
-        if (decision === "wait") { await sleep(400); continue }
+        if (decision === "wait") { await sleep(NEXT_POLL_MS); continue }
         if (decision === "retry") {
           await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, {
             method: "PATCH",
@@ -1534,10 +1577,11 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
             updated_at: now,
           }),
         }).catch(() => undefined)
-        await cancelOpenCommands(env, run.id, `quiet:${decision === "stuck_unreachable" ? "unreachable" : decision === "stuck_hung" ? "hung" : "stuck"}`)
+        await cancelOpenCommands(env, run, `quiet:${decision === "stuck_unreachable" ? "unreachable" : decision === "stuck_hung" ? "hung" : "stuck"}`)
         return json(200, { done: true, status: "stuck", reason: "other", message, steps: run.steps })
       }
-      await sleep(400)
+      if (Date.now() >= until) break
+      await sleep(NEXT_POLL_MS)
     }
     return json(200, { idle: true, steps: run.steps })
   }
