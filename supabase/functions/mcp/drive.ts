@@ -531,7 +531,7 @@ const SAY = { type: "string", description: "One short line for the person, in pl
 const TOOLS = BASE_TOOLS.map((t) => (t.name === "finish" ? t : { ...t, inputSchema: { ...t.inputSchema, properties: { ...t.inputSchema.properties, say: SAY } } }))
 const REASONS = ["captcha", "account", "questions", "letter", "closed", "email", "other"]
 
-async function callTool(env: Env, name: string, args: Json): Promise<{ text: string; error?: boolean }> {
+async function callTool(env: Env, name: string, args: Json): Promise<{ text: string; error?: boolean; image?: string }> {
   const run = await runOf(env, String(args?.run_id ?? ""))
   if (!run) return { text: "Unknown run_id.", error: true }
   // No em dashes in anything the agent writes for the person or into the form (the prompt asks too; this is the backstop).
@@ -840,7 +840,6 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         if (typeof res.shot_image === "string") { shotImage = res.shot_image; const { shot_image: _s, ...rest } = res; res = rest }
         await svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: res }) })
       }
-      // The screenshot tool: the picture goes to the model as an image part, and the stored row keeps no image.
       if (name === "screenshot" && typeof res.image === "string") {
         void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...res, image: "(sent)" } }) }).catch(() => undefined)
         return { text: JSON.stringify({ width: res.width, height: res.height, note: res.note }), image: res.image }
@@ -988,7 +987,10 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       }).catch(() => undefined)
       await cancelOpenCommands(env, run.id, "tab_silent")
       await endTurn(run)
-      return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, run_ended: true, error: "The tab stopped answering twice; Odds told the person. The run is over: reply with just \"Finished\" (no finish needed)." }), error: true }
+      return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, run_ended: true, error: "The tab stopped answering three times; Odds told the person. The run is over: reply with just \"Finished\" (no finish needed)." }), error: true }
+    }
+    if (silent === 1) {
+      return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, error: "The tab stopped answering twice. Do not call another browser tool. Call finish now with stage 'stuck', reason 'other' and a message for the person: what you already filled, what you did not get to (required fields, checkboxes, consent), and that the tab stopped answering." }), error: true }
     }
   }
   return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, error: `The browser did not answer (${kind}). Call read_page again.` }), error: true }
