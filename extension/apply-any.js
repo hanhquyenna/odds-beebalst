@@ -358,12 +358,18 @@
     const t = textOf(input)
     return PLACEHOLDER.test(t) ? "" : t
   }
-  /** The options a dropdown shows now: the list that belongs to it, else the visible one on the page. */
+  /**
+   * The options a dropdown shows now: the list that belongs to it (named by the control, or drawn beside it), else, while the control
+   * does not say it is closed, the visible one on the page. Another dropdown's open list is never this one's.
+   */
   function listed(input) {
     // (a Workday field's chosen chips sit in a listbox of their own: never the open list)
+    const open = (l) => shown(l) && [...l.querySelectorAll("[role='option']")].some((o) => o.getAttribute("data-automation-id") !== "selectedItem")
     // A web component keeps its list in the input's own shadow root (SmartRecruiters' spl-autocomplete).
     const root = input.getRootNode?.() || document
-    const listbox = root.getElementById?.(input.getAttribute("aria-controls") || "") || root.getElementById?.(input.getAttribute("aria-owns") || "") || [...root.querySelectorAll("[role='listbox']")].filter((l) => shown(l) && [...l.querySelectorAll("[role='option']")].some((o) => o.getAttribute("data-automation-id") !== "selectedItem")).pop() || input.closest("[class*='container'], div")?.querySelector("[role='listbox']")
+    const box = input.parentElement
+    const beside = box?.querySelectorAll("[role='combobox'], [aria-haspopup='listbox']").length === 1 ? [...box.querySelectorAll("[role='listbox']")].find(open) : null
+    const listbox = root.getElementById?.(input.getAttribute("aria-controls") || "") || root.getElementById?.(input.getAttribute("aria-owns") || "") || beside || (input.getAttribute("aria-expanded") === "false" ? null : [...root.querySelectorAll("[role='listbox']")].filter(open).pop()) || input.closest("[class*='container'], div")?.querySelector("[role='listbox']")
     let options = [...(listbox?.querySelectorAll("[role='option'], [data-automation-id='promptOption']") || [])].filter((o) => shown(o) && o.getAttribute("data-automation-id") !== "selectedItem" && !/^\s*(searching|loading|zoeken|bezig|laden)\b/i.test(textOf(o)))
     // Workday draws each choice three times (menuItem › promptLeafNode › promptOption): the menu item is the one to press.
     if (options.some((o) => o.getAttribute("data-automation-id") === "menuItem")) options = options.filter((o) => o.getAttribute("data-automation-id") === "menuItem")
@@ -469,7 +475,13 @@
       }
       if (i < 0) { typeInto(input, ""); input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); input.blur(); return null }
     }
-    if (i < 0) { if (input.tagName === "INPUT" || input.getAttribute("aria-expanded") === "true") input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); if (!button) input.blur(); return null }
+    if (i < 0) {
+      if (input.tagName === "INPUT" || input.getAttribute("aria-expanded") === "true") input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+      // A list Escape does not close (Rippling's) is closed by a second press on its button: left open, the next press would close it instead of opening it.
+      if (button && !pressOnly && input.getAttribute("aria-expanded") === "true") { await sleep(100); if (input.getAttribute("aria-expanded") === "true") input.click() }
+      if (!button) input.blur()
+      return null
+    }
     const text = texts[i]
     options[i].dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
     options[i].click()

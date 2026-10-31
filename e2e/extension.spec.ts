@@ -6323,6 +6323,39 @@ test("Broods: a required dropdown that draws its choices only when opened alread
   expect(await page.evaluate(()=>(window as unknown as {sent?:number}).sent ?? 0)).toBe(0)
 })
 
+test("Broods: a custom dropdown's choices are its own, and a fill after options clicks the asked choice (Rippling)",async({context,fake})=>{
+  await connect(context)
+  fake.kit={job_id:"rippling-dropdowns",broods_drive:true,facts:{name:"Test Applicant",answers:{},remembered:{}},cv:null}
+  const url="https://careers.example.org/rippling-dropdowns"
+  // The mock Rippling form on its Resume step, with a way to its Questions step: a button[role=combobox] per question, its list made on
+  // click and gone on a second click. The questions first show in a click's answer, so Broods asks for their options itself.
+  const html=readFileSync(join(import.meta.dirname,"fixtures/ats/mock/rippling.html"),"utf8").replace("</body>",'<script>Q("#ck-all").click();Q("#apply").click();show(1);Q("#rp-form").insertAdjacentHTML("beforebegin","<button type=button id=to-q>Questions step</button>");Q("#to-q").addEventListener("click",()=>show(2))</script></body>')
+  await context.route(url,r=>r.fulfill({contentType:"text/html",body:html}))
+  type Read={fields:Array<{id:string;label:string;options?:string[]}>;buttons:Array<{id:string;text:string}>}
+  const english=["Basic","Conversational","Professional working","Full professional","Native"]
+  const seen:{auth?:string[];leaked?:string[];value?:string}={}
+  fake.driveScript=async cmd=>{
+    const first=await cmd("read_page") as Read
+    const step=(await cmd("click",{id:first.buttons.find(b=>b.text==="Questions step")!.id}) as {page:Read}).page
+    const id=(re:RegExp)=>step.fields.find(f=>re.test(f.label))!.id
+    const auth=await cmd("options",{id:id(/authorized to work/)}) as {options?:string[];page:Read}
+    seen.auth=auth.options
+    seen.leaked=auth.page.fields.find(f=>/English proficiency/.test(f.label))?.options
+    const fill=await cmd("fill",{fields:[{id:id(/authorized to work/),value:"Yes, I have a residence permit"}]}) as {results:Array<{value?:string}>}
+    seen.value=fill.results[0]?.value
+    return {status:"needs_you",message:"Dropdown test reached"}
+  }
+  const page=await context.newPage();await page.goto(url);await applyFrom(context,page,url)
+  await expect(page.locator(".odds-apply-bar")).toContainText("Dropdown test reached",{timeout:30000})
+  expect(seen.auth).toEqual(["Yes, I am an EU/EEA citizen","Yes, I have a residence permit","No"])
+  // (not read yet, or its own: never the authorization list the options call opened)
+  expect([[],english]).toContainEqual(seen.leaked??[])
+  expect(seen.value).toBe("Yes, I have a residence permit")
+  await expect(page.locator("input[name=work_auth]")).toHaveValue("Yes, I have a residence permit")
+  await expect(page.locator("[role=listbox]")).toHaveCount(0)
+  expect(await page.evaluate(()=>(window as unknown as {sent?:number}).sent ?? 0)).toBe(0)
+})
+
 test("a missing job page (404) closes the job instead of leaving Applying or starting an agent",async({context,fake})=>{
   await connect(context)
   fake.kit={job_id:"missing-job",broods_drive:true,facts:{name:"Test Applicant",answers:{},remembered:{}},cv:null}
