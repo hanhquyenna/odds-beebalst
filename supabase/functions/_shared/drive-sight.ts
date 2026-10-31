@@ -1,7 +1,6 @@
 /**
- * Sight for the drive agent. Broods passes no image to the model (not inside a tool result, not in a user message: tested with a
- * known image, every format came back "I can't see the screenshot"), while 9router reads the same image fine in an ordinary chat
- * message. So the server shows each read_page screenshot to the model itself and hands Broods the description as text.
+ * Sight for the drive agent: when a step shows trouble, the server shows the screenshot to a sight model and hands Broods its short
+ * description, next to the picture itself (Broods passes MCP images to the model now; it did not when this was written).
  */
 
 export const SIGHT_PROMPT = `You are the eyes of a form-filling agent that cannot see the screen. You get one screenshot of a job application page.
@@ -11,6 +10,7 @@ Describe only what helps it act, in at most 8 short lines, plain text, no preamb
 - BUTTONS: the main action buttons you see (Next, Continue, Review, Submit, Apply…) and where (top, bottom, inside a box).
 - CHECK: a captcha, "verify you are human", or a sign-in wall, if visible.
 - ODD: anything that looks unfinished or wrong (an empty required field, a box still showing a placeholder, a spinner, a blank page).
+Boxes with a small tag (f3, b2) are Odds' marks of the page's fields and buttons: name a box by its tag when that helps (e.g. "b4 Next").
 Never repeat personal details you can read (names, e-mails, phone numbers): say "filled" instead. Leave out a line when nothing applies.`
 
 export type SightEnv = { baseUrl: string; apiKey: string; model: string }

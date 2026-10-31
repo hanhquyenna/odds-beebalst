@@ -1,4 +1,4 @@
-// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts, apply-form.ts and apply-censor.ts (sources 9b0e5acb8452eaee). Do not edit.
+// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts, apply-form.ts, apply-censor.ts and drive-screen.ts (sources 067d416dd61d7f63). Do not edit.
 (() => {
   var __defProp = Object.defineProperty;
   var __returnValue = (v) => v;
@@ -625,6 +625,72 @@
     return /Checking that the website kept|Filled in by odds/i.test(message);
   }
 
+  // supabase/functions/_shared/drive-screen.ts
+  var exports_drive_screen = {};
+  __export(exports_drive_screen, {
+    SHOT_MAX_WIDTH: () => SHOT_MAX_WIDTH,
+    shotCrop: () => shotCrop,
+    shotMarks: () => shotMarks,
+    shotPoint: () => shotPoint,
+    shotSize: () => shotSize
+  });
+  var SHOT_MAX_WIDTH = 1280;
+  var ZOOM_MAX_HEIGHT = 800;
+  var ZOOM_MAX_SCALE = 3;
+  var MAX_MARKS = 40;
+  var MIN_MARK_SIZE = 4;
+  function shotCrop(region, shot, captureWidth, captureHeight) {
+    if (!Array.isArray(region) || region.length !== 4 || !region.every((n) => typeof n === "number" && Number.isFinite(n)))
+      return null;
+    const [x1, y1, x2, y2] = region;
+    const left = clamp(Math.min(x1, x2), 0, shot.width);
+    const right = clamp(Math.max(x1, x2), 0, shot.width);
+    const top = clamp(Math.min(y1, y2), 0, shot.height);
+    const bottom = clamp(Math.max(y1, y2), 0, shot.height);
+    if (right - left < MIN_MARK_SIZE || bottom - top < MIN_MARK_SIZE)
+      return null;
+    const k = captureWidth / shot.width;
+    const sw = (right - left) * k;
+    const sh = Math.min(bottom * k, captureHeight) - top * k;
+    if (sh < MIN_MARK_SIZE)
+      return null;
+    const scale = Math.min(SHOT_MAX_WIDTH / sw, ZOOM_MAX_HEIGHT / sh, ZOOM_MAX_SCALE);
+    return { sx: left * k, sy: top * k, sw, sh, width: Math.round(sw * scale), height: Math.round(sh * scale) };
+  }
+  function shotMarks(rects, shot) {
+    const k = shot.width / shot.viewportWidth;
+    const out = [];
+    for (const r of rects) {
+      if (out.length >= MAX_MARKS)
+        break;
+      if (!(r.width >= MIN_MARK_SIZE && r.height >= MIN_MARK_SIZE))
+        continue;
+      const x1 = (r.left + shot.frameX) * k;
+      const y1 = (r.top + shot.frameY) * k;
+      const x2 = x1 + r.width * k;
+      const y2 = y1 + r.height * k;
+      if (x2 <= 0 || y2 <= 0 || x1 >= shot.width || y1 >= shot.height)
+        continue;
+      const box = [Math.round(clamp(x1, 0, shot.width)), Math.round(clamp(y1, 0, shot.height)), Math.round(clamp(x2, 0, shot.width)), Math.round(clamp(y2, 0, shot.height))];
+      out.push({ id: r.id, label: r.label.replace(/\s+/g, " ").trim().slice(0, 40), x: Math.round((box[0] + box[2]) / 2), y: Math.round((box[1] + box[3]) / 2), box });
+    }
+    return out;
+  }
+  function shotPoint(x, y, shot) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > shot.width || y > shot.height)
+      return null;
+    const tabX = x * shot.viewportWidth / shot.width;
+    const tabY = y * shot.viewportWidth / shot.width;
+    return { x: tabX - shot.frameX, y: tabY - shot.frameY, tabX, tabY };
+  }
+  function shotSize(captureWidth, captureHeight) {
+    const width = Math.min(SHOT_MAX_WIDTH, captureWidth);
+    return { width, height: Math.round(captureHeight * width / captureWidth) };
+  }
+  function clamp(n, low, high) {
+    return Math.min(high, Math.max(low, n));
+  }
+
   // supabase/functions/_shared/job-sites.ts
   var exports_job_sites = {};
   __export(exports_job_sites, {
@@ -846,5 +912,5 @@
 
   // scripts/extension-sites.ts
   globalThis.oddsSites = exports_job_sites;
-  globalThis.oddsApply = { ...exports_apply_form, ...exports_apply_censor };
+  globalThis.oddsApply = { ...exports_apply_form, ...exports_apply_censor, ...exports_drive_screen };
 })();

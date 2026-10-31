@@ -429,27 +429,27 @@ const BASE_TOOLS = [
   },
   {
     name: "screenshot",
-    description: "See the tab as an image (when read_page cannot show or move what you need: custom widgets, overlays, canvas). Returns the image and its pixel size.",
-    inputSchema: { type: "object", properties: { run_id: { type: "string" } }, required: ["run_id"] },
+    description: "See the tab as the person sees it, when read_page cannot show or move what you need (a fill or click that did not take, a custom dropdown, date picker or slider, an overlay, a canvas). A picture at most 1280 pixels wide; each read_page field and button on screen is boxed with its id (f… blue, b… pink), and marks lists them with their centre. Act on a boxed id by id (fill, click); click_at only what has no box. region [x1, y1, x2, y2] (pixels of the last screenshot) zooms into that part, unboxed, to read small text.",
+    inputSchema: { type: "object", properties: { run_id: { type: "string" }, region: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4, description: "Zoom: [x1, y1, x2, y2] in pixels of the last full screenshot." } }, required: ["run_id"] },
   },
   {
     name: "click_at",
-    description: "Click at a point (x, y in pixels of the last screenshot) for what read_page cannot reach. A button read_page lists (Next, Continue) is clicked by id with click, not here. Submit/Send and password fields are refused. Returns the fresh page snapshot.",
+    description: "Click at a point: x, y in pixels of the last full screenshot of this page, from its top-left corner (never of a zoom). For what has no read_page id; a boxed id is clicked with click. Submit/Send and password fields are refused. Returns the fresh page and a fresh screenshot.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, x: { type: "number" }, y: { type: "number" } }, required: ["run_id", "x", "y"] },
   },
   {
     name: "type_text",
-    description: "Type text into the field that has focus (click_at it first). append: true keeps what is there.",
+    description: "Type text into the field that has focus (click_at it first). append: true keeps what is there. While you are looking at the screen, returns a fresh screenshot too.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, text: { type: "string" }, append: { type: "boolean" } }, required: ["run_id", "text"] },
   },
   {
     name: "press_key",
-    description: "Press one key on the focused element: Enter, Tab, Escape, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Space, Backspace. Never to go to the next step: click its Next / Continue button by id (read_page lists it).",
+    description: "Press one key on the focused element: Enter, Tab, Escape, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Space, Backspace. Never to go to the next step: click its Next / Continue button by id (read_page lists it). While you are looking at the screen, returns a fresh screenshot too.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, key: { type: "string" } }, required: ["run_id", "key"] },
   },
   {
     name: "scroll",
-    description: "Scroll the page by dy pixels (positive = down).",
+    description: "Scroll the page by dy pixels (positive = down). While you are looking at the screen, returns a fresh screenshot too.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, dy: { type: "number" } }, required: ["run_id"] },
   },
   {
@@ -557,6 +557,19 @@ function signInWall(page: Json): boolean {
   // A dialog open over the form shows only itself (no fields), so a password box behind it says nothing about the page: not a wall.
   return says || (!page.dialog && page.password_field === true && asks.length === 0)
 }
+/** The steps Broods takes by the screen: while it is looking (it took a screenshot of this page) each answers with a fresh picture. */
+const SCREEN_STEPS = ["click_at", "type_text", "press_key", "scroll"]
+/** What goes with a picture in the text Broods reads: its size and coordinate space, and the read_page ids boxed on it. */
+function shotText(meta: Json): Json {
+  const zoom = Array.isArray(meta?.zoom)
+  return {
+    width: meta?.width,
+    height: meta?.height,
+    ...(zoom
+      ? { zoom: meta.zoom, coordinates: "A zoom of that region of the last full screenshot, unboxed. click_at still takes pixels of the full screenshot." }
+      : { coordinates: "x, y in pixels of this picture from its top-left corner: click_at takes these.", marks: Array.isArray(meta?.marks) ? meta.marks.map((m: Json) => ({ id: m?.id, label: m?.label, x: m?.x, y: m?.y })) : [] }),
+  }
+}
 /** Every tool takes the line Broods writes for the person about this step: the tracker shows it live. */
 const SAY = { type: "string", description: "One short line for the person, in plain words: what you are doing now and why (shown live in their tracker), e.g. 'Filling your details from Autofill'." }
 const TOOLS = BASE_TOOLS.map((t) => (t.name === "finish" ? t : { ...t, inputSchema: { ...t.inputSchema, properties: { ...t.inputSchema.properties, say: SAY } } }))
@@ -644,16 +657,16 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       stage = "review"; reason = null
       message = "Everything is filled in. Check it and press Submit yourself (the Submit button is the site's own)."
     }
-    // About to give up: once per run, the server looks at the real tab first (a screenshot described by the sight model; only the
-    // text goes to Broods, never the picture) and Broods tries again with that.
+    // About to give up: once per run, the server looks at the real tab first (a screenshot, described by the sight model) and Broods
+    // tries again with the text and the picture. Not an error result: Broods drops the images of those.
     if ((stage === "stuck" || (stage === "needs_you" && reason === "other")) && live(run)) {
       const looked = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.vision_stuck&select=id&limit=1`).catch(() => null))?.[0]
       if (!looked) {
-        const image = await captureShot(env, run)
-        const sight = image ? (await describeShotDetailed(sightEnv((n) => Deno.env.get(n)), image, 20_000, fetch, ["the agent was about to stop"])).text : ""
-        if (sight) {
-          await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "vision_stuck", sight }, done_at: new Date().toISOString() }) }).catch(() => undefined)
-          return { text: `Not yet: Odds looked at the tab for you. What it shows now:\n${sight}\nUse that (what is open, what the error says, where the button is, what each box really shows) to try another way, or finish again if it really is blocked.`, error: true }
+        const shot = await captureShotDetailed(env, run)
+        const sight = shot.image ? (await describeShotDetailed(sightEnv((n) => Deno.env.get(n)), shot.image, 20_000, fetch, ["the agent was about to stop"])).text : ""
+        if (shot.image) {
+          await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "vision_stuck", ...(sight ? { sight } : {}) }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+          return { text: `Not finished yet: Odds looked at the tab for you (the screenshot).${sight ? ` What it shows now:\n${sight}\n` : " "}Use it (what is open, what the error says, where the button is, what each box really shows) to try another way, or finish again if it really is blocked. ${JSON.stringify({ screenshot: shotText(shot.meta ?? {}) })}`, image: shot.image }
         }
       }
     }
@@ -852,9 +865,11 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
   }
   const { run_id: _r, say, ...rest } = args ?? {}
   const note = typeof say === "string" && say.trim() ? say.trim().slice(0, 300) : null
+  // A screen step Broods asks for comes back with a fresh picture while it is looking at the screen (look); the server's own steps never do.
+  const look = SCREEN_STEPS.includes(name) ? { look: true } : {}
   // The step and the run's count are written together: the tab may take the step while the count is still on its way.
   const [cmd] = await Promise.all([
-    queueCommand(env, run, { tool: name, args: rest, note, tab_id: run.tab_id ?? null }),
+    queueCommand(env, run, { tool: name, args: { ...rest, ...look }, note, tab_id: run.tab_id ?? null }),
     svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ steps: run.steps + 1, ...(note ? { last_note: note } : {}), updated_at: new Date().toISOString() }) }),
   ])
   const deadline = Date.now() + (name === "fill" ? FILL_WAIT_MS : TOOL_WAIT_MS)
@@ -862,11 +877,15 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     const row = await settled(env, cmd.id, deadline - Date.now())
     if (row?.status === "done") {
       let res = row.result ?? {}
-      // A picture of the page rides with read_page: kept out of the stored row (the database holds no images) and handed to the model as an image.
+      // A picture that rides with a step (a screen step's fresh look; read_page on older extensions): kept out of the stored row (the
+      // database holds no images). A screen step's goes to the model as an image; read_page's only when the step shows trouble.
       let shotImage: string | undefined
+      let shotMeta: Json = undefined
       let blankShot: string | undefined
       if (typeof res.screenshot?.image === "string") {
-        shotImage = res.screenshot.image
+        const { image, mime: _mime, ...meta } = res.screenshot
+        shotImage = image
+        shotMeta = meta
         res = { ...res, screenshot: undefined }
         void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: res }) }).catch(() => undefined)
       } else if (res.screenshot) { blankShot = res.screenshot?.diag ? JSON.stringify(res.screenshot.diag).slice(0, 300) : "blank"; res = { ...res, screenshot: undefined } } // a blank picture's diagnosis stays in the stored row only
@@ -878,8 +897,9 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         later(svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ result: res }) }))
       }
       if (name === "screenshot" && typeof res.image === "string") {
-        void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...res, image: "(sent)" } }) }).catch(() => undefined)
-        return { text: JSON.stringify({ width: res.width, height: res.height, note: res.note }), image: res.image }
+        const { image, mime: _mime, ...meta } = res
+        void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...meta, image: "(sent)" } }) }).catch(() => undefined)
+        return { text: JSON.stringify(shotText(meta)), image }
       }
       // A fill that ran out of its time window (a slow dropdown) leaves the rest "not tried": Odds sends those fields again itself, once more, so Broods gets one answer for the whole fill and never gives up on fields nobody tried.
       if (name === "fill" && Array.isArray(res.results) && Array.isArray(rest.fields)) {
@@ -959,11 +979,12 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
           return { text: JSON.stringify({ ok: false, wrong_job: true, error: idCheck.message, page }), error: true }
         }
       }
-      // Sight: Broods never gets the picture itself (an image in the conversation cost ~40K tokens and was sent again on every later
-      // step). The server shows the screenshot to the sight model and hands Broods its short text, only when the step went wrong (a fill
-      // not kept, a click that changed nothing, a new error or pop-up, far fewer fields than before): a look at every new page put a
-      // picture and a model call (seconds) on the path of every step that reached one. No sight model configured: no picture either.
-      if (["read_page", "fill", "click", "click_at", "scroll", "upload_cv", "back", "open_job"].includes(name) && live(run) && sightEnv((n) => Deno.env.get(n))) {
+      // Trouble: only when the step went wrong (a fill not kept, a click that changed nothing, a new error or pop-up, far fewer fields
+      // than before), the server takes a picture, shows it to the sight model and hands Broods its short text and the picture itself
+      // (Broods sees MCP images now; about 1,200 tokens each), so it can act on it at once. A look at every new page put a picture and
+      // a model call (seconds) on the path of every step that reached one. No sight model configured: the picture alone.
+      let troubleShot: { image: string; meta: Json } | undefined
+      if (["read_page", "fill", "click", "click_at", "scroll", "upload_cv", "back", "open_job"].includes(name) && live(run)) {
         const prev = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&id=lt.${cmd.id}&tool=in.(read_page,fill,click,click_at,scroll,upload_cv,back,open_job)&order=id.desc&limit=1&select=result`).catch(() => null))?.[0]?.result
         const before = prev?.page ?? (Array.isArray(prev?.fields) ? prev : null)
         const reasons = ["fill", "click", "click_at", "read_page"].includes(name) ? troubleReasons(name, res, page, before) : []
@@ -972,18 +993,19 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         const looks = reasons.length ? ((await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.sight&select=result&limit=60`).catch(() => null)) ?? []).map((r: Json) => r?.result ?? {}) : []
         const troubleLeft = looks.filter((l: Json) => l.trouble).length < TROUBLE_SIGHT_MAX
         if (reasons.length && troubleLeft) {
-          // No picture came with the step (the extension sends one only now and then): take one.
-          const shot: { image: string; note?: string; scrolled?: boolean } = shotImage ? { image: shotImage } : await captureShotDetailed(env, run)
+          // No picture came with the step (only a screen step sends one): take one.
+          const shot: { image: string; meta?: Json; note?: string; scrolled?: boolean } = shotImage ? { image: shotImage, meta: shotMeta } : await captureShotDetailed(env, run)
           const image = shot.image
+          if (image) troubleShot = { image, meta: shot.meta }
           const looked = image ? await describeShotDetailed(sightEnv((n) => Deno.env.get(n)), image, 20_000, fetch, reasons) : { text: "", diag: { bytes: 0, skipped: shot.note ?? "no picture" } }
           const sight = looked.text
           const sightDiag = { source: shotImage ? "read_page" : "server_capture", ...(shot.scrolled ? { scrolled_top: true } : {}), ...looked.diag, ...(blankShot ? { blank_from_extension: blankShot } : {}) }
           if (sight) {
             if (res.page && typeof res.page === "object") res = { ...res, page: { ...res.page, sight } }
             else res = { ...res, sight }
-            res = { ...res, vision: `Odds looked at the tab because ${reasons.join(" and ")}: read sight before your next step.` }
             void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: res }) }).catch(() => undefined)
           }
+          if (sight || image) res = { ...res, vision: `Odds looked at the tab because ${reasons.join(" and ")}: ${sight ? "read sight and " : ""}look at the screenshot before your next step.` }
           // Recorded even when no picture or no text came back: a failed look still counts against the cap.
           await svc(env, "drive_commands", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "sight", key, trouble: reasons.join("; "), ...(sight ? { chars: sight.length } : { empty: true }), diag: sightDiag }, done_at: new Date().toISOString() }) }).catch(() => undefined)
         }
@@ -991,8 +1013,11 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       // Recipe replays are the server's evidence, not Broods' business.
       const { recipe_attempts: _replayed, ...shown } = res
       if (shown.page?.recipe_attempts) { const { recipe_attempts: _inPage, ...rest } = shown.page; shown.page = rest }
+      // The picture Broods gets with this step: a screen step's fresh look, or the one taken for trouble.
+      const seen = shotImage && SCREEN_STEPS.includes(name) ? { image: shotImage, meta: shotMeta } : troubleShot
+      if (seen) shown.screenshot = shotText(seen.meta ?? {})
       // Whatever else is a very long string (a stray image, a page dump) never goes into the text the model reads.
-      return { text: JSON.stringify(shown, (_k, v) => (typeof v === "string" && v.length > 20_000 ? "(omitted: too long)" : v)).slice(0, 30_000) }
+      return { text: JSON.stringify(shown, (_k, v) => (typeof v === "string" && v.length > 20_000 ? "(omitted: too long)" : v)).slice(0, 30_000), ...(seen ? { image: seen.image } : {}) }
     }
     if (row?.status === "cancelled" || row?.status === "expired") {
       const kind = row.result?.timeout || row.status
@@ -1182,13 +1207,8 @@ export function versionBelow(version: string, than: string): boolean {
   return false
 }
 
-/** A fresh screenshot of the run's tab (a screenshot step the extension answers), or "" when it does not come in time. */
-async function captureShot(env: Env, run: Json): Promise<string> {
-  return (await captureShotDetailed(env, run)).image
-}
-
-/** captureShot, with why no picture came (for the sight guard row). */
-async function captureShotDetailed(env: Env, run: Json): Promise<{ image: string; note?: string; scrolled?: boolean }> {
+/** A fresh screenshot of the run's tab (a screenshot step the extension answers) and what it shows, or why no picture came ("" image). */
+async function captureShotDetailed(env: Env, run: Json): Promise<{ image: string; meta?: Json; note?: string; scrolled?: boolean }> {
   // Extensions before 0.15.138 clip the picture at the top of the document (y 0) instead of the part on screen: scrolled down, Chrome
   // draws that region white. Those get the page scrolled to the top first, so the picture shows the real page.
   let scrolled = false
@@ -1205,8 +1225,9 @@ async function captureShotDetailed(env: Env, run: Json): Promise<{ image: string
   const row = await settled(env, cmd.id, 10_000)
   if (row?.status === "done") {
     const image = typeof row.result?.image === "string" && row.result.image !== "(sent)" ? row.result.image : ""
-    void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...row.result, image: image ? "(sent)" : row.result?.image } }) }).catch(() => undefined)
-    return image ? { image, scrolled } : { image: "", scrolled, note: `extension answered without a picture: ${String(row.result?.error ?? (row.result?.blank ? "blank" : "no image field")).slice(0, 160)}` }
+    const { image: _image, mime: _mime, ...meta } = row.result ?? {}
+    void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...meta, image: image ? "(sent)" : row.result?.image } }) }).catch(() => undefined)
+    return image ? { image, meta, scrolled } : { image: "", scrolled, note: `extension answered without a picture: ${String(row.result?.error ?? (row.result?.blank ? "blank" : "no image field")).slice(0, 160)}` }
   }
   if (row) return { image: "", note: `screenshot step ${row.status}` }
   await abandonCommand(env, cmd.id, "result_lost").catch(() => undefined)

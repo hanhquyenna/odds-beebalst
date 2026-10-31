@@ -5801,11 +5801,18 @@ test(`DRIVE SPEED: each step's time in the tab (${PUSH ? "push" : "long-poll"})`
   expect(ended - started).toBeLessThan(15000)
 })
 
-test("Broods acts by sight when the page tools cannot: screenshot of the tab, a click at a point on a widget read_page does not list, the next step opens", async ({ context, fake }) => {
+/** How long each of a run's steps took in the tab (taken to answered), for the sight tests' timing lines. */
+function tabTimes(fake: Fake): string {
+  return [...[...fake.drives.values()][0]!.times!.values()].map((t) => `${t.tool} ${(t.done ?? 0) - (t.taken ?? 0)} ms`).join(", ")
+}
+type Shot = { image?: string; width?: number; height?: number; marks?: Array<{ id: string; x: number; y: number }>; zoom?: unknown; error?: string }
+
+test("Broods acts by sight when the page tools cannot: a screenshot with the read_page ids boxed, a zoom, a click at a point on a widget read_page does not list, a fresh picture after it", async ({ context, fake }) => {
   test.setTimeout(90_000)
   await connect(context)
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Custom widget</title></head><body style="margin:0"><main>
   <h1>Almost there</h1>
+  <button id="help" style="position:absolute;left:600px;top:100px;width:120px;height:40px">Help</button>
   <div id="go" style="position:absolute;left:200px;top:220px;width:180px;height:48px;background:#1a4;color:#fff;cursor:pointer">Continue</div>
   <div id="step2" hidden><h2>Review</h2><button id="submit" onclick="window.sent=(window.sent||0)+1">Submit</button></div>
   <script>document.getElementById("go").addEventListener("click", () => { document.getElementById("go").remove(); document.getElementById("step2").hidden = false })</script>
@@ -5813,26 +5820,88 @@ test("Broods acts by sight when the page tools cannot: screenshot of the tab, a 
   await context.route("https://jobs.example-widget.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
   fake.kit = { job_id: "pwidget", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: {}, remembered: {} }, cv: null }
   const page = await context.newPage()
-  let shotBytes = 0
+  // 1600 CSS pixels wide: the picture (1280) is 0.8 of the tab, so click_at must scale back.
+  await page.setViewportSize({ width: 1600, height: 900 })
+  const k = 1280 / 1600
+  let shot: Shot = {}, zoom: Shot = {}, after: Record<string, unknown> = {}, keyed: Record<string, unknown> = {}, helpId = ""
   fake.driveScript = async (cmd) => {
-    const before = await cmd("read_page") as { buttons?: Array<{ text: string }> }
+    const before = await cmd("read_page") as { buttons?: Array<{ id: string; text: string }> }
     expect((before.buttons ?? []).some((b) => /continue/i.test(b.text))).toBe(false)
-    const shot = await cmd("screenshot") as { image?: string; width?: number; height?: number; error?: string }
-    shotBytes = (shot.image ?? "").length
-    if (!shotBytes) console.log("SHOT", JSON.stringify(shot).slice(0, 300))
-    const dpr = await page.evaluate(() => devicePixelRatio)
-    await cmd("click_at", { x: (200 + 90) * dpr, y: (220 + 24) * dpr })
-    const after = await cmd("read_page") as { buttons?: Array<{ text: string; blocked?: boolean }> }
-    return (after.buttons ?? []).some((b) => b.blocked && /submit/i.test(b.text))
+    const help = before.buttons!.find((b) => b.text === "Help")!
+    helpId = help.id
+    await cmd("click_at", { x: 10, y: 10 }).then((r) => expect(r.error).toMatch(/screenshot first/))
+    shot = await cmd("screenshot") as Shot
+    const mark = shot.marks?.find((m) => m.id === help.id)
+    expect(mark).toBeDefined()
+    expect(Math.abs(mark!.x - (600 + 60) * k)).toBeLessThanOrEqual(2)
+    expect(Math.abs(mark!.y - (100 + 20) * k)).toBeLessThanOrEqual(2)
+    zoom = await cmd("screenshot", { region: [150, 160, 350, 230] }) as Shot
+    after = await cmd("click_at", { x: (200 + 90) * k, y: (220 + 24) * k, look: true })
+    keyed = await cmd("press_key", { key: "Escape" })
+    const last = await cmd("read_page") as { buttons?: Array<{ text: string; blocked?: boolean }> }
+    return (last.buttons ?? []).some((b) => b.blocked && /submit/i.test(b.text))
       ? { status: "review", message: "Everything is filled in. Check it and press Submit yourself." }
       : { status: "stuck", message: "The click did not open the next step." }
   }
   await page.goto("https://jobs.example-widget.com/apply")
   await applyFrom(context, page, "https://jobs.example-widget.com/apply")
   await expect(page.locator(".odds-apply-bar")).toContainText(/press Submit/i, { timeout: 60000 })
-  expect(shotBytes).toBeGreaterThan(1000)
+  expect(shot.width).toBe(1280)
+  expect(shot.height).toBe(720)
+  expect((shot.image ?? "").length).toBeGreaterThan(1000)
+  // 200 x 70 picture pixels are 250 x 87.5 of the tab, shown 3x (the most a zoom enlarges).
+  expect([zoom.width, zoom.height]).toEqual([750, 263])
+  expect(zoom.marks).toBeUndefined()
+  // The click asked to look (as the server asks for Broods' screen steps): its answer carries the picture of the next step.
+  const fresh = after.screenshot as Shot
+  expect((fresh?.image ?? "").length).toBeGreaterThan(1000)
+  // Its boxes stay on their buttons, also when Chrome's debugging bar (the real click) leaves less of the tab in the picture.
+  const helpAfter = fresh.marks?.find((m) => m.id === helpId)
+  expect(Math.abs(helpAfter!.x - (600 + 60) * k)).toBeLessThanOrEqual(2)
+  expect(Math.abs(helpAfter!.y - (100 + 20) * k)).toBeLessThanOrEqual(2)
+  // A screen step the server takes for itself (no look) never pays for a picture.
+  expect(keyed.screenshot).toBeUndefined()
   await expect(page.locator("#step2")).toBeVisible()
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+  console.log(`SIGHT TIMES: ${tabTimes(fake)}`)
+})
+
+test("by sight in an employer's embedded form: the boxes and click_at points add the frame's place in the tab", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  await context.route("https://careers.example-frame.org/**", (route) => route.fulfill({ contentType: "text/html", body: '<!doctype html><body style="margin:0"><h1 style="margin:0;height:40px">Data Intern</h1><iframe title="Application form" style="position:absolute;left:100px;top:150px;width:800px;height:600px;border:0" src="https://boards.greenhouse.io/embed/job_app?token=777"></iframe></body>' }))
+  await context.route("https://boards.greenhouse.io/**", (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><body style="margin:0"><form onsubmit="event.preventDefault(); window.sent=(window.sent||0)+1">
+    <button type="button" id="help" style="position:absolute;left:300px;top:20px;width:100px;height:40px">Help</button>
+    <div id="go" style="position:absolute;left:40px;top:60px;width:180px;height:48px;background:#1a4;color:#fff">Continue</div>
+    <div id="step2" hidden><h2>Review</h2><button type="submit">Submit application</button></div>
+  </form><script>document.getElementById("go").addEventListener("click", () => { window.clicks = (window.clicks || 0) + 1; document.getElementById("go").remove(); document.getElementById("step2").hidden = false })</script></body></html>` }))
+  fake.kit = { job_id: "pframe", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: {}, remembered: {} }, cv: null }
+  const page = await context.newPage()
+  await page.setViewportSize({ width: 1600, height: 900 })
+  const k = 1280 / 1600
+  let shot: Shot = {}
+  fake.driveScript = async (cmd) => {
+    const before = await cmd("read_page") as { buttons?: Array<{ id: string; text: string }> }
+    const help = before.buttons!.find((b) => b.text === "Help")!
+    shot = await cmd("screenshot") as Shot
+    const mark = shot.marks?.find((m) => m.id === help.id)
+    expect(Math.abs(mark!.x - (100 + 300 + 50) * k)).toBeLessThanOrEqual(2)
+    expect(Math.abs(mark!.y - (150 + 20 + 20) * k)).toBeLessThanOrEqual(2)
+    await cmd("click_at", { x: (100 + 40 + 90) * k, y: (150 + 60 + 24) * k, look: true })
+    const last = await cmd("read_page") as { buttons?: Array<{ text: string; blocked?: boolean }> }
+    return (last.buttons ?? []).some((b) => b.blocked && /submit/i.test(b.text))
+      ? { status: "review", message: "Everything is filled in. Check it and press Submit yourself." }
+      : { status: "stuck", message: "The click did not open the next step." }
+  }
+  await page.goto("https://careers.example-frame.org/embedded")
+  await applyFrom(context, page, "https://careers.example-frame.org/embedded")
+  const frame = page.frameLocator('iframe[title="Application form"]')
+  await expect(frame.locator(".odds-apply-bar")).toContainText(/press Submit/i, { timeout: 60000 })
+  expect(shot.width).toBe(1280)
+  await expect(frame.locator("#step2")).toBeVisible()
+  expect(await page.frames()[1]!.evaluate("window.clicks")).toBe(1)
+  expect(await page.frames()[1]!.evaluate("window.sent ?? 0")).toBe(0)
+  console.log(`SIGHT TIMES (frame): ${tabTimes(fake)}`)
 })
 
 

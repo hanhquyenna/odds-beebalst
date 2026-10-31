@@ -525,22 +525,33 @@
     }
   }
 
-  // ---- Sight: when the page tools cannot see or move something, Broods looks at a screenshot and acts at a point. ----
+  // ---- Sight: when the page tools cannot see or move something, Broods looks at a screenshot (the read_page ids drawn on it), zooms
+  // into a part, and acts at a point. ----
+  /** The last full screenshot of this page (A.shotPoint's geometry): click_at points are its pixels. Null until Broods looked here. */
   let driveImageSize = null
+  /** The read_page questions and buttons on screen, as boxes for the screenshot's marks. */
+  const driveMarks = () => [...[...driveQs].map(([id, q]) => [id, q.label, Array.isArray(q.el) ? q.el[0] : q.el]), ...[...driveBtns].map(([id, b]) => [id, labelOfButton(b), b])]
+    .flatMap(([id, label, el]) => {
+      if (!el?.isConnected || !el.getClientRects().length) return []
+      const r = el.getBoundingClientRect()
+      return r.bottom > 0 && r.top < innerHeight ? [{ id, label: String(label || ""), left: r.left, top: r.top, width: r.width, height: r.height }] : []
+    })
+  /** A picture of the tab: the whole of it with marks (then it is the one click_at points are in), or a zoom of a region of the last one. */
+  async function driveShot(region) {
+    const shot = await ask(region ? { type: "drive-shot", region, last: driveImageSize } : { type: "drive-shot", marks: driveMarks() }, 15000).catch(() => null)
+    if (!shot?.image) return { error: shot?.error || "Could not take a screenshot of this tab." }
+    if (region) return { image: shot.image, mime: "image/jpeg", width: shot.width, height: shot.height, zoom: region, note: "A zoom of that region of the last screenshot. click_at still takes pixels of the full screenshot." }
+    driveImageSize = { width: shot.width, height: shot.height, viewportWidth: shot.viewportWidth, frameX: shot.frameX, frameY: shot.frameY, frame: shot.frame }
+    return { image: shot.image, mime: "image/jpeg", width: shot.width, height: shot.height, marks: shot.marks, note: "x, y are pixels of this picture from its top-left corner: click_at takes them. A box is a read_page field (f…) or button (b…): use its id with fill or click." }
+  }
   async function driveVision(cmd, sendResult, denyText) {
     const args = cmd.args || {}
-    if (cmd.tool === "screenshot") {
-      const shot = await ask({ type: "drive-shot" }, 15000).catch(() => null)
-      if (!shot?.image) return { error: shot?.error || "Could not take a screenshot of this tab." }
-      driveImageSize = { width: shot.width, height: shot.height, viewportWidth: shot.viewportWidth || innerWidth, viewportHeight: shot.viewportHeight || innerHeight }
-      return { image: shot.image, mime: "image/jpeg", width: shot.width, height: shot.height, note: "Coordinates for click_at are pixels in this image." }
-    }
-    const scaleX = driveImageSize ? driveImageSize.width / driveImageSize.viewportWidth : (window.devicePixelRatio || 1)
-    const scaleY = driveImageSize ? driveImageSize.height / driveImageSize.viewportHeight : (window.devicePixelRatio || 1)
+    if (cmd.tool === "screenshot") return driveShot(Array.isArray(args.region) ? args.region : null)
     if (cmd.tool === "click_at") {
-      const x = Number(args.x) / scaleX
-      const y = Number(args.y) / scaleY
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: "x and y are needed" }
+      if (!driveImageSize) return { ok: false, error: "take a screenshot first: click_at takes pixels of the last screenshot of this page" }
+      const at = A.shotPoint(Number(args.x), Number(args.y), driveImageSize)
+      if (!at) return { ok: false, error: `x and y are pixels inside the last screenshot (${driveImageSize.width} x ${driveImageSize.height})` }
+      const { x, y } = at
       const el = document.elementFromPoint(x, y)
       if (!el) return { ok: false, error: "nothing at that point" }
       const target = el.closest("a, button, input, select, textarea, label, [role='button'], [role='checkbox'], [role='option'], [role='radio'], [tabindex]") || el
@@ -648,7 +659,11 @@
     const current = session?.modal?.isConnected ? session.modal : modal
     if (result && cmd.tool !== "read_page" && cmd.tool !== "screenshot") {
       await sleep(180)
-      return { ...result, page: current.isConnected ? driveModalPage(current) : { url: location.href, fields: [], buttons: [], changed: true } }
+      const answer = { ...result, page: current.isConnected ? driveModalPage(current) : { url: location.href, fields: [], buttons: [], changed: true } }
+      // Broods is looking at the screen: a screen step it asked for answers with a fresh picture too (as on other sites).
+      if (answer.ok === false || !cmd.args?.look || !driveImageSize || !["click_at", "type_text", "press_key", "scroll"].includes(cmd.tool)) return answer
+      const shot = await driveShot(null)
+      return shot.image ? { ...answer, screenshot: shot } : answer
     }
     return result
   }

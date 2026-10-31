@@ -636,8 +636,10 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return true
   }
   // Broods looks at the application tab (only when its page tools are stuck): the tab is the visible one in the Odds window, so no focus is taken.
+  // The picture is at most 1280 wide with the read_page ids the frame sends (marks) drawn on it, or, with region, a zoom of the last one.
   if (message?.type === "drive-shot" && sender.tab && typeof sender.tab.id === "number") {
     const tab = sender.tab
+    const S = globalThis.oddsApply
     ;(async () => {
       // Look only when it disturbs no one: the tab is already showing, or it sits in a window the person is not using (the Odds window).
       // Never switch tabs in the window the person is working in; Broods then works from read_page.
@@ -651,17 +653,27 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       const grab = () => chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 55 })
       const url = await grab().catch(async () => { await new Promise((r) => setTimeout(r, 700)); return grab() }).catch(() => null)
       if (!url) return reply({ error: "This tab cannot be seen right now (its window is minimised or hidden). Work from read_page; do not retry screenshot." })
-      const size = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => ({ w: innerWidth, h: innerHeight }) }).then((r) => r?.[0]?.result).catch(() => null)
+      const [size, frame] = await Promise.all([
+        chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => ({ w: innerWidth }) }).then((r) => r?.[0]?.result).catch(() => null),
+        frameOffset(tab.id, sender.frameId ?? 0),
+      ])
       const bitmap = await createImageBitmap(await (await fetch(url)).blob())
-      const width = Math.min(1280, bitmap.width)
-      const height = Math.round(bitmap.height * width / bitmap.width)
+      const crop = message.region ? S.shotCrop(message.region, message.last || { width: 0, height: 0 }, bitmap.width, bitmap.height) : null
+      if (message.region && !crop) { bitmap.close(); return reply({ error: "region is [x1, y1, x2, y2] in pixels of the last screenshot of this page: take a screenshot first, then zoom into a part of it." }) }
+      const { width, height } = crop || S.shotSize(bitmap.width, bitmap.height)
       const canvas = new OffscreenCanvas(width, height)
-      canvas.getContext("2d").drawImage(bitmap, 0, 0, width, height)
+      const ctx = canvas.getContext("2d")
+      if (crop) ctx.drawImage(bitmap, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, width, height)
+      else ctx.drawImage(bitmap, 0, 0, width, height)
+      const shot = { width, height, viewportWidth: size?.w || bitmap.width, frameX: frame?.x ?? 0, frameY: frame?.y ?? 0, frame: frame ? (frame.top ? "top" : "placed") : "unknown" }
       bitmap.close()
+      // Marks only where they land right: on a full picture, from a frame whose place in the tab is known.
+      const marks = crop || !frame ? [] : S.shotMarks(Array.isArray(message.marks) ? message.marks : [], shot)
+      drawMarks(ctx, marks)
       const bytes = new Uint8Array(await (await canvas.convertToBlob({ type: "image/jpeg", quality: 0.65 })).arrayBuffer())
       let binary = ""
       for (const byte of bytes) binary += String.fromCharCode(byte)
-      reply({ image: btoa(binary), width, height, viewportWidth: size?.w, viewportHeight: size?.h })
+      reply({ image: btoa(binary), ...shot, marks })
     })().catch((e) => reply({ error: String(e?.message || e).slice(0, 200) }))
     return true
   }
@@ -1747,6 +1759,52 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // Recover queued phone requests immediately when Chrome wakes the worker.
 pollApplications().catch(() => undefined)
 
+/**
+ * Where a frame's (0, 0) sits in its tab's viewport (CSS pixels), adding up each parent iframe's box. The parent's iframe is found by
+ * its frame id where Chrome tells it, else by its address (the same one, or the only one from that site); null when that is unsure.
+ */
+async function frameOffset(tabId, frameId) {
+  if (!frameId) return { x: 0, y: 0, top: true }
+  let x = 0, y = 0
+  for (let id = frameId, hops = 0; id > 0 && hops < 6; hops++) {
+    const frame = await chrome.webNavigation.getFrame({ tabId, frameId: id }).catch(() => null)
+    if (!frame || frame.parentFrameId < 0) return null
+    const at = await chrome.scripting.executeScript({ target: { tabId, frameIds: [frame.parentFrameId] }, args: [id, frame.url], func: (child, url) => {
+      const frames = [...document.querySelectorAll("iframe, frame")]
+      const origin = (u) => { try { return new URL(u, location.href).origin } catch { return "" } }
+      const sameSite = frames.filter((f) => origin(f.src) === origin(url))
+      const el = (typeof chrome.runtime.getFrameId === "function" && frames.find((f) => { try { return chrome.runtime.getFrameId(f) === child } catch { return false } }))
+        || frames.find((f) => f.src === url) || (sameSite.length === 1 ? sameSite[0] : null)
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      return { x: r.left + el.clientLeft, y: r.top + el.clientTop }
+    } }).then((r) => r?.[0]?.result).catch(() => null)
+    if (!at) return null
+    x += at.x
+    y += at.y
+    id = frame.parentFrameId
+  }
+  return { x, y, top: false }
+}
+
+/** The read_page ids on a screenshot, as browser and computer-use agents draw them: a thin box and its id in a tag at the top-right corner. */
+function drawMarks(ctx, marks) {
+  ctx.lineWidth = 2
+  ctx.font = "bold 12px sans-serif"
+  ctx.textBaseline = "top"
+  for (const m of marks) {
+    const [x1, y1, x2, y2] = m.box
+    const color = m.id.startsWith("b") ? "#d6006f" : "#0057d9"
+    ctx.strokeStyle = color
+    ctx.strokeRect(x1 + 1, y1 + 1, Math.max(1, x2 - x1 - 2), Math.max(1, y2 - y1 - 2))
+    const w = Math.ceil(ctx.measureText(m.id).width) + 6
+    const tx = Math.max(0, x2 - w), ty = Math.max(0, y1 - 8)
+    ctx.fillStyle = color
+    ctx.fillRect(tx, ty, w, 15)
+    ctx.fillStyle = "#fff"
+    ctx.fillText(m.id, tx + 3, ty + 2)
+  }
+}
 
 /** One real input action in a tab through Chrome's debugger (one at a time per tab). click {x,y} | type {text, clear} | key {key}. */
 const realInputQueue = new Map()
