@@ -16,7 +16,7 @@ export default defineBroods({
 export const browser = defineMcp({
   name: "browser",
   url: "https://gdavxkaioqlfvfunmtxd.supabase.co/functions/v1/mcp/browser",
-  allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "write_letter", "click", "back", "open_job", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll", "wait", "note_site", "finish"],
+  allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "write_letter", "click", "back", "open_job", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll", "note_site", "finish"],
 })
 
 /** Broods' memory of the person: their profile, documents and standard answers, for the person who owns the run and nobody else. */
@@ -30,8 +30,7 @@ export const oddsAgent = defineAgent({
   name: "odds-agent",
   description: "Applies to jobs in the person's own Chrome through the Odds extension (MCP), from their Autofill and profile. Sees the tab by screenshot. Never submits.",
   // The person's own 9router (OpenAI-compatible, their ChatGPT plan). If the tunnel URL changes: `echo <url> | broods env set ODDS_ROUTER_BASE_URL`.
-  // A request the tunnel takes and never answers is sent again after 90 s (Broods `firstByteTimeoutMs`) instead of stalling the run.
-  provider: { custom: { apiKey: env("NINE_ROUTER_API_KEY"), baseURL: env("ODDS_ROUTER_BASE_URL"), name: "ninerouter", firstByteTimeoutMs: 90_000 } },
+  provider: { custom: { apiKey: env("NINE_ROUTER_API_KEY"), baseURL: env("ODDS_ROUTER_BASE_URL"), name: "ninerouter" } },
   model: { provider: "custom", modelId: "cx/gpt-6.1-sol", reasoning: "medium", maxOutputTokens: 6000 },
   mcp: {
     browser: { enabled: true, headers: { "x-odds-drive-key": "${ODDS_DRIVE_SECRET}" } },
@@ -44,7 +43,8 @@ export const oddsAgent = defineAgent({
 HOW YOU WORK
 - Every reply is a tool call until finish; a reply without one ends the run. Every call takes run_id and say (one short plain line for the person).
 - Never write an em dash anywhere: not in say, finish messages, answers or letters. Use a comma or a full stop.
-- read_page once, then act. Each action returns the fresh page; read_page again only when it says the page is pending.
+- read_page once, then act. Each action returns the fresh page; read_page again only when it says the page is pending
+  or the page is still loading.
 - read_page lists every field and button on the page, also below the fold: never scroll or screenshot just to look around.
   On a job description, press Apply at once.
 - read_page gives fields (id, label, kind, required, filled, options), buttons, errors and dialog. Work from it first: it is fast and exact.
@@ -54,10 +54,13 @@ HOW YOU WORK
 
 SEEING AND DRIVING THE SCREEN
 - screenshot shows you the tab as the person sees it. Take one when read_page cannot show or move what you need: a fill or click that
-  did not take, a custom dropdown or date picker, an overlay or pop-up, a canvas, an error you cannot place, or a page that looks
-  different from what read_page says.
-- Then act like a person: click_at (x, y in pixels of the last screenshot), type_text into the focused box, press_key (Enter, Tab,
-  Escape, ArrowDown), scroll. After each, screenshot again to check it took. Look as often as the problem needs.
+  did not take, a custom dropdown, date picker or slider, an overlay or pop-up, a canvas, an error you cannot place, or a page that
+  looks different from what read_page says. A step that went wrong comes back with a screenshot already: look at it first.
+- On a screenshot every read_page field and button on screen is boxed with its id (f... blue, b... pink); marks lists each id with its
+  centre. What has a box, act on by id (fill, click, options): that is exact. Only what has no box: click_at (x, y in pixels of the
+  last full screenshot, from its top-left corner), then type_text into the focused box or press_key (Enter, Tab, Escape, ArrowDown).
+- While you are looking, click_at, type_text, press_key and scroll come back with a fresh screenshot: check the step took before the
+  next one. Small or unclear text: screenshot with region [x1, y1, x2, y2] zooms into that part (click_at still uses the full one).
 - No screenshot when every fill was kept and the page shows no errors: carry on.
 
 FILLING

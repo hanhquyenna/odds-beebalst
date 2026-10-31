@@ -30,13 +30,6 @@ async function allowOddsInTab(tabId) {
   })
 }
 // The tests switch the side panel off to try the panel drawn in the page; read ahead of time, because opening the side panel must not wait on anything.
-// The browser's own side panel windows that are open now (each holds a connection while it lives): then no panel is drawn in the page.
-const sidePanels = new Set()
-chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== "odds-side-panel") return
-  sidePanels.add(port)
-  port.onDisconnect.addListener(() => sidePanels.delete(port))
-})
 let panelInPageOnly = false
 chrome.storage.local.get("oddsPanelInPage").then((got) => {
   panelInPageOnly = got.oddsPanelInPage === true
@@ -67,21 +60,6 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [tabId] }).catch(() => undefined)
 })
 
-/**
- * A 401 drops the key only when it keeps happening: three refusals at least a minute apart from the first, with no success between.
- * One refused request (a function restarting mid-deploy) used to wipe the key and turn phone control off without a word, and the
- * extension went silent until the person connected again.
- */
-let refusedSince = 0
-let refusals = 0
-async function keyRefused() {
-  refusals += 1
-  refusedSince ||= Date.now()
-  if (refusals >= 3 && Date.now() - refusedSince >= 60_000) { refusals = 0; refusedSince = 0; await chrome.storage.local.remove(KEY) }
-}
-/** Any answer the server gave with the key (not a 401) means the key still works. */
-function keyAccepted(res) { if (res && res.status !== 401) { refusals = 0; refusedSince = 0 } }
-
 async function savedKey() {
   const stored = await chrome.storage.local.get(KEY)
   return typeof stored[KEY] === "string" && KEY_FORMAT.test(stored[KEY]) ? stored[KEY] : null
@@ -100,9 +78,8 @@ async function addJob(url, analyze = false, posting = null) {
   } catch {
     return { status: "error", message: "odds did not answer. Check your connection and try again." }
   }
-  keyAccepted(res)
   if (res.status === 401) {
-    await keyRefused()
+    await chrome.storage.local.remove(KEY)
     return { status: "connect" }
   }
   const body = await res.json().catch(() => ({}))
@@ -123,9 +100,8 @@ async function peekMany(urls) {
   } catch {
     return every({ status: "error", message: "odds did not answer." })
   }
-  keyAccepted(res)
   if (res.status === 401) {
-    await keyRefused()
+    await chrome.storage.local.remove(KEY)
     return every({ status: "connect" })
   }
   const body = await res.json().catch(() => ({}))
@@ -160,8 +136,8 @@ function peek(url) {
 }
 
 /** A request to one of the extension's own routes on odds with the key; { status: "connect" } without one. */
-async function ext(route, init = {}, keyOverride = null) {
-  const key = keyOverride || await savedKey()
+async function ext(route, init = {}) {
+  const key = await savedKey()
   if (!key) return { status: "connect" }
   let res
   try {
@@ -169,9 +145,8 @@ async function ext(route, init = {}, keyOverride = null) {
   } catch {
     return { status: "error", message: "odds did not answer." }
   }
-  keyAccepted(res)
   if (res.status === 401) {
-    await keyRefused()
+    await chrome.storage.local.remove(KEY)
     return { status: "connect" }
   }
   const body = await res.json().catch(() => ({}))
@@ -185,8 +160,7 @@ async function cvFile(doc) {
   if (!key || !/^[0-9a-f-]{36}$/.test(doc)) return { status: "error" }
   try {
     const res = await fetch(`${await apiBase()}/ext/file?doc=${doc}`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(30000) })
-    // The server's reason ("The file is in Google Drive, and odds can no longer reach it.") goes with the failure, so the person hears it.
-    if (!res.ok) return { status: "error", message: String((await res.json().catch(() => null))?.error || `The CV file did not load (${res.status}).`).slice(0, 200) }
+    if (!res.ok) return { status: "error" }
     const bytes = new Uint8Array(await res.arrayBuffer())
     if (bytes.length > 8_000_000) return { status: "error" }
     let text = ""
@@ -201,20 +175,6 @@ async function cvFile(doc) {
 const PREPARED_MS = 120_000
 const kits = new Map()
 const cvFiles = new Map()
-/** The last apply kit (the person's details, CV and saved answers) kept in this browser, so the first fill of a page does not wait for the server.
- * It is refreshed by every kit that arrives; a page fills from it at once and takes the fresh kit when it comes. */
-const KIT_CACHE = "oddsKitCache"
-const KIT_CACHE_MAX_MS = 24 * 3_600_000
-async function cachedKit() {
-  try {
-    const { [KIT_CACHE]: hit } = await chrome.storage.local.get(KIT_CACHE)
-    return hit && hit.kit?.status === "ok" && Date.now() - hit.at < KIT_CACHE_MAX_MS ? hit.kit : null
-  } catch { return null }
-}
-function keepKit(kit) {
-  if (kit?.status !== "ok" || !kit.facts) return
-  chrome.storage.local.set({ [KIT_CACHE]: { at: Date.now(), kit } }).catch(() => undefined)
-}
 function kitFor(url, fresh = false, hints = {}) {
   const hit = kits.get(url)
   if (!fresh && hit && Date.now() - hit.at < PREPARED_MS) return hit.promise
@@ -222,7 +182,6 @@ function kitFor(url, fresh = false, hints = {}) {
   const promise = ext("apply-kit", { method: "POST", body: JSON.stringify({ url, ...hints }) })
   kits.set(url, { at: Date.now(), promise })
   promise.then((kit) => {
-    keepKit(kit)
     const doc = kit?.cv?.id
     if (typeof doc === "string" && !cvFiles.has(doc)) cvFileFor(doc)
   }).catch(() => kits.delete(url))
@@ -237,33 +196,6 @@ function cvFileFor(doc) {
   return promise
 }
 
-const PLAYBOOK_CACHE = "oddsPlaybooks"
-const PLAYBOOK_FRESH_MS = 6 * 3_600_000
-async function playbookFor(page) {
-  let host = ""
-  try { host = new URL(page).hostname.toLowerCase() } catch { return ext("drive-playbook", { method: "POST", body: JSON.stringify({ page }) }) }
-  const load = async () => {
-    const res = await ext("drive-playbook", { method: "POST", body: JSON.stringify({ page }) })
-    if (res?.playbook) {
-      try {
-        const { [PLAYBOOK_CACHE]: all = {} } = await chrome.storage.local.get(PLAYBOOK_CACHE)
-        const keep = Object.entries({ ...all, [host]: { at: Date.now(), playbook: res.playbook } }).sort((a, b) => b[1].at - a[1].at).slice(0, 60)
-        await chrome.storage.local.set({ [PLAYBOOK_CACHE]: Object.fromEntries(keep) })
-      } catch { /* storage blocked: the next page asks again */ }
-    }
-    return res
-  }
-  try {
-    const { [PLAYBOOK_CACHE]: all = {} } = await chrome.storage.local.get(PLAYBOOK_CACHE)
-    const hit = all[host]
-    if (hit?.playbook) {
-      if (Date.now() - hit.at > PLAYBOOK_FRESH_MS) void load().catch(() => undefined)
-      return { playbook: hit.playbook, cached: true }
-    }
-  } catch { /* no local copy */ }
-  return load()
-}
-
 /** A sign-in for the odds app inside the panel, made by odds from the extension's key. */
 async function session() {
   const key = await savedKey()
@@ -274,13 +206,111 @@ async function session() {
   } catch {
     return { status: "error", message: "odds did not answer." }
   }
-  keyAccepted(res)
   if (res.status === 401) {
-    await keyRefused()
+    await chrome.storage.local.remove(KEY)
     return { status: "connect" }
   }
   const body = await res.json().catch(() => ({}))
   return res.ok ? { status: "ok", session: body } : { status: "error", message: body.error || "Could not sign you in." }
+}
+
+// ---- Push (the server's ODDS_DRIVE_PUSH=1): when Broods queues a step, odds wakes this worker over the person's own private Realtime
+// channel, and drive-next is asked at once instead of long-polled. The channel only wakes: every step is still taken from odds with
+// the key, and a run is only ever asked for by the tab that drives it. Without the channel, drive-next long-polls as before. ----
+/** The longest wait on the channel before odds is asked anyway (a wake lost while the socket was away). */
+const PUSH_CHECK_MS = 5000
+const push = { config: null, socket: null, joined: false, ref: 0, retryAt: 0, usedAt: 0, token: null, wokenAt: new Map(), waiters: new Map() }
+
+/** The channel is joined: drive-next may answer at once. */
+const pushReady = () => push.joined && push.socket?.readyState === WebSocket.OPEN
+
+/** Follows what odds says about push on each drive-next: joins the channel it names, or closes the socket when push is off. */
+function pushFollow(config) {
+  const valid = config && typeof config.url === "string" && typeof config.topic === "string" && typeof config.apikey === "string" ? config : null
+  if (!valid || valid.url !== push.config?.url || valid.topic !== push.config?.topic) pushClose()
+  push.config = valid
+  if (!valid || push.socket || Date.now() < push.retryAt) return
+  // One join at a time: the next try waits until this one has failed or the socket has closed.
+  push.retryAt = Date.now() + 30000
+  pushOpen(valid).catch(() => pushClose(30000))
+}
+
+/** Waits for a wake for this run that came after `since`, at most `ms`. */
+function pushWait(runId, since, ms) {
+  if ((push.wokenAt.get(runId) ?? 0) > since) return Promise.resolve()
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(timer); push.waiters.get(runId)?.delete(done); resolve() }
+    const timer = setTimeout(done, ms)
+    if (!push.waiters.has(runId)) push.waiters.set(runId, new Set())
+    push.waiters.get(runId).add(done)
+  })
+}
+
+/** The next step of a run for its tab. With the channel joined, odds answers at once and is asked again on each wake for the run
+ * (at least every PUSH_CHECK_MS); without it odds long-polls. Either way an answer comes within about 20 s, as before. */
+async function driveNext(body) {
+  const until = Date.now() + 20000
+  let ask = body
+  for (;;) {
+    push.usedAt = Date.now()
+    const pushed = pushReady()
+    const sent = Date.now()
+    const res = await ext("drive-next", { method: "POST", body: JSON.stringify(pushed ? { ...ask, push: true } : ask) })
+    if (res?.status === "ok") pushFollow(res.push ?? null)
+    if (!pushed || res?.status !== "ok" || !res.idle || res.hold || Date.now() >= until) return res
+    ask = { ...ask, fresh: false }
+    await pushWait(ask.run_id, sent, Math.min(PUSH_CHECK_MS, until - Date.now()))
+  }
+}
+
+/** Joins the person's channel (Realtime's Phoenix protocol) with their own sign-in, on odds' own host only. */
+async function pushOpen(config) {
+  if (new URL(config.url).host !== new URL(await apiBase()).host) return pushClose(600000)
+  if (!push.token || push.token.until - Date.now() < 300000) {
+    const signed = await session()
+    const expires = Number(signed.session?.expires_at) * 1000
+    push.token = signed.status === "ok" && typeof signed.session?.access_token === "string" ? { jwt: signed.session.access_token, until: Number.isFinite(expires) ? expires : Date.now() + 3600000 } : null
+  }
+  if (!push.token) return pushClose(30000)
+  if (push.config !== config || push.socket) return
+  const socket = new WebSocket(`${config.url}?apikey=${encodeURIComponent(config.apikey)}&vsn=1.0.0`)
+  push.socket = socket
+  const topic = `realtime:${config.topic}`
+  const joinRef = String(++push.ref)
+  const send = (to, event, payload, ref = String(++push.ref)) => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ topic: to, event, payload, ref })) }
+  // A heartbeat keeps the socket, and with it this worker, alive while a run asks for steps; a minute without one closes it. The
+  // sign-in is renewed by joining again.
+  const beat = setInterval(() => (Date.now() - push.usedAt > 60000 ? pushClose() : send("phoenix", "heartbeat", {})), 20000)
+  const renew = setTimeout(() => { if (push.socket === socket) pushClose() }, Math.max(60000, push.token.until - Date.now() - 120000))
+  socket.onopen = () => send(topic, "phx_join", { config: { broadcast: { ack: false, self: false }, presence: { enabled: false, key: "" }, postgres_changes: [], private: true }, access_token: push.token.jwt }, joinRef)
+  socket.onmessage = (e) => {
+    let m = null
+    try { m = JSON.parse(e.data) } catch { return }
+    if (m?.topic !== topic) return
+    if (m.event === "phx_reply" && m.ref === joinRef) {
+      push.joined = m.payload?.status === "ok"
+      if (!push.joined) pushClose(60000)
+    } else if (m.event === "broadcast" && m.payload?.event === "wake" && typeof m.payload.payload?.run_id === "string") {
+      const runId = m.payload.payload.run_id
+      push.wokenAt.set(runId, Date.now())
+      for (const done of [...(push.waiters.get(runId) ?? [])]) done()
+    } else if (m.event === "phx_error" || m.event === "phx_close" || (m.event === "system" && m.payload?.status === "error")) pushClose(5000)
+  }
+  socket.onclose = () => {
+    clearInterval(beat)
+    clearTimeout(renew)
+    if (push.socket === socket) pushClose(push.joined ? 2000 : 30000)
+  }
+}
+
+/** Leaves the channel; no new join for `waitMs`. Runs waiting on a wake ask odds at once (and long-poll from then on). */
+function pushClose(waitMs = 0) {
+  const socket = push.socket
+  push.socket = null
+  push.joined = false
+  push.retryAt = Date.now() + waitMs
+  if (socket && socket.readyState <= WebSocket.OPEN) socket.close()
+  for (const waiting of push.waiters.values()) for (const done of [...waiting]) done()
 }
 
 /** The person's saved jobs, for the panel. */
@@ -293,9 +323,8 @@ async function pool() {
   } catch {
     return { status: "error", message: "odds did not answer." }
   }
-  keyAccepted(res)
   if (res.status === 401) {
-    await keyRefused()
+    await chrome.storage.local.remove(KEY)
     return { status: "connect" }
   }
   const body = await res.json().catch(() => ({}))
@@ -320,8 +349,6 @@ chrome.storage.onChanged.addListener(changes => {
   if (!changes[KEY]) return
   chanceCache.clear()
   chrome.storage.session.remove("oddsChanceCache")
-  // A new key is another person: their details and site recipes are fetched again.
-  chrome.storage.local.remove(["oddsKitCache", "oddsPlaybooks"])
 })
 /** A posting a page sent: plain text fields only (the server checks it again). */
 function postingOf(message) {
@@ -467,21 +494,6 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return true
   }
   // The side panel: add the page's job to the person's Odds jobs; read the new answers on the form (Save to Autofill).
-  if (message?.type === "panel-chance" && typeof message.tabId === "number" && typeof message.pct === "number") {
-    const label = typeof message.label === "string" ? message.label : `${message.pct}%`
-    chrome.tabs.sendMessage(message.tabId, { type: "odds-chance", pct: message.pct, label, url: typeof message.url === "string" ? message.url : "" }).catch(() => undefined)
-    if (typeof message.url === "string") {
-      savedKey().then((key) => {
-        if (!key) return
-        const id = `${key}:${message.url}`
-        const cached = chanceCache.get(id)
-        const answer = cached?.answer && typeof cached.answer === "object" ? { ...cached.answer, chance_pct: message.pct } : { status: "ok", known: true, chance_pct: message.pct }
-        remember(id, answer)
-      }).catch(() => undefined)
-    }
-    reply({ ok: true })
-    return true
-  }
   if (message?.type === "panel-add-job" && typeof message.url === "string") {
     addJob(message.url).then((res) => { kits.delete(message.url); reply(res) }).catch(() => reply({ status: "error" }))
     return true
@@ -522,13 +534,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   // What the page in front is (job / create_account / sign_in / captcha / form), for the side panel's one button.
   if (message?.type === "page-kind" && sender.tab && typeof sender.tab.id === "number" && sender.frameId === 0) {
     pageKinds.set(sender.tab.id, message.kind || null)
-    void autoAccount(sender.tab.id, message.kind || null)
     reply({ ok: true })
-    return true
-  }
-  // The saved logins page (the accounts Odds made, with Show / Copy / Forget): an extension page, so the passwords never reach a web page.
-  if (message?.type === "panel-open-logins") {
-    chrome.tabs.create({ url: chrome.runtime.getURL("logins.html") }).then(() => reply({ ok: true })).catch(() => reply({ ok: false }))
     return true
   }
   // Create account & Autofill / Sign in & Autofill from the side panel: the person's email and a password Odds makes for this site
@@ -629,45 +635,47 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     })().catch(() => reply({ ok: false }))
     return true
   }
-  // Broods asks for a mail (a site's verification code or link): Gmail is opened in another tab of this Chrome (the person is signed in), polled
-  // for a new message, read, and the tab is closed when the run asks again later or ends. Nothing is stored; only what the tool returns leaves.
-  if (message?.type === "drive-mail" && sender.tab && typeof sender.tab.id === "number") {
-    readMail(sender.tab.id, { from: String(message.from || ""), subject: String(message.subject || "") })
-      .then(reply).catch((e) => reply({ error: String(e?.message || e).slice(0, 200) }))
-    return true
-  }
   // Broods looks at the application tab (only when its page tools are stuck): the tab is the visible one in the Odds window, so no focus is taken.
+  // The picture is at most 1280 wide with the read_page ids the frame sends (marks) drawn on it, or, with region, a zoom of the last one.
   if (message?.type === "drive-shot" && sender.tab && typeof sender.tab.id === "number") {
     const tab = sender.tab
+    const S = globalThis.oddsApply
     ;(async () => {
-      // Through the debugger first: it needs no focus and shows the page whether or not its tab is in front.
-      const viaDebugger = await shotViaDebugger(tab.id)
-      if (viaDebugger.image) return reply(viaDebugger)
       // Look only when it disturbs no one: the tab is already showing, or it sits in a window the person is not using (the Odds window).
       // Never switch tabs in the window the person is working in; Broods then works from read_page.
       if (!tab.active) {
         const win = await chrome.windows.get(tab.windowId).catch(() => null)
-        if (win?.focused) return reply(viaDebugger.blank ? viaDebugger : { error: "The application tab is in the window you are using; Odds does not switch your tabs to look. Use read_page." })
+        if (win?.focused) return reply({ error: "The application tab is in the window you are using; Odds does not switch your tabs to look. Use read_page." })
         await chrome.tabs.update(tab.id, { active: true }).catch(() => undefined)
         await new Promise((r) => setTimeout(r, 400))
       }
       // A window that is minimised or covered cannot be read back at once: one retry, then say plainly what to do instead.
       const grab = () => chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 55 })
       const url = await grab().catch(async () => { await new Promise((r) => setTimeout(r, 700)); return grab() }).catch(() => null)
-      if (!url) return reply(viaDebugger.blank ? viaDebugger : { error: "This tab cannot be seen right now (its window is minimised or hidden). Work from read_page; do not retry screenshot." })
-      const size = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => ({ w: innerWidth, h: innerHeight }) }).then((r) => r?.[0]?.result).catch(() => null)
+      if (!url) return reply({ error: "This tab cannot be seen right now (its window is minimised or hidden). Work from read_page; do not retry screenshot." })
+      const [size, frame] = await Promise.all([
+        chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => ({ w: innerWidth }) }).then((r) => r?.[0]?.result).catch(() => null),
+        frameOffset(tab.id, sender.frameId ?? 0),
+      ])
       const bitmap = await createImageBitmap(await (await fetch(url)).blob())
-      // A window macOS does not paint gives a white picture here too: then the debugger's answer (with why) stands.
-      if (viaDebugger.blank && (await shotSpread(url.split(",")[1] || "")) < BLANK_SPREAD) { bitmap.close(); return reply(viaDebugger) }
-      const width = Math.min(1280, bitmap.width)
-      const height = Math.round(bitmap.height * width / bitmap.width)
+      // A zoom needs a part of an earlier picture of this page. No earlier picture, an empty box or (nearly) the whole picture, which a
+      // model sends for "everything": the full picture with its boxes, never an error it would retry.
+      const cut = message.region ? S.shotCrop(message.region, message.last || { width: 0, height: 0 }, bitmap.width, bitmap.height) : null
+      const crop = cut && cut.sw * cut.sh < 0.9 * bitmap.width * bitmap.height ? cut : null
+      const { width, height } = crop || S.shotSize(bitmap.width, bitmap.height)
       const canvas = new OffscreenCanvas(width, height)
-      canvas.getContext("2d").drawImage(bitmap, 0, 0, width, height)
+      const ctx = canvas.getContext("2d")
+      if (crop) ctx.drawImage(bitmap, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, width, height)
+      else ctx.drawImage(bitmap, 0, 0, width, height)
+      const shot = { width, height, viewportWidth: size?.w || bitmap.width, frameX: frame?.x ?? 0, frameY: frame?.y ?? 0, frame: frame ? (frame.top ? "top" : "placed") : "unknown" }
       bitmap.close()
+      // Marks only where they land right: on a full picture, from a frame whose place in the tab is known.
+      const marks = crop || !frame ? [] : S.shotMarks(Array.isArray(message.marks) ? message.marks : [], shot)
+      drawMarks(ctx, marks)
       const bytes = new Uint8Array(await (await canvas.convertToBlob({ type: "image/jpeg", quality: 0.65 })).arrayBuffer())
       let binary = ""
       for (const byte of bytes) binary += String.fromCharCode(byte)
-      reply({ image: btoa(binary), width, height, viewportWidth: size?.w, viewportHeight: size?.h })
+      reply({ image: btoa(binary), ...shot, marks, zoomed: Boolean(crop) })
     })().catch((e) => reply({ error: String(e?.message || e).slice(0, 200) }))
     return true
   }
@@ -687,7 +695,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       if (pending) { pending.then((res) => reply(res)).catch(() => reply(null)); return true }
     }
     const body = message.op === "start"
-      ? { ext_version: chrome.runtime.getManifest().version, url: String(message.url || ""), page: String(message.page || ""), run_id: typeof message.run_id === "string" ? message.run_id : null, recipe_attempts: message.recipe_attempts || [], tab_id: tabId, ...(message.ready === true ? { ready: true } : {}), ...(message.copilot === true ? { copilot: true } : {}), ...(message.odds_filled && typeof message.odds_filled === "object" ? { odds_filled: message.odds_filled } : {}) }
+      ? { url: String(message.url || ""), page: String(message.page || ""), run_id: typeof message.run_id === "string" ? message.run_id : null, recipe_attempts: message.recipe_attempts || [], tab_id: tabId, ext_version: chrome.runtime.getManifest().version, ...(message.ready === true ? { ready: true } : {}), ...(message.copilot === true ? { copilot: true } : {}), ...(message.odds_filled && typeof message.odds_filled === "object" ? { odds_filled: message.odds_filled } : {}) }
       : message.op === "playbook" ? { page: String(message.page || "") }
       : message.op === "next" ? { run_id: message.run_id, fresh: message.fresh === true, hold: message.hold === true, tab_id: tabId }
       : message.op === "continue" ? { run_id: message.run_id }
@@ -698,9 +706,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
         const held = (await intentOf(tabId))?.driveRun
         if (typeof held === "string") body.run_id = held
       }
-      // Site recipes change slowly: the copy kept for this host answers at once and is refreshed for the next page.
-      if (message.op === "playbook") return playbookFor(body.page)
-      const res = await ext(`drive-${message.op}`, { method: "POST", body: JSON.stringify(body) })
+      const res = message.op === "next" && !body.hold ? await driveNext(body) : await ext(`drive-${message.op}`, { method: "POST", body: JSON.stringify(body) })
       // The run follows the tab across page loads: the next page resumes it instead of starting another.
       if (message.op === "start" && typeof res?.run_id === "string") await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], driveRun: res.run_id } })
       // ext() separates transport status from the application stage. Restore the
@@ -804,11 +810,6 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   }
   // Applying: what the form needs, the person's own answers kept, the job marked applied, their CV for the upload.
   if (message?.type === "apply-kit" && typeof message.url === "string") {
-    // The local copy, answered at once; a refresh starts in the background for the next page.
-    if (message.cached === true) {
-      cachedKit().then((kit) => { if (kit) void kitFor(message.url).catch(() => undefined); reply(kit ? { ...kit, cached: true } : { status: "none" }) })
-      return true
-    }
     // Always an answer: a failed fetch is "error" (the page retries), never silence the page would read as "not connected".
     kitFor(message.url).then(reply).catch(() => { kits.delete(message.url); reply({ status: "error", message: "odds did not answer." }) })
     return true
@@ -894,10 +895,6 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return true
   }
   // A press on the odds button on a page: open the browser's side panel on that tab at once (it must happen inside the press), allowing odds to be framed there first.
-  if (message?.type === "native-panel-open") {
-    reply({ open: sidePanels.size > 0 })
-    return false
-  }
   if (message?.type === "open-side-panel" && sender.tab && typeof sender.tab.id === "number") {
     const tabId = sender.tab.id
     if (panelInPageOnly) {
@@ -980,25 +977,15 @@ function changeIntents(change) {
   intentWrites = next
   return next
 }
-// An application starting in a tab that already shows an account step (Auto apply pressed there) gets the same account step as one that reaches it.
-function setIntent(tabId, intent) { return changeIntents((all) => { all[tabId] = intent }).then((r) => { void autoAccount(tabId, pageKinds.get(tabId) || null); return r }) }
-/** Extension/browser restart invalidates old content-script ports. Stop their server runs before dropping tab ownership. */
-async function stopAndClearApplyIntents(message) {
-  const { oddsApplyIntents = {} } = await chrome.storage.local.get("oddsApplyIntents")
-  const runs = [...new Set(Object.values(oddsApplyIntents).map((it) => it?.driveRun).filter((id) => typeof id === "string"))]
-  await Promise.allSettled(runs.map((run_id) => ext("drive-stop", { method: "POST", body: JSON.stringify({ run_id, message }) })))
-  await chrome.storage.local.remove("oddsApplyIntents")
-}
+function setIntent(tabId, intent) { return changeIntents((all) => { all[tabId] = intent }) }
 // Tab ids are reused once the browser restarts: an application is only remembered across a reload of the extension.
-chrome.runtime.onStartup.addListener(() => { void stopAndClearApplyIntents("Chrome restarted while Odds was applying. Press Apply with Odds to carry on.") })
+chrome.runtime.onStartup.addListener(() => chrome.storage.local.remove("oddsApplyIntents"))
 // Reloaded or updated: every application record from before is dropped, so no tab the person is using stays attached to an old run.
-chrome.runtime.onInstalled.addListener(() => { void stopAndClearApplyIntents("The Odds extension was updated while applying. Press Apply with Odds to carry on.") })
+chrome.runtime.onInstalled.addListener(() => { void chrome.storage.local.remove("oddsApplyIntents") })
 // The person takes an application tab for themselves (types an address, a bookmark, the address bar): Odds lets go of that tab and pauses
 // the run, so it never works on a page they opened. Odds' own clicks and the site's redirects keep the application.
 chrome.webNavigation?.onCommitted.addListener((d) => {
   if (d.frameId !== 0) return
-  // Chrome's own hidden loads (the address bar warming up a search, a prerendered page) are not the person opening anything.
-  if (d.documentLifecycle === "prerender" || /^https:\/\/www\.google\.[a-z.]+\/search\/warmup\.html/.test(d.url || "")) return
   const q = d.transitionQualifiers || []
   // Back/Forward is handled by the pause (the person went back a step), not here.
   if (q.includes("forward_back")) return
@@ -1123,21 +1110,12 @@ async function continueInTab(tabId, { reveal = false } = {}) {
   if (reveal) await revealApplicationTab(tabId, true)
   const ping = () => chrome.tabs.sendMessage(tabId, { type: "application-ping" }).then(() => true).catch(() => false)
   if (!await ping()) {
-    const injected = await injectApplyScripts(tabId)
+    await injectApplyScripts(tabId)
     // Content script must attach its Continue listener before we ping it (reload / reinject).
     await new Promise((r) => setTimeout(r, 400))
-    if (!injected || !await ping()) {
-      const message = "Odds could not reconnect to the application page. Reload it, then press Apply with Odds again."
-      await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], status: "failed", message, at: Date.now() } }).catch(() => undefined)
-      return false
-    }
   }
-  const delivered = await chrome.tabs.sendMessage(tabId, { type: "application-continue" }).then(() => true).catch(() => false)
-  if (!delivered) {
-    const message = "Odds could not reconnect to the application page. Reload it, then press Apply with Odds again."
-    await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], status: "failed", message, at: Date.now() } }).catch(() => undefined)
-  }
-  return delivered
+  await chrome.tabs.sendMessage(tabId, { type: "application-continue" }).catch(() => undefined)
+  return true
 }
 /** Find the open apply tab for a phone/desktop run after a reload (session map gone; intents in local still hold). */
 async function tabForApplicationRun(runId, postingId) {
@@ -1158,13 +1136,9 @@ async function tabForApplicationRun(runId, postingId) {
   return null
 }
 /** Prefer English on multilingual ATS URLs so Apply labels match recipes; users' browser locale otherwise opens FR/VI/DE… */
-/** Job platforms that serve every page in English at the same address with an English locale (Workday, SuccessFactors, Oracle,
- * Cornerstone). Elsewhere a language segment is the site's own page: /nl/ → /en-US/ on Ormit was a 404, read as "job closed". */
-const ENGLISH_BY_LOCALE = /(\.myworkday(jobs|site)\.com|\.successfactors\.(com|eu)|\.oraclecloud\.com|\.csod\.com)$/i
 function preferEnglishApplyUrl(url) {
   try {
     const u = new URL(url)
-    if (!ENGLISH_BY_LOCALE.test(u.hostname)) return url
     u.pathname = u.pathname
       .replace(/\/([a-z]{2})-([A-Z]{2})(?=\/|$)/g, (m, lang, region) => (lang.toLowerCase() === "en" ? m : `/en-${region === "GB" ? "GB" : "US"}`))
       .replace(/\/(fr|nl|de|vi|es|it|pl|pt)(?=\/|$)/i, "/en-US")
@@ -1341,8 +1315,8 @@ function openApplication(url, from, opts = {}) {
         if (!intent.paused) void continueInTab(tab.id, { reveal: false })
         return { ok: true, resumed: true }
       }
-      const continued = await continueInTab(tab.id, { reveal: false })
-      return continued ? { ok: true, resumed: true } : { ok: false, message: "Odds could not reconnect to the application page. Reload it, then press Apply with Odds again." }
+      await continueInTab(tab.id, { reveal: false })
+      return { ok: true, resumed: true }
     }
     // New application: in the Odds window — a separate Chrome window, opened without focus, where Broods works in the open (the person can
     // glance at it) while their own window is never touched. Its tab is the visible one in that window, which is what lets Broods see it.
@@ -1363,12 +1337,7 @@ function openApplication(url, from, opts = {}) {
     // Where this application was found last time (the employer's real form), straight away; the job's own link otherwise.
     // Where this application was found before, here or by anyone (the server's apply link): past the board's captcha and sign-in walls.
     const learned = await learnedApplyUrl(postingId, applyUrl) || await directApplyUrl(applyUrl)
-    const moved = await oddsGo(tabId, learned || applyUrl, { active: reveal || personWindow !== null }).then(() => true).catch(() => false)
-    if (!moved) {
-      const message = "Odds could not open the application page. Press Apply with Odds to try again."
-      await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], status: "failed", message, at: Date.now() } })
-      return { ok: false, message }
-    }
+    await oddsGo(tabId, learned || applyUrl, { active: reveal || personWindow !== null }).catch(() => undefined)
     // Person asked to look: bring the new tab's window forward too.
     if (reveal) await revealApplicationTab(tabId, true)
     // Applying keeps the job in the person's tracker, in the same click.
@@ -1384,22 +1353,13 @@ function openApplication(url, from, opts = {}) {
  */
 async function applyHere(tabId, url, postingId) {
   if (!await savedKey()) return { ok: false, message: "Connect Odds from the extension icon first." }
-  const present = await chrome.tabs.get(tabId).catch(() => null)
-  if (!present) return { ok: false, message: "The application tab is no longer open." }
   const applyUrl = preferEnglishApplyUrl(url)
   await setIntent(tabId, { job: applyUrl, postingId, at: Date.now(), status: "filling", message: "Opening the application…", copilot: true, here: true })
   const learned = await learnedApplyUrl(postingId, applyUrl) || await directApplyUrl(applyUrl)
   const target = learned || applyUrl
   const tab = await chrome.tabs.get(tabId).catch(() => null)
   if (tab?.url && tab.url.split("#")[0] === target.split("#")[0]) await continueInTab(tabId)
-  else {
-    const moved = await oddsGo(tabId, target, { active: true }).then(() => true).catch(() => false)
-    if (!moved) {
-      const message = "Odds could not open the application page. Press Apply with Odds to try again."
-      await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], status: "failed", message, at: Date.now() } })
-      return { ok: false, message }
-    }
-  }
+  else await oddsGo(tabId, target, { active: true }).catch(() => undefined)
   addJob(applyUrl).catch(() => undefined)
   return { ok: true }
 }
@@ -1496,41 +1456,7 @@ async function siteAccount(host) {
   const { oddsAccounts = {} } = await chrome.storage.local.get("oddsAccounts")
   return oddsAccounts[host] || null
 }
-/** Account steps Odds already tried in a tab (tab + host + kind), so a site that refuses is not hit again and again. */
-const autoAccountTried = new Map()
-/**
- * While Odds applies in a tab (never on a page the person is only browsing): a sign-in for a site Odds already made an account on, or a
- * create-account step for one it has not, is done by Odds, once per tab and site. Switch it off with chrome.storage.local oddsAutoAccount = false.
- * A captcha, a refusal or a mail to confirm stays with the person (the run ends needs_you with its reason).
- */
-async function autoAccount(tabId, kind) {
-  if (kind !== "create_account" && kind !== "sign_in") return
-  const { oddsAutoAccount, oddsNoAccountClicks } = await chrome.storage.local.get(["oddsAutoAccount", "oddsNoAccountClicks"])
-  if (oddsAutoAccount === false || oddsNoAccountClicks === true) return
-  const tab = await chrome.tabs.get(tabId).catch(() => null)
-  if (!tab?.url || !/^https:/.test(tab.url)) return
-  if (!(await intentOf(tabId))) return
-  const host = new URL(tab.url).hostname
-  const key = `${tabId}|${host}|${kind}`
-  if (Date.now() - (autoAccountTried.get(key) || 0) < 120_000) return
-  const saved = await siteAccount(host)
-  // Sign in with what was saved; or create the account when none exists. A sign-in with nothing saved, or a create step for a site that
-  // already has an account here, is the person's.
-  if ((kind === "sign_in" && !saved) || (kind === "create_account" && saved)) return
-  autoAccountTried.set(key, Date.now())
-  await new Promise((r) => setTimeout(r, 1500)) // the page finishes drawing its boxes
-  // A click on the site's button can be lost while the page is still drawing or Odds is starting: while the same step is still on screen,
-  // press again (same email and password), up to three times.
-  for (let attempt = 0; attempt < 3; attempt++) {
-    // While Broods drives this tab it presses the site's own Create / Sign in button itself: Odds only fills the boxes (never a second press).
-    const press = !(await intentOf(tabId))?.driveRun
-    await accountInTab(tabId, kind === "create_account", press).catch(() => undefined)
-    if (!press) return
-    await new Promise((r) => setTimeout(r, 4000))
-    if ((await pageKindOf(tabId).catch(() => null)) !== kind) return
-  }
-}
-async function accountInTab(tabId, create, press = true) {
+async function accountInTab(tabId, create) {
   const tab = await chrome.tabs.get(tabId).catch(() => null)
   if (!tab?.url || !/^https:/.test(tab.url)) return { ok: false }
   const host = new URL(tab.url).hostname
@@ -1545,13 +1471,9 @@ async function accountInTab(tabId, create, press = true) {
   // The tab holds the application from here: once the account step is past, Odds fills every page up to Submit.
   const held = await intentOf(tabId)
   if (!held) await setIntent(tabId, { job: tab.url, title: String(tab.title || "").slice(0, 200), at: Date.now(), status: "filling", message: create ? "Creating your account…" : "Signing in…", copilot: true, here: true })
-  else await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], copilot: true, here: true, paused: false, at: Date.now() } })
+  else await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], copilot: true, here: true, paused: false, driveRun: undefined, at: Date.now() } })
   if (!held) addJob(tab.url).catch(() => undefined)
-  const res = await chrome.tabs.sendMessage(tabId, { type: "odds-account", email: account?.email || email, password: account?.password || "", create, press }, { frameId: 0 }).catch(() => null)
-  if (!res?.ok) {
-    const message = res?.message || "Odds could not use the account form on this page. Finish this step yourself, then press Apply with Odds again."
-    await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], status: "needs_input", message, at: Date.now() } })
-  }
+  const res = await chrome.tabs.sendMessage(tabId, { type: "odds-account", email: account?.email || email, password: account?.password || "", create }, { frameId: 0 }).catch(() => null)
   return { ok: Boolean(res?.ok), pressed: Boolean(res?.pressed) }
 }
 /** A new tab's first real address (window.open often starts at about:blank). */
@@ -1576,19 +1498,11 @@ chrome.tabs.onCreated.addListener((tab) => {
   if (from.here && typeof opener === "number") {
     void (async () => {
       const url = await firstUrlOf(tabId)
-      if (!url) {
-        const message = "The employer opened a new tab that did not finish loading. Open that tab, then press Apply with Odds again."
-        await changeIntents((all) => { if (all[opener]) all[opener] = { ...all[opener], status: "needs_input", message, at: Date.now() } })
-        return
-      }
+      if (!url) return
       followFrom.delete(opener)
       await setIntent(opener, { ...from, at: Date.now(), followed: true, status: "filling", message: "Opening the employer’s application…" })
       await chrome.tabs.remove(tabId).catch(() => undefined)
-      const moved = await oddsGo(opener, url, { active: true }).then(() => true).catch(() => false)
-      if (!moved) {
-        const message = "Odds could not move the employer’s application into this tab. Open the new tab, then press Apply with Odds again."
-        await changeIntents((all) => { if (all[opener]) all[opener] = { ...all[opener], status: "needs_input", message, at: Date.now() } })
-      }
+      await oddsGo(opener, url, { active: true }).catch(() => undefined)
     })()
     return
   }
@@ -1640,14 +1554,7 @@ async function fillTab(tabId) {
     await new Promise((r) => setTimeout(r, 400))
     res = await tell().catch(() => null)
   }
-  if (res?.ok) return true
-  const message = "Odds could not run on this page. Reload the page, then press Apply with Odds again."
-  const tab = await chrome.tabs.get(tabId).catch(() => null)
-  await changeIntents((all) => {
-    const held = all[tabId]
-    all[tabId] = { ...(held || { job: tab?.url || "", postingId: null }), at: Date.now(), status: "failed", message, copilot: true, here: true }
-  }).catch(() => undefined)
-  return false
+  return Boolean(res?.ok)
 }
 
 /** Tabs whose page holds an application form: the toolbar icon pulses an orange "Fill" there for a few seconds, then stays. */
@@ -1688,9 +1595,8 @@ async function applicationDevice() {
   await chrome.storage.local.set({ oddsDesktopId: id })
   return id
 }
-/** `key`: the key just removed on a disconnect, so the server still hears that this desktop gave its queued runs up. */
-async function reportApplication(run, status, message, key = null) {
-  return ext("application-report", { method: "POST", body: JSON.stringify({ device_id: await applicationDevice(), id: run.id, status, message }) }, key)
+async function reportApplication(run, status, message) {
+  return ext("application-report", { method: "POST", body: JSON.stringify({ device_id: await applicationDevice(), id: run.id, status, message }) })
 }
 let applicationWrites = Promise.resolve()
 /** Run → tab map in local storage so an extension reload still finds the tab Continue should resume. */
@@ -1722,8 +1628,8 @@ async function pollApplications() {
   pollingApplications = true
   let claimed = null
   try {
-    // Connected is enough: the desktop takes the applications queued for it (from the phone, the app or Claude) with no setting to tick.
-    if (!await savedKey()) return
+    const { oddsPhoneControl } = await chrome.storage.local.get("oddsPhoneControl")
+    if (!oddsPhoneControl || !await savedKey()) return
     const runs = await updateApplicationRuns(() => {})
     const answer = await ext("application-poll", { method: "POST", body: JSON.stringify({ device_id: await applicationDevice(), ids: Object.keys(runs), id: Object.keys(runs)[0] }) })
     if (answer.status !== "ok") return
@@ -1752,7 +1658,7 @@ async function pollApplications() {
     const task = answer.task
     if (!task || runs[task.id]) return
     claimed = task
-    if (!await savedKey()) return
+    if (!(await chrome.storage.local.get("oddsPhoneControl")).oddsPhoneControl || !await savedKey()) return
     if (task.status !== "filling" || !/^https:\/\//.test(task.url)) return
     // Phone/desktop queue: fill in the background; surface the tab only at needs_input/ready.
     const applyUrl = preferEnglishApplyUrl(task.url)
@@ -1774,25 +1680,8 @@ async function pollApplications() {
 chrome.alarms.get("odds-applications").then(alarm => {
   if (!alarm || alarm.periodInMinutes !== 0.5) chrome.alarms.create("odds-applications", { periodInMinutes: 0.5 })
 })
-/**
- * A build on disk newer than the one running (the unpacked folder was updated) reloads itself once nothing is filling, so an old build
- * never meets a newer server: runs went wrong that way again and again. The extension's own manifest, read through its address, is
- * always the file on disk. Nothing is touched while an application filled in the last 20 minutes (a reload would stop it).
- */
-async function reloadIfStale() {
-  let disk = null
-  try { disk = (await (await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" })).json()).version } catch { return false }
-  if (!disk || disk === chrome.runtime.getManifest().version) return false
-  const { oddsApplyIntents = {} } = await chrome.storage.local.get("oddsApplyIntents")
-  if (Object.values(oddsApplyIntents).some((it) => it?.status === "filling" && Date.now() - it.at < 20 * 60_000)) return false
-  chrome.runtime.reload()
-
-  return true
-}
 chrome.alarms.onAlarm.addListener(alarm => {
-  if (alarm.name === "odds-applications") {
-    reloadIfStale().then((reloading) => { if (!reloading) pollApplications().catch(() => undefined) }).catch(() => undefined)
-  }
+  if (alarm.name === "odds-applications") pollApplications().catch(() => undefined)
 })
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   // The application form sits in a blank frame (HubSpot and similar embeds): Odds' form script goes into the page's frames, where it
@@ -1856,13 +1745,13 @@ chrome.tabs.onRemoved.addListener(tabId => {
   })
 })
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes.oddsKey?.newValue) pollApplications().catch(() => undefined)
-  // Disconnected (the key removed): the queued applications this desktop held are given up; a new key alone keeps them.
-  if (area === "local" && changes.oddsKey && !changes.oddsKey.newValue) {
+  if (area === "local" && changes.oddsPhoneControl?.newValue) pollApplications().catch(() => undefined)
+  if (area === "local" && (changes.oddsKey || changes.oddsPhoneControl?.newValue === false)) {
+    if (changes.oddsKey) chrome.storage.local.set({ oddsPhoneControl: false })
     updateApplicationRuns(() => {}).then(async runs => {
       await updateApplicationRuns(current => { for (const id of Object.keys(runs)) delete current[id] })
       for (const run of Object.values(runs)) {
-        await reportApplication(run, "failed", "Odds was disconnected on this desktop. Your open application remains on your desktop.", changes.oddsKey.oldValue || null).catch(() => undefined)
+        await reportApplication(run, "failed", "Phone control was disconnected. Your open application remains on your desktop.").catch(() => undefined)
         // Preserve filled forms and documents; disconnecting must not discard someone's work.
       }
     })
@@ -1872,135 +1761,53 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // Recover queued phone requests immediately when Chrome wakes the worker.
 pollApplications().catch(() => undefined)
 
-
-/** In the Gmail tab: the recent messages the list shows (Gmail's own markup), or the page's text when there are none. */
-function mailRowsInPage() {
-  if (/accounts\.google\.com/.test(location.hostname)) return { signedOut: true }
-  const rows = [...document.querySelectorAll("tr.zA")].slice(0, 10).map((r, i) => ({
-    i,
-    from: (r.querySelector(".yW span[email]")?.getAttribute("email") || r.querySelector(".yW")?.innerText || "").trim().slice(0, 80),
-    name: (r.querySelector(".yW")?.innerText || "").trim().slice(0, 60),
-    subject: (r.querySelector(".bog")?.innerText || "").trim().slice(0, 140),
-    snippet: (r.querySelector(".y2")?.innerText || "").replace(/^\s*-\s*/, "").trim().slice(0, 200),
-    unread: r.classList.contains("zE"),
-  }))
-  return { rows, text: rows.length ? "" : (document.body?.innerText || "").slice(0, 3000) }
-}
-/** In the Gmail tab: open the i-th message of the list. */
-function mailOpenInPage(i) { document.querySelectorAll("tr.zA")[i]?.click() }
-/** In the Gmail tab: the open message's text and its links (Google's redirect links unwrapped). */
-function mailBodyInPage() {
-  const el = [...document.querySelectorAll(".a3s")].pop()
-  const decode = (h) => { try { const u = new URL(h); return u.hostname.endsWith("google.com") && u.pathname === "/url" ? (u.searchParams.get("q") || h) : h } catch { return h } }
-  return el ? { text: el.innerText.replace(/\n{3,}/g, "\n\n").slice(0, 4000), links: [...el.querySelectorAll("a[href]")].map((a) => ({ text: (a.innerText || "").trim().slice(0, 80), href: decode(a.href) })).filter((l) => /^https:/.test(l.href)).slice(0, 15) } : null
-}
-/** One Gmail tab per application tab, kept for the length of the wait. */
-const mailTabs = new Map()
-/** Opens (or reuses) Gmail in a background tab, waits up to ~18 s for mail of the last hour, and returns what it shows and the best match in full. */
-async function readMail(appTabId, hint) {
-  // (chrome.storage.local oddsMailBase points the tests at a stand-in for Gmail; the person's Chrome always uses Gmail itself.)
-  const { oddsMailBase } = await chrome.storage.local.get("oddsMailBase")
-  const MAIL_URL = `${typeof oddsMailBase === "string" && /^https:\/\//.test(oddsMailBase) ? oddsMailBase.replace(/\/$/, "") : "https://mail.google.com"}/mail/u/0/#search/in%3Aanywhere+newer_than%3A1h`
-  let mailTab = mailTabs.get(appTabId) ? await chrome.tabs.get(mailTabs.get(appTabId)).catch(() => null) : null
-  if (!mailTab) {
-    const app = await chrome.tabs.get(appTabId).catch(() => null)
-    // The tab right next to the application tab, in the background: the person stays on the application, nothing takes the focus.
-    mailTab = await chrome.tabs.create({ url: MAIL_URL, active: false, windowId: app?.windowId, ...(typeof app?.index === "number" ? { index: app.index + 1 } : {}), openerTabId: appTabId })
-    mailTabs.set(appTabId, mailTab.id)
-  } else {
-    await chrome.tabs.update(mailTab.id, { url: MAIL_URL }).catch(() => undefined)
-  }
-  const end = Date.now() + 18_000
-  let scriptError = ""
-  const run = (func, args) => chrome.scripting.executeScript({ target: { tabId: mailTab.id }, func, args }).then((r) => r?.[0]?.result).catch((e) => { scriptError = String(e?.message || e).slice(0, 160); return null })
-  const list = () => run(mailRowsInPage)
-  let seen = null
-  while (Date.now() < end) {
-    await new Promise((r) => setTimeout(r, 2500))
-    seen = await list()
-    if (seen?.signedOut) return { error: "Gmail asks the person to sign in: they must sign in to Gmail in this Chrome first." }
-    if (seen?.rows?.length) break
-  }
-  if (!seen?.rows?.length) return { messages: [], text: seen?.text || "", note: "Nothing in Gmail from the last hour yet (or it has not loaded). Call check_email again in a moment.", ...(scriptError ? { debug: scriptError } : {}) }
-  const want = (hint.from + " " + hint.subject).toLowerCase().trim()
-  const score = (m) => (want && `${m.from} ${m.name} ${m.subject}`.toLowerCase().includes(hint.from.toLowerCase() || "\u0000") ? 2 : 0) + (want && hint.subject && m.subject.toLowerCase().includes(hint.subject.toLowerCase()) ? 2 : 0) + (m.unread ? 1 : 0) + (/verif|confirm|code|activate|welcome|account|bevestig/i.test(m.subject + m.snippet) ? 1 : 0)
-  const best = [...seen.rows].sort((a, b) => score(b) - score(a) || a.i - b.i)[0]
-  await run(mailOpenInPage, [best.i])
-  await new Promise((r) => setTimeout(r, 2200))
-  const body = await run(mailBodyInPage)
-  // Read: the Gmail tab is no longer needed.
-  if (body?.text) { chrome.tabs.remove(mailTab.id).catch(() => undefined); mailTabs.delete(appTabId) }
-  return { messages: seen.rows.map(({ i, ...m }) => m), opened: { from: best.from, subject: best.subject, ...(body || { text: "", links: [] }) } }
-}
-chrome.tabs.onRemoved.addListener((id) => { for (const [app, mail] of mailTabs) { if (app === id) { chrome.tabs.remove(mail).catch(() => undefined); mailTabs.delete(app) } else if (mail === id) mailTabs.delete(app) } })
-
-/** How much a picture varies (grey-level standard deviation on a 64x32 thumbnail): about 0 for a blank (all white) one. */
-async function shotSpread(base64) {
-  try {
-    const bitmap = await createImageBitmap(await (await fetch(`data:image/jpeg;base64,${base64}`)).blob())
-    const canvas = new OffscreenCanvas(64, 32)
-    const g = canvas.getContext("2d")
-    g.drawImage(bitmap, 0, 0, 64, 32)
-    bitmap.close()
-    const px = g.getImageData(0, 0, 64, 32).data
-    let sum = 0, sq = 0, n = 0
-    for (let i = 0; i < px.length; i += 4) { const v = (px[i] + px[i + 1] + px[i + 2]) / 3; sum += v; sq += v * v; n++ }
-    const mean = sum / n
-    return Math.sqrt(Math.max(0, sq / n - mean * mean))
-  } catch {
-    return -1
-  }
-}
-/** Below this spread a picture shows nothing: a real application page is 25+ (a white page with text still ~10). */
-const BLANK_SPREAD = 2
 /**
- * The tab as an image through Chrome's debugger: no focus, no tab switch, the page need not be in front. At most 1024 px wide.
- * A blank picture is never handed on (it made Broods stop with "the screen is completely blank"): Odds waits and takes it again,
- * then once more with the page told it has focus; still blank, it says so with what the tab and window looked like, for the trace.
+ * Where a frame's (0, 0) sits in its tab's viewport (CSS pixels), adding up each parent iframe's box. The parent's iframe is found by
+ * its frame id where Chrome tells it, else by its address (the same one, or the only one from that site); null when that is unsure.
  */
-async function shotViaDebugger(tabId) {
-  const prior = realInputQueue.get(tabId) || Promise.resolve()
-  const next = prior.catch(() => undefined).then(async () => {
-    const target = { tabId }
-    try { await chrome.debugger.attach(target, "1.3") } catch (e) { return { error: `screenshot unavailable: ${String(e?.message || e).slice(0, 120)}` } }
-    try {
-      const m = await chrome.debugger.sendCommand(target, "Page.getLayoutMetrics")
-      const vw = Math.max(1, Math.round(m?.cssVisualViewport?.clientWidth || m?.layoutViewport?.clientWidth || 1000))
-      const vh = Math.max(1, Math.round(m?.cssVisualViewport?.clientHeight || m?.layoutViewport?.clientHeight || 700))
-      const scale = Math.min(1, 1024 / vw)
-      // The clip is in page coordinates: at the scroll position, or a scrolled page comes out as a white picture of its top.
-      const px = Math.max(0, Math.round(m?.cssVisualViewport?.pageX ?? m?.cssLayoutViewport?.pageX ?? 0))
-      const py = Math.max(0, Math.round(m?.cssVisualViewport?.pageY ?? m?.cssLayoutViewport?.pageY ?? 0))
-      const clip = { x: px, y: py, width: vw, height: vh, scale }
-      const tries = []
-      const take = async (how, extra) => {
-        const shot = await chrome.debugger.sendCommand(target, "Page.captureScreenshot", { format: "jpeg", quality: 50, clip, ...extra }).catch((e) => ({ error: String(e?.message || e) }))
-        const spread = shot?.data ? await shotSpread(shot.data) : -1
-        tries.push({ how, kb: shot?.data ? Math.round(shot.data.length * 3 / 4 / 1024) : 0, spread: Math.round(spread * 10) / 10, ...(shot?.error ? { error: shot.error.slice(0, 80) } : {}) })
-        return shot?.data && spread >= BLANK_SPREAD ? shot.data : ""
-      }
-      let image = await take("plain", { optimizeForSpeed: true })
-      if (!image) { await new Promise((r) => setTimeout(r, 700)); image = await take("again", {}) }
-      if (!image) {
-        await chrome.debugger.sendCommand(target, "Emulation.setFocusEmulationEnabled", { enabled: true }).catch(() => undefined)
-        await new Promise((r) => setTimeout(r, 300))
-        image = await take("focus", { captureBeyondViewport: true })
-        await chrome.debugger.sendCommand(target, "Emulation.setFocusEmulationEnabled", { enabled: false }).catch(() => undefined)
-      }
-      if (image) return { image, width: Math.round(vw * scale), height: Math.round(vh * scale), viewportWidth: vw, viewportHeight: vh, ...(tries.length > 1 ? { tries } : {}) }
-      const visibility = await chrome.debugger.sendCommand(target, "Runtime.evaluate", { expression: "document.visibilityState + ' ' + document.readyState + ' ' + (document.body ? document.body.innerText.length : 0)", returnByValue: true }).then((r) => r?.result?.value).catch(() => null)
-      const tab = await chrome.tabs.get(tabId).catch(() => null)
-      const win = tab ? await chrome.windows.get(tab.windowId).catch(() => null) : null
-      return { error: "blank screenshot", blank: true, diag: { tries, visibility, tabActive: tab?.active, discarded: tab?.discarded, windowState: win?.state, windowFocused: win?.focused, viewport: `${vw}x${vh}` } }
-    } catch (e) {
-      return { error: String(e?.message || e).slice(0, 160) }
-    } finally {
-      await chrome.debugger.detach(target).catch(() => undefined)
-    }
-  })
-  realInputQueue.set(tabId, next.catch(() => undefined))
-  return next
+async function frameOffset(tabId, frameId) {
+  if (!frameId) return { x: 0, y: 0, top: true }
+  let x = 0, y = 0
+  for (let id = frameId, hops = 0; id > 0 && hops < 6; hops++) {
+    const frame = await chrome.webNavigation.getFrame({ tabId, frameId: id }).catch(() => null)
+    if (!frame || frame.parentFrameId < 0) return null
+    const at = await chrome.scripting.executeScript({ target: { tabId, frameIds: [frame.parentFrameId] }, args: [id, frame.url], func: (child, url) => {
+      const frames = [...document.querySelectorAll("iframe, frame")]
+      const origin = (u) => { try { return new URL(u, location.href).origin } catch { return "" } }
+      const sameSite = frames.filter((f) => origin(f.src) === origin(url))
+      const el = (typeof chrome.runtime.getFrameId === "function" && frames.find((f) => { try { return chrome.runtime.getFrameId(f) === child } catch { return false } }))
+        || frames.find((f) => f.src === url) || (sameSite.length === 1 ? sameSite[0] : null)
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      return { x: r.left + el.clientLeft, y: r.top + el.clientTop }
+    } }).then((r) => r?.[0]?.result).catch(() => null)
+    if (!at) return null
+    x += at.x
+    y += at.y
+    id = frame.parentFrameId
+  }
+  return { x, y, top: false }
 }
+
+/** The read_page ids on a screenshot, as browser and computer-use agents draw them: a thin box and its id in a tag at the top-right corner. */
+function drawMarks(ctx, marks) {
+  ctx.lineWidth = 2
+  ctx.font = "bold 12px sans-serif"
+  ctx.textBaseline = "top"
+  for (const m of marks) {
+    const [x1, y1, x2, y2] = m.box
+    const color = m.id.startsWith("b") ? "#d6006f" : "#0057d9"
+    ctx.strokeStyle = color
+    ctx.strokeRect(x1 + 1, y1 + 1, Math.max(1, x2 - x1 - 2), Math.max(1, y2 - y1 - 2))
+    const w = Math.ceil(ctx.measureText(m.id).width) + 6
+    const tx = Math.max(0, x2 - w), ty = Math.max(0, y1 - 8)
+    ctx.fillStyle = color
+    ctx.fillRect(tx, ty, w, 15)
+    ctx.fillStyle = "#fff"
+    ctx.fillText(m.id, tx + 3, ty + 2)
+  }
+}
+
 /** One real input action in a tab through Chrome's debugger (one at a time per tab). click {x,y} | type {text, clear} | key {key}. */
 const realInputQueue = new Map()
 function realInput(tabId, action) {
