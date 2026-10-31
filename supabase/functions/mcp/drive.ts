@@ -473,11 +473,6 @@ const BASE_TOOLS = [
     inputSchema: { type: "object", properties: { run_id: { type: "string" } }, required: ["run_id"] },
   },
   {
-    name: "wait",
-    description: "Wait a few seconds (1-8) for a slow page, then read_page.",
-    inputSchema: { type: "object", properties: { run_id: { type: "string" }, seconds: { type: "number" } }, required: ["run_id"] },
-  },
-  {
     name: "note_site",
     description: "Record structure only: kind opener/skip_dialog with a canonical button, or widget/mapping with a canonical contact field, method typing/choosing/upload and autofill_key. Never include personal values, answers or free text. A note is not trusted success without browser evidence.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, lesson: { type: "object" }, outcome: { type: "string", enum: ["success", "failure"] } }, required: ["run_id", "lesson", "outcome"] },
@@ -810,16 +805,12 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     return { text: "Observation recorded. Promotion requires independent verified successes." }
   }
   if (run.steps >= MAX_STEPS) return { text: "Step limit reached: call finish now.", error: true }
-  if (name === "wait") {
-    await sleep(Math.min(8, Math.max(1, Number(args.seconds) || 2)) * 1000)
-    return { text: "Waited. Read the page if it may have changed." }
-  }
   // The person is filling in the form themselves: Broods waits for them to stop (20 s of quiet), then carries on around what they entered.
   for (let waited = 0; personBusy(run) && waited < 20_000; waited += 1000) {
     await sleep(1000)
     Object.assign(run, (await runOf(env, run.id)) ?? {})
   }
-  if (personBusy(run)) return { text: "The person is filling in the form themselves right now. Call wait, then read_page, and keep everything they entered.", error: true }
+  if (personBusy(run)) return { text: "The person is filling in the form themselves right now. Call read_page again (it waits for them to stop), and keep everything they entered.", error: true }
   if (name === "write_letter") {
     const body = String(args.text ?? "").trim()
     if (body.length < 200 || body.length > 4000) return { text: "Write 3-5 paragraphs (200-4000 characters).", error: true }

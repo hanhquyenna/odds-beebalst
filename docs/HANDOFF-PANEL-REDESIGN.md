@@ -34,7 +34,7 @@ Decisions made:
 - Corner badge while Odds works has a small living mascot (eye that blinks, hopping orange dot) and a Stop button; red frame around the page.
 
 ## 3. What Broods/the extension can actually do
-Agent tools: read_page, click, click_at, fill, options, type_text, press_key, scroll, back, wait, screenshot, upload_cv, upload_letter, write_letter, open_job, note_site, finish (review / needs_you / stuck). It cannot press Submit, type passwords, solve captchas or tailor a CV. Does not exist yet: a Stop filling command from the panel, AI tailoring, the Edit button on saved answers, people-hired-before data, company/people/reviews for every job, read job title/company/logo from page JSON-LD when Odds has no posting. The extension already detects the site's thank-you text and marks the job applied (apply-any.js `SENT`).
+Agent tools: read_page, click, click_at, fill, options, type_text, press_key, scroll, back, screenshot, upload_cv, upload_letter, write_letter, open_job, note_site, finish (review / needs_you / stuck). It cannot press Submit, type passwords, solve captchas or tailor a CV. Does not exist yet: a Stop filling command from the panel, AI tailoring, the Edit button on saved answers, people-hired-before data, company/people/reviews for every job, read job title/company/logo from page JSON-LD when Odds has no posting. The extension already detects the site's thank-you text and marks the job applied (apply-any.js `SENT`).
 
 ## 4. Build order
 1. Panel in `src/components/ApplyPanel.tsx` (+ `src/lib/embed.ts`, `extension/panel-frame.js/css`): boards 1–5 and 8. Then run `bun test src`, `bunx tsc -b`, panel e2e (`-g "panel"`) and look at `test-results/ext-apply-panel*.png`.

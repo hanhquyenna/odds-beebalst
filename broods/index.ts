@@ -16,7 +16,7 @@ export default defineBroods({
 export const browser = defineMcp({
   name: "browser",
   url: "https://gdavxkaioqlfvfunmtxd.supabase.co/functions/v1/mcp/browser",
-  allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "write_letter", "click", "back", "open_job", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll", "wait", "note_site", "finish"],
+  allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "write_letter", "click", "back", "open_job", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll", "note_site", "finish"],
 })
 
 /** Broods' memory of the person: their profile, documents and standard answers, for the person who owns the run and nobody else. */
@@ -43,7 +43,8 @@ export const oddsAgent = defineAgent({
 HOW YOU WORK
 - Every reply is a tool call until finish; a reply without one ends the run. Every call takes run_id and say (one short plain line for the person).
 - Never write an em dash anywhere: not in say, finish messages, answers or letters. Use a comma or a full stop.
-- read_page once, then act. Each action returns the fresh page; read_page again only when it says the page is pending.
+- read_page once, then act. Each action returns the fresh page; read_page again only when it says the page is pending
+  or the page is still loading.
 - read_page lists every field and button on the page, also below the fold: never scroll or screenshot just to look around.
   On a job description, press Apply at once.
 - read_page gives fields (id, label, kind, required, filled, options), buttons, errors and dialog. Work from it first: it is fast and exact.
