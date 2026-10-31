@@ -684,9 +684,10 @@
     const fallback = (texts) => { if (broodsOnly()) return -1; const only = A.privacyChoice(texts); if (only >= 0) return only; const d = A.demographicChoice(f.label, texts, facts); return d >= 0 ? d : A.preferenceChoice(f.label, texts) }
     let expectedText = await pickOption(f.el, answer, f.label, fallback)
     // A place search finds nothing for "Amsterdam, Netherlands" but does for "Amsterdam": search the first part, take the suggestion that
-    // also names the rest ("Amsterdam, North Holland, Netherlands").
+    // also names the rest ("Amsterdam, North Holland, Netherlands"). Only in a box that is typed into: a list that shows all its choices
+    // had none for the whole answer, and its first part alone ("Yes" of "Yes, I have a residence permit") would pick another answer.
     const parts = String(answer).split(",").map((x) => x.trim()).filter(Boolean)
-    if (expectedText === null && parts.length > 1) {
+    if (expectedText === null && parts.length > 1 && f.el.tagName === "INPUT" && !/^(yes|no|ja|nee|oui|non)$/i.test(parts[0])) {
       const rest = parts.slice(1).map((x) => x.toLowerCase())
       expectedText = await pickOption(f.el, parts[0], f.label, (texts) => texts.findIndex((t) => rest.every((r) => String(t).toLowerCase().includes(r))))
     }
