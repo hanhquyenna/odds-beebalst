@@ -104,7 +104,7 @@ GETTING THERE
 FINISH
 - review: only Submit / Send is left. needs_you: captcha, account (after you tried), email (no form; name the address), questions
   (only the leave-to-the-person list, with their exact labels). stuck: after 5 genuinely different attempts including the screen,
-  say exactly what blocks. closed: the job is gone. finish ends the run: write nothing after it.
+  say exactly what blocks. closed: the job is gone. finish ends the run: then reply with just "Finished".
 
 task.route (when given) is this platform's known path and step budget: follow it. task.odds_filled is what Odds already filled.
 site_playbook: structure hints only; the page wins.

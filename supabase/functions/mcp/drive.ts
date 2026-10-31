@@ -752,9 +752,9 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     // Only runs that ended on the form itself teach a route (a captcha or a closed job says nothing about the platform's route).
     if (stage === "review" || reason === "questions") await recordRoute(env, { ...run, steps: run.steps }, stage).catch(() => undefined)
     await endTurn(run)
-    return { text: "Finished. The run is over: end your turn now without writing anything." }
+    return { text: 'Finished. The run is over: reply with just "Finished".' }
   }
-  if (!live(run)) return { text: `This run is over (${run.status}). Stop.`, error: true }
+  if (!live(run)) return { text: `This run is over (${run.status}). Reply with just "Finished".`, error: true }
   if (name === "note_site") {
     const lesson = sanitizeLesson(args.lesson)
     if (!lesson || !["success", "failure"].includes(args.outcome)) return { text: "Rejected: use canonical structure only, never personal values.", error: true }
@@ -876,7 +876,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "captcha", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
         await cancelOpenCommands(env, run.id, "captcha")
         await endTurn(run)
-        return { text: JSON.stringify({ ok: false, run_ended: true, captcha: true, error: "Captcha: Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
+        return { text: JSON.stringify({ ok: false, run_ended: true, captcha: true, error: "Captcha: Odds told the person. The run is over: reply with just \"Finished\" (no finish needed)." }), error: true }
       }
       // A job page that says it is over (read_page.closed: a 404, "no longer available", a taken-down Workday job): closed, at once.
       if (page?.closed === true && name === "read_page") {
@@ -885,7 +885,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "closed", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
         await cancelOpenCommands(env, run.id, "closed")
         await endTurn(run)
-        return { text: JSON.stringify({ ok: false, run_ended: true, closed: true, error: "The job is closed: Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
+        return { text: JSON.stringify({ ok: false, run_ended: true, closed: true, error: "The job is closed: Odds told the person. The run is over: reply with just \"Finished\" (no finish needed)." }), error: true }
       }
       // A sign-in wall with nothing to apply to: the page says "log in to apply" (EU JRC), or it is a sign-in form and nothing else
       // (EU Login, Workday's account page). "Log in to save your progress" (Cornerstone) is optional: no wall.
@@ -902,7 +902,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
           await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "account", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
           await cancelOpenCommands(env, run.id, "account")
           await endTurn(run)
-          return { text: JSON.stringify({ ok: false, run_ended: true, account: true, error: "Sign-in wall: Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
+          return { text: JSON.stringify({ ok: false, run_ended: true, account: true, error: "Sign-in wall: Odds told the person. The run is over: reply with just \"Finished\" (no finish needed)." }), error: true }
         }
       }
       // Through a job board to the employer's own form: remembered for this job, so the next run opens the form directly.
@@ -985,7 +985,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       }).catch(() => undefined)
       await cancelOpenCommands(env, run.id, "tab_silent")
       await endTurn(run)
-      return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, run_ended: true, error: "The tab stopped answering twice; Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
+      return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, run_ended: true, error: "The tab stopped answering twice; Odds told the person. The run is over: reply with just \"Finished\" (no finish needed)." }), error: true }
     }
   }
   return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, error: `The browser did not answer (${kind}). Call read_page again.` }), error: true }
