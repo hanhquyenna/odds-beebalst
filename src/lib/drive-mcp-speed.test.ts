@@ -6,7 +6,8 @@ test("MCP navigation action returns the resulting page without a second model re
   const original = globalThis.fetch
   const deno = (globalThis as unknown as {Deno?:unknown}).Deno
   const writes: Array<{tool?:string;args?:unknown}> = []
-  Object.assign(globalThis,{Deno:{env:{get:()=>"test-secret"}}})
+  // Only the drive secret: no sight model, so the server takes no picture of the new page.
+  Object.assign(globalThis,{Deno:{env:{get:(name:string)=>(name==="ODDS_DRIVE_SECRET"?"test-secret":undefined)}}})
   globalThis.fetch = (async (input: string | URL | Request, init?:RequestInit) => {
     const url=typeof input === "string" ? input : input instanceof URL ? input.href : input.url
     let result:unknown=[]

@@ -71,7 +71,7 @@ export const LEVEL_OPTIONS: ReadonlyArray<Level> = LEVELS.filter((level) => leve
 /** The level filter's starting point: internships and entry-level roles, an international student's first jobs. */
 export const STARTING_LEVELS: ReadonlyArray<Level> = ["Internship", "Entry"]
 
-/** What the page opens with: first jobs (the database view active_internship_entry) that do not need Dutch, posted any time. Clear all goes back to this, not to everything. */
+/** What the page opens with: internship and entry jobs that do not need Dutch, posted any time. Clear all goes back to this, not to everything. */
 export const DEFAULT_FILTERS: JobFilters = { ...NO_FILTERS, level: [...STARTING_LEVELS], posted: "any", language: ["english"] }
 
 /** The same set of values, whatever the order. */

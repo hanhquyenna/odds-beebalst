@@ -285,14 +285,14 @@ const emptyOf = (page: Json): string[] => {
 /** An upload button's own words, not a question ("Attach" on Greenhouse). */
 const GENERIC_UPLOAD = /^(attach|upload|browse|choose( a)? file|select( a)? files?|add file|enter manually)\*?$/i
 /**
- * Upload boxes still empty that must not be left: a required one ("Cover Letter*"), a letter box, or, once the CV is in, a box the
- * reader could only call "Attach" (Greenhouse draws the question beside it; older extensions read only the button).
+ * Upload boxes still empty that must not be left: a required one ("Cover Letter*"), or, once the CV is in, a box the reader could
+ * only call "Attach" (Greenhouse draws the question beside it; older extensions read only the button). An optional letter box stays empty.
  */
 export function emptyUploads(page: Json): string[] {
   const fields: Json[] = Array.isArray(page?.fields) ? page.fields : []
   return fields
     .filter((f) => f?.kind === "file" && !String(f?.value ?? "").trim() && !/\.(pdf|docx?|txt|rtf)$/i.test(String(f?.file_name ?? "")))
-    .filter((f) => f?.required === true || LETTER_FIELD.test(String(f?.label ?? "")) || (page?.cv_attached === true && GENERIC_UPLOAD.test(String(f?.label ?? "").trim())))
+    .filter((f) => f?.required === true || (page?.cv_attached === true && GENERIC_UPLOAD.test(String(f?.label ?? "").trim())))
     .map((f) => {
       const label = String(f.label ?? f.id).slice(0, 80)
       return LETTER_FIELD.test(label) || GENERIC_UPLOAD.test(label.trim())
@@ -398,7 +398,7 @@ const BASE_TOOLS = [
   },
   {
     name: "click_at",
-    description: "Click at a point (x, y in pixels of the last screenshot). Submit/Send and password fields are refused. Returns the fresh page snapshot.",
+    description: "Click at a point (x, y in pixels of the last screenshot) for what read_page cannot reach. A button read_page lists (Next, Continue) is clicked by id with click, not here. Submit/Send and password fields are refused. Returns the fresh page snapshot.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, x: { type: "number" }, y: { type: "number" } }, required: ["run_id", "x", "y"] },
   },
   {
@@ -408,7 +408,7 @@ const BASE_TOOLS = [
   },
   {
     name: "press_key",
-    description: "Press one key on the focused element: Enter, Tab, Escape, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Space, Backspace.",
+    description: "Press one key on the focused element: Enter, Tab, Escape, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Space, Backspace. Never to go to the next step: click its Next / Continue button by id (read_page lists it).",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, key: { type: "string" } }, required: ["run_id", "key"] },
   },
   {
@@ -612,7 +612,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     }
     // About to give up: once per run, the server looks at the real tab first (a screenshot described by the sight model; only the
     // text goes to Broods, never the picture) and Broods tries again with that.
-    if ((stage === "stuck" || (stage === "needs_you" && reason === "other")) && live(run) && serverVision()) {
+    if ((stage === "stuck" || (stage === "needs_you" && reason === "other")) && live(run)) {
       const looked = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.guard&result->>returned=eq.vision_stuck&select=id&limit=1`).catch(() => null))?.[0]
       if (!looked) {
         const image = await captureShot(env, run)
@@ -752,9 +752,9 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     // Only runs that ended on the form itself teach a route (a captcha or a closed job says nothing about the platform's route).
     if (stage === "review" || reason === "questions") await recordRoute(env, { ...run, steps: run.steps }, stage).catch(() => undefined)
     await endTurn(run)
-    return { text: "Finished. The run is over: end your turn now without writing anything." }
+    return { text: 'Finished. The run is over: reply with just "Finished".' }
   }
-  if (!live(run)) return { text: `This run is over (${run.status}). Stop.`, error: true }
+  if (!live(run)) return { text: `This run is over (${run.status}). Reply with just "Finished".`, error: true }
   if (name === "note_site") {
     const lesson = sanitizeLesson(args.lesson)
     if (!lesson || !["success", "failure"].includes(args.outcome)) return { text: "Rejected: use canonical structure only, never personal values.", error: true }
@@ -802,11 +802,12 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     const link = (await svc(env, `job_documents?user_id=eq.${run.user_id}&posting_id=eq.${encodeURIComponent(run.posting_id)}&kind=eq.cover_letter&select=document_id&limit=1`).catch(() => null))?.[0]
     if (link?.document_id) args = { ...args, doc: link.document_id }
   }
-  if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
-  // The same button three times in the last few steps and the page never changed: pressing it again is not an answer. Said once, plainly.
+  if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
+  // The same button three times in a row with nothing else done in between: pressing it again is not an answer. Said once, plainly.
   if (name === "click" && typeof args?.id === "string") {
-    const recentClicks = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.click&order=id.desc&limit=6&select=args,status`).catch(() => null)) ?? []
-    if (recentClicks.filter((c: Json) => c?.args?.id === args.id && c.status === "done").length >= 3) {
+    const recent = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=in.(click,fill,press_key,type_text,click_at,upload_cv,upload_letter)&order=id.desc&limit=6&select=tool,args,status`).catch(() => null)) ?? []
+    const streak = recent.findIndex((c: Json) => c?.tool !== "click" || c?.args?.id !== args.id)
+    if ((streak === -1 ? recent.length : streak) >= 3) {
       return { text: "You pressed this button 3 times and the page did not move on. Do not press it again. Read what the page says (errors, a dialog, empty required fields), try something else, or finish with the exact thing that blocks it.", error: true }
     }
   }
@@ -876,7 +877,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "captcha", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
         await cancelOpenCommands(env, run.id, "captcha")
         await endTurn(run)
-        return { text: JSON.stringify({ ok: false, run_ended: true, captcha: true, error: "Captcha: Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
+        return { text: JSON.stringify({ ok: false, run_ended: true, captcha: true, error: "Captcha: Odds told the person. The run is over: reply with just \"Finished\" (no finish needed)." }), error: true }
       }
       // A job page that says it is over (read_page.closed: a 404, "no longer available", a taken-down Workday job): closed, at once.
       if (page?.closed === true && name === "read_page") {
@@ -885,7 +886,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "closed", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
         await cancelOpenCommands(env, run.id, "closed")
         await endTurn(run)
-        return { text: JSON.stringify({ ok: false, run_ended: true, closed: true, error: "The job is closed: Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
+        return { text: JSON.stringify({ ok: false, run_ended: true, closed: true, error: "The job is closed: Odds told the person. The run is over: reply with just \"Finished\" (no finish needed)." }), error: true }
       }
       // A sign-in wall with nothing to apply to: the page says "log in to apply" (EU JRC), or it is a sign-in form and nothing else
       // (EU Login, Workday's account page). "Log in to save your progress" (Cornerstone) is optional: no wall.
@@ -902,7 +903,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
           await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, { method: "PATCH", body: JSON.stringify({ status: "needs_you", reason: "account", message, last_note: message, fill_ended_at: now, agent_finished_at: now, updated_at: now }) }).catch(() => undefined)
           await cancelOpenCommands(env, run.id, "account")
           await endTurn(run)
-          return { text: JSON.stringify({ ok: false, run_ended: true, account: true, error: "Sign-in wall: Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
+          return { text: JSON.stringify({ ok: false, run_ended: true, account: true, error: "Sign-in wall: Odds told the person. The run is over: reply with just \"Finished\" (no finish needed)." }), error: true }
         }
       }
       // Through a job board to the employer's own form: remembered for this job, so the next run opens the form directly.
@@ -930,7 +931,8 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       // Sight: Broods never gets the picture itself (an image in the conversation cost ~40K tokens and was sent again on every later
       // step). The server shows the screenshot to the sight model and hands Broods its short text: once per new page, and again only when
       // the step went wrong (a fill not kept, a click that changed nothing, a new error or pop-up, far fewer fields than before).
-      if (["read_page", "fill", "click", "click_at", "scroll", "upload_cv", "back", "open_job"].includes(name) && live(run) && serverVision()) {
+      // No sight model configured: no picture is taken either (a capture costs a step and up to 10 s for nothing).
+      if (["read_page", "fill", "click", "click_at", "scroll", "upload_cv", "back", "open_job"].includes(name) && live(run) && sightEnv((n) => Deno.env.get(n))) {
         const prev = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.done&id=lt.${cmd.id}&tool=in.(read_page,fill,click,click_at,scroll,upload_cv,back,open_job)&order=id.desc&limit=1&select=result`).catch(() => null))?.[0]?.result
         const before = prev?.page ?? (Array.isArray(prev?.fields) ? prev : null)
         const reasons = ["fill", "click", "click_at", "read_page"].includes(name) ? troubleReasons(name, res, page, before) : []
@@ -986,10 +988,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       }).catch(() => undefined)
       await cancelOpenCommands(env, run.id, "tab_silent")
       await endTurn(run)
-      return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, run_ended: true, error: "The tab stopped answering three times; Odds told the person. The run is over: stop now (no finish needed)." }), error: true }
-    }
-    if (silent === 1) {
-      return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, error: "The tab stopped answering twice. Do not call another browser tool. Call finish now with stage 'stuck', reason 'other' and a message for the person: what you already filled, what you did not get to (required fields, checkboxes, consent), and that the tab stopped answering." }), error: true }
+      return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, run_ended: true, error: "The tab stopped answering twice; Odds told the person. The run is over: reply with just \"Finished\" (no finish needed)." }), error: true }
     }
   }
   return { text: JSON.stringify({ ok: false, abandoned: true, timeout: kind, error: `The browser did not answer (${kind}). Call read_page again.` }), error: true }
@@ -1160,13 +1159,6 @@ export function versionBelow(version: string, than: string): boolean {
 async function captureShot(env: Env, run: Json): Promise<string> {
   return (await captureShotDetailed(env, run)).image
 }
-
-/**
- * The text-sight pipeline: the server shows each screenshot to a vision model and hands Broods its short description (and looks at the tab
- * when a step goes wrong or the agent is about to stop). Off by default: odds-agent looks at the tab itself with the screenshot tool and
- * click_at. ODDS_SERVER_VISION=1 turns it on, for a model route that cannot take images.
- */
-const serverVision = (): boolean => Deno.env.get("ODDS_SERVER_VISION") === "1"
 
 /** captureShot, with why no picture came (for the sight guard row). */
 async function captureShotDetailed(env: Env, run: Json): Promise<{ image: string; note?: string; scrolled?: boolean }> {

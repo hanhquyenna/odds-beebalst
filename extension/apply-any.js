@@ -243,27 +243,29 @@
       if (t === "radio") {
         if (!el.name || groups.has(el.name)) continue
         groups.add(el.name)
-        let radios = deepAll(`input[type="radio"][name="${CSS.escape(el.name)}"]`).filter(shown)
-        // One radio per name (bunq names them 4396280yes / 4396280no): the radios in the nearest box holding two or more are one question.
-        if (radios.length < 2) {
-          for (let c = el.parentElement, i = 0; c && i < 6; c = c.parentElement, i++) {
-            const near = [...c.querySelectorAll('input[type="radio"]')].filter(shown)
-            if (near.length >= 2) { radios = near; for (const r of near) if (r.name) groups.add(r.name); break }
-          }
-        }
-        const fieldset = el.closest("fieldset")
+        const radios = deepAll(`input[type="radio"][name="${CSS.escape(el.name)}"]`).filter(shown)
+        const near = el.closest("fieldset")
+        // A section fieldset ("Questions" over many fields, JazzHR) is not this group's question.
+        const fieldset = near && [...near.querySelectorAll("input, select, textarea")].every((i) => i.name === el.name) ? near : null
         const legend = fieldset?.querySelector("legend")
+        // Else the text beside the choices in their smallest common box (BambooHR: the question in <th>, the radios in <td>).
+        let box = radios[0]?.parentElement
+        while (box && !radios.every((r) => box.contains(r))) box = box.parentElement
+        let ask = null
+        for (let i = 0; i < 3 && box && !ask && !box.matches("form, fieldset, body"); i++, box = box.parentElement) ask = [...box.children].find((c) => !c.querySelector("input") && textOf(c).length > 1)
         // The question over the choices (Ashby puts it in a label of its own, not tied to any one radio), never the first choice's text.
         const title = fieldset ? [...fieldset.querySelectorAll("label")].find((l) => !l.querySelector("input") && !radios.some((r) => l.htmlFor && l.htmlFor === r.id)) : null
-        // Without a legend or a title: the text before the first choice, as for a group of checkboxes ("Have you previously worked at
-        // bunq?"), never the first choice's own "Yes".
-        const label = textOf(legend) || textOf(title) || (el.closest("[role='radiogroup']") ? labelOf(el.closest("[role='radiogroup']")) : "") || groupOf(radios[0]) || labelOf(el)
+        const label = textOf(legend) || textOf(title) || textOf(ask) || labelOf(el.closest("[role='radiogroup']") || el)
         out.push({ kind: "radio", el: radios, label, options: radios.map((r) => labelOf(r)), widget: "plain" })
         continue
       }
       // The search box inside a dropdown drawn as role=combobox (its own entry below): one question, not two.
       if (el.tagName === "INPUT" && el.closest("[role='combobox']:not(input):not(select)")) continue
       let label = labelOf(el)
+      // One box of a group (Workable's start date: Month, Year under "Earliest start date *"): the group's question comes first.
+      const groupBy = el.closest("[role='group'][aria-labelledby]")?.getAttribute("aria-labelledby")?.split(" ")[0]
+      const groupAsk = groupBy ? textOf(document.getElementById(groupBy)).replace(/\s*\*\s*$/, "") : ""
+      if (groupAsk && label && !label.includes(groupAsk)) label = `${groupAsk}: ${label}${/\*\s*$/.test(textOf(document.getElementById(groupBy))) ? " *" : ""}`
       if (t !== "file" && isTrap(el, label)) continue
       // A choice about being considered for other roles has no label of its own on some forms: its options say what it is.
       if (!label && el.tagName === "SELECT" && A.privacyChoice([...el.options].map((o) => o.text.trim())) >= 0) label = "Data privacy option"
@@ -294,9 +296,11 @@
       else out.push({ kind: t === "number" ? "number" : "text", el, label, widget: widgetOf() })
     }
     // Dropdowns drawn as a button that opens a list (Workday): the button shows the choice, the list is made when it opens.
-    for (const b of document.querySelectorAll('button[aria-haspopup="listbox"], [role="combobox"]:not(input):not(select), [aria-haspopup="listbox"]:not(input):not(select)')) {
+    for (const b of deepAll('button[aria-haspopup="listbox"], [role="combobox"]:not(input):not(select), [aria-haspopup="listbox"]:not(input):not(select)')) {
       if (!shown(b) || b.closest("#odds-add, .odds-job-chance, .odds-apply-bar, nav, header, footer, [role='search']")) continue
-      const by = (b.getAttribute("aria-labelledby") || "").split(/\s+/).filter((id) => id && id !== b.id).map((id) => textOf(document.getElementById(id))).filter(Boolean).join(" ")
+      // Its label is in the same root (a web component's shadow root on SmartRecruiters).
+      const root = b.getRootNode?.() || document
+      const by = (b.getAttribute("aria-labelledby") || "").split(/\s+/).filter((id) => id && id !== b.id).map((id) => textOf(root.getElementById?.(id) || document.getElementById(id))).filter(Boolean).join(" ")
       let label = by || (b.id && textOf(document.querySelector(`label[for="${CSS.escape(b.id)}"]`))) || b.getAttribute("aria-label") || ""
       // A dropdown that names itself by its placeholder ("Select One Required" on Workday): the question is the field's own label above it.
       if (!label || /^\s*(select( one)?|choose|selecteer|kies|please select)\b[\s\w]{0,20}$/i.test(label)) {
@@ -337,6 +341,8 @@
 
   /** The question above a group of buttons: the nearest label, legend or heading in the boxes around it. */
   function choiceLabel(box) {
+    const by = (box.getAttribute?.("aria-labelledby") || "").split(/\s+/).filter(Boolean).map((id) => textOf(document.getElementById(id))).filter(Boolean).join(" ")
+    if (by) return by
     let parent = box.parentElement
     for (let depth = 0; parent && depth < 3; depth++, parent = parent.parentElement) {
       if (parent.matches("form, body, main")) break
@@ -407,18 +413,9 @@
   /** The options a dropdown shows now: the list that belongs to it, else the visible one on the page. */
   function listed(input, loose = true) {
     // (a Workday field's chosen chips sit in a listbox of their own: never the open list)
-    const own = (id) => (id ? (input.getRootNode().getElementById?.(id) ?? document.getElementById(id)) : null)
-    const named = input.getAttribute("aria-controls") || input.getAttribute("aria-owns")
-    // Without its own id: the list inside this field's own box first (react-select draws its menu there); a list elsewhere on the page only
-    // when it is the one list open. Taking "the last list on the page" read another dropdown's choices (Greenhouse's School, Degree and
-    // hours boxes all showed the month list) and Broods answered from the wrong options.
-    const open = (l) => l && shown(l) && [...l.querySelectorAll("[role='option']")].some((o) => o.getAttribute("data-automation-id") !== "selectedItem")
-    // react-select wraps its input in an "input-container" that holds no list: the field's box is the one above it.
-    const near = input.closest("[class*='container']:not([class*='input-container']), div")?.querySelector("[role='listbox']")
-    // A dropdown that says it is closed owns no open list: the one list open on the page is another field's (Gender's choices were read
-    // into Location, School and Degree).
-    const anywhere = () => { if (input.getAttribute("aria-expanded") === "false") return null; const all = deepAll("[role='listbox']").filter(open); return all.length === 1 ? all[0] : null }
-    const listbox = own(input.getAttribute("aria-controls")) || own(input.getAttribute("aria-owns")) || (named && !loose ? null : (open(near) ? near : anywhere() || near))
+    // A web component keeps its list in the input's own shadow root (SmartRecruiters' spl-autocomplete).
+    const root = input.getRootNode?.() || document
+    const listbox = root.getElementById?.(input.getAttribute("aria-controls") || "") || root.getElementById?.(input.getAttribute("aria-owns") || "") || [...root.querySelectorAll("[role='listbox']")].filter((l) => shown(l) && [...l.querySelectorAll("[role='option']")].some((o) => o.getAttribute("data-automation-id") !== "selectedItem")).pop() || input.closest("[class*='container'], div")?.querySelector("[role='listbox']")
     let options = [...(listbox?.querySelectorAll("[role='option'], [data-automation-id='promptOption']") || [])].filter((o) => shown(o) && o.getAttribute("data-automation-id") !== "selectedItem" && !/^\s*(searching|loading|zoeken|bezig|laden)\b/i.test(textOf(o)))
     // Workday draws each choice three times (menuItem › promptLeafNode › promptOption): the menu item is the one to press.
     if (options.some((o) => o.getAttribute("data-automation-id") === "menuItem")) options = options.filter((o) => o.getAttribute("data-automation-id") === "menuItem")
@@ -662,7 +659,7 @@
   /** Consent, terms and privacy-notice boxes are ticked: the person chose consent yes in Odds. Answers how many it ticked. Never anything else. */
   function tickConsents() {
     let ticked = 0
-    for (const c of document.querySelectorAll('input[type="checkbox"], [role="checkbox"]:not(input)')) {
+    for (const c of deepAll('input[type="checkbox"], [role="checkbox"]:not(input)')) {
       const on = () => (c.matches("input") ? c.checked : c.getAttribute("aria-checked") === "true")
       if (on() || !shown(c) && !c.closest("label") || c.disabled || c.closest(".odds-apply-bar, nav, header, footer, [id*='cookie' i], [class*='cookie' i], [id*='onetrust' i]")) continue
       const label = (c.matches("input") ? labelOf(c) : "") || c.getAttribute("aria-label") || textOf(c.closest("label, fieldset") || c.parentElement)
@@ -1589,9 +1586,9 @@
     const control=el.closest("button,input[type=submit]")
     if(!control || !control.form || String(control.type).toLowerCase() !== "submit") return false
     const label = controlLabel(control).trim()
-    // A step forward named after the next step ("Next: Questions", "Continue to experience") is not the final Submit, unless it also
-    // says submit / send / apply.
-    if (/^(next|continue|volgende|verder|suivant|weiter|save and continue|go to step|back|previous|return to (the )?previous|vorige|terug)\b/i.test(label) && !/\b(submit|send|verzend\w*|versturen|apply|solliciteer\w*|absenden|envoyer)\b/i.test(label)) return false
+    // A step forward ("Next: Questions", "Continue to experience", Taleo's "Accept and Continue") is not the final Submit, unless it
+    // also says submit / send / apply.
+    if (/\b(next|continue|volgende|verder|suivant|weiter|save and continue|go to step|back|previous|return to (the )?previous|vorige|terug)\b/i.test(label) && !/\b(submit|send|verzend\w*|versturen|apply|solliciteer\w*|absenden|envoyer)\b/i.test(label)) return false
     return !/^(next|continue|review|save and continue|volgende|verder|suivant|back|previous|reject all(?: cookies)?|deny all(?: cookies)?|necessary only|functional only)$/i.test(label)
   }
   /** Milliseconds from the start of this page's application to the first field Odds filled (reported with the run), and the page's start. */
@@ -1737,7 +1734,7 @@
   const consentToKeep = (label) => /\b(consent|agree)\b/i.test(label) && /\b(my data|personal data|personal information|employment|retain)\b/i.test(label) && !/\b(gender|ethnic\w*|race|disabilit\w*|veteran|sexual|religio\w*|criminal)\b/i.test(label)
   async function tickRequiredConsents() {
     const dialog = openDialog()
-    for (const box of document.querySelectorAll("input[type=checkbox], [role='checkbox']")) {
+    for (const box of deepAll("input[type=checkbox], [role='checkbox']")) {
       const input = box.matches("input") ? box : null
       const on = () => (input ? input.checked : box.getAttribute("aria-checked") === "true")
       if (prefillTried.has(box) || on() || (dialog ? !dialog.contains(box) : siteChrome(box)) || box.closest(".odds-apply-bar")) continue
@@ -1998,6 +1995,7 @@
     // A footer or header inside the application form is the form's own (Homerun's "Next: Questions" sits in <form><footer>), as is
     // one holding form fields or a step's Next / Submit: never site chrome.
     if (hit.closest("form, [role='form']") || hit.querySelector("input:not([type=hidden]), textarea, select")) return false
+    if ([...hit.querySelectorAll("button, [role='button'], input[type=submit]")].some((b) => /^(next|continue|save and continue|submit|review|volgende|verder|weiter|suivant)\b/i.test(controlLabel(b).trim()))) return false
     return true
   }
   /** On a job board's own search results (Glassdoor: /Vacature/vacatures.htm?…), not on a job. */
@@ -2074,7 +2072,7 @@
     })
     // Checkboxes drawn by the site (Oracle, Workday: the real input hidden, a styled box or role=checkbox shown) — fields() skips them.
     const seenBoxes = new Set(list.filter((f) => f.kind === "checkbox").map((f) => elOf(f)))
-    for (const box of document.querySelectorAll("input[type=checkbox], [role='checkbox']")) {
+    for (const box of deepAll("input[type=checkbox], [role='checkbox']")) {
       if (out.length >= 70 || seenBoxes.has(box) || !inScope(box)) continue
       // The hidden mirror of a button choice (Ashby yes/no): the buttons are the question, never this box.
       if (box.matches("input") && box.tabIndex < 0 && box.parentElement && [...box.parentElement.children].filter((c) => c.tagName === "BUTTON").length >= 2) continue
@@ -2591,6 +2589,8 @@
       }
       const f = driveFields.get(args.id)
       if (!f || f.kind !== "file" || !elOf(f)?.isConnected) return { ok: false, error: "not a file field (read_page again)" }
+      // The CV went into a box this step no longer shows (Jobvite's autofill route, then Apply manually): this empty box takes it too.
+      if (uploaded && !deepAll("input[type=file]").some((i) => i !== elOf(f) && shown(i) && i.files?.length) && !(cvStem && textOf(document.body).includes(cvStem))) uploaded = false
       if (uploaded) return { ok: false, cv_attached: true, error: "the CV is already attached on this page (by Odds); this box is another upload, e.g. a cover letter: leave it unless it asks for one" }
       // Broods chose this box for the CV ("Browse on your Device" on Picnic says nothing about a CV): its choice stands.
       const ok = await uploadCv(f, true)

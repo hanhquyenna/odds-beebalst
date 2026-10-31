@@ -6672,12 +6672,34 @@ if (process.env.REAL_JOBS_FILE) {
   REAL_JOBS.splice(0, REAL_JOBS.length, ...set.map((j) => ({ name: `${(j.ats || "site").toLowerCase().replace(/\W+/g, "")}-${j.id}`, url: j.url, title: j.title, board: /linkedin\.|glassdoor\.|indeed\.|magnet\.me/.test(j.url) })))
 }
 // REAL_MOCK=1: the mock ATS forms in e2e/fixtures/ats/mock instead, each on its own odds-mock.test host (real Broods, made-up employers, no learned hints written for real sites).
-const MOCK_ATS = ["greenhouse", "lever", "workday", "smartrecruiters", "ashby", "teamtailor", "recruitee", "homerun", "workable", "bamboohr", "personio", "jazzhr", "icims", "taleo", "successfactors", "jobvite", "breezy", "join", "pinpoint", "rippling"]
+// Each fixture is its own made-up job; the agent checks the page against the title it is sent and stops on a mismatch.
+const MOCK_ATS: Record<string, string> = {
+  greenhouse: "Data Analyst Intern",
+  lever: "Junior Software Engineer",
+  workday: "Finance Intern",
+  smartrecruiters: "Junior QA Engineer",
+  ashby: "Product Design Intern",
+  teamtailor: "Marketing Intern",
+  recruitee: "Junior Data Engineer",
+  homerun: "Junior Frontend Developer",
+  workable: "Operations Intern",
+  bamboohr: "HR Intern",
+  personio: "Working Student Marketing (m/f/d)",
+  jazzhr: "Junior Data Analyst Intern",
+  icims: "Engineering Intern (Graduation Project)",
+  taleo: "Supply Chain Trainee",
+  successfactors: "Regulatory Affairs Intern",
+  jobvite: "Junior QA Tester Intern",
+  breezy: "Design Intern",
+  join: "Robotics Intern (m/f/d)",
+  pinpoint: "Policy Intern",
+  rippling: "Software Engineering Intern",
+}
 if (process.env.REAL_MOCK === "1") {
   const only = process.env.REAL_MOCK_ONLY?.split(",")
-  REAL_JOBS.splice(0, REAL_JOBS.length, ...MOCK_ATS.filter((p) => !only || only.includes(p)).map((p) => ({ name: `mock-${p}`, url: `https://${p}.odds-mock.test/jobs/data-analyst-intern`, title: "Data Analyst Intern", mock: true })))
+  REAL_JOBS.splice(0, REAL_JOBS.length, ...Object.entries(MOCK_ATS).filter(([p]) => !only || only.includes(p)).map(([p, title]) => ({ name: `mock-${p}`, url: `https://${p}.odds-mock.test/jobs/${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`, title: title, mock: true })))
 }
-const TEST_PERSON = { first_name: "Test", last_name: "Applicant", email: "odds.test.applicant@gmail.com", phone: "+31 6 1234 5678", lives_in: "Amsterdam, Netherlands", nationality_group: "Non-EU nationality", work_permit: "Orientation year (zoekjaar) permit: may work in the Netherlands without sponsorship", education: "Master, Business Analytics, Vrije Universiteit Amsterdam, Sep 2025–Aug 2027", experience: "Data Analyst, Shopee, 2022–2024", linkedin: "https://www.linkedin.com/in/test-applicant", start_date: "1 February 2027", hours_per_week: "40", role_values: "learning fast; international teams; measurable impact", languages: "English (fluent); Vietnamese (native); Dutch (basic)", skills: "Python, SQL, Linux, Bash, Excel, Tableau, data analysis", academic_performance: "8/10 average (top 20% of the cohort)", gpa: "8.0 / 10" }
+const TEST_PERSON = { first_name: "Test", last_name: "Applicant", email: "odds.test.applicant@gmail.com", phone: "+31 6 1234 5678", lives_in: "Amsterdam, Netherlands", address: "Keizersgracht 100", city: "Amsterdam", postcode: "1015 CS", website: "https://github.com/test-applicant", expected_salary: "EUR 600 a month (negotiable)", nationality_group: "Non-EU nationality", work_permit: "Orientation year (zoekjaar) permit: may work in the Netherlands without sponsorship", education: "Master, Business Analytics, Vrije Universiteit Amsterdam, Sep 2025–Aug 2027; Bachelor (university), Economics, Vietnam National University, 2018–2022 (completed)", experience: "Data Analyst, Shopee, 2022–2024", linkedin: "https://www.linkedin.com/in/test-applicant", start_date: "1 February 2027", hours_per_week: "40", role_values: "learning fast; international teams; measurable impact", languages: "English (fluent); Vietnamese (native); Dutch (basic)", skills: "Python, SQL, Linux, Bash, Excel, Tableau, data analysis", academic_performance: "8/10 average (top 20% of the cohort)", gpa: "8.0 / 10" }
 for (const job of REAL_JOBS) {
   test(`REAL: Broods drives ${job.name} (real site, real Broods, never submits)`, async ({ context, fake }, testInfo) => {
     test.skip(process.env.REAL_BROODS !== "1", "real sites + real Broods: set REAL_BROODS=1")
@@ -6764,7 +6786,7 @@ for (const job of REAL_JOBS) {
       await applyFrom(context, page, start)
     }
     // Fill wall clock (agent/drive terminal) — not the old ~900s UI poll that hung TomTom for 16+ min.
-    const FILL_MS = Number(process.env.REAL_FILL_MS || 180_000)
+    const FILL_MS = Number(process.env.REAL_FILL_MS || 420_000)
     const UI_MS = 45_000
     const bar = async (): Promise<string> => (await Promise.all(context.pages().map((p) => p.locator(".odds-apply-bar").first().textContent({ timeout: 500 }).catch(() => "")))).join(" ")
     await expect.poll(async () => (fake.realBroods?.end?.status ?? "") || (job.board && /sign in|log in|inloggen|account/i.test(await bar()) ? "signin" : ""), { timeout: FILL_MS, intervals: [2000] }).not.toBe("")

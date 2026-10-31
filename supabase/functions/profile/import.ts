@@ -1,6 +1,6 @@
 // POST /profile/import: import a LinkedIn profile into the odds profile.
 // The browser sends { url } with the signed-in user's JWT. The Apify token lives only here, as a secret.
-// Secrets: supabase secrets set APIFY_TOKEN=... --project-ref ukpmpyfcnbhngkgbnkxi   (never commit the value)
+// Secrets: supabase secrets set APIFY_TOKEN=... --project-ref gdavxkaioqlfvfunmtxd   (never commit the value)
 
 import { imageDataUrl, ipHash, reply, userFromRequest } from "../_shared/http.ts"
 import { isUsable, normaliseProfile, type Json } from "../_shared/linkedin-profile.ts"

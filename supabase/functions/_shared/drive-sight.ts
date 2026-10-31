@@ -42,7 +42,7 @@ export type SightDiag = { bytes: number; skipped?: string; status?: number; erro
  */
 export const MIN_SHOT_BYTES = 1_500
 
-/** describeShot, with why it gave what it gave. */
+/** What the screenshot shows, as text for an agent that cannot see, with why it gave what it gave ("" text when sight is off, slow or fails). */
 export async function describeShotDetailed(env: SightEnv | null, image: string, timeoutMs = 12_000, fetcher: typeof fetch = fetch, trouble: string[] = []): Promise<{ text: string; diag: SightDiag }> {
   const data = String(image ?? "").replace(/^data:image\/[a-z+]+;base64,/i, "")
   const bytes = Math.round((data.length * 3) / 4)
@@ -82,14 +82,6 @@ export async function describeShotDetailed(env: SightEnv | null, image: string, 
 /** A short error text for the trace, with anything key-like taken out. */
 function safeError(text: string): string {
   return String(text ?? "").replace(/(sk|key|token|bearer)[-_ :=]*[A-Za-z0-9._-]{8,}/gi, "$1 (hidden)").replace(/\s+/g, " ").slice(0, 240)
-}
-
-/**
- * What the screenshot shows, as text for an agent that cannot see; "" when sight is off, slow or fails (never holds a run up).
- * `image` is the base64 JPEG the extension took of the tab.
- */
-export async function describeShot(env: SightEnv | null, image: string, timeoutMs = 12_000, fetcher: typeof fetch = fetch, trouble: string[] = []): Promise<string> {
-  return (await describeShotDetailed(env, image, timeoutMs, fetcher, trouble)).text
 }
 
 /** Sight descriptions per run at most when something went wrong (a new page's first look does not count). */

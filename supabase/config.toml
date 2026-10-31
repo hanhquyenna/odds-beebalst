@@ -1,7 +1,35 @@
-# Supabase CLI settings. Only what differs from the defaults is written here.
-project_id = "odds"
+# Supabase CLI settings for this project (gdavxkaioqlfvfunmtxd). Only what differs from the defaults is written here.
+project_id = "careerapp2"
 
 # Google sign-in: called before anyone is signed in, so the gateway does not ask for a token. The function checks the Shoo
 # token itself (shoo.ts).
 [functions.account]
+verify_jwt = false
+
+# The person's own profile; the gateway checks the token first (the anon key passes, for a LinkedIn import before sign-in).
+[functions.profile]
+verify_jwt = true
+
+# The job list: pg_cron (a secret header), anyone adding a job (a global limit), and signed-in calls that check the
+# token themselves (welcome, people).
+[functions.jobs]
+verify_jwt = false
+
+# The MCP server for Claude and other AI clients. Without a key it reads only what the app shows before sign-in and writes nothing.
+# With a person's private link (?key=, checked by the function itself against mcp_keys) it also reads and writes that person's own
+# documents, saved jobs and applications. Nothing paid is called, so no Supabase token is asked of the caller.
+[functions.mcp]
+verify_jwt = false
+
+# Google Drive for documents. Google's redirect back (/drive/callback) carries no sign-in, so the function checks the caller on
+# every other route itself.
+[functions.drive]
+verify_jwt = false
+
+# Sync apply-agent webhook Odds calls for suggest-answers (+ lifecycle pings). Auth is Bearer APPLY_AGENT_WEBHOOK_SECRET.
+[functions.apply-agent]
+verify_jwt = false
+
+# Drafts a tailored CV or cover letter for one job. Checks the sign-in itself (userFromRequest).
+[functions.tailor]
 verify_jwt = false

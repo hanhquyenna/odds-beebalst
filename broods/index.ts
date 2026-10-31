@@ -29,9 +29,10 @@ export const supabase = defineMcp({
 export const oddsAgent = defineAgent({
   name: "odds-agent",
   description: "Applies to jobs in the person's own Chrome through the Odds extension (MCP), from their Autofill and profile. Sees the tab by screenshot. Never submits.",
-  // The person's own 9router (OpenAI-compatible, their ChatGPT plan). If the tunnel URL changes: `broods env set NINE_ROUTER_BASE_URL`, then deploy.
-  provider: { custom: { apiKey: env("NINE_ROUTER_API_KEY"), baseURL: env("NINE_ROUTER_BASE_URL"), name: "ninerouter" } },
-  model: { provider: "custom", modelId: "cx/gpt-6.1-sol", reasoning: "high", maxOutputTokens: 6000 },
+  // The person's own 9router (OpenAI-compatible, their ChatGPT plan). If the tunnel URL changes: `echo <url> | broods env set ODDS_ROUTER_BASE_URL`.
+  // A request the tunnel takes and never answers is sent again after 90 s (Broods `firstByteTimeoutMs`) instead of stalling the run.
+  provider: { custom: { apiKey: env("NINE_ROUTER_API_KEY"), baseURL: env("ODDS_ROUTER_BASE_URL"), name: "ninerouter", firstByteTimeoutMs: 90_000 } },
+  model: { provider: "custom", modelId: "cx/gpt-6.1-sol", reasoning: "medium", maxOutputTokens: 6000 },
   mcp: {
     browser: { enabled: true, headers: { "x-odds-drive-key": "${ODDS_DRIVE_SECRET}" } },
     supabase: { enabled: true, headers: { "x-odds-drive-key": "${ODDS_DRIVE_SECRET}" } },
@@ -44,9 +45,12 @@ HOW YOU WORK
 - Every reply is a tool call until finish; a reply without one ends the run. Every call takes run_id and say (one short plain line for the person).
 - Never write an em dash anywhere: not in say, finish messages, answers or letters. Use a comma or a full stop.
 - read_page once, then act. Each action returns the fresh page; read_page again only when it says the page is pending.
+- read_page lists every field and button on the page, also below the fold: never scroll or screenshot just to look around.
+  On a job description, press Apply at once.
 - read_page gives fields (id, label, kind, required, filled, options), buttons, errors and dialog. Work from it first: it is fast and exact.
 - Fields marked by:"odds" were filled by Odds from the person's own answers: keep them unless they contradict the facts.
-- Fill every empty field you can in ONE fill call, then press Next / Continue / Review / Save and continue.
+- Fill every empty field you can in ONE fill call, then click Next / Continue / Review / Save and continue by its button id.
+  press_key is for the focused box only (a list, a date picker), never to move between steps.
 
 SEEING AND DRIVING THE SCREEN
 - screenshot shows you the tab as the person sees it. Take one when read_page cannot show or move what you need: a fill or click that
@@ -100,7 +104,7 @@ GETTING THERE
 FINISH
 - review: only Submit / Send is left. needs_you: captcha, account (after you tried), email (no form; name the address), questions
   (only the leave-to-the-person list, with their exact labels). stuck: after 5 genuinely different attempts including the screen,
-  say exactly what blocks. closed: the job is gone. finish ends the run: write nothing after it.
+  say exactly what blocks. closed: the job is gone. finish ends the run: then reply with just "Finished".
 
 task.route (when given) is this platform's known path and step budget: follow it. task.odds_filled is what Odds already filled.
 site_playbook: structure hints only; the page wins.

@@ -1,9 +1,8 @@
 // Edge Function `apply-agent`: sync HTTPS endpoint Odds calls via APPLY_AGENT_WEBHOOK_URL.
-// Cost plan: rules first → shared ATS patterns (mcp) → cheap model only on gaps.
-// Default model: gpt-6-luna (APPLY_AGENT_MODEL). Prefer OpenAI when both keys exist.
-// Tiny prompts, hard token caps, max 8 answer gaps / call. Lifecycle pings never call an LLM.
-// Deploy: supabase functions deploy apply-agent --project-ref ukpmpyfcnbhngkgbnkxi --use-api
-// Secrets: APPLY_AGENT_WEBHOOK_SECRET; OPENAI_API_KEY (preferred) or ANTHROPIC_API_KEY; APPLY_AGENT_MODEL;
+// Ladder: extension rules and recoverFill, then Broods odds-agent (one pick, no tools), then a person.
+// No OpenAI or Anthropic call on apply, fill, or answer decisions. Lifecycle pings never call a model.
+// Deploy: supabase functions deploy apply-agent --project-ref gdavxkaioqlfvfunmtxd --use-api
+// Secrets: APPLY_AGENT_WEBHOOK_SECRET;
 // optional APPLY_AGENT_FORWARD_URL (+ APPLY_AGENT_FORWARD_SECRET) for async Broods logging.
 // Broods: APPLY_AGENT_BROODS_API_KEY + ODDS_DRIVE_AGENT_ID (odds-agent, answering in pick mode)
 // + APPLY_AGENT_BROODS_USER_TOKEN_SECRET; optional APPLY_AGENT_BROODS_BASE_URL.
@@ -84,7 +83,7 @@ function parseBroodsPick(raw: unknown): BroodsScanPick | null {
   }
 }
 
-/** Broods SSE run → apply_pick. `timeoutMs` higher for free-roam browse. */
+/** Broods SSE run → apply_pick, given up after `timeoutMs`. */
 async function broodsRunPick(
   agentId: string,
   userPayload: Record<string, unknown>,
@@ -169,9 +168,32 @@ async function broodsRunPick(
 }
 
 /** One pick from odds-agent: no run_id, so it answers in pick mode with no tools. */
-async function broodsPick(userPayload: Record<string, unknown>): Promise<BroodsScanPick | null> {
+async function broodsPick(userPayload: Record<string, unknown>, timeoutMs = 25000): Promise<BroodsScanPick | null> {
   const agentId = (Deno.env.get("ODDS_DRIVE_AGENT_ID") ?? "").trim()
-  return broodsRunPick(agentId, userPayload, 25000)
+  return broodsRunPick(agentId, userPayload, timeoutMs)
+}
+
+/** Questions the rules left open, answered by odds-agent in one pick (only the keys asked, once each). */
+async function broodsFillGaps(payload: Record<string, unknown>, questions: ApplyQuestion[], timeoutMs = 25000): Promise<SuggestedAnswer[]> {
+  const pick = await broodsPick({
+    ...payload,
+    questions: questions.map((q) => ({
+      key: q.key,
+      label: q.label.slice(0, 200),
+      kind: q.kind,
+      options: (q.options ?? []).slice(0, 60).map((o) => String(o).slice(0, 120)),
+    })),
+  }, timeoutMs)
+  const want = new Set(questions.map((q) => q.key))
+  const out: SuggestedAnswer[] = []
+  for (const a of pick?.answers ?? []) {
+    if (a && typeof a.key === "string" && want.has(a.key) && a.answer.trim()) {
+      want.delete(a.key)
+      out.push(a)
+    }
+  }
+
+  return out
 }
 
 const CORS = {
@@ -200,67 +222,8 @@ function forwardAsync(body: unknown): void {
   void fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(3000) }).catch(() => undefined)
 }
 
-/** Cheap default: gpt-6-luna. Prefer OpenAI when both keys exist. */
-const MAX_LLM_GAPS = 8
-const MAX_BUTTONS_LLM = 24
-
-function cheapModel(provider: "openai" | "anthropic"): string {
-  const override = (Deno.env.get("APPLY_AGENT_MODEL") ?? "").trim()
-  if (override) return override
-  return provider === "openai" ? "gpt-6-luna" : "claude-3-5-haiku-latest"
-}
-
-/** One short JSON completion; OpenAI first. Empty string on miss/timeout. */
-async function cheapJsonChat(system: string, user: string, maxTokens: number): Promise<string> {
-  const openai = (Deno.env.get("OPENAI_API_KEY") ?? "").trim()
-  const anthropic = (Deno.env.get("ANTHROPIC_API_KEY") ?? "").trim()
-  try {
-    if (openai) {
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${openai}` },
-        body: JSON.stringify({
-          model: cheapModel("openai"),
-          temperature: 0,
-          max_completion_tokens: maxTokens,
-          reasoning_effort: "none",
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: user },
-          ],
-        }),
-        signal: AbortSignal.timeout(3000),
-      })
-      if (!res.ok) return ""
-      const data = await res.json()
-      return String(data?.choices?.[0]?.message?.content ?? "")
-    }
-    if (anthropic) {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": anthropic,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: cheapModel("anthropic"),
-          max_tokens: maxTokens,
-          system,
-          messages: [{ role: "user", content: user }],
-        }),
-        signal: AbortSignal.timeout(3000),
-      })
-      if (!res.ok) return ""
-      const data = await res.json()
-      return Array.isArray(data?.content) ? data.content.map((c: { text?: string }) => c.text ?? "").join("") : ""
-    }
-  } catch {
-    return ""
-  }
-  return ""
-}
+const MAX_GAPS = 8
+const MAX_BUTTONS = 24
 
 /** Every Autofill fact the server allowed (factsForAgent). Keeping only contact keys starved study/start/nationality questions. */
 function sliceFacts(facts: Record<string, string>): Record<string, string> {
@@ -270,77 +233,6 @@ function sliceFacts(facts: Record<string, string>): Record<string, string> {
     out[k] = v.trim().slice(0, k === "cv_excerpt" ? 1500 : ["role_values", "notes", "education", "experience", "skills", "work_permit"].includes(k) ? 600 : 160)
   }
   return out
-}
-
-async function llmSuggest(
-  questions: ApplyQuestion[],
-  facts: Record<string, string>,
-  meta: { title?: string | null; employer?: string | null; host?: string | null },
-): Promise<SuggestedAnswer[]> {
-  const askable = questions.filter((q) => q && !isDeniedQuestion(q.label)).slice(0, MAX_LLM_GAPS)
-  if (!askable.length) return []
-
-  const system = `Fill job-app answers. JSON only: {"answers":[{"key":"","answer":"","confidence":0.8,"evidence":""}]}.
-Radio/select: answer must be an exact option. Use facts. Zoekjaar/orientation year → no sponsorship, yes right-to-work.
-Facts hold Autofill plus the person's profile (nationality_group, work_permit, lives_in, education, experience, skills, cv_excerpt): REASON from them.
-E.g. nationality_group Non-EU → "Non-EU"; education ending in the future → enrolled / currently studying, its degree → education type; lives_in a Dutch city → based in the Netherlands;
-hours_per_week 40 → 5 days. Dates as YYYY-MM-DD. Open text (why, motivation, reasons): 1–3 plain sentences from role_values, notes, experience, education, cv_excerpt.
-Never state something the facts contradict. Never invent passwords/consent. Skip only what nothing in facts supports.`
-
-  const user = JSON.stringify({
-    job: { title: meta.title ?? null, employer: meta.employer ?? null, host: meta.host ?? null },
-    facts: sliceFacts(facts),
-    questions: askable.map((q) => ({
-      key: q.key,
-      label: q.label.slice(0, 160),
-      kind: q.kind,
-      options: (q.options ?? []).slice(0, 12).map((o) => String(o).slice(0, 80)),
-    })),
-  })
-
-  return parseAnswersJson(await cheapJsonChat(system, user, 900))
-}
-
-function parseAnswersJson(text: string): SuggestedAnswer[] {
-  const start = text.indexOf("{")
-  const end = text.lastIndexOf("}")
-  if (start < 0 || end <= start) return []
-  try {
-    const body = JSON.parse(text.slice(start, end + 1)) as { answers?: SuggestedAnswer[] }
-    return Array.isArray(body.answers) ? body.answers : []
-  } catch {
-    return []
-  }
-}
-
-/** LLM picks one exact visible control; server validates; extension clicks that label only. */
-async function llmSuggestAction(
-  buttons: ActionCandidate[],
-  meta: { host?: string | null; status?: string | null; url?: string | null },
-): Promise<SuggestActionPick> {
-  const labels = buttons
-    .map((b) => typeof b === "string" ? b : (b?.text ?? ""))
-    .map((t) => t.replace(/\s+/g, " ").trim())
-    .filter((t) => t.length >= 2)
-    .slice(0, MAX_BUTTONS_LLM)
-  if (!labels.length) return { action: "none", reason: "no_buttons" }
-
-  const system = `Pick one button to open/continue a job application. JSON: {"text":"<exact>"} or {"text":null}.
-Copy label exactly. Cookie banner → Functional only / Reject (never Accept all). Prefer Apply now / continue directly — never Create profile / Sign up.
-Never Submit/login/captcha/register/cart/share.`
-  const user = JSON.stringify({ host: meta.host ?? null, status: meta.status ?? null, buttons: labels })
-  const rawText = await cheapJsonChat(system, user, 48)
-  if (!rawText) return { action: "none", reason: (Deno.env.get("OPENAI_API_KEY") || Deno.env.get("ANTHROPIC_API_KEY")) ? "llm_error" : "no_llm_key" }
-
-  const start = rawText.indexOf("{")
-  const end = rawText.lastIndexOf("}")
-  if (start < 0 || end <= start) return { action: "none", reason: "llm_parse" }
-  try {
-    const body = JSON.parse(rawText.slice(start, end + 1)) as { text?: string | null }
-    return acceptActionPick(buttons, body.text, "llm_hands")
-  } catch {
-    return { action: "none", reason: "llm_parse" }
-  }
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -372,7 +264,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       const t = (typeof b === "string" ? b : b?.text ?? "").replace(/\s+/g, " ").trim().toLowerCase()
       return t && !exclude.has(t)
     })
-    // force_llm: skip rules so a dead Apply/cookie label cannot loop; LLM picks among remaining controls.
+    // force_llm: skip the dead rule label and ask Broods. Rules run again only when Broods is not configured.
     let pick: SuggestActionPick = forceLlm
       ? { action: "none", reason: "force_llm" }
       : pickSuggestAction(usable.length ? usable : buttons)
@@ -389,29 +281,23 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const status = typeof (body as { status?: string }).status === "string" ? (body as { status: string }).status : null
     const url = typeof (body as { url?: string }).url === "string" ? (body as { url: string }).url : null
     if (forceLlm || pick.action === "none") {
-      const llmButtons = forceLlm ? usable : (usable.length ? usable : buttons)
-      const fromLlm = await llmSuggestAction(llmButtons, { host, status, url })
-      if (fromLlm.action === "click") pick = fromLlm
-      else if (!forceLlm && pick.action !== "click") pick = fromLlm
-      else if (forceLlm && fromLlm.action === "none" && usable.length) {
+      if (broodsConfigured()) {
+        const broods = await broodsPick({
+          kind: "suggest-action",
+          host,
+          status,
+          url,
+          buttons: (usable.length ? usable : buttons).slice(0, MAX_BUTTONS),
+          exclude: [...exclude],
+        })
+        if (broods?.action === "click" && broods.text) {
+          const accepted = acceptActionPick(usable.length ? usable : buttons, broods.text, "broods")
+          if (accepted.action === "click") pick = accepted
+        } else if (broods?.action === "wait_human") {
+          pick = { action: "none", reason: `broods_${broods.stage}` }
+        }
+      } else if (forceLlm && usable.length) {
         pick = pickSuggestAction(usable)
-      }
-    }
-    // Stuck / force: race Broods agent when mini still has no click.
-    if ((forceLlm || pick.action === "none") && broodsConfigured()) {
-      const broods = await broodsPick({
-        kind: "suggest-action",
-        host,
-        status,
-        url,
-        buttons: (usable.length ? usable : buttons).slice(0, MAX_BUTTONS_LLM),
-        exclude: [...exclude],
-      })
-      if (broods?.action === "click" && broods.text) {
-        const accepted = acceptActionPick(usable.length ? usable : buttons, broods.text, "broods")
-        if (accepted.action === "click") pick = accepted
-      } else if (broods?.action === "wait_human") {
-        pick = { action: "none", reason: `broods_${broods.stage}` }
       }
     }
     forwardAsync({ ...body, type: "suggest-action.done", ...pick, force_llm: forceLlm })
@@ -425,22 +311,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const buttons = Array.isArray(snap.buttons) ? snap.buttons.filter((b): b is string => typeof b === "string").slice(0, 40) : []
     // The person's Autofill (server adds it to snapshot.facts) — without it Broods could only press buttons, never answer.
     const scanFacts = snap.facts && typeof snap.facts === "object" ? sliceFacts(snap.facts as Record<string, string>) : {}
-    const system = `Job-application page scan. JSON only: {"stage":"account|captcha|form|review|stuck","action":"click|fill|wait_human|none","text":"<exact button or null>","answers":[{"key":"...","answer":"..."}]}.
-stage=account/captcha → action=wait_human. Prefer Functional only / Reject cookies, then Apply/Next. Never Submit/login/signup/Accept all/password.
-Click text must be an exact button label from the list. answers only for empty required fields with keys from snapshot.fields, from facts only (choice → exact option).`
-    const user = JSON.stringify({
-      host: typeof (body as { host?: string }).host === "string" ? (body as { host: string }).host : null,
-      status: typeof (body as { status?: string }).status === "string" ? (body as { status: string }).status : null,
-      title: snap.title ?? null,
-      headings: Array.isArray(snap.headings) ? snap.headings.slice(0, 5) : [],
-      errors: Array.isArray(snap.errors) ? snap.errors.slice(0, 10) : [],
-      fields: Array.isArray(snap.fields) ? snap.fields.slice(0, 25) : [],
-      buttons,
-      facts: scanFacts,
-    }).slice(0, 3200)
-    const miniPromise = cheapJsonChat(system, user, 120)
-    const broodsPromise = broodsConfigured()
-      ? broodsPick({
+    const broods = broodsConfigured()
+      ? await broodsPick({
         kind: "suggest-scan",
         host: typeof (body as { host?: string }).host === "string" ? (body as { host: string }).host : null,
         status: typeof (body as { status?: string }).status === "string" ? (body as { status: string }).status : null,
@@ -452,12 +324,10 @@ Click text must be an exact button label from the list. answers only for empty r
         buttons,
         facts: scanFacts,
       })
-      : Promise.resolve(null)
-    const [rawText, broods] = await Promise.all([miniPromise, broodsPromise])
-    const fallback = { stage: "stuck" as const, action: "none" as const, text: null as string | null, answers: [] as SuggestedAnswer[], reason: rawText ? "llm_parse" : "no_llm" }
-
-    const fromBroods = (): typeof fallback | null => {
-      if (!broods) return null
+      : null
+    const fallback = { stage: "stuck" as const, action: "none" as const, text: null as string | null, answers: [] as SuggestedAnswer[], reason: "no_broods" }
+    let out = fallback
+    if (broods) {
       let text: string | null = null
       let action = broods.action
       if (action === "click" && broods.text) {
@@ -465,7 +335,7 @@ Click text must be an exact button label from the list. answers only for empty r
         if (pick.action === "click") text = pick.text ?? null
         else action = "none"
       }
-      return {
+      out = {
         stage: broods.stage,
         action,
         text,
@@ -473,51 +343,8 @@ Click text must be an exact button label from the list. answers only for empty r
         reason: broods.reason.startsWith("broods") ? broods.reason : `broods_${broods.reason}`,
       }
     }
-
-    if (!rawText) {
-      const out = fromBroods() ?? fallback
-      forwardAsync({ ...body, type: "suggest-scan.done", ...out })
-      return json(200, out)
-    }
-    const start = rawText.indexOf("{")
-    const end = rawText.lastIndexOf("}")
-    if (start < 0 || end <= start) {
-      const out = fromBroods() ?? fallback
-      forwardAsync({ ...body, type: "suggest-scan.done", ...out })
-      return json(200, out)
-    }
-    try {
-      const parsed = JSON.parse(rawText.slice(start, end + 1)) as {
-        stage?: string
-        action?: string
-        text?: string | null
-        answers?: SuggestedAnswer[]
-      }
-      const stage = ["account", "captcha", "form", "review", "stuck"].includes(String(parsed.stage)) ? String(parsed.stage) : "stuck"
-      let action = ["click", "fill", "wait_human", "none"].includes(String(parsed.action)) ? String(parsed.action) : "none"
-      if (stage === "account" || stage === "captcha") action = "wait_human"
-      let text: string | null = null
-      if (action === "click" && typeof parsed.text === "string") {
-        const pick = acceptActionPick(buttons, parsed.text, "llm_scan")
-        if (pick.action === "click") text = pick.text ?? null
-        else action = "none"
-      }
-      const answers = Array.isArray(parsed.answers)
-        ? parsed.answers.filter((a) => a && typeof a.key === "string" && typeof a.answer === "string").slice(0, 8)
-        : []
-      let out = { stage, action, text, answers, reason: "llm_scan" }
-      // Prefer Broods when mini has no useful click/fill.
-      if ((action === "none" || (action === "click" && !text)) && broods) {
-        const b = fromBroods()
-        if (b && (b.action !== "none" || b.stage === "account" || b.stage === "captcha")) out = b
-      }
-      forwardAsync({ ...body, type: "suggest-scan.done", ...out })
-      return json(200, out)
-    } catch {
-      const out = fromBroods() ?? fallback
-      forwardAsync({ ...body, type: "suggest-scan.done", ...out })
-      return json(200, out)
-    }
+    forwardAsync({ ...body, type: "suggest-scan.done", ...out })
+    return json(200, out)
   }
 
   if (type !== "suggest-answers") {
@@ -534,60 +361,33 @@ Click text must be an exact button label from the list. answers only for empty r
   const postingId = typeof (body as { posting_id?: string }).posting_id === "string" ? (body as { posting_id: string }).posting_id : null
   const facts = factsFromAgentPayload(factsMap, postingId)
 
-  // Broods-only: every question goes to Broods (one call for the whole step); no rules, no small model.
+  const answerPayload = {
+    kind: "suggest-answers",
+    title: (body as { title?: string | null }).title ?? null,
+    employer: (body as { employer?: string | null }).employer ?? null,
+    host: (body as { host?: string | null }).host ?? null,
+    facts: sliceFacts(factsMap),
+  }
+  // Broods-only: every question goes to Broods (odds-agent). No rules.
   if ((body as { broods_only?: boolean }).broods_only === true) {
     const askable = questions.filter((q) => !isDeniedQuestion(q.label)).slice(0, 30)
-    const broods = askable.length && broodsConfigured() ? await broodsPick({
-      kind: "suggest-answers",
-      title: (body as { title?: string | null }).title ?? null,
-      employer: (body as { employer?: string | null }).employer ?? null,
-      host: (body as { host?: string | null }).host ?? null,
-      questions: askable.map((q) => ({
-        key: q.key,
-        label: q.label.slice(0, 200),
-        kind: q.kind,
-        options: (q.options ?? []).slice(0, 60).map((o) => String(o).slice(0, 120)),
-      })),
-      facts: sliceFacts(factsMap),
-    }, 28000) : null
+    const fromBroods = askable.length && broodsConfigured() ? await broodsFillGaps(answerPayload, askable, 28000) : []
     const want = new Set(askable.map((q) => q.key))
-    const answers = (broods?.answers ?? []).filter((a) => want.has(a.key) && a.answer.trim()).map((a) => ({ key: a.key, answer: a.answer, confidence: 0.8, evidence: "broods" }))
+    const answers = fromBroods.filter((a) => want.has(a.key)).map((a) => ({ key: a.key, answer: a.answer, confidence: 0.8, evidence: "broods" }))
     forwardAsync({ ...body, type: "suggest-answers.done", n: answers.length, broods_only: true })
     return json(200, { answers })
   }
   const fromRules = suggestFromRules(questions, facts)
   const have = new Set(fromRules.map((a) => a.key))
-  const gaps = questions.filter((q) => !have.has(q.key) && !isDeniedQuestion(q.label)).slice(0, MAX_LLM_GAPS)
-  const fromLlm = gaps.length ? await llmSuggest(gaps, factsMap, {
-    title: (body as { title?: string | null }).title,
-    employer: (body as { employer?: string | null }).employer,
-    host: (body as { host?: string | null }).host,
-  }) : []
-
-  const answers = [...fromRules, ...fromLlm.filter((a) => a && typeof a.key === "string" && !have.has(a.key))]
-  // Broods answers what rules and the small model left open, from the same Autofill facts (the server re-checks every answer).
-  const filled = new Set(answers.map((a) => a.key))
-  const left = gaps.filter((q) => !filled.has(q.key))
-  if (left.length && broodsConfigured()) {
-    const broods = await broodsPick({
-      kind: "suggest-answers",
-      title: (body as { title?: string | null }).title ?? null,
-      employer: (body as { employer?: string | null }).employer ?? null,
-      host: (body as { host?: string | null }).host ?? null,
-      questions: left.map((q) => ({
-        key: q.key,
-        label: q.label.slice(0, 160),
-        kind: q.kind,
-        options: (q.options ?? []).slice(0, 20).map((o) => String(o).slice(0, 80)),
-      })),
-      facts: sliceFacts(factsMap),
-    })
-    const want = new Set(left.map((q) => q.key))
-    for (const a of broods?.answers ?? []) {
-      if (want.has(a.key) && !filled.has(a.key) && a.answer.trim()) {
-        filled.add(a.key)
-        answers.push({ key: a.key, answer: a.answer, confidence: 0.8, evidence: "broods" })
-      }
+  const gaps = questions.filter((q) => !have.has(q.key) && !isDeniedQuestion(q.label)).slice(0, MAX_GAPS)
+  const answers = [...fromRules]
+  // Gaps go straight to Broods (odds-agent). The server re-checks every answer.
+  if (gaps.length && broodsConfigured()) {
+    const filled = new Set(have)
+    for (const a of await broodsFillGaps(answerPayload, gaps)) {
+      if (filled.has(a.key) || !a.answer.trim()) continue
+      filled.add(a.key)
+      answers.push({ key: a.key, answer: a.answer, confidence: 0.8, evidence: "broods" })
     }
   }
   forwardAsync({ ...body, type: "suggest-answers.done", n: answers.length })
