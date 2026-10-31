@@ -532,14 +532,42 @@
     }
     return uploaded
   }
-  /** Sites that read the CV (PwC, Phenom) rewrite the form a few seconds later and drop what was typed meanwhile: wait for the page to go quiet. */
-  async function pageSettled(quietMs = 1500, maxMs = 9000) {
+  /**
+   * Waits until the page has not changed for quietMs (at most maxMs). The default is for a CV upload: sites that read the CV (PwC,
+   * Phenom) rewrite the form a moment later and drop what was typed meanwhile.
+   */
+  async function pageSettled(quietMs = 600, maxMs = 9000) {
     let last = Date.now()
     const watch = new MutationObserver(() => { last = Date.now() })
     watch.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true })
     const t0 = Date.now()
-    while (Date.now() - last < quietMs && Date.now() - t0 < maxMs) await sleep(150)
+    while (Date.now() - last < quietMs && Date.now() - t0 < maxMs) await sleep(Math.min(150, quietMs / 3))
     watch.disconnect()
+  }
+  /**
+   * For a Broods step that may move the page (click, click_at, back, open_job): call it before acting, then return what the settle
+   * function it gives answers. That is the result with the fresh page once the page is quiet (at most 800 ms), or null when the
+   * document is going: the result then leaves as it unloads, and the new page takes the next step.
+   */
+  function watchMove(sendResult, result) {
+    let leaving = false
+    const leave = () => {
+      if (leaving) return
+      leaving = true
+      void sendResult(result)
+    }
+    addEventListener("beforeunload", leave)
+    addEventListener("pagehide", leave)
+    return async () => {
+      await pageSettled(150, 800)
+      removeEventListener("beforeunload", leave)
+      removeEventListener("pagehide", leave)
+      if (!leaving) return { ...result, page: drivePage() }
+      // Going: this page takes no more steps (the server refuses them). A navigation that never comes (a download, a 204) carries on
+      // after 10 s, and the page then answers the read the server queued for the next page.
+      await Promise.race([new Promise((resolve) => addEventListener("pagehide", resolve, { once: true })), sleep(10000)])
+      return null
+    }
   }
   function cvShownAt(el) {
     if (!uploaded) return false
@@ -1874,14 +1902,15 @@
       const words = `${target.innerText || ""} ${target.getAttribute("aria-label") || ""} ${target.value || ""}`.replace(/\s+/g, " ").trim().slice(0, 120)
       if (denyText.test(words) || finalSubmitControl(target)) return { ok: false, error: "Odds never presses this; it is the person's" }
       if (target.matches("input[type=password]")) return { ok: false, error: "passwords are the person's" }
-      await sendResult({ ok: true, clicked: words || target.tagName.toLowerCase(), note: "screenshot or read_page next" })
+      const settle = watchMove(sendResult, { ok: true, clicked: words || target.tagName.toLowerCase(), note: "screenshot next if you need to check it" })
       // A real click where Broods looked (the site cannot tell it from a person's); Odds' own events only when that is not available.
       const real = window === top ? await realInput({ type: "real-input", op: "click", x, y }, 8000).catch(() => null) : null
-      if (real?.ok) return null
-      for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 }))
-      target.click()
-      if (target.matches("input, textarea, select, [contenteditable='true']")) target.focus()
-      return null
+      if (!real?.ok) {
+        for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 }))
+        target.click()
+        if (target.matches("input, textarea, select, [contenteditable='true']")) target.focus()
+      }
+      return settle()
     }
     if (cmd.tool === "type_text") {
       const el = document.activeElement
@@ -1917,7 +1946,7 @@
     }
     return null
   }
-  /** One Broods command, done in this tab. Answers what happened; a click that leaves the page answers before it clicks. */
+  /** One Broods command, done in this tab. Answers what happened; a step that leaves the page answers as the page goes. */
   async function driveCommandRaw(cmd, sendResult) {
     const args = cmd.args || {}
     // Fields that appeared since (Ashby's Application tab, the next step) get the person's contact details and recipes first, once each.
@@ -2110,19 +2139,18 @@
     }
     if (cmd.tool === "open_job") {
       if (!/^https:\/\//.test(driveJobUrl)) return { ok: false, error: "no job link known; use back" }
-      await sendResult({ ok: true, note: "opening the job's own link; read_page next" })
+      const settle = watchMove(sendResult, { ok: true, note: "opened the job's own link" })
       location.href = driveJobUrl
-      return null
+      return settle()
     }
     if (cmd.tool === "back") {
       // Going back out of the web (to a blank or new-tab page) leaves no page for Odds to drive: every next step would expire.
       if (history.length <= 1 || !/^https?:\/\//.test(document.referrer)) return { ok: false, error: "there is no web page to go back to from here; use open_job for the job's own link, or finish" }
       // Back may stay in this document (a #section or ?apply=true step): then this page answers with itself. Only when the page really
       // goes does the result leave as it unloads (the message gets out; the next page's read follows).
-      addEventListener("pagehide", () => { void sendResult({ ok: true, note: "went back one page; read_page next" }) }, { once: true })
+      const settle = watchMove(sendResult, { ok: true, note: "went back one page" })
       history.back()
-      await sleep(1500)
-      return { ok: true, note: "went back within this page", page: await drivePage() }
+      return settle()
     }
     if (cmd.tool === "click") {
       const el = driveButtons.get(args.id)
@@ -2135,21 +2163,20 @@
         const empty = (snap.fields || []).filter((f) => f.required && !f.filled && !f.consent)
         if (empty.length) return { ok: false, error: `required fields still empty: ${empty.map((f) => f.label).join("; ").slice(0, 300)}`, unfilled: empty.map((f) => f.label).slice(0, 12), page: snap }
       }
-      const before = pageHref()
-      // Answer first: a click that loads another page ends this script, and the new page picks up the next command.
-      await sendResult({ ok: true, clicked: text.slice(0, 100), note: "page may change; read_page next" })
       await ask({ type: "apply-follow" }).catch(() => null)
+      // The page the click led to comes back with it: this page once it is quiet, or the next page (the result leaves as this one goes).
+      const settle = watchMove(sendResult, { ok: true, clicked: text.slice(0, 100) })
       el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
       el.click()
-      await sleep(pageHref() === before ? 900 : 200)
-      return null
+      return settle()
     }
     return { error: `Unknown tool ${cmd.tool}` }
   }
   async function driveCommand(cmd, sendResult) {
     let result = await asOdds(() => driveCommandRaw(cmd, sendResult))
-    if (result && cmd.tool !== "read_page" && cmd.tool !== "screenshot") {
-      await sleep(180)
+    // The page as the step left it, read once the site has redrawn (quiet for 80 ms, at most 400 ms), unless the step read it already.
+    if (result && !result.page && cmd.tool !== "read_page" && cmd.tool !== "screenshot") {
+      await pageSettled(80, 400)
       result = { ...result, page: drivePage() }
     }
     // Recipes replayed during the run go back with this result; the server judges them when the run ends.
@@ -2330,11 +2357,8 @@
         }
         const result = await driveCommand(cmd, sendResult).catch(e => ({ok:false,error:String(e?.message || e).slice(0,200)}))
         if (stale) continue
-        // A step that can open another page: this page may be on its way out. Give it a moment before asking for the next step, so the
-        // read the server queued for the NEW page is taken there, not by this old page in its last instant (that read is then refused
-        // and Broods waits ~25 s for nothing).
+        // A step that left the page answered as the page went (watchMove), and its null comes back only if the page stayed after all.
         if (!sent && result !== null) await sendResult(result)
-        if (["click", "click_at", "back", "open_job"].includes(cmd.tool) && !(result && result.page)) await sleep(1500)
       }
     }
   }
@@ -2584,8 +2608,9 @@
     if (kit.broods_drive === true) {
       // An application form embedded from an ATS (Greenhouse, Lever... in an iframe): the frame drives, this page stays out (one driver per run).
       let embedded = atsFrame()
-      // A career page that loads its form a moment later (Nebius' Greenhouse embed): wait for it before driving an empty page.
-      for (let i = 0; !embedded && !blankFrameForm() && fields().filter((f) => f.kind !== "checkbox").length < 3 && i < 2; i++) {
+      // A career page that loads its form a moment later (Nebius' Greenhouse embed): wait for it before driving an empty page. Not on a
+      // page a run under way led to: Broods reads that page itself, and the drive loop hands over to a form frame that shows up later.
+      for (let i = 0; !intent.driveRun && !embedded && !blankFrameForm() && fields().filter((f) => f.kind !== "checkbox").length < 3 && i < 2; i++) {
         await sleep(750)
         embedded = atsFrame()
       }

@@ -214,6 +214,105 @@ async function session() {
   return res.ok ? { status: "ok", session: body } : { status: "error", message: body.error || "Could not sign you in." }
 }
 
+// ---- Push (the server's ODDS_DRIVE_PUSH=1): when Broods queues a step, odds wakes this worker over the person's own private Realtime
+// channel, and drive-next is asked at once instead of long-polled. The channel only wakes: every step is still taken from odds with
+// the key, and a run is only ever asked for by the tab that drives it. Without the channel, drive-next long-polls as before. ----
+/** The longest wait on the channel before odds is asked anyway (a wake lost while the socket was away). */
+const PUSH_CHECK_MS = 5000
+const push = { config: null, socket: null, joined: false, ref: 0, retryAt: 0, usedAt: 0, token: null, wokenAt: new Map(), waiters: new Map() }
+
+/** The channel is joined: drive-next may answer at once. */
+const pushReady = () => push.joined && push.socket?.readyState === WebSocket.OPEN
+
+/** Follows what odds says about push on each drive-next: joins the channel it names, or closes the socket when push is off. */
+function pushFollow(config) {
+  const valid = config && typeof config.url === "string" && typeof config.topic === "string" && typeof config.apikey === "string" ? config : null
+  if (!valid || valid.url !== push.config?.url || valid.topic !== push.config?.topic) pushClose()
+  push.config = valid
+  if (!valid || push.socket || Date.now() < push.retryAt) return
+  // One join at a time: the next try waits until this one has failed or the socket has closed.
+  push.retryAt = Date.now() + 30000
+  pushOpen(valid).catch(() => pushClose(30000))
+}
+
+/** Waits for a wake for this run that came after `since`, at most `ms`. */
+function pushWait(runId, since, ms) {
+  if ((push.wokenAt.get(runId) ?? 0) > since) return Promise.resolve()
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(timer); push.waiters.get(runId)?.delete(done); resolve() }
+    const timer = setTimeout(done, ms)
+    if (!push.waiters.has(runId)) push.waiters.set(runId, new Set())
+    push.waiters.get(runId).add(done)
+  })
+}
+
+/** The next step of a run for its tab. With the channel joined, odds answers at once and is asked again on each wake for the run
+ * (at least every PUSH_CHECK_MS); without it odds long-polls. Either way an answer comes within about 20 s, as before. */
+async function driveNext(body) {
+  const until = Date.now() + 20000
+  let ask = body
+  for (;;) {
+    push.usedAt = Date.now()
+    const pushed = pushReady()
+    const sent = Date.now()
+    const res = await ext("drive-next", { method: "POST", body: JSON.stringify(pushed ? { ...ask, push: true } : ask) })
+    if (res?.status === "ok") pushFollow(res.push ?? null)
+    if (!pushed || res?.status !== "ok" || !res.idle || res.hold || Date.now() >= until) return res
+    ask = { ...ask, fresh: false }
+    await pushWait(ask.run_id, sent, Math.min(PUSH_CHECK_MS, until - Date.now()))
+  }
+}
+
+/** Joins the person's channel (Realtime's Phoenix protocol) with their own sign-in, on odds' own host only. */
+async function pushOpen(config) {
+  if (new URL(config.url).host !== new URL(await apiBase()).host) return pushClose(600000)
+  if (!push.token || push.token.until - Date.now() < 300000) {
+    const signed = await session()
+    const expires = Number(signed.session?.expires_at) * 1000
+    push.token = signed.status === "ok" && typeof signed.session?.access_token === "string" ? { jwt: signed.session.access_token, until: Number.isFinite(expires) ? expires : Date.now() + 3600000 } : null
+  }
+  if (!push.token) return pushClose(30000)
+  if (push.config !== config || push.socket) return
+  const socket = new WebSocket(`${config.url}?apikey=${encodeURIComponent(config.apikey)}&vsn=1.0.0`)
+  push.socket = socket
+  const topic = `realtime:${config.topic}`
+  const joinRef = String(++push.ref)
+  const send = (to, event, payload, ref = String(++push.ref)) => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ topic: to, event, payload, ref })) }
+  // A heartbeat keeps the socket, and with it this worker, alive while a run asks for steps; a minute without one closes it. The
+  // sign-in is renewed by joining again.
+  const beat = setInterval(() => (Date.now() - push.usedAt > 60000 ? pushClose() : send("phoenix", "heartbeat", {})), 20000)
+  const renew = setTimeout(() => { if (push.socket === socket) pushClose() }, Math.max(60000, push.token.until - Date.now() - 120000))
+  socket.onopen = () => send(topic, "phx_join", { config: { broadcast: { ack: false, self: false }, presence: { enabled: false, key: "" }, postgres_changes: [], private: true }, access_token: push.token.jwt }, joinRef)
+  socket.onmessage = (e) => {
+    let m = null
+    try { m = JSON.parse(e.data) } catch { return }
+    if (m?.topic !== topic) return
+    if (m.event === "phx_reply" && m.ref === joinRef) {
+      push.joined = m.payload?.status === "ok"
+      if (!push.joined) pushClose(60000)
+    } else if (m.event === "broadcast" && m.payload?.event === "wake" && typeof m.payload.payload?.run_id === "string") {
+      const runId = m.payload.payload.run_id
+      push.wokenAt.set(runId, Date.now())
+      for (const done of [...(push.waiters.get(runId) ?? [])]) done()
+    } else if (m.event === "phx_error" || m.event === "phx_close" || (m.event === "system" && m.payload?.status === "error")) pushClose(5000)
+  }
+  socket.onclose = () => {
+    clearInterval(beat)
+    clearTimeout(renew)
+    if (push.socket === socket) pushClose(push.joined ? 2000 : 30000)
+  }
+}
+
+/** Leaves the channel; no new join for `waitMs`. Runs waiting on a wake ask odds at once (and long-poll from then on). */
+function pushClose(waitMs = 0) {
+  const socket = push.socket
+  push.socket = null
+  push.joined = false
+  push.retryAt = Date.now() + waitMs
+  if (socket && socket.readyState <= WebSocket.OPEN) socket.close()
+  for (const waiting of push.waiters.values()) for (const done of [...waiting]) done()
+}
+
 /** The person's saved jobs, for the panel. */
 async function pool() {
   const key = await savedKey()
@@ -593,7 +692,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
         const held = (await intentOf(tabId))?.driveRun
         if (typeof held === "string") body.run_id = held
       }
-      const res = await ext(`drive-${message.op}`, { method: "POST", body: JSON.stringify(body) })
+      const res = message.op === "next" && !body.hold ? await driveNext(body) : await ext(`drive-${message.op}`, { method: "POST", body: JSON.stringify(body) })
       // The run follows the tab across page loads: the next page resumes it instead of starting another.
       if (message.op === "start" && typeof res?.run_id === "string") await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], driveRun: res.run_id } })
       // ext() separates transport status from the application stage. Restore the
