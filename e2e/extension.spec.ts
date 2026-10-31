@@ -5830,6 +5830,10 @@ test("Broods acts by sight when the page tools cannot: a screenshot with the rea
     const help = before.buttons!.find((b) => b.text === "Help")!
     helpId = help.id
     await cmd("click_at", { x: 10, y: 10 }).then((r) => expect(r.error).toMatch(/screenshot first/))
+    // A model fills the optional zoom box with the whole screen before any picture exists: that is the full picture, not an error.
+    const early = await cmd("screenshot", { region: [0, 0, 1280, 800] }) as Shot
+    expect(early.error).toBeUndefined()
+    expect(early.marks?.some((m) => m.id === help.id)).toBe(true)
     shot = await cmd("screenshot") as Shot
     const mark = shot.marks?.find((m) => m.id === help.id)
     expect(mark).toBeDefined()

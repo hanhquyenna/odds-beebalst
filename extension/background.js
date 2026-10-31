@@ -658,8 +658,10 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
         frameOffset(tab.id, sender.frameId ?? 0),
       ])
       const bitmap = await createImageBitmap(await (await fetch(url)).blob())
-      const crop = message.region ? S.shotCrop(message.region, message.last || { width: 0, height: 0 }, bitmap.width, bitmap.height) : null
-      if (message.region && !crop) { bitmap.close(); return reply({ error: "region is [x1, y1, x2, y2] in pixels of the last screenshot of this page: take a screenshot first, then zoom into a part of it." }) }
+      // A zoom needs a part of an earlier picture of this page. No earlier picture, an empty box or (nearly) the whole picture, which a
+      // model sends for "everything": the full picture with its boxes, never an error it would retry.
+      const cut = message.region ? S.shotCrop(message.region, message.last || { width: 0, height: 0 }, bitmap.width, bitmap.height) : null
+      const crop = cut && cut.sw * cut.sh < 0.9 * bitmap.width * bitmap.height ? cut : null
       const { width, height } = crop || S.shotSize(bitmap.width, bitmap.height)
       const canvas = new OffscreenCanvas(width, height)
       const ctx = canvas.getContext("2d")
@@ -673,7 +675,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       const bytes = new Uint8Array(await (await canvas.convertToBlob({ type: "image/jpeg", quality: 0.65 })).arrayBuffer())
       let binary = ""
       for (const byte of bytes) binary += String.fromCharCode(byte)
-      reply({ image: btoa(binary), ...shot, marks })
+      reply({ image: btoa(binary), ...shot, marks, zoomed: Boolean(crop) })
     })().catch((e) => reply({ error: String(e?.message || e).slice(0, 200) }))
     return true
   }

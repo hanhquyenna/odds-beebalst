@@ -1906,9 +1906,11 @@
     })
   /** A picture of the tab: the whole of it with marks (then it is the one click_at points are in), or a zoom of a region of the last one. */
   async function driveShot(region) {
-    const shot = await ask(region ? { type: "drive-shot", region, last: driveImageSize } : { type: "drive-shot", marks: driveMarks() }, 15000).catch(() => null)
+    // A zoom is a part of the last picture of this page; without one, or when the tab says the box was the whole picture, a full picture.
+    const zoom = region && driveImageSize ? region : null
+    const shot = await ask({ type: "drive-shot", marks: driveMarks(), ...(zoom ? { region: zoom, last: driveImageSize } : {}) }, 15000).catch(() => null)
     if (!shot?.image) return { error: shot?.error || "Could not take a screenshot of this tab." }
-    if (region) return { image: shot.image, mime: "image/jpeg", width: shot.width, height: shot.height, zoom: region, note: "A zoom of that region of the last screenshot. click_at still takes pixels of the full screenshot." }
+    if (shot.zoomed) return { image: shot.image, mime: "image/jpeg", width: shot.width, height: shot.height, zoom: zoom, note: "A zoom of that region of the last screenshot. click_at still takes pixels of the full screenshot." }
     driveImageSize = { width: shot.width, height: shot.height, viewportWidth: shot.viewportWidth, frameX: shot.frameX, frameY: shot.frameY, frame: shot.frame }
     return { image: shot.image, mime: "image/jpeg", width: shot.width, height: shot.height, marks: shot.marks, note: "x, y are pixels of this picture from its top-left corner: click_at takes them. A box is a read_page field (f…) or button (b…): use its id with fill or click." }
   }

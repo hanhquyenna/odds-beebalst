@@ -430,7 +430,7 @@ const BASE_TOOLS = [
   {
     name: "screenshot",
     description: "See the tab as the person sees it, when read_page cannot show or move what you need (a fill or click that did not take, a custom dropdown, date picker or slider, an overlay, a canvas). A picture at most 1280 pixels wide; each read_page field and button on screen is boxed with its id (f… blue, b… pink), and marks lists them with their centre. Act on a boxed id by id (fill, click); click_at only what has no box. region [x1, y1, x2, y2] (pixels of the last screenshot) zooms into that part, unboxed, to read small text.",
-    inputSchema: { type: "object", properties: { run_id: { type: "string" }, region: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4, description: "Zoom: [x1, y1, x2, y2] in pixels of the last full screenshot." } }, required: ["run_id"] },
+    inputSchema: { type: "object", properties: { run_id: { type: "string" }, region: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4, description: "Zoom only: [x1, y1, x2, y2], a small part of the last full screenshot of this page, in its pixels. Leave it out for the full picture." } }, required: ["run_id"] },
   },
   {
     name: "click_at",
