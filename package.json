@@ -7,6 +7,7 @@
     "dev": "vite",
     "bench": "bun scripts/bench.ts",
     "e2e": "playwright test",
+    "e2e:drive-speed": "playwright test --project=desktop --grep 'DRIVE SPEED' && ODDS_DRIVE_PUSH=1 playwright test --project=desktop --grep 'DRIVE SPEED'",
     "extension:sync": "rsync -a --delete extension/ \"$HOME/Downloads/odds-extension/\"",
     "e2e:accept": "bun run extension:sync && (lsof -ti :4319 | xargs kill -9 2>/dev/null || true) && CI=1 bunx playwright test --project=desktop --grep @accept",
     "e2e:stress": "bun run extension:sync && (lsof -ti :4319 | xargs kill -9 2>/dev/null || true) && CI=1 bunx playwright test --project=desktop --grep @stress",

@@ -2,6 +2,7 @@ import { BroodsClient } from "broods"
 import { playbookFor, siteIdentity, type Evidence } from "../supabase/functions/_shared/site-playbook"
 import { routeHint, routeKey, routeStoreKey, usable } from "../supabase/functions/_shared/site-routes"
 import { execFileSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { createServer, request as httpRequest, type IncomingMessage, type Server } from "node:http"
 import { createServer as createTlsServer } from "node:https"
 import { chromium, expect, test as base, type BrowserContext, type Page } from "@playwright/test"
@@ -12,6 +13,7 @@ import { mockBackend, shot } from "./mock"
 import { pickSuggestAction } from "../supabase/functions/_shared/apply-agent-suggest"
 import { chooseOption, resolveAgentAnswer, type Facts } from "../supabase/functions/_shared/apply-form"
 import { tmpdir } from "node:os"
+import type { Duplex } from "node:stream"
 
 /**
  * The odds browser extension, loaded for real into Chromium. LinkedIn and odds.beeblast.co are served from fixtures (odds is the built app on
@@ -55,6 +57,11 @@ interface DriveRun {
   rejectedResults: number
   /** Fill/upload mutations accepted while the run was live (late ones must not land). */
   mutations: number
+  /** The run's id, and how a queued step or the run's end wakes the extension (push mode). */
+  id?: string
+  wake?: () => void
+  /** When each command was queued, taken by the tab and answered (DRIVE SPEED). */
+  times?: Map<number, { tool: string; queued: number; taken?: number; done?: number }>
 }
 interface Fake {
   drives: Map<string, DriveRun>
@@ -95,6 +102,9 @@ interface Fake {
   suggestActionPicks: Array<{ action: string; text?: string; reason: string }>
   server: Server
   port: number
+  /** ODDS_DRIVE_PUSH=1: the stand-in Realtime channel, and how many drive-next asks came in push mode. */
+  realtime?: ReturnType<typeof fakeRealtime>
+  pushAsks?: number
   remoteTask?: { id: string; url: string; status: string }
   remoteTasks?: Array<{ id: string; url: string; status: string }>
   reports: Array<{ status?: string; message?: string }>
@@ -135,6 +145,7 @@ async function driveAgent(fake: Fake, run: DriveRun): Promise<void> {
     run.cmdStatus.set(c.id, "queued")
     run.resolvers.set(c.id, (r) => resolve((r ?? {}) as Record<string, unknown>))
     run.outbox.push(c)
+    run.wake?.()
   })
   const kitFacts = ((fake.kit as { facts?: Facts }).facts ?? {}) as Facts
   const tried = new Map<string, number>()
@@ -333,6 +344,7 @@ async function driveReal(fake: Fake, path: string, body: Record<string, unknown>
   return { idle: true }
 }
 function cancelFakeOpen(run: DriveRun, why: string): void {
+  run.wake?.()
   for (const [id, status] of run.cmdStatus) {
     if (status === "queued" || status === "taken") {
       run.cmdStatus.set(id, "cancelled")
@@ -374,6 +386,8 @@ function fakeCmd(run: DriveRun) {
     run.cmdStatus.set(c.id, "queued")
     run.resolvers.set(c.id, (r) => resolve((r ?? {}) as Record<string, unknown>))
     run.outbox.push(c)
+    run.times?.set(c.id, { tool, queued: Date.now() })
+    run.wake?.()
   })
 }
 async function driveFake(fake: Fake, path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -382,7 +396,7 @@ async function driveFake(fake: Fake, path: string, body: Record<string, unknown>
   if (path.endsWith("/drive-start")) {
     if (typeof body.run_id === "string" && fake.drives.has(body.run_id) && !fake.drives.get(body.run_id)!.done) return { run_id: body.run_id, resumed: true }
     const id = `run-${fake.drives.size + 1}`
-    const run: DriveRun = { copilot: body.copilot === true, outbox: [], resolvers: new Map(), done: null, log: [], docGen: 0, cmdStatus: new Map(), rejectedResults: 0, mutations: 0 }
+    const run: DriveRun = { copilot: body.copilot === true, outbox: [], resolvers: new Map(), done: null, log: [], docGen: 0, cmdStatus: new Map(), rejectedResults: 0, mutations: 0, id: id, wake: () => fake.realtime?.wake(id), times: new Map() }
     fake.drives.set(id, run)
     ;(fake.driveStartBodies ??= []).push(body)
     if (fake.driveScript) {
@@ -430,6 +444,8 @@ async function driveFake(fake: Fake, path: string, body: Record<string, unknown>
       return { ok: false, stale: true, reason: "document_changed" }
     }
     run.cmdStatus.set(id, "done")
+    const time = run.times?.get(id)
+    if (time) time.done = Date.now()
     run.mutations++
     run.resolvers.get(id)?.(body.result)
     run.resolvers.delete(id)
@@ -447,11 +463,16 @@ async function driveFake(fake: Fake, path: string, body: Record<string, unknown>
       }
     }
   }
-  for (let waited = 0; waited < 3000; waited += 50) {
+  // Push mode: one look, answered at once (the extension asks again when the channel wakes it), as production's drive-next.
+  const pushed = Boolean(fake.realtime) && body.push === true
+  if (pushed) fake.pushAsks = (fake.pushAsks ?? 0) + 1
+  for (let waited = 0; waited < (pushed ? 1 : 3000); waited += 50) {
     // CAS claim: mark taken before yield so duplicate polls cannot both win.
     const c = run.outbox.find((x) => run.cmdStatus.get(x.id) === "queued")
     if (c && run.cmdStatus.get(c.id) === "queued") {
       run.cmdStatus.set(c.id, "taken")
+      const time = run.times?.get(c.id)
+      if (time) time.taken = Date.now()
       run.outbox = run.outbox.filter((x) => x.id !== c.id)
       return { command: c, steps: run.log.length, doc_gen: run.docGen }
     }
@@ -459,6 +480,61 @@ async function driveFake(fake: Fake, path: string, body: Record<string, unknown>
     await new Promise((r) => setTimeout(r, 50))
   }
   return { idle: true }
+}
+
+/** ODDS_DRIVE_PUSH=1: the fake odds has push on and stands in for Supabase Realtime (bun run e2e:drive-speed runs both ways). */
+const PUSH = process.env.ODDS_DRIVE_PUSH === "1"
+/** The person the fake signs in (/ext/session): their drive channel is drive:<this id>. */
+const PUSH_USER = "00000000-0000-4000-8000-000000000001"
+
+/**
+ * A minimal Realtime socket on the fake's own port (Phoenix over WebSocket, as the extension speaks it): a join is answered only for
+ * the person's own private drive topic with their own sign-in, as Realtime Authorization does, and wakes go to whoever joined.
+ */
+function fakeRealtime(server: Server): { wake: (runId: string) => void; joins: string[] } {
+  const joined = new Set<Duplex>()
+  const joins: string[] = []
+  const send = (socket: Duplex, message: Record<string, unknown>): void => {
+    const body = Buffer.from(JSON.stringify(message))
+    socket.write(Buffer.concat([body.length < 126 ? Buffer.from([0x81, body.length]) : Buffer.from([0x81, 126, body.length >> 8, body.length & 255]), body]))
+  }
+  server.on("upgrade", (req: IncomingMessage, socket: Duplex) => {
+    const accept = createHash("sha1").update(`${String(req.headers["sec-websocket-key"] ?? "")}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64")
+    socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`)
+    let held = Buffer.alloc(0)
+    socket.on("data", (chunk: Buffer) => {
+      held = Buffer.concat([held, chunk])
+      // Client frames are masked; read every whole frame held so far.
+      while (held.length >= 2) {
+        const opcode = held[0] & 15
+        let length = held[1] & 127
+        let at = 2
+        if (length === 126) { if (held.length < 4) return; length = held.readUInt16BE(2); at = 4 }
+        if (length === 127) { if (held.length < 10) return; length = Number(held.readBigUInt64BE(2)); at = 10 }
+        if (held.length < at + 4 + length) return
+        const mask = held.subarray(at, at + 4)
+        const text = Buffer.from(held.subarray(at + 4, at + 4 + length).map((b, i) => b ^ mask[i % 4])).toString()
+        held = held.subarray(at + 4 + length)
+        if (opcode === 8) { joined.delete(socket); socket.end(); return }
+        if (opcode !== 1) continue
+        const m = JSON.parse(text) as { topic: string; event: string; ref: string; payload?: { access_token?: string; config?: { private?: boolean } } }
+        if (m.event === "heartbeat") send(socket, { topic: "phoenix", event: "phx_reply", payload: { status: "ok", response: {} }, ref: m.ref })
+        if (m.event !== "phx_join") continue
+        const ok = m.topic === `realtime:drive:${PUSH_USER}` && m.payload?.config?.private === true && m.payload?.access_token === "e2e-token"
+        joins.push(`${m.topic} ${ok ? "ok" : "refused"}`)
+        if (ok) joined.add(socket)
+        send(socket, { topic: m.topic, event: "phx_reply", payload: ok ? { status: "ok", response: {} } : { status: "error", response: { reason: "Unauthorized" } }, ref: m.ref })
+      }
+    })
+    socket.on("close", () => joined.delete(socket))
+    socket.on("error", () => joined.delete(socket))
+  })
+  return {
+    joins: joins,
+    wake: (runId) => {
+      for (const socket of joined) send(socket, { topic: `realtime:drive:${PUSH_USER}`, event: "broadcast", payload: { type: "broadcast", event: "wake", payload: { run_id: runId } }, ref: null })
+    },
+  }
 }
 
 async function fakeOdds(): Promise<Fake> {
@@ -526,7 +602,9 @@ async function fakeOdds(): Promise<Fake> {
       const path = String(req.url).split("?")[0]
       if (/\/ext\/drive-(start|next|result|continue|stop|playbook)$/.test(path)) {
         if (path.endsWith("/drive-next") && (fake.driveDown ?? 0) > 0) { fake.driveDown!--; res.writeHead(503, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ error: "unavailable" })); return }
-        void driveFake(fake, path, body as Record<string, unknown>).then((out) => res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify(out)))
+        // Push mode: every drive-next answer names the channel, as production's does.
+        const push = fake.realtime && !fake.realBroods && path.endsWith("/drive-next") ? { push: { url: `ws://localhost:${fake.port}/realtime/v1/websocket`, apikey: "e2e-anon-key", topic: `drive:${PUSH_USER}` } } : {}
+        void driveFake(fake, path, body as Record<string, unknown>).then((out) => res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ ...out, ...push })))
         return
       }
       let answer: Record<string, unknown> = fake.answer
@@ -648,6 +726,7 @@ async function fakeOdds(): Promise<Fake> {
   })
   await new Promise<void>((resolve) => fake.server.listen(0, resolve))
   fake.port = (fake.server.address() as { port: number }).port
+  if (PUSH) fake.realtime = fakeRealtime(fake.server)
 
   return fake
 }
@@ -5664,6 +5743,62 @@ test("Broods drives an Oracle-style step: fills the email, ticks the terms box (
   await expect(page.locator("#terms")).toBeChecked()
   await expect(page.locator("#email")).toHaveValue("kien@example.com")
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+})
+
+// DRIVE SPEED: how long Broods' steps take in the tab, as the extension does them: pickup, the step itself, and the page it answers with.
+// Long-poll by default, push with ODDS_DRIVE_PUSH=1 (bun run e2e:drive-speed runs both). It prints each step's times and fails only past
+// loose ceilings. The server's own share (Supabase, the model) is measured on real runs: scripts/drive-latency.sql.
+const SPEED_FORM = `<!doctype html><html><head><meta charset="utf-8"><title>Apply: Data Intern</title></head><body><main><h1>Data Intern</h1>
+<form action="/apply/step2" method="get">
+<div id="s1"><label for="first">First name *</label><input id="first" required> <label for="mail">Email *</label><input id="mail" type="email" required>
+<button type="button" id="next">Next</button></div>
+<div id="s2" hidden><label for="city">City *</label><input id="city" name="city"> <button id="cont" type="submit">Continue</button></div>
+</form><script>document.getElementById("next").addEventListener("click", () => { document.getElementById("s1").hidden = true; document.getElementById("s2").hidden = false })</script>
+</main></body></html>`
+const SPEED_STEP2 = `<!doctype html><html><head><meta charset="utf-8"><title>Apply: Data Intern</title></head><body><main><h1>Data Intern: one more question</h1>
+<label for="why">Why this job? *</label><textarea id="why" required></textarea>
+<button id="submit" onclick="window.sent=(window.sent||0)+1">Submit</button></main></body></html>`
+
+test(`DRIVE SPEED: each step's time in the tab (${PUSH ? "push" : "long-poll"})`, async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  await context.route("https://jobs.example-speed.com/**", (route) => route.fulfill({ contentType: "text/html", body: new URL(route.request().url()).pathname.startsWith("/apply/step2") ? SPEED_STEP2 : SPEED_FORM }))
+  fake.kit = { job_id: "pspeed", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: {}, remembered: {} }, cv: null }
+  type Read = { fields?: Array<{ id: string; label: string }>; buttons?: Array<{ id: string; text: string }> }
+  const field = (page: Read, label: RegExp): string => page.fields!.find((f) => label.test(f.label))!.id
+  const button = (page: Read, text: RegExp): string => page.buttons!.find((b) => text.test(b.text))!.id
+  let started = 0
+  let ended = 0
+  fake.driveScript = async (cmd) => {
+    started = Date.now()
+    const one = await cmd("read_page") as Read
+    await cmd("fill", { fields: [{ id: field(one, /first name/i), value: "Kien" }, { id: field(one, /email/i), value: "kien@example.com" }] })
+    // A click answers with the page it led to; when it left the document, the server reads the next page (afterNavigation), here the script.
+    const next = await cmd("click", { id: button(one, /^next$/i) })
+    const two = (next.page ?? await cmd("read_page", { after_action: true })) as Read
+    await cmd("fill", { fields: [{ id: field(two, /city/i), value: "Amsterdam" }] })
+    const cont = await cmd("click", { id: button(two, /continue/i) })
+    const three = (cont.page ?? await cmd("read_page", { after_action: true })) as Read
+    await cmd("fill", { fields: [{ id: field(three, /why/i), value: "I like working with data." }] })
+    ended = Date.now()
+    return { status: "review", message: "Everything is filled in. Check it and press Submit yourself." }
+  }
+  const page = await context.newPage()
+  await page.goto("https://jobs.example-speed.com/apply")
+  await applyFrom(context, page, "https://jobs.example-speed.com/apply")
+  await expect(page.locator(".odds-apply-bar")).toContainText(/press Submit/i, { timeout: 60000 })
+  await expect(page.locator("#why")).toHaveValue("I like working with data.")
+  expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
+  const steps = [...[...fake.drives.values()][0].times!.values()].map((t) => ({ tool: t.tool, pickup: (t.taken ?? 0) - t.queued, tab: (t.done ?? 0) - (t.taken ?? 0), total: (t.done ?? 0) - t.queued }))
+  console.log(`DRIVE SPEED (${PUSH ? "push" : "long-poll"}): ${ended - started} ms for ${steps.length} steps\n${steps.map((s) => `  ${s.tool.padEnd(10)} pickup ${String(s.pickup).padStart(5)} ms  in tab ${String(s.tab).padStart(5)} ms  total ${String(s.total).padStart(5)} ms`).join("\n")}`)
+  if (PUSH) {
+    expect(fake.realtime!.joins).toContain(`realtime:drive:${PUSH_USER} ok`)
+    expect(fake.pushAsks ?? 0).toBeGreaterThan(0)
+  }
+  // Loose ceilings (a busy CI machine): a same-page click and a fill answer with their page in well under 2 s each.
+  for (const s of steps.filter((x) => x.tool === "fill" || x.tool === "read_page")) expect(s.total).toBeLessThan(2500)
+  expect(steps.find((s) => s.tool === "click")!.total).toBeLessThan(2500)
+  expect(ended - started).toBeLessThan(15000)
 })
 
 test("Broods acts by sight when the page tools cannot: screenshot of the tab, a click at a point on a widget read_page does not list, the next step opens", async ({ context, fake }) => {
