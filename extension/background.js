@@ -693,7 +693,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       if (pending) { pending.then((res) => reply(res)).catch(() => reply(null)); return true }
     }
     const body = message.op === "start"
-      ? { url: String(message.url || ""), page: String(message.page || ""), run_id: typeof message.run_id === "string" ? message.run_id : null, recipe_attempts: message.recipe_attempts || [], tab_id: tabId, ...(message.ready === true ? { ready: true } : {}), ...(message.copilot === true ? { copilot: true } : {}), ...(message.odds_filled && typeof message.odds_filled === "object" ? { odds_filled: message.odds_filled } : {}) }
+      ? { url: String(message.url || ""), page: String(message.page || ""), run_id: typeof message.run_id === "string" ? message.run_id : null, recipe_attempts: message.recipe_attempts || [], tab_id: tabId, ext_version: chrome.runtime.getManifest().version, ...(message.ready === true ? { ready: true } : {}), ...(message.copilot === true ? { copilot: true } : {}), ...(message.odds_filled && typeof message.odds_filled === "object" ? { odds_filled: message.odds_filled } : {}) }
       : message.op === "playbook" ? { page: String(message.page || "") }
       : message.op === "next" ? { run_id: message.run_id, fresh: message.fresh === true, hold: message.hold === true, tab_id: tabId }
       : message.op === "continue" ? { run_id: message.run_id }
