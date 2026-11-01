@@ -2,6 +2,9 @@
 // job-sites.js: which addresses are jobs, by the rules the server uses (built from supabase/functions/_shared/job-sites.ts).
 importScripts("job-sites.js")
 const API = "https://gdavxkaioqlfvfunmtxd.supabase.co/functions/v1/mcp"
+// The per-step calls (drive-next, drive-result) go to a small function that starts in ~0.1 s instead of ~0.7 s; it passes anything
+// that is not a plain step on to mcp.
+const STEP_API = "https://gdavxkaioqlfvfunmtxd.supabase.co/functions/v1/drive-step"
 // The tests point the extension at a local fake of odds; nothing else may change where it sends the key.
 async function apiBase() {
   const { oddsApi } = await chrome.storage.local.get("oddsApi")
@@ -139,9 +142,14 @@ function peek(url) {
 async function ext(route, init = {}) {
   const key = await savedKey()
   if (!key) return { status: "connect" }
+  const base = await apiBase()
+  const send = (to) => fetch(`${to}/ext/${route}`, { ...init, headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(/^(suggest-|drive-)/.test(route) ? 50000 : 30000) })
+  const step = base === API && /^drive-(next|result)$/.test(route)
   let res
   try {
-    res = await fetch(`${await apiBase()}/ext/${route}`, { ...init, headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(/^(suggest-|drive-)/.test(route) ? 50000 : 30000) })
+    res = await send(step ? STEP_API : base)
+    // No drive-step on the server yet: the same call to mcp.
+    if (step && res.status === 404) res = await send(base)
   } catch {
     return { status: "error", message: "odds did not answer." }
   }

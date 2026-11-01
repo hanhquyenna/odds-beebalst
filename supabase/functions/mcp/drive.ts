@@ -1,7 +1,8 @@
 import type { BroodsClient } from "broods"
 import { renderLetterPdf } from "../_shared/cv-template.ts"
 import { compressRoute, routeHint, routeKey, routeStoreKey, usable } from "../_shared/site-routes.ts"
-import { canAcceptDriveResult, humanStopAllowed, jobIdentityMismatch } from "../_shared/drive-ownership.ts"
+import { humanStopAllowed, jobIdentityMismatch } from "../_shared/drive-ownership.ts"
+import { live, postResult, pushFor, pushOn, runOf, svc, takeStep, touchRun } from "../_shared/drive-step.ts"
 import { appliedBeforeAnswer, FACT_QUESTION_HINT, isWorkAuthQuestion, ownQuestions, permitWorkAnswers, studyingFrom, widgetAttemptGuard, workFactForQuestion, type PermitWorkFacts } from "../_shared/drive-finish.ts"
 import { describeShotDetailed, fewerFields, sightEnv, sightKey, TROUBLE_SIGHT_MAX } from "../_shared/drive-sight.ts"
 import { troubleReasons } from "../_shared/drive-vision.ts"
@@ -42,10 +43,9 @@ const NEXT_POLL_MS = 100
 const MAX_STEPS = 120
 /** No step from Broods for this long while the run says running (a step takes seconds): its turn ended without finish. */
 const QUIET_MS = 30_000
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-export { canAcceptDriveResult }
+export { live, runOf }
 
 async function cancelOpenCommands(env: Env, run: Json, why: string): Promise<void> {
   const patch = {
@@ -93,16 +93,6 @@ async function queueCommand(env: Env, run: Json, row: Json): Promise<Json> {
   return cmd
 }
 
-/** Push mode: ODDS_DRIVE_PUSH=1 on this function. */
-const pushOn = (): boolean => (Deno.env.get("ODDS_DRIVE_PUSH") ?? "").trim() === "1"
-
-/** Where the person's extension listens for wakes (their own private channel), or null when push is off. */
-function pushFor(env: Env, userId: string): Json {
-  if (!pushOn() || !env.anonKey) return null
-
-  return { url: `${env.url.replace(/^http/, "ws")}/realtime/v1/websocket`, apikey: env.anonKey, topic: `drive:${userId}` }
-}
-
 /** Tells the person's extension to ask drive-next now: one broadcast on their private channel that names only the run. Never throws. */
 async function wake(env: Env, run: Json): Promise<void> {
   if (!pushOn() || !run?.user_id || !env.serviceKey) return
@@ -118,15 +108,6 @@ function later(work: Promise<unknown>): void {
   const task = work.catch((e) => console.warn("Background work failed:", String((e as Error)?.message ?? e).slice(0, 200)))
   const runtime = (globalThis as { EdgeRuntime?: { waitUntil: (p: Promise<unknown>) => void } }).EdgeRuntime
   runtime?.waitUntil(task)
-}
-
-async function svc(env: Env, path: string, init: RequestInit = {}): Promise<Json> {
-  const headers = new Headers({ apikey: env.serviceKey!, Authorization: `Bearer ${env.serviceKey}`, "Content-Type": "application/json", Prefer: "return=representation" })
-  new Headers(init.headers).forEach((value, key) => headers.set(key, value))
-  const res = await fetch(`${env.url}/rest/v1/${path}`, { ...init, headers: headers })
-  if (!res.ok) throw new Error(`db ${res.status}`)
-  const text = await res.text()
-  return text ? JSON.parse(text) : null
 }
 
 async function sitePlaybook(env: Env, url: string): Promise<Json> {
@@ -384,10 +365,8 @@ async function pageEmpty(env: Env, run: Json, page: Json): Promise<string[]> {
   return []
 }
 
-export const runOf = async (env: Env, id: string): Promise<Json> => (UUID.test(id) ? (await svc(env, `drive_runs?id=eq.${id}&select=*`))?.[0] ?? null : null)
 /** The person typed or clicked in the form in the last 20 s. */
 const personBusy = (run: Json): boolean => Boolean(run?.person_active_at) && Date.now() - Date.parse(run.person_active_at) < 20_000
-export const live = (run: Json): boolean => run?.status === "running" && Date.parse(run.expires_at) > Date.now()
 
 // ---------------------------------------------------------------- MCP for Broods
 
@@ -1501,27 +1480,8 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
     return json(200, { ok: true })
   }
   if (route === "drive-result") {
-    const id = Number(body?.id)
-    if (!Number.isInteger(id)) return json(400, { error: "Bad command." })
-    const runDocGen = typeof run.doc_gen === "number" ? run.doc_gen : 0
-    // CAS in one write, the gate's own rules as filters: only the taken row of the run's current document becomes done, and only while
-    // the run is live (duplicate polls and late results cannot overwrite). A refused result reads the row to say why.
-    const written = run.status === "running"
-      ? await svc(env, `drive_commands?id=eq.${id}&run_id=eq.${run.id}&status=eq.taken&doc_gen=eq.${runDocGen}&select=id`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: "done", result: body?.result ?? {}, done_at: new Date().toISOString() }),
-      })
-      : []
-    if (!Array.isArray(written) || !written.length) {
-      const cmd = (await svc(env, `drive_commands?id=eq.${id}&run_id=eq.${run.id}&select=id,status,doc_gen`))?.[0]
-      if (!cmd) return json(404, { error: "No such command.", stale: true })
-      const gate = canAcceptDriveResult({ runStatus: run.status, cmdStatus: String(cmd.status), runDocGen, cmdDocGen: typeof cmd.doc_gen === "number" ? cmd.doc_gen : 0 })
-      return json(200, { ok: false, stale: true, reason: gate.ok ? "not_taken" : gate.reason })
-    }
-    if (!run.last_seen_at || Date.now() - Date.parse(run.last_seen_at) > 15_000) {
-      void svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_seen_at: new Date().toISOString() }) }).catch(() => undefined)
-    }
-    return json(200, { ok: true })
+    const answer = await postResult(env, run, body)
+    return json(answer.status, answer.body)
   }
   if (route === "drive-next" && body?.hold === true) {
     // The person is filling in the form: no step is handed out, and Broods waits for them.
@@ -1529,8 +1489,8 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
     return json(200, { idle: true, hold: true })
   }
   if (route === "drive-next") {
-    // The tab is there: the tracker tells a live run from one whose tab or Chrome is gone.
-    if (!run.last_seen_at || Date.now() - Date.parse(run.last_seen_at) > 15_000) void svc(env, `drive_runs?id=eq.${run.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_seen_at: new Date().toISOString() }) }).catch(() => undefined)
+    // The tab is there: the tracker tells a live run from one whose tab or Chrome is gone, and which tab drives it.
+    touchRun(env, run, body)
     // The person pressed Continue in the tracker: Broods picks the same run up again, once.
     if (run.resume_pending && live(run)) {
       const claimed = await svc(env, `drive_runs?id=eq.${run.id}&resume_pending=is.true`, { method: "PATCH", body: JSON.stringify({ resume_pending: false, updated_at: new Date().toISOString() }) }).catch(() => null)
@@ -1567,31 +1527,13 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
           body: JSON.stringify({ status: "queued", taken_at: null, doc_gen: nextGen, accepted_at: null }),
         },
       ).catch(() => undefined)
-    } else if (Number.isInteger(Number(body?.tab_id)) && body.tab_id !== run.tab_id) {
-      void svc(env, `drive_runs?id=eq.${run.id}`, {
-        method: "PATCH",
-        headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({ tab_id: Number(body.tab_id), updated_at: new Date().toISOString() }),
-      }).catch(() => undefined)
     }
     // Push mode (ODDS_DRIVE_PUSH=1, the extension's channel joined): one look, answered at once; a wake makes the extension ask again,
     // so nothing waits here. Otherwise a long-poll.
     const until = Date.now() + (body?.push === true && pushOn() ? 0 : NEXT_WAIT_MS)
     for (let looked = 0; ;) {
-      const queued = (await svc(env, `drive_commands?run_id=eq.${run.id}&status=eq.queued&order=id.asc&limit=1&select=id,tool,args,note,doc_gen`))?.[0]
-      if (queued) {
-        const taken = await svc(env, `drive_commands?id=eq.${queued.id}&status=eq.queued&select=id`, {
-          method: "PATCH",
-          body: JSON.stringify({
-            status: "taken",
-            taken_at: new Date().toISOString(),
-            accepted_at: new Date().toISOString(),
-            doc_gen: typeof run.doc_gen === "number" ? run.doc_gen : queued.doc_gen ?? 0,
-            tab_id: Number.isInteger(Number(body?.tab_id)) ? Number(body.tab_id) : run.tab_id ?? null,
-          }),
-        })
-        if (Array.isArray(taken) && taken.length) return json(200, { command: queued, steps: run.steps, doc_gen: run.doc_gen ?? 0 })
-      }
+      const step = await takeStep(env, run, body)
+      if (step) return json(200, step)
       // The queue is looked at every 100 ms, the run itself (ended, expired, quiet) every half second.
       if (Date.now() - looked < 500) { if (Date.now() >= until) break; await sleep(NEXT_POLL_MS); continue }
       looked = Date.now()
