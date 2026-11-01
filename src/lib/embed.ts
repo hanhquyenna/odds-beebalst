@@ -32,9 +32,12 @@ export interface PanelInfo {
   letter?: string | null
   missing?: string[]
   status?: { state: string; message: string } | null
+  /** Every application tab Odds is working in or that waits on the person (the side panel's queue), newest first. */
+  queue?: QueueItem[]
   /** At review: the answers on the form Autofill does not have yet. */
   answers?: Array<{ question: string; answer: string; long?: boolean }>
 }
+export interface QueueItem { tabId: number; title: string; site: string; state: string; message: string; postingId: string | null; at: number }
 let panelInfo: PanelInfo | null = null
 const panelListeners = new Set<(info: PanelInfo | null) => void>()
 export function onPanelInfo(listener: (info: PanelInfo | null) => void): () => void {

@@ -314,6 +314,10 @@
     50% { box-shadow: 0 0 0 8px color-mix(in oklch, var(--brand) 0%, transparent); }
 }
 .odds-fill-pulse { animation: odds-fill-buzz 1.8s ease-in-out infinite; }
+/* The odds mark while Odds works: its orange dot hops. */
+@keyframes odds-hop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+.odds-working svg > circle:last-child { animation: odds-hop 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .odds-working svg > circle:last-child { animation: none; } }
 @media (prefers-reduced-motion: reduce) { .odds-fill-pulse { animation: none; } }
 
 /* The signed-in web app: sand background, white cards, flat orange. Set on <body> while someone is inside the app, so the menus that open over it match. */

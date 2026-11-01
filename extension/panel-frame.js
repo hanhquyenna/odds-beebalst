@@ -168,7 +168,8 @@ function sendPanelInfo() {
     else jobViewUrl = null
     lastPageUrl = info?.page?.url || null
     const state = info?.status?.state
-    const send = (answers) => toApp({ type: "panel-info", info: page ? { ...info, answers } : null })
+    // No job page in front: the queue alone, when there is one (the panel then shows it instead of the app's home).
+    const send = (answers) => toApp({ type: "panel-info", info: page ? { ...info, answers } : info?.queue?.length ? { page: null, queue: info.queue } : null })
     // Two-way Autofill: whenever the page has a form or an application under way (not only at review), the answers on it that Autofill
     // does not have yet (written by Odds, or typed by the person) are offered to keep.
     if (page && (page.form || state) && state !== "filling") {
@@ -185,8 +186,9 @@ window.addEventListener("message", (event) => {
   if (event.source !== app.contentWindow || event.origin !== ODDS || event.data?.source !== "odds-site") return
   const d = event.data
   if (d.type === "panel-fill" && typeof d.tabId === "number") chrome.runtime.sendMessage({ type: "fill-tab", tabId: d.tabId }, () => { void chrome.runtime.lastError; sendPanelInfo() })
-  if (d.type === "apply-here" && typeof d.tabId === "number" && typeof d.url === "string") chrome.runtime.sendMessage({ type: "apply-here", tabId: d.tabId, url: d.url, postingId: typeof d.postingId === "string" ? d.postingId : null }, () => { void chrome.runtime.lastError; sendPanelInfo() })
+  if (d.type === "apply-here" && typeof d.tabId === "number" && typeof d.url === "string") chrome.runtime.sendMessage({ type: "apply-here", tabId: d.tabId, url: d.url, postingId: typeof d.postingId === "string" ? d.postingId : null, title: typeof d.title === "string" ? d.title : null }, () => { void chrome.runtime.lastError; sendPanelInfo() })
   if (d.type === "panel-account" && typeof d.tabId === "number") chrome.runtime.sendMessage({ type: "panel-account", tabId: d.tabId, create: d.create === true }, () => { void chrome.runtime.lastError; sendPanelInfo() })
+  if ((d.type === "panel-show-tab" || d.type === "panel-skip-tab") && typeof d.tabId === "number") chrome.runtime.sendMessage({ type: d.type, tabId: d.tabId }, () => { void chrome.runtime.lastError; sendPanelInfo() })
   if (d.type === "panel-add-job" && typeof d.url === "string") chrome.runtime.sendMessage({ type: "panel-add-job", url: d.url }, () => { void chrome.runtime.lastError; sendPanelInfo() })
   if (d.type === "panel-keep-answers" && typeof d.tabId === "number" && Array.isArray(d.questions)) {
     chrome.runtime.sendMessage({ type: "panel-keep-answers", tabId: d.tabId, url: null, questions: d.questions }, () => { void chrome.runtime.lastError; lastAnswers = { tabId: null, at: 0, items: [] } })

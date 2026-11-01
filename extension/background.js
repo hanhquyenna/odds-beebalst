@@ -490,7 +490,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     ;(async () => {
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
       const url = tab?.url || ""
-      if (!tab || typeof tab.id !== "number" || !/^https:/.test(url) || /^https:\/\/(odds\.beeblast\.co|accounts\.google\.com|claude\.ai)/.test(url)) return reply({ page: null })
+      if (!tab || typeof tab.id !== "number" || !/^https:/.test(url) || /^https:\/\/(odds\.beeblast\.co|accounts\.google\.com|claude\.ai)/.test(url)) return reply({ page: null, queue: await applicationQueue() })
       const intent = await intentOf(tab.id)
       let kit = await Promise.race([kitFor(url, message.fresh === true).catch(() => null), new Promise((r) => setTimeout(() => r(null), 5000))])
       // A page Odds does not hold as a job (an employer's own form): asked once more with its title and the job the tab applies for.
@@ -522,8 +522,18 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
         letter: kit?.letter ? kit.letter.name || kit.letter.file_name : null,
         missing,
         status: intent ? { state: intent.status || "filling", message: String(intent.message || "").slice(0, 200) } : null,
+        queue: await applicationQueue(),
       })
     })().catch(() => reply({ page: null }))
+    return true
+  }
+  // The side panel's queue: Go to the tab (the one press that brings an application forward), and Skip (close it; its run stops).
+  if (message?.type === "panel-show-tab" && typeof message.tabId === "number") {
+    intentOf(message.tabId).then((it) => (it ? revealApplicationTab(message.tabId, true) : null)).then(() => reply({ ok: true })).catch(() => reply({ ok: false }))
+    return true
+  }
+  if (message?.type === "panel-skip-tab" && typeof message.tabId === "number") {
+    intentOf(message.tabId).then((it) => (it ? chrome.tabs.remove(message.tabId) : null)).then(() => reply({ ok: true })).catch(() => reply({ ok: false }))
     return true
   }
   // The side panel: add the page's job to the person's Odds jobs; read the new answers on the form (Save to Autofill).
@@ -545,7 +555,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   }
   // The side panel's Apply on a job page: the application opens in this same tab and is filled there, step by step (like Simplify).
   if (message?.type === "apply-here" && typeof message.tabId === "number" && typeof message.url === "string" && /^https:\/\//.test(message.url)) {
-    applyHere(message.tabId, message.url, typeof message.postingId === "string" ? message.postingId : null).then(reply).catch(() => reply({ ok: false }))
+    applyHere(message.tabId, message.url, typeof message.postingId === "string" ? message.postingId : null, typeof message.title === "string" ? message.title.slice(0, 200) : null).then(reply).catch(() => reply({ ok: false }))
     return true
   }
   // The orange Auto apply pill on a job page: same as the panel's Apply, for the tab the pill is in.
@@ -681,12 +691,8 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     ;(async () => {
       // Look only when it disturbs no one: the tab is already showing, or it sits in a window the person is not using (the Odds window).
       // Never switch tabs in the window the person is working in; Broods then works from read_page.
-      if (!tab.active) {
-        const win = await chrome.windows.get(tab.windowId).catch(() => null)
-        if (win?.focused) return reply({ error: "The application tab is in the window you are using; Odds does not switch your tabs to look. Use read_page." })
-        await chrome.tabs.update(tab.id, { active: true }).catch(() => undefined)
-        await new Promise((r) => setTimeout(r, 400))
-      }
+      // Application tabs wait in the background of the person's own window: Odds never brings one forward just to look.
+      if (!tab.active) return reply({ error: "The application tab is in the background of the person's window; Odds does not switch their tabs to look. Use read_page." })
       // A window that is minimised or covered cannot be read back at once: one retry, then say plainly what to do instead.
       const grab = () => chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 55 })
       const url = await grab().catch(async () => { await new Promise((r) => setTimeout(r, 700)); return grab() }).catch(() => null)
@@ -1092,6 +1098,31 @@ async function liveApplicationStatuses() {
   }
   return [...byPost.values()]
 }
+/**
+ * The person's queue for the side panel: every application tab Odds is working in or that waits on them, newest first, with the job's
+ * name, the site, how it stands and the last line Odds said. Tabs that are gone are left out (a sent or failed one stays a while).
+ */
+async function applicationQueue() {
+  const { oddsApplyIntents = {} } = await chrome.storage.local.get("oddsApplyIntents")
+  const rows = []
+  for (const [id, intent] of Object.entries(oddsApplyIntents)) {
+    if (!intent || Date.now() - intent.at > INTENT_MS || !/^\d+$/.test(id)) continue
+    const tab = await chrome.tabs.get(Number(id)).catch(() => null)
+    if (!tab) continue
+    let host = ""
+    try { host = new URL(tab.url || intent.job || "").hostname.replace(/^www\./, "") } catch { host = "" }
+    rows.push({
+      tabId: tab.id,
+      title: String(intent.title || tab.title || host || "Application").replace(/\s+/g, " ").trim().slice(0, 120),
+      site: host,
+      state: intent.status || "filling",
+      message: String(intent.message || "").replace(/\s+/g, " ").trim().slice(0, 200),
+      postingId: intent.postingId || null,
+      at: intent.at,
+    })
+  }
+  return rows.sort((a, b) => b.at - a.at).slice(0, 30)
+}
 // Serialize double clicks per vacancy, and focus the existing application rather than lose its filled fields.
 const applicationStarts = new Map()
 /**
@@ -1248,25 +1279,26 @@ function oddsGo(tabId, url, extra = {}) {
 const driveStarts = new Map()
 const PAUSED_MESSAGE = "You went back a step, so Odds paused here. Press Next or Apply yourself and Odds carries on, or press Apply with Odds again."
 /**
- * The Odds window: one separate Chrome window for applications, created unfocused at the side of the screen so it never covers what the
- * person is doing. Reused while it is open; its first blank tab is closed once an application tab is in it.
+ * A new application tab: in the person's own window (the one they pressed in, else the last one they used), never a window of its own,
+ * opened behind their tab so neither the tab nor the window takes focus. Every application tab sits in one "Odds" tab group, so they
+ * stay together instead of spreading across the tab strip. Chrome must not discard it while it waits in the background.
  */
-async function oddsWindow(reveal) {
-  const { oddsRunWindow } = await chrome.storage.session.get("oddsRunWindow").catch(() => ({}))
-  if (typeof oddsRunWindow === "number") {
-    const w = await chrome.windows.get(oddsRunWindow).catch(() => null)
-    if (w) { if (reveal) await chrome.windows.update(w.id, { focused: true, state: "normal" }).catch(() => undefined); return w.id }
-  }
-  const main = await chrome.windows.getLastFocused({ windowTypes: ["normal"] }).catch(() => null)
-  const width = 1100
-  const left = typeof main?.left === "number" && typeof main?.width === "number" ? Math.max(0, main.left + main.width - width) : undefined
-  const created = await chrome.windows.create({ url: "about:blank", focused: Boolean(reveal), type: "normal", width, height: 820, ...(left !== undefined ? { left, top: main?.top ?? 0 } : {}) }).catch(() => null)
-  if (!created?.id) return typeof main?.id === "number" ? main.id : null
-  await chrome.storage.session.set({ oddsRunWindow: created.id }).catch(() => undefined)
-  // The window's own blank tab goes once the application tab is in.
-  const blank = created.tabs?.[0]?.id
-  if (typeof blank === "number") setTimeout(() => chrome.tabs.remove(blank).catch(() => undefined), 1500)
-  return created.id
+async function queueTab(from, reveal = false) {
+  const windowId = typeof from?.windowId === "number"
+    ? from.windowId
+    : (await chrome.windows.getLastFocused({ windowTypes: ["normal"] }).catch(() => null))?.id
+  const tab = await chrome.tabs.create({ ...(typeof windowId === "number" ? { windowId } : {}), url: "about:blank", active: reveal }).catch(() => null)
+  if (typeof tab?.id !== "number") return null
+  await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => undefined)
+  await groupOddsTab(tab.id, tab.windowId)
+  return tab
+}
+/** Puts an application tab in the window's "Odds" group (made once per window, orange, kept open so the person can glance at it). */
+async function groupOddsTab(tabId, windowId) {
+  if (!chrome.tabGroups || !chrome.tabs.group) return
+  const [group] = await chrome.tabGroups.query({ windowId, title: "Odds" }).catch(() => [])
+  const id = await chrome.tabs.group({ tabIds: [tabId], ...(group ? { groupId: group.id } : { createProperties: { windowId } }) }).catch(() => null)
+  if (typeof id === "number" && !group) await chrome.tabGroups.update(id, { title: "Odds", color: "orange", collapsed: false }).catch(() => undefined)
 }
 /** Stable key for one vacancy: posting id when Odds sent it, else the canonical job link, else the exact apply URL (never merge unknown boards). */
 function jobKeyOf(url, postingId) {
@@ -1367,26 +1399,17 @@ function openApplication(url, from, opts = {}) {
       await continueInTab(tab.id, { reveal: false })
       return { ok: true, resumed: true }
     }
-    // New application: in the Odds window — a separate Chrome window, opened without focus, where Broods works in the open (the person can
-    // glance at it) while their own window is never touched. Its tab is the visible one in that window, which is what lets Broods see it.
+    // New application: a background tab in the person's own window, in the Odds tab group. It never comes to the front and never takes
+    // the window's focus: the person keeps working, like handing the job to someone else. Only a press of "Go to the tab" shows it.
     // Intent MUST be stored before the job URL loads — otherwise apply.js asks apply-intent too early and never watches Closed.
-    // The person's own press (the app or the panel): the application opens as a visible tab next to the one they pressed in, and comes to
-    // the front, like Simplify. Chrome slows a hidden window's tabs to a crawl, which stalled runs ("the tab stopped answering"); the
-    // Odds window stays for applications nobody is watching (queued from the phone).
-    const personWindow = from && typeof from.windowId === "number" ? from.windowId : null
-    const windowId = personWindow ?? await oddsWindow(reveal)
-    // Visible only inside the Odds window; if Odds had to fall back to the person's own window, the tab opens behind (never takes it over).
-    const { oddsRunWindow: ownWindow } = await chrome.storage.session.get("oddsRunWindow").catch(() => ({}))
-    const tab = typeof windowId === "number"
-      ? await chrome.tabs.create({ windowId, url: "about:blank", active: personWindow !== null || windowId === ownWindow || reveal, ...(personWindow !== null && typeof from.index === "number" ? { index: from.index + 1 } : {}) })
-      : (await chrome.windows.create({ url: "about:blank", focused: reveal, type: "normal" })).tabs?.[0]
+    const tab = await queueTab(from, reveal)
     const tabId = tab?.id
     if (typeof tabId !== "number") return { ok: false, message: "Could not open an application tab." }
-    await setIntent(tabId, { job: applyUrl, postingId, at: Date.now(), status: "filling", message: "Opening the application…", ...(personWindow !== null ? { foreground: true } : {}) })
+    await setIntent(tabId, { job: applyUrl, postingId, at: Date.now(), status: "filling", message: "Opening the application…", ...(typeof opts.title === "string" && opts.title ? { title: opts.title } : {}) })
     // Where this application was found last time (the employer's real form), straight away; the job's own link otherwise.
     // Where this application was found before, here or by anyone (the server's apply link): past the board's captcha and sign-in walls.
     const learned = await learnedApplyUrl(postingId, applyUrl) || await directApplyUrl(applyUrl)
-    await oddsGo(tabId, learned || applyUrl, { active: reveal || personWindow !== null }).catch(() => undefined)
+    await oddsGo(tabId, learned || applyUrl, { active: reveal }).catch(() => undefined)
     // Person asked to look: bring the new tab's window forward too.
     if (reveal) await revealApplicationTab(tabId, true)
     // Applying keeps the job in the person's tracker, in the same click.
@@ -1400,8 +1423,15 @@ function openApplication(url, from, opts = {}) {
  * Apply in the person's own tab (the side panel's Apply on a job page): no new tab or window. The tab holds the application (copilot:
  * Odds presses Next itself, stops before Submit) and goes to the employer's form, or to the job's page where Odds finds Apply.
  */
-async function applyHere(tabId, url, postingId) {
+async function applyHere(tabId, url, postingId, title = null) {
   if (!await savedKey()) return { ok: false, message: "Connect Odds from the extension icon first." }
+  // Apply on a job page queues it: Odds applies in a background tab of the Odds group and the person's tab stays as it is. Only a
+  // tab already applying (its form is in front) carries on in place.
+  const own = await intentOf(tabId)
+  if (!own) {
+    const from = await chrome.tabs.get(tabId).catch(() => null)
+    return openApplication(url, from, { postingId, title })
+  }
   const applyUrl = preferEnglishApplyUrl(url)
   await setIntent(tabId, { job: applyUrl, postingId, at: Date.now(), status: "filling", message: "Opening the application…", copilot: true, here: true })
   const learned = await learnedApplyUrl(postingId, applyUrl) || await directApplyUrl(applyUrl)
@@ -1542,8 +1572,19 @@ async function firstUrlOf(tabId, ms = 6000) {
   }
   return null
 }
+/** Per window, the tab the person had in front before the one in front now: an application tab Chrome brings forward gives it back. */
+const shownNow = new Map()
+const shownBefore = new Map()
+chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
+  const was = shownNow.get(windowId)
+  if (typeof was === "number" && was !== tabId) shownBefore.set(windowId, was)
+  shownNow.set(windowId, tabId)
+})
 // A tab opened by a tab that was applying (the employer's application in a new tab) is applying too.
 chrome.tabs.onCreated.addListener((tab) => {
+  // The person's tab in front as the site opens this one (read now: Chrome may bring the new tab forward a moment later).
+  const front = shownNow.get(tab.windowId)
+  const theirs = typeof front === "number" && front !== tab.id ? front : shownBefore.get(tab.windowId)
   const from = typeof tab.openerTabId === "number" ? followFrom.get(tab.openerTabId) : null
   if (!from || Date.now() - from.at >= 30_000 || typeof tab.id !== "number") return
   const opener = tab.openerTabId
@@ -1569,8 +1610,13 @@ chrome.tabs.onCreated.addListener((tab) => {
       await changeIntents((all) => { delete all[opener] })
       chrome.tabs.remove(opener).catch(() => undefined)
     }
-    // Keep fill running in the background (Apply with Odds); do not steal focus.
-    if (tab.active && !from.foreground) chrome.tabs.update(tabId, { active: false }).catch(() => undefined)
+    // Keep fill running in the background (Apply with Odds): the site's new tab goes into the Odds group, and if Chrome brought it to
+    // the front the person's own tab comes back.
+    await groupOddsTab(tabId, tab.windowId)
+    chrome.tabs.update(tabId, { autoDiscardable: false }).catch(() => undefined)
+    if (tab.active) {
+      if (typeof theirs === "number" && theirs !== tabId && theirs !== opener) chrome.tabs.update(theirs, { active: true }).catch(() => undefined)
+    }
     // Wake apply-any if it loaded before intent was written.
     chrome.tabs.sendMessage(tabId, { type: "application-continue" }).catch(() => undefined)
   })()
@@ -1716,12 +1762,9 @@ async function pollApplications() {
     if (task.status !== "filling" || !/^https:\/\//.test(task.url)) return
     // Phone/desktop queue: fill in the background; surface the tab only at needs_input/ready.
     const applyUrl = preferEnglishApplyUrl(task.url)
-    // In the Odds window, as its showing tab: a hidden tab in the person's own window has its timers slowed by Chrome to about once a
-    // minute, and the fill and Broods' steps stall there.
-    const windowId = await oddsWindow(false)
-    const tab = typeof windowId === "number"
-      ? await chrome.tabs.create({ windowId, url: "about:blank", active: true })
-      : await chrome.tabs.create({ url: "about:blank", active: false })
+    // A background tab in the person's window, in the Odds group (never a window of its own, never in front).
+    const tab = await queueTab(null)
+    if (!tab) throw new Error("no tab")
     const run = { id: task.id, tabId: tab.id, postingId: task.posting_id || null }
     await updateApplicationRuns(current => { current[run.id] = run })
     await setIntent(tab.id, { job: applyUrl, at: Date.now(), runId: task.id, postingId: task.posting_id || null })
