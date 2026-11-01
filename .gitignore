@@ -28,6 +28,11 @@ dist-ssr
 # Playwright
 test-results
 playwright-report
+
+# Built from extension/ by scripts/build-extension.ts (bun run build)
+public/odds-for-chrome.zip
+public/extension-version.json
+.ext-build
 .env.secrets
 
 # Added 3 Oct 2026 before publishing: nothing below should reach GitHub.

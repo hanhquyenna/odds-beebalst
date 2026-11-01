@@ -114,3 +114,10 @@ Apply with Odds focuses the job tab as soon as you press it, then fills there (c
 Unanswered fields appear in the job panel and Profile → Application answers. Save and continue writes only the signed-in applicant’s answers; the extension checks for them while waiting, fills them, verifies them, and resumes. Visa, study, enrolment, relocation and availability answers are scoped to the vacancy; a different job asks again. General exact questions can reuse confirmed answers. Profile lets the applicant edit or forget remembered answers.
 
 Claude can prepare_application, application_status, answer_application_questions and continue_application through the same private queue. The desktop must be connected with phone control enabled for remote commands. Login and verification remain manual browser steps.
+
+## Build and ship
+
+`bun run extension:zip` (also the first step of `bun run build`) minifies every file, checks the manifest against them and writes
+`public/odds-for-chrome.zip` plus `public/extension-version.json`. Neither is committed: the site's deploy builds them, so a change under
+`extension/` reaches people on the next push to main. People load the zip unpacked, so the browser cannot update it; the popup offers a
+newer version when `extension-version.json` names one. Bump `version` in `manifest.json` with every change people should get.
