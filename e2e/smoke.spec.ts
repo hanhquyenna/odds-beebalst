@@ -190,7 +190,7 @@ test.describe("signed-in account", () => {
     await shot(page, "insights-periods")
   })
 
-  test("the top bar holds Jobs, Tracker, Documents, Autofill and People; Connect is in the account menu; Home shows what is due and opens the job", async ({ page }) => {
+  test("the top bar holds Jobs, Applications, Tracker, Documents, Autofill and People; Connect is in the account menu; Home shows what is due and opens the job", async ({ page }) => {
     const day = (ago: number): string => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10)
     await page.route("**/rest/v1/applications*", (route) => route.fulfill({ json: route.request().method() === "GET" ? [{ id: 1, posting_id: FLOW_POSTINGS[0].id, fit_tier: "mid", stage: "applied", logged_at: day(12) }] : [] }))
     await page.goto("/")
@@ -201,7 +201,7 @@ test.describe("signed-in account", () => {
     await expect(due.getByText(FLOW_POSTINGS[0].title)).toBeVisible()
     await expect(due.getByText(/Overdue by 5 days/)).toBeVisible()
     const nav = page.getByRole("navigation", { name: "Your account" })
-    await expect(nav.getByRole("button")).toHaveText(["Jobs", "Tracker", "Documents", "Autofill", "People"])
+    await expect(nav.getByRole("button")).toHaveText(["Jobs", "Applications", "Tracker", "Documents", "Autofill", "People"])
     await nav.getByRole("button", { name: "Tracker", exact: true }).click()
     await expect(page.getByRole("tabpanel", { name: /^Applied, 1 jobs$/ })).toBeVisible()
     await expect(page.getByText(FLOW_POSTINGS[0].title).first()).toBeVisible()

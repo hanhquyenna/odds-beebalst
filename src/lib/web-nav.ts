@@ -2,7 +2,7 @@
  * Moving between the app's pages from inside a page: a tracker card opens its job on the Jobs page, a person's Message button opens the People
  * page with the message written. The App listens for the event and switches the view; the page it lands on takes what was left for it.
  */
-export type WebView = "jobs" | "people" | "tracker" | "documents" | "autofill" | "account"
+export type WebView = "jobs" | "applications" | "people" | "tracker" | "documents" | "autofill" | "account"
 
 let job: string | null = null
 let person: string | null = null

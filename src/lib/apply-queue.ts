@@ -37,12 +37,13 @@ export async function addToQueue(ids: readonly string[]): Promise<number> {
   return typeof data === "number" ? data : 0
 }
 
-async function call(name: "queue_leave" | "queue_retry", id: string): Promise<void> {
+async function call(name: "queue_leave" | "queue_sent" | "queue_retry", id: string): Promise<void> {
   const { error } = await supabase.rpc(name, { p_id: id })
   if (error) throw new Error("That did not go through. Try again.")
   await refreshQueue()
 }
 export const leaveQueue = (id: string): Promise<void> => call("queue_leave", id)
+export const markQueueSent = (id: string): Promise<void> => call("queue_sent", id)
 export const retryQueue = (id: string): Promise<void> => call("queue_retry", id).then(nudgeExtension)
 
 export interface QueueView {

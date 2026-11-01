@@ -5,7 +5,7 @@ import type { Session } from "@/lib/auth"
 import { BoardIcon, BriefcaseIcon, ChevronRightIcon, FileTextIcon, HomeIcon, PeopleIcon, PlugsIcon, SignOutIcon, MessageIcon, SparkleIcon, UserCircleIcon } from "@/components/icons"
 
 /** The places someone with an account lives. Anything else (a research page, a shared job) leaves none of them lit. Companies lives under Tracker. */
-export type ShellTab = "account" | "jobs" | "tracker" | "people" | "connections" | "autofill" | "documents" | "claude" | "answers"
+export type ShellTab = "account" | "jobs" | "applications" | "tracker" | "people" | "connections" | "autofill" | "documents" | "claude" | "answers"
 
 interface ShellNav {
   active: ShellTab | null
@@ -15,6 +15,7 @@ interface ShellNav {
 const TABS: ReadonlyArray<{ tab: ShellTab; label: string; icon: typeof HomeIcon }> = [
   { tab: "account", label: "Home", icon: HomeIcon },
   { tab: "jobs", label: "Jobs", icon: BriefcaseIcon },
+  { tab: "applications", label: "Applications", icon: SparkleIcon },
   { tab: "tracker", label: "Tracker", icon: BoardIcon },
   { tab: "people", label: "People", icon: PeopleIcon },
   { tab: "connections", label: "Connect", icon: PlugsIcon },
@@ -33,6 +34,7 @@ const PAGES: ReadonlyArray<{ page: StaticPage; label: string }> = [
 /** The five places on the bar across the top of a laptop or iPad. Home, Connect, Claude and Profile are in the account menu. */
 const WEB_TABS: ReadonlyArray<{ tab: ShellTab; label: string }> = [
   { tab: "jobs", label: "Jobs" },
+  { tab: "applications", label: "Applications" },
   { tab: "tracker", label: "Tracker" },
   { tab: "documents", label: "Documents" },
   { tab: "autofill", label: "Autofill" },
@@ -40,17 +42,17 @@ const WEB_TABS: ReadonlyArray<{ tab: ShellTab; label: string }> = [
 ]
 
 /**
- * Laptop and iPad: one white bar across the top. The living mascot and the odds name (the way home) on the left, the five places in
+ * Laptop and iPad: one white bar across the top. The living mascot and the odds name (the way home) on the left, the six places in
  * the middle, the bell and the account on the right. No page titles under it.
  */
 export function AppTopNav({ active, onNavigate, onHome, wordmark, bell, account }: ShellNav & { onHome: () => void; wordmark: ReactNode; bell: ReactNode; account: ReactNode }): React.JSX.Element {
   return (
-    <header className="sticky top-0 z-20 hidden h-16 shrink-0 items-center gap-9 border-b-[1.5px] border-line bg-card px-7 md:flex">
+    <header className="sticky top-0 z-20 hidden h-16 shrink-0 items-center gap-5 border-b-[1.5px] border-line bg-card px-5 md:flex lg:gap-9 lg:px-7">
       <button type="button" onClick={onHome} aria-label="odds, home" className="flex cursor-pointer items-center gap-2 text-foreground">
         <img src="/icon.svg" alt="" className="size-[38px]" />
         {wordmark}
       </button>
-      <nav aria-label="Your account" className="flex h-full items-stretch gap-7">
+      <nav aria-label="Your account" className="flex h-full items-stretch gap-4 lg:gap-7">
         {WEB_TABS.map(({ tab, label }) => (
           <button
             key={tab}
