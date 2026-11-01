@@ -1296,7 +1296,7 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
   const key = (Deno.env.get("APPLY_AGENT_BROODS_API_KEY") ?? "").trim()
   const agentId = (Deno.env.get("ODDS_DRIVE_AGENT_ID") ?? "").trim()
   const secret = (Deno.env.get("APPLY_AGENT_BROODS_USER_TOKEN_SECRET") ?? "").trim()
-  if (!key || !agentId || !secret) return "Broods is not set up on the server."
+  if (!key || !agentId || !secret) return "Odds cannot fill applications right now. Try again in a while."
   // Whether Odds holds this job's own cover / motivation letter (upload_letter), else the person is asked for one.
   const letter = run.posting_id ? (await svc(env, `job_documents?user_id=eq.${run.user_id}&posting_id=eq.${encodeURIComponent(run.posting_id)}&kind=eq.cover_letter&select=document_id&limit=1`).catch(() => null))?.[0] : null
   // What the person answered in Odds since (Broods' own questions included): Broods fills those in when it carries on.
@@ -1322,7 +1322,7 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
   Object.assign(task, { site_playbook: playbook, ...(route ? { route } : {}), ...(oddsFilled && typeof oddsFilled === "object" ? { odds_filled: { filled: Number(oddsFilled.filled) || 0, left: Number(oddsFilled.left) || 0, only_submit_left: oddsFilled.only_submit_left === true } } : {}) })
   try {
     const client = await broodsClient(run)
-    if (!client) return "Broods is not set up on the server."
+    if (!client) return "Odds cannot fill applications right now. Try again in a while."
     // One conversation per run, always: a second conversation is a second agent driving the same tab. A pick-up joins the same
     // conversation (Broods steers it into a live turn, or runs it next), and keeps everything the agent already did and saw.
     // The quiet check below only picks a run up once its turn has ended; a hung turn ends the run instead.
@@ -1340,10 +1340,10 @@ async function startBroods(env: Env, run: Json, job: Json, facts: Record<string,
         svc(env, `drive_commands?run_id=eq.${run.id}&tool=not.in.(recipe,broods,guard,ext,vision)&select=id&limit=1`).catch(() => []),
       ])
       if (fresh?.status === "running" && (!Array.isArray(commands) || commands.length === 0)) {
-        return "Broods ended before it reached the application tab. Press Apply with Odds to try again."
+        return "Odds stopped before it reached the application tab. Press Apply with Odds to try again."
       }
     }
-  } catch { return "Broods did not start. Try again from Odds." }
+  } catch { return "Odds did not start. Press Apply with Odds to try again." }
   return null
 }
 
@@ -1541,7 +1541,7 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
       if (!fresh || !live(fresh)) {
         if (fresh && driveRunExpired(fresh.status, fresh.expires_at)) {
           const now = new Date().toISOString()
-          const message = "The application run expired before Broods finished. Press Apply with Odds to carry on."
+          const message = "This application timed out before Odds finished. Press Apply with Odds to carry on."
           await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, {
             method: "PATCH",
             body: JSON.stringify({ status: "stuck", reason: "other", message, resume_pending: false, fill_ended_at: now, agent_finished_at: now, updated_at: now }),
@@ -1569,8 +1569,8 @@ export async function driveExt(route: string, req: Request, env: Env, userId: st
         const message = decision === "stuck_unreachable"
           ? MODEL_UNREACHABLE
           : decision === "stuck_hung"
-          ? "Broods stopped answering on this application. Finish it in the tab, or press Apply with Odds to start again."
-          : "Broods could not carry on with this application. Finish it in the tab, or press Apply with Odds to start again."
+          ? "Odds stopped answering on this application. Finish it in the tab, or press Apply with Odds to start again."
+          : "Odds could not carry on with this application. Finish it in the tab, or press Apply with Odds to start again."
         await svc(env, `drive_runs?id=eq.${run.id}&status=eq.running`, {
           method: "PATCH",
           body: JSON.stringify({

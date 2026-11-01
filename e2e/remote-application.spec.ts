@@ -31,12 +31,12 @@ test("a preparation already queued for the desktop shows its progress, then the 
   })
   await openJob(page)
   await expect(page.getByRole("button", { name: "Waiting for Chrome" })).toBeVisible()
-  await expect(page.getByRole("status").filter({ hasText: /Connecting to Chrome|Working on your application/ })).toBeVisible()
+  await expect(page.getByRole("status").filter({ hasText: /Waiting for Chrome|Filling in/ })).toBeVisible()
   state.run = { ...state.run, status: "ready", message: "Filled in. Review and submit on your desktop." }
-  await expect(page.getByRole("status").filter({ hasText: "Ready for your review" })).toBeVisible({ timeout: 10000 })
+  await expect(page.getByRole("status").filter({ hasText: "Ready to send" })).toBeVisible({ timeout: 10000 })
   await expect(page.getByRole("button", { name: /^Submit/ })).toHaveCount(0)
   await page.getByRole("button", { name: "Cancel", exact: true }).click()
-  await expect(page.getByRole("status").filter({ hasText: "Ready for your review" })).toHaveCount(0)
+  await expect(page.getByRole("status").filter({ hasText: "Ready to send" })).toHaveCount(0)
 })
 
 test("with no Chrome extension, the page says to connect Chrome first and starts nothing", async ({ page, context }) => {
@@ -58,7 +58,7 @@ test("a closed-job result is shown instead of offering another preparation", asy
   await openJob(page)
   await expect(page.getByText("Job closed", { exact: true })).toBeVisible()
   await expect(page.getByText("Sorry — this job is no longer accepting applications.", { exact: false })).toBeVisible()
-  await expect(page.getByRole("button", { name: /Try again|Connect Odds in Chrome|Apply with Odds|Open application tab/ })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: /Try again|Connect Odds in Chrome|Apply with Odds|Go to the tab/ })).toHaveCount(0)
 })
 
 test("an expired preparation shows its message once and lets the person try again", async ({ page, context }) => {
@@ -92,6 +92,6 @@ test("an application that needs the person shows its tab button instead of reque
   await context.route("**/rest/v1/application_desktops?**", route => route.fulfill({ json: [{ device_id: "test" }] }))
   await context.route("**/rest/v1/rpc/request_application", route => { requested++; return route.fulfill({ json: run }) })
   await openJob(page)
-  await expect(page.getByRole("button", { name: "Open application tab" }).last()).toBeVisible()
+  await expect(page.getByRole("button", { name: "Go to the tab" }).last()).toBeVisible()
   expect(requested).toBe(0)
 })

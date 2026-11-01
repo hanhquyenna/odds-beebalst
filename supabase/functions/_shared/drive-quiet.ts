@@ -1,5 +1,5 @@
 /** Surfaced when Broods accepts a run and the model never starts, or a run stays at zero commands. */
-export const MODEL_UNREACHABLE = "Broods' model is unreachable. The fill stopped. Press Apply with Odds to try again."
+export const MODEL_UNREACHABLE = "Odds lost its connection partway. Press Apply with Odds to try again."
 
 /** Broods accepted the run (202) but the session failed, expired, or the model host never resolved. */
 export function broodsStartFailed(status: { status?: string | null; error?: string | null } | null | undefined): boolean {

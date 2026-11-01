@@ -19,7 +19,7 @@ const clean = (v: unknown): string => (typeof v === "string" ? v.replace(/\s+/g,
 
 /** A stop that is Odds' own trouble, not the person's: the model or the network went away, the tab was lost. Worth starting again. */
 export function brokeMidway(message: string): boolean {
-  return /model is unreachable|unreachable|timed out|network error|failed to fetch|the fill stopped|tab went away|extension was (reloaded|updated)|lost the (page|tab)|took too long/i.test(message)
+  return /model is unreachable|unreachable|lost its connection|timed out before|odds stopped answering|timed out|network error|failed to fetch|the fill stopped|tab went away|extension was (reloaded|updated)|lost the (page|tab)|took too long/i.test(message)
 }
 
 /**

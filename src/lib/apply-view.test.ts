@@ -64,7 +64,7 @@ describe("mergeApplyView — row chip and drawer stay in sync", () => {
       message: "Could not open an application here. Odds in Chrome did not answer. Reconnect Odds on Connect, then try again.",
     })
     const a = { postingId: "zeb", status: "needs_input" as const, message: "Could not open an application here. Odds in Chrome did not answer. Reconnect Odds on Connect, then try again.", at: Date.now(), pinnedAt: Date.now() }
-    expect(applyActivityLabel(a)).toBe("Reconnect")
+    expect(applyActivityLabel(a)).toBe("Connect Odds again")
     const { phase } = mergeApplyView({ postingId: "zeb", tab: null })
     expect(phase).toBe("needs_input")
   })

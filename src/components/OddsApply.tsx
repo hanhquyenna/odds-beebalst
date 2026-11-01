@@ -21,7 +21,8 @@ import { applySourceOf } from "@/lib/apply-source"
 import type { Posting } from "@/lib/types"
 import { goTo } from "@/lib/web-nav"
 import { addToQueue, applyQueueRow, leaveQueue, retryQueue, useApplyQueue } from "@/lib/apply-queue"
-import { linePlaces, queueActions, queueWords } from "@/lib/apply-queue-words"
+import { NEEDS, linePlaces, queueActions, queueWords } from "@/lib/apply-queue-words"
+import { plainWords } from "@/lib/plain-words"
 import { toast } from "sonner"
 
 /**
@@ -148,7 +149,7 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
   if (!main?.url) return null
   const applicationUrl = main.url
   const boardNote = /glassdoor|indeed/i.test(main.ats || main.name || "")
-    ? " This listing is only on Glassdoor/Indeed — sign in there if the tab asks."
+    ? " This job is only on Glassdoor or Indeed: sign in there if the tab asks."
     : ""
 
   const { view, phase: mergedPhase } = mergeApplyView({
@@ -187,7 +188,7 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
       const added = await addToQueue([post.id]).catch(() => -1)
       if (added > 0 || applyQueueRow(post.id)) {
         toast.message("Added to your queue", {
-          description: "Odds fills it in a background tab and tells you if it needs you.",
+          description: "Odds fills it in a tab behind yours and tells you if it needs you.",
           id: `apply-${post.id}`,
           duration: 2500,
           action: { label: "See queue", onClick: (): void => goTo("applications") },
@@ -218,14 +219,14 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
       }
     }
     if (reveal) {
-      toast.message("Opening application tab…", {
-        description: "Jumping to the Chrome tab Odds is filling.",
+      toast.message("Going to the tab…", {
+        description: "The tab where Odds is filling this application.",
         id: `apply-${post.id}`,
         duration: 1800,
       })
     } else {
       toast.message("Applying in Chrome…", {
-        description: "Odds fills a background tab. Press Open application tab when you want to watch.",
+        description: "Odds fills it in a tab behind yours. Press Go to the tab to watch.",
         id: `apply-${post.id}`,
         duration: 2500,
         action: embedded ? undefined : { label: "View in Tracker", onClick: (): void => showLiveApplyInTracker(post.id) },
@@ -246,7 +247,7 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
               postingId: post.id,
               url: applicationUrl,
               status: "needs_input",
-              message: `Could not open an application here. ${msg} Reconnect Odds on Connect, then try again.`,
+              message: `Could not open the application. ${msg} Connect Odds again on the Connect page, then try again.`,
             })
             setError(msg)
           })
@@ -258,7 +259,7 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
           postingId: post.id,
           url: applicationUrl,
           status: "needs_input",
-          message: `Could not open an application here. ${msg} Reconnect the extension on Connect, then try again.`,
+          message: `Could not open the application. ${msg} Connect Odds again on the Connect page, then try again.`,
         })
         setError(msg)
         setTabState({ status: "needs_input", message: msg, at: Date.now() })
@@ -299,32 +300,18 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
 
   // A Broods run behind this Apply: its own title and line (what it does now), and its live panel under the progress.
   const drive = driveOf(post.id)
-  const driveTitles: Record<string, string> = {
-    "Applying…": "Working on your application",
-    "You're filling in": "You're filling in",
-    "Review & send": "Ready to review",
-    Captcha: "Captcha on the page",
-    "Sign in": "Sign in on the tab",
-    "Your answers": "Needs your answer",
-    "Your consent": "Your consent is required",
-    "Cover letter": "Add a cover letter",
-    "Wrong job": "The link opens a different job",
-    Stuck: "Your turn",
-    "Needs you": "Needs you",
-    Closed: "Applications closed",
-    Reconnect: "Reconnect Odds",
-  }
-  const progressTitle = drive ? driveTitles[driveLabel(drive)] : undefined
-  const progressLine = drive ? driveWhy(drive) : view?.message
+  // The heading is the status itself, in the same words as the Applications page and the Tracker chip.
+  const progressTitle = drive ? driveLabel(drive) : undefined
+  const progressLine = drive ? driveWhy(drive) : plainWords(view?.message)
   const driveLive = <DriveLive post={post} questionsOpen={questionsOpen} />
   // Broods asked these questions: answering them here carries it on by itself, with the answers.
   const answered = (): void => {
     const d = driveOf(post.id)
     // Any stop that waits on the person (questions, a letter, a detail): one Save and continue carries Broods on with everything they added.
-    if (d && (d.status === "needs_you" || (d.status === "stuck" && d.reason !== "closed"))) void driveControl(d.runId, "continue").then((ok) => { if (ok) toast.message("Broods carries on with your answers.") })
+    if (d && (d.status === "needs_you" || (d.status === "stuck" && d.reason !== "closed"))) void driveControl(d.runId, "continue").then((ok) => { if (ok) toast.message("Odds carries on with your answers.") })
   }
   const revealGate = view ? applyNeedsReveal(view.status, view.message || "") : false
-  const stuck = revealGate && /after (odds )?assist|odds assist could not|broods could not|agent gave up|reconnect/i.test(view?.message || "")
+  const stuck = revealGate && /after (odds )?assist|odds assist could not|broods could not|odds could not (get further|carry on|start|finish this|open the application form|open apply|move this application)|agent gave up|reconnect/i.test(view?.message || "")
   const msg = view?.message || ""
   // Captcha vs Account must not share the same button/copy (old stuck text said both and looked broken).
   const captcha = revealGate && !stuck && /captcha|verify you are human|security verification/i.test(msg) && !/captcha or account/i.test(msg)
@@ -356,13 +343,13 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
     }
     const gateOnly = needsConnectGate && !view && !activeRun
     const tabClosedGate = /application tab was closed|reopen application/i.test(view?.message || "")
-    const label = unavailable ? "Applications closed"
-      : pending ? "Opening tab…"
+    const label = unavailable ? "Closed"
+      : pending ? "Going to the tab…"
       : gateOnly ? "Connect Odds in Chrome"
-      : tabClosedGate ? "Reopen application tab"
-      : phase === "ready" ? "Open tab: review and send"
-      : phase === "filling" || activeRun ? (run?.status === "queued" ? "Waiting for Chrome…" : "Open application tab")
-      : needsPerson ? (questionsOpen ? "Open tab: answer left" : "Open application tab")
+      : tabClosedGate ? "Try again"
+      : phase === "ready" ? "Review & send"
+      : phase === "filling" || activeRun ? (run?.status === "queued" ? "Waiting for Chrome…" : "Go to the tab")
+      : needsPerson ? "Go to the tab"
       : run?.status === "failed" ? "Try again"
       : extensionPresent === "looking" ? "Apply with Odds"
       : "Connect Odds in Chrome"
@@ -413,19 +400,14 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
 
   const liveApply = Boolean(view && ["filling", "needs_input", "ready"].includes(phase || ""))
   const tabClosed = /application tab was closed|reopen application/i.test(view?.message || "")
+  // The same few words as the Applications page: one next step.
   const label = sent
-    ? "Opening tab…"
+    ? "Going to the tab…"
     : !view ? "Apply with Odds"
-    : view.status === "submitted" ? "Application sent"
-    : view.status === "failed" ? "Try again"
-    : tabClosed ? "Reopen application tab"
-    : captcha ? "Open tab: captcha"
-    : login ? "Open tab: account or login"
-    : phase === "ready" || normalizeApplyStatus(view.status, view.message || "") === "ready" ? "Open tab: review and send"
-    : stuck ? "Open stuck tab"
-    : questionsOpen ? "Open tab: answer left"
-    : phase === "filling" ? "Open application tab"
-    : "Open application tab"
+    : view.status === "submitted" ? "Sent"
+    : view.status === "failed" || tabClosed ? "Try again"
+    : phase === "ready" || normalizeApplyStatus(view.status, view.message || "") === "ready" ? "Review & send"
+    : "Go to the tab"
   const press = (): void => {
     if (view?.status === "submitted") return
     setSent(true)
@@ -474,13 +456,13 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
       {stalled && !stuck ? (
         <p className="text-sm text-muted-foreground">
           {driveQuiet
-            ? "Waiting for the form or Broods — no new step yet. Open the tab if you want to check, or Stop if you want Odds to pause."
-            : "Still filling in the open tab. Odds retries if it stalls, then reports here if it cannot move on."}
+            ? "Waiting for the page, no new step yet. Go to the tab to check, or press Stop."
+            : "Still filling in. If it stalls, Odds starts it again, then tells you here if it still cannot get further."}
         </p>
       ) : null}
-      {captcha && !stuck && !drive ? <p className="text-sm text-muted-foreground">Complete the captcha in the tab. Odds continues after you solve it — it never solves captchas for you.</p> : null}
-      {login && !stuck && !drive ? <p className="text-sm text-muted-foreground">Sign in to the job board in that Chrome tab — Odds continues when the wall clears. Odds never types passwords. Chrome keeps the session for the next Apply.</p> : null}
-      {boardNote && !view ? <p className="text-sm text-muted-foreground">This job’s only link is Glassdoor/Indeed — Apply opens that page (not LinkedIn).</p> : null}
+      {captcha && !stuck && !drive ? <p className="text-sm text-muted-foreground">{NEEDS.captcha.why}</p> : null}
+      {login && !stuck && !drive ? <p className="text-sm text-muted-foreground">{NEEDS.account.why} Chrome remembers it for next time.</p> : null}
+      {boardNote && !view ? <p className="text-sm text-muted-foreground">This job is only on Glassdoor or Indeed, so Apply opens it there.</p> : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       <ExtensionOnboard open={connectTour} onClose={() => setConnectTour(false)} onConnected={() => { setConnectTour(false); pingExtension() }} />
     </div>

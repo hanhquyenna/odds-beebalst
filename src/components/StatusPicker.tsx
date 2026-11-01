@@ -14,9 +14,9 @@ import { lookOf, statusColors } from "@/lib/status-colors"
 import type { Posting } from "@/lib/types"
 
 function LiveMark({label}:{label:string}):React.JSX.Element {
-  if(label === "Applying…") return <Spinner aria-hidden="true" className="size-3.5 shrink-0 text-brand"/>
-  if(label === "Review & send") return <CheckIcon aria-hidden="true" weight="bold" className="size-3.5 shrink-0 text-good-foreground"/>
-  if(label === "Wrong job" || label === "Reconnect") return <TriangleAlertIcon aria-hidden="true" weight="bold" className="size-3.5 shrink-0 text-amber-700"/>
+  if(label === "Filling in" || label === "You're filling in") return <Spinner aria-hidden="true" className="size-3.5 shrink-0 text-brand"/>
+  if(label === "Ready to send" || label === "Sent") return <CheckIcon aria-hidden="true" weight="bold" className="size-3.5 shrink-0 text-good-foreground"/>
+  if(label === "Wrong job page" || label === "Connect Odds again") return <TriangleAlertIcon aria-hidden="true" weight="bold" className="size-3.5 shrink-0 text-amber-700"/>
   return <ExternalLinkIcon aria-hidden="true" className="size-3.5 shrink-0 text-foreground"/>
 }
 
@@ -26,9 +26,9 @@ type Pick = Step | "none" | typeof EDIT_COLORS | typeof LIVE | (typeof ACT)[keyo
 
 /** What the person can do with a live application, at the top of the status menu. */
 function liveActions(drive: DriveInfo | null): Array<[string, string]> {
-  const out: Array<[string, string]> = [[ACT.open, "Open the application tab"]]
+  const out: Array<[string, string]> = [[ACT.open, "Go to the tab"]]
   if (!drive) return out
-  if (drive.status === "running") out.push([ACT.stop, "Stop Broods"])
+  if (drive.status === "running") out.push([ACT.stop, "Stop filling"])
   // Stuck (not waiting on the person): one more go, on request. Waiting on the person carries on by itself once they handled it.
   if (drive.status === "stuck" && drive.reason !== "closed") out.push([ACT.cont, "Try again"])
   if (drive.reason === "questions") out.push([ACT.answer, "Answer the questions"])
@@ -95,13 +95,13 @@ function useStatusControl(post: Posting, fit: string, onOpen?: (post: Posting) =
       return
     }
     if (next === ACT.stop && drive) {
-      void driveControl(drive.runId, "stop").then((ok) => { if (!ok) toast.error("Could not stop Broods. Try again.") })
+      void driveControl(drive.runId, "stop").then((ok) => { if (!ok) toast.error("Could not stop it. Try again.") })
       return
     }
     if (next === ACT.cont && drive) {
       void driveControl(drive.runId, "continue").then((ok) => {
         if (!ok) toast.error("That did not go through. Try again.")
-        else toast.message("Broods tries again in your Chrome tab.")
+        else toast.message("Odds tries again in its tab.")
       })
       return
     }
@@ -131,7 +131,7 @@ function StatusOptions({ c }: { c: ReturnType<typeof useStatusControl> }): React
     <>
       {c.liveApply ? <option value={LIVE} disabled hidden>{c.label}</option> : null}
       {c.actions.length ? (
-        <optgroup label="Broods">
+        <optgroup label="Odds">
           {c.actions.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
         </optgroup>
       ) : null}

@@ -60,12 +60,12 @@ describe("application monitoring progress", () => {
       drive({ updated_at: new Date(NOW - 20_000).toISOString() }),
       NOW,
     )
-    expect(quiet.label).toBe("Waiting for an update")
+    expect(quiet.label).toBe("Waiting for the page")
     const missing = applicationProgress(
       drive({ last_seen_at: new Date(NOW - 120_000).toISOString() }),
       NOW,
     )
-    expect(missing.label).toBe("Reconnect")
+    expect(missing.label).toBe("Connect Odds again")
     expect(missing.tabAvailable).toBe(false)
     expect(missing.canContinue).toBe(false)
   })
@@ -76,9 +76,9 @@ describe("application monitoring progress", () => {
       drive({ status: "review", last_seen_at: new Date(NOW - 120_000).toISOString() }),
       NOW,
     )
-    expect(gone.label).toBe("Confirm submission")
+    expect(gone.label).toBe("Did you send it?")
     expect(gone.group).toBe("attention")
-    expect(applicationProgress(drive({ status: "submitted" }), NOW).label).toBe("Applied")
+    expect(applicationProgress(drive({ status: "submitted" }), NOW).label).toBe("Sent")
   })
 
   test("paused, failed, and closed runs remain meaningful historical records", () => {
@@ -108,7 +108,7 @@ describe("application monitoring progress", () => {
     }
     expect(applicationProgress(attempt, NOW).label).toBe("Waiting for Chrome")
     expect(applicationProgress(attempt, NOW).tabAvailable).toBe(false)
-    expect(applicationProgress(attempt, NOW + 2000).label).toBe("Expired")
+    expect(applicationProgress(attempt, NOW + 2000).label).toBe("Timed out")
   })
 
   test("one latest attempt per job wins even if an older attempt received a later update", () => {
