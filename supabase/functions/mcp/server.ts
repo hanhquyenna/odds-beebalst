@@ -23,7 +23,6 @@ import { cleanAnswers, missingAnswers, type Answers } from "../_shared/applicati
 import { cleanCv, cvText, renderCvPdf } from "../_shared/cv-template.ts"
 import { heldFilter, jobLink, type JobLink } from "../_shared/job-sites.ts"
 // @ts-ignore: npm specifier, resolved by Deno
-import * as PDFLib from "npm:pdf-lib@1.17.1"
 
 const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"]
 /** Public endpoint: what one request may ask for, so no single call can make the server do much work. */
@@ -988,7 +987,8 @@ async function callMe(env: Env, me: Me, name: string, args: Json): Promise<Json>
     if ("error" in checked) return failed(checked.error)
     let bytes: Uint8Array
     try {
-      bytes = await renderCvPdf(PDFLib as never, checked.cv)
+      // Lazy: pdf-lib is large and only save_cv needs it, so the extension's per-step requests do not load it.
+      bytes = await renderCvPdf(await import("npm:pdf-lib@1.17.1") as never, checked.cv)
     } catch (e) {
       console.error(`save_cv pdf: ${e instanceof Error ? e.message : String(e)}`)
 
