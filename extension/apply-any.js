@@ -960,7 +960,8 @@
   /** What Broods answered for this question (kept on facts.remembered by key), else the person's saved gender; null when Broods has not answered. */
   function broodsAnswer(label) {
     const r = facts?.remembered?.[A.applicationQuestionKey(label, facts?.job_id)]
-    return typeof r === "string" && r.trim() ? r : (globalThis.oddsSavedGender?.(label, facts) ?? null)
+    // Never a bare yes/no into an open question ("What attracts you…"), whatever was kept before.
+    return typeof r === "string" && r.trim() && A.answerFitsQuestion(label, r) ? r : (globalThis.oddsSavedGender?.(label, facts) ?? null)
   }
   /** The answer a field gets: Broods' when Broods-only, the built-in rules otherwise. */
   const answerFor = (label) => (broodsOnly() ? broodsAnswer(label) : A.answerText(label, facts))
@@ -2036,6 +2037,11 @@
         }
         if (secretField(f)) { results.push({ id: it.id, ok: false, error: "the person fills this one" }); continue }
         if (f.kind === "file") { results.push({ id: it.id, ok: false, error: "use upload_cv" }); continue }
+        // A written-answer box ("What attracts you…", "Tell us…", "in 3 sentences") never takes a bare yes or no.
+        if ((f.kind === "text" || f.kind === "textarea") && !A.answerFitsQuestion(f.label, value)) {
+          results.push({ id: it.id, ok: false, error: "this question asks for a written answer, not yes or no: write one to three sentences from the person's facts" })
+          continue
+        }
         if (f.kind === "checkbox") {
           // Consent and terms boxes are ticked when Broods says yes (the person's choice in Odds: consent yes).
           // Broods may also send the option's own words ("Prefer not to say" for that very box): that is a yes for this box, any other text a no.

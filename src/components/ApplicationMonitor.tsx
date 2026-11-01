@@ -22,6 +22,9 @@ import { useData } from "@/lib/data"
 import { driveControl } from "@/lib/drive-runs"
 import { prepareInExtension } from "@/lib/extension-connect"
 import type { Posting } from "@/lib/types"
+import { leaveQueue, retryQueue, useApplyQueue } from "@/lib/apply-queue"
+import { linePlaces, queueActions, queueCounts, queueWords, type QueueItem } from "@/lib/apply-queue-words"
+import { goTo } from "@/lib/web-nav"
 
 const CORE_COLUMNS = new Set(["status", "activity", "next"])
 
@@ -42,7 +45,12 @@ interface ApplicationRow {
   id: string
   post?: Posting
   attempt?: MonitoredRun
+  /** The job's place in the apply queue, while Odds is on it or it waits for the person (newer than its last run). */
+  queued?: QueueItem
 }
+
+/** Queue states that are still going: Odds is on it, it waits its turn, or it waits for the person. */
+const LIVE_QUEUE = new Set(["waiting", "working", "needs_you", "review", "failed"])
 
 /** Adds application activity to the regular Tracker table, using compact rows when the available content width is narrow. */
 export function ApplicationMonitor({
@@ -82,13 +90,29 @@ export function ApplicationMonitor({
       document.removeEventListener("visibilitychange", update)
     }
   }, [])
+  const queue = useApplyQueue(Boolean(useData().session))
+  const places = linePlaces(queue.items)
+  const live = (post: Posting): QueueItem | undefined => {
+    const item = queue.byId.get(post.id)
+    if (!item || !LIVE_QUEUE.has(item.state)) return undefined
+    const attempt = attempts.get(post.id)
+    // A run newer than the queue's last word tells more (its own step); otherwise the queue says where the job stands.
+    return attempt && attempt.run.updated_at > item.updated_at && item.state !== "waiting" ? undefined : item
+  }
   const rows: ApplicationRow[] = [
-    ...posts.map((post) => ({ id: post.id, post: post, attempt: attempts.get(post.id) })),
+    ...posts.map((post) => ({ id: post.id, post: post, attempt: attempts.get(post.id), queued: live(post) })),
     ...orphanedAttempts.map((attempt) => ({
       id: `${attempt.source}:${attempt.run.id}`,
       attempt: attempt,
     })),
   ]
+  // Jobs Odds is on, or that wait for the person, come first: needs you, ready, filling in, then up next in line order.
+  const rank = (row: ApplicationRow): number => (!row.queued ? 9 : ({ needs_you: 0, failed: 0, review: 1, working: 2, waiting: 3 } as Record<string, number>)[row.queued.state] ?? 9)
+  rows.sort((a, b) => rank(a) - rank(b) || (a.queued && b.queued && a.queued.state === "waiting" ? (places.get(a.id) ?? 0) - (places.get(b.id) ?? 0) : 0))
+  const goToTab = (post: Posting): void => {
+    if (!post.url) return goTo("jobs", { job: post.id })
+    void prepareInExtension(post.url, { reveal: true, postingId: post.id }).catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Could not show the tab."))
+  }
   const orderedColumns = [
     ...columns.filter((column) => column.key !== "next"),
     ...columns.filter((column) => column.key === "next"),
@@ -100,6 +124,7 @@ export function ApplicationMonitor({
     else setHistoryId(historyId === row.id ? null : row.id)
   }
   const activity = (row: ApplicationRow): React.ReactNode => {
+    if (row.queued) return <div className="application-event"><p>{queueWords(row.queued, places.get(row.id) ?? 0).why}</p></div>
     if (!row.attempt) return <span className="text-muted-foreground">Saved in your Tracker</span>
     const progress = applicationProgress(row.attempt, now)
 
@@ -113,6 +138,7 @@ export function ApplicationMonitor({
     )
   }
   const cell = (row: ApplicationRow, key: string): React.ReactNode => {
+    if (row.queued && row.post && (key === "status" || key === "next")) return key === "status" ? <QueueStatus item={row.queued} /> : <QueueNext item={row.queued} onTab={() => goToTab(row.post!)} />
     if (key === "status")
       return row.attempt ? (
         <ApplicationStatus attempt={row.attempt} now={now} />
@@ -319,6 +345,46 @@ export function ApplicationMonitor({
       </div>
     </section>
   )
+}
+
+/** The queue in one line at the top of the Tracker, whatever its layout: what Odds is filling, what is next, what needs the person. */
+export function QueueLine(): React.JSX.Element | null {
+  const signedIn = Boolean(useData().session)
+  const counts = queueCounts(useApplyQueue(signedIn).items)
+  if (!counts.working && !counts.waiting && !counts.needs && !counts.ready) return null
+  return (
+    <div role="status" aria-label="Your queue" className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border-[1.5px] border-line bg-card px-4 py-3 text-sm">
+      {counts.working ? <span className="flex items-center gap-2 font-semibold"><span aria-hidden="true" className="size-2 animate-pulse rounded-full bg-brand motion-reduce:animate-none" />Odds is filling in {counts.working}</span> : null}
+      {counts.waiting ? <span>{counts.waiting} up next</span> : null}
+      {counts.needs ? <span className="font-semibold text-brand-ink">{counts.needs} need{counts.needs === 1 ? "s" : ""} you</span> : null}
+      {counts.ready ? <span className="text-good-foreground">{counts.ready} ready to send</span> : null}
+      <button type="button" onClick={() => goTo("applications")} className="ml-auto cursor-pointer font-semibold underline underline-offset-2">See all</button>
+    </div>
+  )
+}
+
+/** Where a queued job stands, in the Applications page's words; a moving dot while Odds fills it. */
+function QueueStatus({ item }: { item: QueueItem }): React.JSX.Element {
+  const words = queueWords(item)
+  const tone = item.state === "review" ? "text-good-foreground" : item.state === "working" ? "text-foreground" : item.state === "waiting" ? "text-muted-foreground" : "text-brand-ink"
+  return (
+    <span data-queue-status={item.state} className={cn("inline-flex max-w-full items-start gap-1.5 text-[0.8125rem] font-medium", tone)}>
+      <span aria-hidden="true" className={cn("mt-1.5 size-1.5 shrink-0 rounded-full bg-current", item.state === "working" && "animate-pulse bg-brand motion-reduce:animate-none")} />
+      <span>{words.label}</span>
+    </span>
+  )
+}
+
+/** The one next step for a queued job. */
+function QueueNext({ item, onTab }: { item: QueueItem; onTab: () => void }): React.JSX.Element | null {
+  const can = queueActions(item)
+  const act = (fn: (id: string) => Promise<void>, done: string): void => { void fn(item.posting_id).then(() => toast.message(done)).catch(() => toast.error("That did not go through. Try again.")) }
+  if (item.state === "review") return <Button type="button" variant="outline" onClick={onTab} className="cursor-pointer">Review &amp; send</Button>
+  if (item.state === "working") return <Button type="button" variant="outline" onClick={onTab} className="cursor-pointer">Watch</Button>
+  if (can.goToTab) return <Button type="button" variant="outline" onClick={onTab} className="cursor-pointer">Go to the tab</Button>
+  if (can.retry) return <Button type="button" variant="outline" onClick={() => act(retryQueue, "Back in your queue.")} className="cursor-pointer">Try again</Button>
+  if (can.remove) return <Button type="button" variant="ghost" onClick={() => act(leaveQueue, "Removed from your queue.")} className="cursor-pointer">Remove</Button>
+  return null
 }
 
 /** Keeps one next step beside an immediate Stop control and updates state only after acknowledgement. */

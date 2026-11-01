@@ -15,7 +15,7 @@ import { keptChances } from "./kept-chance.ts"
 import { handleOAuth, unauthorized } from "./oauth.ts"
 import { accessFor, contentOf, driveEnv, linkOf, pushIfConnected } from "../_shared/drive.ts"
 import { queueDone, queueNext } from "../_shared/apply-queue.ts"
-import { applicationQuestionKey, chooseOption } from "../_shared/apply-form.ts"
+import { answerFitsQuestion, applicationQuestionKey, chooseOption } from "../_shared/apply-form.ts"
 import { applyAgentEnabled, factsForAgent, hostOf, notifyApplyAgent, requestSuggestAction, requestSuggestScan, suggestAnswers, validateSuggestedAnswers, type ApplyAgentEnv, type ApplyQuestion } from "../_shared/apply-agent.ts"
 import { acceptActionPick, actionButtonsFingerprint, factsFromAgentPayload, pickSuggestAction, suggestFromRules } from "../_shared/apply-agent-suggest.ts"
 import { educationFromProfile, personalFromProfile, workFromProfile } from "../_shared/application-personal.ts"
@@ -1524,8 +1524,9 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
     return json(200, { status: "ok", accepted, rejected, ...(reason ? { reason } : {}) })
   }
   if (route === "answers" && req.method === "GET") {
-    const rows = await svc(env, `application_questions?user_id=eq.${me.id}&select=question_key,answer&order=updated_at.desc&limit=500`)
-    return json(200, { remembered: Object.fromEntries((rows || []).map((r: Json) => [r.question_key, r.answer])) })
+    const rows = await svc(env, `application_questions?user_id=eq.${me.id}&select=question_key,question,answer&order=updated_at.desc&limit=500`)
+    // A bare yes/no kept for an open question ("What attracts you…") is never offered again.
+    return json(200, { remembered: Object.fromEntries((rows || []).filter((r: Json) => answerFitsQuestion(String(r.question || r.question_key), String(r.answer ?? ""))).map((r: Json) => [r.question_key, r.answer])) })
   }
 
   // A real odds sign-in for the person, so the odds app opened inside the extension's panel is signed in as them. The extension key is as strong
@@ -1693,10 +1694,10 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
         website: answers.website ?? null,
         dutch: profile.dutch ?? null,
         answers,
-        remembered: Object.fromEntries((remembered ?? []).map((r: Json) => [r.question_key, r.answer])),
+        remembered: Object.fromEntries((remembered ?? []).filter((r: Json) => answerFitsQuestion(String(r.question || r.question_key), String(r.answer ?? ""))).map((r: Json) => [r.question_key, r.answer])),
         // The person's own answers with their question, newest first (never ones Odds wrote): the extension puts one in word for word
         // when a form asks the same question (Broods never rewords or adds to the person's own answer).
-        saved_answers: (remembered ?? []).filter((r: Json) => r.source === "person" && typeof r.question === "string" && typeof r.answer === "string" && r.answer.trim()).slice(0, 200).map((r: Json) => ({ q: String(r.question).slice(0, 300), a: String(r.answer).slice(0, 1000) })),
+        saved_answers: (remembered ?? []).filter((r: Json) => r.source === "person" && typeof r.question === "string" && typeof r.answer === "string" && r.answer.trim() && answerFitsQuestion(r.question, r.answer)).slice(0, 200).map((r: Json) => ({ q: String(r.question).slice(0, 300), a: String(r.answer).slice(0, 1000) })),
       },
       cv: cv ? { id: cv.id, name: cv.name, file_name: cv.file_name, for_this_job: Boolean(cvRow) } : null,
       letter: letter ? { id: letter.id, name: letter.name, file_name: letter.file_name } : null,
@@ -1716,7 +1717,8 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
       const question = typeof q?.question === "string" ? q.question.replace(/\s+/g, " ").trim().slice(0, 500) : ""
       const answer = typeof q?.answer === "string" ? q.answer.replace(/\s+/g, " ").trim().slice(0, 1000) : ""
       const key = applicationQuestionKey(question, answerJob?.id)
-      return key.length >= 2 && answer ? { user_id: me.id, question_key: key, question, answer, source: "person", updated_at: new Date().toISOString() } : null
+      // A bare yes/no for an open question is not an answer to keep.
+      return key.length >= 2 && answer && answerFitsQuestion(question, answer) ? { user_id: me.id, question_key: key, question, answer, source: "person", updated_at: new Date().toISOString() } : null
     }).filter(Boolean)
     if (rows.length) await svc(env, "application_questions?on_conflict=user_id,question_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) })
 
