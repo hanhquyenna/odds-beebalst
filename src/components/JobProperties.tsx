@@ -30,6 +30,18 @@ function tint(value: string): string {
   return `oklch(0.94 0.045 ${h})`
 }
 
+/** A date reads as a date ("3 Oct 2026", or a dash when there is none); the date picker only opens when it is pressed. */
+function DateField({ label, value, onChange, look }: { label: string; value: string; onChange: (v: string) => void; look: string }): React.JSX.Element {
+  const [editing, setEditing] = useState(false)
+  if (editing) return <input type="date" autoFocus aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} onBlur={() => setEditing(false)} className={look} />
+  const day = /^\d{4}-\d{2}-\d{2}/.test(value) ? new Date(`${value.slice(0, 10)}T12:00:00`) : null
+  return (
+    <button type="button" aria-label={label} onClick={() => setEditing(true)} className={`${look} cursor-pointer text-left ${day ? "" : "text-muted-foreground"}`}>
+      {day ? day.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+    </button>
+  )
+}
+
 /** One property of one job, edited in place, in whatever type the property was given. */
 export function PropertyField({ post, name, type, value, onChange, wide = false, choices: given, suggestions }: { post: { title: string }; name: string; type: PropertyType; value: string; onChange: (v: string) => void; wide?: boolean; /** The choices of a select, when they are not the jobs' (people have their own). */ choices?: string[]; /** Values already used, offered to a select with no fixed choices. */ suggestions?: string[] }): React.JSX.Element {
   const data = useData()
@@ -40,9 +52,7 @@ export function PropertyField({ post, name, type, value, onChange, wide = false,
   if (type === "checkbox") {
     return <input type="checkbox" aria-label={label} checked={value === "true"} onChange={(e) => onChange(e.target.checked ? "true" : "")} className="mx-3 size-4 cursor-pointer" />
   }
-  if (type === "date") {
-    return <input type="date" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className={look} />
-  }
+  if (type === "date") return <DateField label={label} value={value} onChange={onChange} look={look} />
   const choices = given ?? data.profile.columnOptions?.[name]
   if (type === "select" && choices && choices.length > 0) {
     // A select with its own choices (Priority: High, Medium, Low): pick one, shown as a coloured tag.

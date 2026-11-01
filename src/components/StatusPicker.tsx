@@ -16,7 +16,7 @@ import type { Posting } from "@/lib/types"
 function LiveMark({label}:{label:string}):React.JSX.Element {
   if(label === "Filling in" || label === "You're filling in") return <Spinner aria-hidden="true" className="size-3.5 shrink-0 text-brand"/>
   if(label === "Ready to send" || label === "Sent") return <CheckIcon aria-hidden="true" weight="bold" className="size-3.5 shrink-0 text-good-foreground"/>
-  if(label === "Wrong job page" || label === "Connect Odds again") return <TriangleAlertIcon aria-hidden="true" weight="bold" className="size-3.5 shrink-0 text-amber-700"/>
+  if(label === "Wrong job page" || label === "Chrome not connected") return <TriangleAlertIcon aria-hidden="true" weight="bold" className="size-3.5 shrink-0 text-amber-700"/>
   return <ExternalLinkIcon aria-hidden="true" className="size-3.5 shrink-0 text-foreground"/>
 }
 

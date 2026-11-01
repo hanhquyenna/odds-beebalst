@@ -6,10 +6,10 @@ import { STEPS } from "@/components/job-steps"
 import type { Application } from "@/lib/types"
 
 export const APPLICATION_ACTIVITY_GROUPS = [
-  { value: "attention", label: "Needs attention" },
-  { value: "working", label: "Working" },
+  { value: "attention", label: "Needs you" },
+  { value: "working", label: "Filling in" },
   { value: "review", label: "Ready to send" },
-  { value: "history", label: "Previous activity" },
+  { value: "history", label: "Earlier" },
 ] as const
 
 export type MonitoredRun =
@@ -131,14 +131,16 @@ function progressOf(attempt: MonitoredRun, now: number): ApplicationProgress {
       message: drive.message || "This job no longer takes applications.",
     }
   if (tabGone(drive, now)) {
+    // Its tab is gone (closed, Chrome restarted, or Odds lost it): it stopped partway. A day later it is just earlier activity.
+    const old = now - Date.parse(drive.updated_at) > 24 * 60 * 60_000
     return {
       ...base,
-      group: "attention",
-      label: drive.status === "review" ? "Did you send it?" : "Connect Odds again",
+      group: old ? "history" : "attention",
+      label: drive.status === "review" ? "Did you send it?" : "Stopped partway",
       message:
         drive.status === "review"
-          ? "The application reached review, then its tab stopped checking in. Did you send it?"
-          : "The application tab is not checking in. Open the job to recover it.",
+          ? "It was filled in up to Submit, then its tab closed. Did you send it?"
+          : "Its tab closed before Odds finished. Open the job and press Apply with Odds to start again.",
     }
   }
   const info: DriveInfo = {

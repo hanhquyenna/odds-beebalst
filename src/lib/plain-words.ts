@@ -12,6 +12,11 @@ const SWAPS: ReadonlyArray<[RegExp, string]> = [
   [/\bBroods\b/g, "Odds"],
   [/\bthe agent\b/gi, "Odds"],
   [/\bapplication run\b/gi, "application"],
+  [/Preparation expired\.? ?(Your open application remains on your desktop\.?)?/gi, "This one timed out. "],
+  [/Start again when your desktop is ready\.?/gi, "Try again when Chrome is open."],
+  [/\bon your desktop\b/gi, "in Chrome"],
+  // The button under a stopped application says Try again.
+  [/Press Apply with Odds( again)? to (try again|carry on|start again)\.?/gi, "Press Try again."],
   [/\bOdds Odds\b/g, "Odds"],
 ]
 
@@ -20,5 +25,5 @@ export function plainWords(text: string): string
 export function plainWords(text: string | null | undefined): string | undefined
 export function plainWords(text: string | null | undefined): string | undefined {
   if (!text) return text ?? undefined
-  return SWAPS.reduce((out, [from, to]) => out.replace(from, to), text)
+  return SWAPS.reduce((out, [from, to]) => out.replace(from, to), text).replace(/\s{2,}/g, " ").trim()
 }

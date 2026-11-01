@@ -374,9 +374,9 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
       <div data-phase={phase ? "live" : "idle"} className={`flex w-full flex-col gap-4 transition-colors duration-150 ${phase ? (phase === "needs_input" ? "rounded-xl border border-brand/40 bg-card p-4" : "rounded-xl border border-line bg-card p-4") : ""}`}>
         {phase && (view || activeRun) ? (
           <button type="button" disabled={pending || unavailable} onClick={press} className="w-full cursor-pointer rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-default disabled:opacity-70">
-            <ApplyProgress phase={phase} message={progressLine} title={progressTitle} />
+            <ApplyProgress phase={phase} message={progressLine} title={progressTitle} quiet={!embedded} />
           </button>
-        ) : phase ? <ApplyProgress phase={phase} message={progressLine} title={progressTitle} /> : null}
+        ) : phase ? <ApplyProgress phase={phase} message={progressLine} title={progressTitle} quiet={!embedded} /> : null}
         {driveLive}
         {phase === "ready" ? <div className="flex flex-col gap-2 sm:flex-row">{primary}{cancel}</div> : <ApplicationQuestions inline postingId={post.id} onHasQuestions={setQuestionsOpen} onSaved={answered} aside={primary} empty={<div className="flex flex-col gap-2 sm:flex-row">{primary}{phase === "needs_input" ? null : cancel}</div>} />}
         {phase === "needs_input" && cancel ? <div className="flex">{cancel}</div> : null}
@@ -413,8 +413,8 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
     setSent(true)
     // Never leave the button stuck — focus is async in Chrome; UI resets in under a second.
     window.setTimeout(() => setSent(false), 700)
-    // First press = Apply with Odds (background). Any later press = Open application tab (focus).
-    void beginApply({ reveal: Boolean(view) }).finally(() => setSent(false))
+    // Apply with Odds and Try again start it (in a tab behind theirs); Go to the tab and Review & send show its tab.
+    void beginApply({ reveal: Boolean(view) && label !== "Try again" }).finally(() => setSent(false))
   }
   // In the queue and Chrome has no tab for it yet (up next), or it has ended away from this page: the queue row says where it stands.
   if (queued && !view && !embedded) {
@@ -448,9 +448,9 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
     <div data-phase={phase ? "live" : "idle"} className={`flex w-full flex-col gap-4 transition-colors duration-150 ${phase ? (phase === "needs_input" ? "rounded-xl border border-brand/40 bg-card p-4" : "rounded-xl border border-line bg-card p-4") : ""}`}>
       {phase && liveApply ? (
         <button type="button" onClick={press} className="w-full cursor-pointer rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
-          <ApplyProgress phase={phase} message={progressLine} title={progressTitle} />
+          <ApplyProgress phase={phase} message={progressLine} title={progressTitle} quiet={!embedded} />
         </button>
-      ) : phase ? <ApplyProgress phase={phase} message={progressLine} title={progressTitle} /> : null}
+      ) : phase ? <ApplyProgress phase={phase} message={progressLine} title={progressTitle} quiet={!embedded} /> : null}
       {driveLive}
       {primary && (captcha || login || phase === "ready") ? <div className="flex gap-2">{primary}</div> : primary ? <ApplicationQuestions inline postingId={post.id} onHasQuestions={setQuestionsOpen} onSaved={answered} aside={primary} empty={<div className="flex gap-2">{primary}</div>} /> : null}
       {stalled && !stuck ? (

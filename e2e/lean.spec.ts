@@ -14,7 +14,8 @@ import { expect, jobRows, test } from "./mock"
 // Raised to 318 on 15 Oct 2026: 317.3 kB with Connect under Tracker (lazy) and the Jobs / People / Connect tabs.
 // Raised to 327 on 18 Oct 2026: 325.3 kB after the jobs page became the long list with the job beside it (its chunk is what the landing
 // fetches now; nothing else on the landing grew).
-const MAX_LANDING_GZIP_KB = 327
+// Raised to 328 on 1 Nov 2026: 327.02 kB once the job button and its status card share one set of plain words (src/lib/plain-words.ts).
+const MAX_LANDING_GZIP_KB = 328
 
 test("landing stays lean: under budget, no function calls, the job drawer waits for a click", async ({ page }) => {
   const assets: string[] = []

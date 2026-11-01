@@ -82,7 +82,7 @@ describe("apply activity tracker pin", () => {
     // Stuck only after Broods confirmed it cannot move.
     expect(applyActivityLabel({ postingId: "z", status: "needs_input", message: "Odds assist could not move this application forward after assist. Open the tab to continue.", at, pinnedAt: at })).toBe("Needs you")
     // Handshake timeout is reconnect — never Broods Stuck.
-    expect(applyActivityLabel({ postingId: "z", status: "needs_input", message: "Could not open an application here. Odds in Chrome did not answer. Reconnect Odds on Connect, then try again.", at, pinnedAt: at })).toBe("Connect Odds again")
+    expect(applyActivityLabel({ postingId: "z", status: "needs_input", message: "Could not open an application here. Odds in Chrome did not answer. Reconnect Odds on Connect, then try again.", at, pinnedAt: at })).toBe("Chrome not connected")
   })
 
   test("live pin order stays stable when status polls update timestamps", () => {

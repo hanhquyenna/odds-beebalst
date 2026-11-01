@@ -76,9 +76,6 @@ export function DriveLive({ post, questionsOpen = false }: { post: Posting; ques
         {drive.reason === "letter" && drive.status === "needs_you" && !questionsOpen ? (
           <Button type="button" disabled={busy} onClick={() => act("continue")} className="h-10 cursor-pointer rounded-lg bg-brand-ink px-4 text-white hover:bg-brand-ink/90">I added it — carry on</Button>
         ) : null}
-        {drive.status === "stuck" && drive.reason !== "closed" ? (
-          <Button type="button" disabled={busy} onClick={() => act("continue")} className="h-10 cursor-pointer rounded-lg bg-brand-ink px-4 text-white hover:bg-brand-ink/90">Try again</Button>
-        ) : null}
         {running ? <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => act("stop")}>Stop</Button> : null}
       </div>
     </div>

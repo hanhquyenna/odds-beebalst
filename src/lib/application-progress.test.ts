@@ -65,7 +65,7 @@ describe("application monitoring progress", () => {
       drive({ last_seen_at: new Date(NOW - 120_000).toISOString() }),
       NOW,
     )
-    expect(missing.label).toBe("Connect Odds again")
+    expect(missing.label).toBe("Stopped partway")
     expect(missing.tabAvailable).toBe(false)
     expect(missing.canContinue).toBe(false)
   })
