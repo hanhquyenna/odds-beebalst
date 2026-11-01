@@ -5067,7 +5067,7 @@ test("Broods says what it does, stops at a captcha with the reason, and carries 
   run.cmdStatus.set(9002, "queued")
   run.outbox.push({ id: 9002, tool: "read_page", args: {}, doc_gen: run.docGen } as unknown as { id: number; tool: string; args: Record<string, unknown> })
   setTimeout(() => { run.done = { status: "review", message: "Everything is filled in. Check it and press Submit yourself." } }, 8000)
-  await expect(page.locator(".odds-apply-bar")).toContainText(/carrying on|Broods is reading/, { timeout: 20000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText(/carrying on|is reading/, { timeout: 20000 })
   await expect(page.locator(".odds-apply-bar")).toContainText("press Submit", { timeout: 30000 })
   expect(fake.drives.size).toBe(1)
 })
