@@ -1,4 +1,5 @@
 // The apply queue in plain words: what each row says, which group it sits in, and what the person can do. Pure, so it is testable.
+import { plainWords } from "./plain-words"
 
 export type QueueState = "waiting" | "working" | "review" | "needs_you" | "failed" | "sent" | "skipped"
 export type QueueReason = "captcha" | "account" | "questions" | "letter" | "closed" | "email" | "tab" | "other"
@@ -36,8 +37,8 @@ export function groupOf(item: Pick<QueueItem, "state" | "reason">): QueueGroup {
   }
 }
 
-/** One reason per stop, the same ones the side panel shows. */
-const NEEDS: Record<QueueReason, { label: string; why: string }> = {
+/** One reason per stop. The same words on every page: Applications, the Tracker chips, the job page and the side panel. */
+export const NEEDS: Record<QueueReason, { label: string; why: string }> = {
   captcha: { label: "A check is in the way", why: "Tick the check in its tab. Odds carries on by itself after." },
   account: { label: "Sign in", why: "The site wants you to sign in or make an account. Odds never types passwords, so do that step in the tab." },
   questions: { label: "A question for you", why: "The form asks something Odds does not know about you. Answer it in the tab." },
@@ -70,7 +71,7 @@ export function queueWords(item: Pick<QueueItem, "state" | "reason" | "message">
     case "waiting":
       return { group, label: "Up next", why: place > 0 ? `${ordinal(place)} in line. Odds starts it when a place frees up, while Chrome is open.` : "Odds starts it when a place frees up, while Chrome is open." }
     case "working":
-      return { group, label: "Filling in", why: item.message && /again/i.test(item.message) ? item.message : "Odds is filling it in a background tab. Nothing is sent." }
+      return { group, label: "Filling in", why: item.message && /again/i.test(item.message) ? item.message : "Odds is filling it in a tab behind yours. Nothing is sent." }
     case "review":
       return { group, label: "Ready to send", why: "Everything is filled in. Check it, then press Submit yourself." }
     case "sent":
@@ -79,12 +80,12 @@ export function queueWords(item: Pick<QueueItem, "state" | "reason" | "message">
       return { group, label: "Skipped", why: "You took this one out. Try again any time." }
     case "failed": {
       if (item.reason === "closed") return { group, label: "Closed", why: NEEDS.closed.why }
-      return { group, label: "Couldn't apply", why: item.message || "Odds could not finish this form. Try again, or open the tab to do it yourself." }
+      return { group, label: "Couldn't apply", why: plainWords(item.message) || "Odds could not finish this form. Try again, or open the tab to do it yourself." }
     }
     case "needs_you": {
       const need = NEEDS[item.reason ?? "other"] ?? NEEDS.other
       // The site's own sentence is kept when the reason is only "other": it says more than we can.
-      return { group, label: need.label, why: item.reason && item.reason !== "other" ? need.why : (item.message || need.why) }
+      return { group, label: need.label, why: item.reason && item.reason !== "other" ? need.why : (plainWords(item.message) || need.why) }
     }
   }
 }

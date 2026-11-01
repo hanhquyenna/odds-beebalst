@@ -2909,7 +2909,7 @@ test("phone to desktop end-to-end: request, autofill, progress on phone, and dis
   await expect.poll(() => fake.reports.some(r => r.status === "needs_input")).toBe(true)
   // Apply with Odds jumps the app to the Tracker; the job's own page shows how its application is going.
   await phone.goto(`${APP_ORIGIN}/job/${post.id}`)
-  await expect(phone.getByRole("status").filter({ hasText: /Needs your answer|Your turn/ }).filter({ hasText: /outlined question|your answer/i })).toBeVisible({ timeout: 10000 })
+  await expect(phone.getByRole("status").filter({ hasText: /A question for you|Needs you/ }).filter({ hasText: /outlined question|your answer/i })).toBeVisible({ timeout: 10000 })
   await worker.evaluate(() => chrome.storage.local.set({ oddsPhoneControl: false }))
   expect(desktop.isClosed()).toBe(false)
   await expect.poll(() => fake.remoteTask?.status).toBe("failed")
@@ -3110,7 +3110,7 @@ test("Apply with Odds in the desktop website starts the installed extension dire
   await expect(application.locator(".odds-apply-bar")).toContainText(/Check it and press Submit/i)
   // Apply with Odds jumps to Tracker and opens the job drawer — Open application tab is there.
   // If the drawer is slow, open the saved job row (same user path).
-  const openTab = app.getByRole("button", { name: /Open application tab|Open tab:/ })
+  const openTab = app.getByRole("button", { name: /^(Go to the tab|Review & send)$/ })
   if (!(await openTab.isVisible().catch(() => false))) {
     await app.getByRole("button", { name: /Junior Financial Analyst/i }).first().click()
   }
@@ -4039,7 +4039,7 @@ test("a page without an applicant form is never marked ready to review", async (
   await applyFrom(context, page, job)
   await expect.poll(async () => (await status()).state?.status, { timeout: 15000 }).toBe("needs_input")
   expect((await status()).state?.status).not.toBe("ready")
-  await expect(page.locator(".odds-apply-bar")).toContainText(/could not (verify an application form|open the application form|move this application forward)/i)
+  await expect(page.locator(".odds-apply-bar")).toContainText(/could not (verify an application form|open the application form|move this application forward|get further)/i)
 })
 
 /** A form in steps, as Workday draws it: Next shows the next step; the last step has Submit, which odds never presses. */
@@ -4270,7 +4270,7 @@ test("ACCEPT from Odds buttons: LinkedIn offsite NEW tab fills and Open applicat
   await expect(employer.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask", { timeout: 20000 })
 
   // Apply with Odds switches to Tracker and opens the job drawer — Open tab lives there.
-  const openTab = app.getByRole("button", { name: /Open application tab|Open tab:/ })
+  const openTab = app.getByRole("button", { name: /^(Go to the tab|Review & send)$/ })
   if (!(await openTab.isVisible().catch(() => false))) {
     await app.getByRole("button", { name: /Copywriting Internship|MatchWornShirt/i }).first().click()
   }
@@ -4311,7 +4311,7 @@ test("Apply with Odds pressed in the app itself (this build, on the odds address
   const applyTab = await context.serviceWorkers()[0].evaluate(`chrome.tabs.query({ url: "https://jobs.example.com/*" }).then(async (t) => { const w = (await chrome.storage.session.get("oddsRunWindow")).oddsRunWindow; return { active: Boolean(t[0]?.active), inOddsWindow: t[0]?.windowId === w } })`) as { active: boolean; inOddsWindow: boolean }
   expect(applyTab).toEqual({ active: false, inOddsWindow: false })
   // Tracker drawer shows Open application tab (Apply navigates there for the live chip).
-  const openTab = app.getByRole("button", { name: /Open application tab|Open tab:/ })
+  const openTab = app.getByRole("button", { name: /^(Go to the tab|Review & send)$/ })
   if (!(await openTab.isVisible().catch(() => false))) {
     await app.getByRole("button", { name: /Junior Financial Analyst/i }).first().click()
   }
@@ -5186,7 +5186,7 @@ test("Broods says what it does, stops at a captcha with the reason, and carries 
   const page = await context.newPage()
   await page.goto("https://boards.example-ats.com/acme/jobs/779")
   await applyFrom(context, page, "https://boards.example-ats.com/acme/jobs/779")
-  await expect(page.locator(".odds-apply-bar")).toContainText("Odds Filling your details from Autofill", { timeout: 30000 })
+  await expect(page.locator(".odds-apply-bar")).toContainText("Filling your details from Autofill", { timeout: 30000 })
   released()
   // No captcha left on the page (the person ticked it): the tab tells the server by itself and the same run carries on — no button.
   await expect.poll(() => fake.driveEvents.includes("continue"), { timeout: 20000 }).toBe(true)
@@ -6297,7 +6297,7 @@ for (const job of REAL_JOBS) {
     if (applicationUi) {
       const uiT0 = Date.now()
       await applicationUi.screenshot({ path: testInfo.outputPath("app-terminal.png") })
-      const open = applicationUi.getByRole("button", { name: /Open application tab|Open tab:|Open stuck tab/ }).first()
+      const open = applicationUi.getByRole("button", { name: /^(Go to the tab|Review & send|Try again)$/ }).first()
       if (!(await open.isVisible().catch(() => false))) await applicationUi.getByText(job.title, { exact: true }).first().click()
       await expect(open).toBeVisible({ timeout: UI_MS })
       await open.click()
@@ -6699,7 +6699,7 @@ test("tracker merges duplicate employer links and the live card shows real activ
   await context.route("https://odds.beeblast.co/**",async r=>{const u=new URL(r.request().url());await r.fulfill({response:await r.fetch({url:`${APP_ORIGIN}${u.pathname}${u.search}`})})})
   fake.kit={job_id:first.id,broods_drive:true,facts:{answers:{},remembered:{}}}
   const app=await context.newPage();await app.goto(`https://odds.beeblast.co/job/${first.id}`)
-  await expect(app.getByText("Working on your application",{exact:true})).toBeVisible({timeout:20000})
+  await expect(app.getByText("Filling in",{exact:true})).toBeVisible({timeout:20000})
   await expect(app.getByRole("list",{name:"Steps"})).toHaveCount(0)
   await expect(app.getByText("Uploading your CV",{exact:true})).toHaveCount(1)
   await app.screenshot({path:testInfo.outputPath("application-card.png")})

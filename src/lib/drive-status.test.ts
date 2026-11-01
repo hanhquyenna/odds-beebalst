@@ -27,7 +27,7 @@ const label = (): string => applyActivityLabel(applyActivityOf("p1")!)
 describe("a Broods run is a temporary layer over the job's own status", () => {
   test("running with its tab open: Applying…, with Broods' own line", () => {
     syncDriveRuns([run()], NOW)
-    expect(label()).toBe("Applying…")
+    expect(label()).toBe("Filling in")
     expect(isLiveApply(applyActivityOf("p1"))).toBe(true)
     expect(applyActivityOf("p1")!.message).toContain("Filling your details")
     expect(driveOf("p1")?.steps).toBe(7)
@@ -40,12 +40,12 @@ describe("a Broods run is a temporary layer over the job's own status", () => {
 
   test("each thing it waits for gets its own chip while the tab is open", () => {
     const cases: Array<[Partial<DriveRun>, string]> = [
-      [{ status: "needs_you", reason: "captcha" }, "Captcha"],
+      [{ status: "needs_you", reason: "captcha" }, "A check is in the way"],
       [{ status: "needs_you", reason: "account" }, "Sign in"],
-      [{ status: "needs_you", reason: "questions" }, "Your answers"],
+      [{ status: "needs_you", reason: "questions" }, "A question for you"],
       [{ status: "needs_you", reason: "letter" }, "Cover letter"],
-      [{ status: "stuck", reason: "other" }, "Stuck"],
-      [{ status: "review" }, "Review & send"],
+      [{ status: "stuck", reason: "other" }, "Needs you"],
+      [{ status: "review" }, "Ready to send"],
     ]
     for (const [over, want] of cases) {
       store.clear()
@@ -57,9 +57,9 @@ describe("a Broods run is a temporary layer over the job's own status", () => {
 
   test("the tab closes on Captcha: recovery chip + Reopen, not a dead Open or silent drop", () => {
     syncDriveRuns([run({ status: "needs_you", reason: "captcha" })], NOW)
-    expect(label()).toBe("Captcha")
+    expect(label()).toBe("A check is in the way")
     syncDriveRuns([run({ status: "needs_you", reason: "captcha", last_seen_at: new Date(0).toISOString() })], NOW)
-    expect(label()).toBe("Captcha")
+    expect(label()).toBe("A check is in the way")
     expect(applyActivityOf("p1")!.message).toMatch(/tab was closed|Reopen application/i)
     syncDriveRuns([run({ status: "stopped", last_seen_at: new Date(0).toISOString() })], NOW)
     expect(applyActivityOf("p1")).toBeNull()
@@ -82,7 +82,7 @@ describe("a Broods run is a temporary layer over the job's own status", () => {
   test("the tab's last line never overrides the run", () => {
     syncDriveRuns([run({ status: "needs_you", reason: "captcha" })], NOW)
     recordApplyActivity({ postingId: "p1", status: "filling", message: "Broods is applying in this tab…" })
-    expect(label()).toBe("Captcha")
+    expect(label()).toBe("A check is in the way")
   })
 
   test("the person sets the status: that run's layer is gone for good, a later run shows again", () => {
@@ -92,7 +92,7 @@ describe("a Broods run is a temporary layer over the job's own status", () => {
     syncDriveRuns([run()], NOW)
     expect(applyActivityOf("p1")).toBeNull()
     syncDriveRuns([run({ id: "r2" })], NOW)
-    expect(label()).toBe("Applying…")
+    expect(label()).toBe("Filling in")
   })
 
   test("a dead tab's leftover line for a run that is not on screen is dropped", () => {
@@ -113,13 +113,13 @@ describe("a Broods run is a temporary layer over the job's own status", () => {
 test("the newest run wins when duplicate source IDs resolve to one job",()=>{
   syncDriveRuns([run({id:"new",created_at:new Date(NOW-1000).toISOString()}),run({id:"old",status:"stuck",created_at:new Date(NOW-60000).toISOString()})],NOW)
   expect(driveOf("p1")?.runId).toBe("new")
-  expect(label()).toBe("Applying…")
+  expect(label()).toBe("Filling in")
 })
 
 test("UX: quiet Applying… after 15s names waiting, not fake activity", () => {
   syncDriveRuns([run({ last_note: "Reading the page", updated_at: new Date(NOW - 20_000).toISOString() })], NOW)
   const d = driveOf("p1")!
-  expect(label()).toBe("Applying…")
+  expect(label()).toBe("Filling in")
   expect(driveWhy(d, NOW)).toMatch(/Waiting/)
 })
 
@@ -129,7 +129,7 @@ test("UX: wrong-job message is Wrong job chip, not Closed", () => {
     reason: "other",
     message: "The link opens a different job (wesco.com instead of yamaha.com). Not filling personal details.",
   })], NOW)
-  expect(label()).toBe("Wrong job")
+  expect(label()).toBe("Wrong job page")
   expect(label()).not.toBe("Closed")
 })
 
@@ -139,5 +139,5 @@ test("UX: consent needs_you is Your consent", () => {
     reason: "other",
     message: "Please review the privacy statement and consent yourself.",
   })], NOW)
-  expect(label()).toBe("Your consent")
+  expect(label()).toBe("A question for you")
 })

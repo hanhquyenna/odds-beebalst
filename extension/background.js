@@ -663,7 +663,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
           if (visits[page] >= 5 || loads >= 20) {
             let where = page
             try { const u = new URL(page); where = `${u.hostname}${u.pathname}` } catch { /* keep */ }
-            stop = `Odds could not open the application form after assist: it kept landing on ${where.slice(0, 120)} without an application form. Open the job yourself and Odds fills it in.`
+            stop = `Odds could not open the application form: it kept landing on ${where.slice(0, 120)} without an application form. Open the job yourself and Odds fills it in.`
             all[tabId] = { ...intent, hunt: { ...hunt, visits: keep, loads }, status: "needs_input", message: stop, stopped: true, at: Date.now() }
           } else all[tabId] = { ...intent, hunt: { ...hunt, visits: keep, loads } }
         } else if (message.op === "form" && applicationPage(tabUrl) && !boardPage(tabUrl)) {

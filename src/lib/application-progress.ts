@@ -1,3 +1,4 @@
+import { plainWords } from "@/lib/plain-words"
 import type { ApplicationRun } from "@/lib/application-runs"
 import { driveLabel, type DriveInfo } from "@/lib/apply-activity"
 import { tabGone, type DriveRun } from "@/lib/drive-run-state"
@@ -7,7 +8,7 @@ import type { Application } from "@/lib/types"
 export const APPLICATION_ACTIVITY_GROUPS = [
   { value: "attention", label: "Needs attention" },
   { value: "working", label: "Working" },
-  { value: "review", label: "Ready to review" },
+  { value: "review", label: "Ready to send" },
   { value: "history", label: "Previous activity" },
 ] as const
 
@@ -45,7 +46,12 @@ export interface ApplicationProgress {
 }
 
 /** Describes the latest observed state without turning a stale tab or an expired queue into live work. */
+/** Where one attempt stands, in the person's words (the server's own line is cleaned of how Odds is built). */
 export function applicationProgress(attempt: MonitoredRun, now = Date.now()): ApplicationProgress {
+  const progress = progressOf(attempt, now)
+  return { ...progress, message: plainWords(progress.message) }
+}
+function progressOf(attempt: MonitoredRun, now: number): ApplicationProgress {
   const run = attempt.run
   const base = {
     updatedAt: run.updated_at,
@@ -63,15 +69,15 @@ export function applicationProgress(attempt: MonitoredRun, now = Date.now()): Ap
     return {
       ...base,
       group: "history",
-      label: "Applied",
+      label: "Sent",
       message: run.message || "Submission confirmed.",
     }
   if (run.status === "failed")
     return {
       ...base,
       group: "attention",
-      label: "Needs attention",
-      message: run.message || "Application assistance failed.",
+      label: "Couldn't apply",
+      message: run.message || "Odds could not finish this form.",
     }
   if (run.status === "stopped" || run.status === "cancelled") {
     const tabAvailable = attempt.source === "drive" && !tabGone(attempt.run, now)
@@ -80,7 +86,7 @@ export function applicationProgress(attempt: MonitoredRun, now = Date.now()): Ap
       ...base,
       group: "history",
       label: "Paused",
-      message: run.message || "You stopped assistance.",
+      message: run.message || "You stopped it.",
       tabAvailable: tabAvailable,
       canContinue: tabAvailable,
     }
@@ -90,14 +96,14 @@ export function applicationProgress(attempt: MonitoredRun, now = Date.now()): Ap
       return {
         ...base,
         group: "attention",
-        label: "Expired",
-        message: "Preparation expired. Open the job to recover the application.",
+        label: "Timed out",
+        message: "This one timed out. Open the job to try again.",
       }
     if (run.status === "ready")
       return {
         ...base,
         group: "review",
-        label: "Ready to review",
+        label: "Ready to send",
         message: run.message || "Check the application before sending.",
       }
     if (run.status === "needs_input")
@@ -111,8 +117,8 @@ export function applicationProgress(attempt: MonitoredRun, now = Date.now()): Ap
     return {
       ...base,
       group: "working",
-      label: run.status === "queued" ? "Waiting for Chrome" : "Filling form",
-      message: run.message || "Waiting for your desktop.",
+      label: run.status === "queued" ? "Waiting for Chrome" : "Filling in",
+      message: run.message || "Waiting for Chrome on your computer.",
       canStop: true,
     }
   }
@@ -128,7 +134,7 @@ export function applicationProgress(attempt: MonitoredRun, now = Date.now()): Ap
     return {
       ...base,
       group: "attention",
-      label: drive.status === "review" ? "Confirm submission" : "Reconnect",
+      label: drive.status === "review" ? "Did you send it?" : "Connect Odds again",
       message:
         drive.status === "review"
           ? "The application reached review, then its tab stopped checking in. Did you send it?"
@@ -149,7 +155,7 @@ export function applicationProgress(attempt: MonitoredRun, now = Date.now()): Ap
     return {
       ...base,
       group: "review",
-      label: "Ready to review",
+      label: "Ready to send",
       message: drive.message || "Check the application and send it yourself.",
       tabAvailable: true,
     }
@@ -166,7 +172,7 @@ export function applicationProgress(attempt: MonitoredRun, now = Date.now()): Ap
   return {
     ...base,
     group: "working",
-    label: quiet ? "Waiting for an update" : "Filling form",
+    label: quiet ? "Waiting for the page" : "Filling in",
     message: quiet
       ? `No new activity. Last update: ${drive.last_note || "Waiting for the form."}`
       : drive.last_note || "Opening the application.",

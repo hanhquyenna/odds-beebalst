@@ -725,7 +725,7 @@
           const text = [why, next.message || ""].filter(Boolean).join(" ")
           if (next.status === "review") say(modal, next.message || "Filled in by Broods. Check everything, then press Submit yourself.", "done")
           else if (next.status === "needs_you") say(modal, text || "Broods needs you for a step.", "ask")
-          else say(modal, `Odds assist could not finish this Easy Apply step after assist: ${text || "Broods stopped."}`, "ask")
+          else say(modal, `Odds could not finish this Easy Apply step: ${text || "it stopped."}`, "ask")
         }
         // The tab stays watched while it is open (the tracker shows the run only then): 30 minutes waiting for the person, 3 hours at review.
         if (["submitted", "stopped", "failed"].includes(next.status) || next.reason === "closed" || Date.now() - endedAt > (next.status === "review" ? 10800000 : 1800000)) return
@@ -816,7 +816,7 @@
             again.click()
             if (await changed(modal, sig, 4000)) continue
           }
-          say(modal, "Odds assist could not finish this Easy Apply step. Fix what’s marked, then press Next — Odds will continue.", "ask")
+          say(modal, "Odds could not finish this Easy Apply step. Fix what’s marked, then press Next: Odds carries on.", "ask")
           return
         }
         continue
@@ -1190,7 +1190,7 @@
         if (await assistOpenApply(wanted)) return
         say(
           document.body,
-          "Odds assist could not open Apply on LinkedIn. Click Apply on this tab yourself; Odds fills the employer form after it opens.",
+          "Odds could not open Apply on LinkedIn. Click Apply in this tab yourself; Odds fills the employer form after it opens.",
           "ask",
         )
       }

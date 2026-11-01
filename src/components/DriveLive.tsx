@@ -1,3 +1,4 @@
+import { plainWords } from "@/lib/plain-words"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -67,7 +68,7 @@ export function DriveLive({ post, questionsOpen = false }: { post: Posting; ques
           <summary className="cursor-pointer font-medium text-foreground">Activity</summary>
           {activityError ? <p role="alert" className="mt-2 text-muted-foreground">{activityError}</p> : null}
           <ol aria-label="Application activity" className="mt-3 flex flex-col gap-2 border-l border-line pl-3">
-            {steps.slice(0,5).map(s=><li key={s.id} className="flex items-start justify-between gap-3"><span className="min-w-0 text-foreground">{s.note}</span><time className="shrink-0 text-xs tabular-nums text-muted-foreground">{ago(s.created_at,now)}</time></li>)}
+            {steps.slice(0,5).map(s=><li key={s.id} className="flex items-start justify-between gap-3"><span className="min-w-0 text-foreground">{plainWords(s.note)}</span><time className="shrink-0 text-xs tabular-nums text-muted-foreground">{ago(s.created_at,now)}</time></li>)}
           </ol>
         </details>
       ) : null}
@@ -102,7 +103,7 @@ function SentAsk({ post }: { post: Posting }): React.JSX.Element | null {
   }
   return (
     <div className="flex flex-col gap-2 rounded-lg border bg-card p-3 sm:flex-row sm:items-center">
-      <p className="flex-1 text-sm">Broods filled this in up to Submit. Did you send it?</p>
+      <p className="flex-1 text-sm">Odds filled this in up to Submit. Did you send it?</p>
       <div className="flex gap-2">
         <Button type="button" disabled={busy} onClick={() => answer(true)} className="h-9 cursor-pointer rounded-lg bg-brand-ink px-3 text-white hover:bg-brand-ink/90">Yes, mark Applied</Button>
         <Button type="button" variant="outline" disabled={busy} onClick={() => answer(false)} className="h-9 cursor-pointer rounded-lg px-3">No</Button>

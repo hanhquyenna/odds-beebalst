@@ -1,3 +1,4 @@
+import { plainWords } from "@/lib/plain-words"
 import { lazy, Suspense, useEffect, useMemo, useState } from "react"
 import { CompanyLogo } from "@/components/CompanyMark"
 import type { JobTab } from "@/components/JobDetail"
@@ -123,7 +124,7 @@ function useQueue(items: QueueItem[]): QueueItem[] {
     const run = q.runId ? runs.get(q.runId) : undefined
     if (!run) return q
     const state = run.status === "running" ? "filling" : run.status === "review" ? "ready" : run.status === "needs_you" ? "needs_input" : run.status === "submitted" ? "submitted" : "failed"
-    return { ...q, state, message: (state === "filling" ? run.last_note || q.message : run.message || run.last_note || q.message) ?? "" }
+    return { ...q, state, message: plainWords((state === "filling" ? run.last_note || q.message : run.message || run.last_note || q.message) ?? "") }
   }), [items, runs])
 }
 
@@ -218,13 +219,13 @@ function OddsButton({ info, post, queue }: { info: PanelInfo; post: Posting | nu
 
   // This tab is an application Odds is working in: how it stands, and what (if anything) the person does here.
   if (state) {
-    const message = (info.status?.message ?? "").replace(/^needs you:\s*/i, "").trim()
+    const message = plainWords(info.status?.message ?? "").replace(/^needs you:\s*/i, "").trim()
     if (state === "filling") return <StateCard tone="work" title="Odds is filling this in" text="Switch tabs anytime: it keeps going in the background." />
     if (state === "ready" || state === "review") return <StateCard tone="good" title="Ready to send" text="Check the form and press Submit yourself. Odds never sends it." />
     if (state === "submitted") return <StateCard tone="good" title="Applied" text="Sent. It is in your tracker." />
     return (
       <>
-        <StateCard tone="needs" title="Your turn on this page" text={message || "Odds needs you here, then carries on by itself."} />
+        <StateCard tone="needs" title="Needs you" text={message || "Odds needs you here, then carries on by itself."} />
         <button type="button" className={look} onClick={() => { setPressed("fill"); toExtension({ type: "panel-fill", tabId: page.tabId }) }}>{pressed === "fill" ? "Carrying on…" : "Carry on with Odds"}</button>
       </>
     )
@@ -347,7 +348,7 @@ function QueueLogo({ item }: { item: QueueItem }): React.JSX.Element {
 
 /** One application that needs the person: what is in the way, Go to the tab (the one press that brings it forward), or Skip it. */
 function NeedsYou({ item }: { item: QueueItem }): React.JSX.Element {
-  const text = item.message.replace(/^needs you:\s*/i, "")
+  const text = plainWords(item.message).replace(/^needs you:\s*/i, "")
   const check = /captcha|human|robot|verify you/i.test(text)
   const account = /account|password|sign[ -]?in|log[ -]?in|verification code/i.test(text)
   const title = check ? "A check is in the way" : account ? "An account needs you" : item.state === "failed" ? "Odds got stuck" : "Odds needs you"
@@ -424,7 +425,7 @@ function QueueView({ queue, onBack, backLabel, onMore }: { queue: QueueItem[]; o
             <img src="/icon.svg" alt="" className="size-7 shrink-0" />
             <span className="flex-1 text-[15px] font-extrabold">Odds is working on {busy.length}</span>
           </div>
-          {busy.map((q) => line(q, <span className="text-xs font-bold text-brand-ink">Filling</span>, q.message))}
+          {busy.map((q) => line(q, <span className="text-xs font-bold text-brand-ink">Filling in</span>, plainWords(q.message)))}
         </section>
       ) : null}
       {done.length ? (

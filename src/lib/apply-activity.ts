@@ -1,5 +1,7 @@
 // Live Apply-with-Odds activity for the tracker: pin the job you're working on to the top
 // and show filling / needs you / review instead of a stale Saved chip.
+import { NEEDS } from "@/lib/apply-queue-words"
+import { plainWords } from "@/lib/plain-words"
 import { useEffect, useState } from "react"
 import { askIfSent, onScreen, PERSON_MS, tabGone, type DriveReason, type DriveRun, type DriveStatus } from "@/lib/drive-run-state"
 
@@ -114,7 +116,7 @@ export function isLiveApply(a: ApplyActivity | null | undefined): boolean {
  * never bare timeouts / “still loading” (those stay Applying… or Your answers).
  */
 // Transport / “reload extension” is NOT Broods Stuck — never classify those as Stuck chips.
-const STUCK_MSG = /\bafter (odds )?assist\b|\bagent gave up\b|odds assist could not\b|broods could not\b|could not move this application forward after assist|could not open the application form after assist|could not open an application after assist|employer site returned an error/i
+const STUCK_MSG = /\bafter (odds )?assist\b|\bagent gave up\b|odds assist could not\b|broods could not\b|odds could not (get further|carry on|start|finish this|open the application form|open apply|move this application)\b|odds stopped answering\b|could not move this application forward after assist|could not open the application form after assist|could not open an application after assist|employer site returned an error/i
 const EXT_TRANSPORT_MSG = /extension did not respond|odds in chrome did not answer|reconnect(ing)? the extension|reconnect odds on connect|connect odds from the extension|extension context invalidated/i
 const CAPTCHA_MSG = /captcha|verify you are human|security verification/i
 /** Old stuck copy named both — never treat as Captcha (chip/title mismatch with Account body). */
@@ -157,44 +159,47 @@ export function normalizeApplyStatus(status: ApplyActivityStatus, message: strin
   return status
 }
 
-/** Tracker chip: Captcha / Account / Stuck / Your answers / Applying… / Review & send. */
+/** Tracker chip, in the same words as the Applications page: Filling in / Ready to send / Sent / A check is in the way / Sign in / A question for you / Needs you. */
 export function applyActivityLabel(a: ApplyActivity): string {
   if (driveFresh(a)) return driveLabel(a.drive)
   const m = a.message || ""
   const status = normalizeApplyStatus(a.status, m)
   if (PAUSED_MSG.test(m)) return "Paused"
-  if (status === "ready") return "Review & send"
-  if (CLOSED_MSG.test(m) || (status === "failed" && CLOSED_MSG.test(m))) return "Closed"
-  if (status === "failed") return "Apply stopped"
-  if (status === "submitted") return "Applied"
-  if (CAPTCHA_MSG.test(m) && !AMBIG_CAPTCHA_ACCOUNT.test(m)) return "Captcha"
-  if (EXT_TRANSPORT_MSG.test(m)) return "Reconnect"
-  if (STUCK_MSG.test(m) || AMBIG_CAPTCHA_ACCOUNT.test(m)) return "Stuck"
-  if (ACCOUNT_MSG.test(m) && !CLOSED_MSG.test(m)) return "Account"
-  if (ANSWERS_MSG.test(m) || status === "needs_input") return "Your answers"
-  return "Applying…"
+  if (status === "ready") return "Ready to send"
+  if (CLOSED_MSG.test(m) || (status === "failed" && CLOSED_MSG.test(m))) return NEEDS.closed.label
+  if (status === "failed") return "Couldn't apply"
+  if (status === "submitted") return "Sent"
+  if (CAPTCHA_MSG.test(m) && !AMBIG_CAPTCHA_ACCOUNT.test(m)) return NEEDS.captcha.label
+  if (EXT_TRANSPORT_MSG.test(m)) return "Connect Odds again"
+  if (STUCK_MSG.test(m) || AMBIG_CAPTCHA_ACCOUNT.test(m)) return NEEDS.other.label
+  if (ACCOUNT_MSG.test(m) && !CLOSED_MSG.test(m)) return NEEDS.account.label
+  if (ANSWERS_MSG.test(m) || status === "needs_input") return NEEDS.questions.label
+  return "Filling in"
 }
 
-/** The chip for a Broods run while its tab is open: what it is doing, or exactly what it waits for. Never a status of its own. */
+/** The chip while Odds fills a job and its tab is open: what it is doing, or exactly what it waits for. The Applications page's words. */
 export function driveLabel(d: DriveInfo): string {
-  if (d.status === "running") return d.filling ? "You're filling in" : "Applying…"
-  if (d.status === "review") return "Review & send"
-  if (d.status === "submitted") return "Applied"
-  if (WRONG_JOB_MSG.test(d.message || "")) return "Wrong job"
-  if (CONSENT_MSG.test(d.message || "") && (d.reason === "other" || !d.reason)) return "Your consent"
-  const byReason: Record<string, string> = { captcha: "Captcha", account: "Sign in", questions: "Your answers", letter: "Cover letter", closed: "Closed", email: "Apply by email" }
-  return (d.reason && byReason[d.reason]) || (d.status === "needs_you" ? "Needs you" : "Stuck")
+  if (d.status === "running") return d.filling ? "You're filling in" : "Filling in"
+  if (d.status === "review") return "Ready to send"
+  if (d.status === "submitted") return "Sent"
+  if (WRONG_JOB_MSG.test(d.message || "")) return "Wrong job page"
+  if (CONSENT_MSG.test(d.message || "") && (d.reason === "other" || !d.reason)) return NEEDS.questions.label
+  const reason = d.reason && d.reason in NEEDS ? NEEDS[d.reason as keyof typeof NEEDS] : null
+  return reason?.label ?? NEEDS.other.label
 }
 
 /** What the run is doing or waits for, in a sentence the person can act on (the run's own message follows it). */
 export function driveWhy(d: DriveInfo, now = Date.now()): string {
+  return plainWords(driveWhyRaw(d, now))
+}
+function driveWhyRaw(d: DriveInfo, now: number): string {
   if (d.status === "running") {
-    if (d.filling) return "I'll wait while you edit."
+    if (d.filling) return "Odds waits while you type, then carries on."
     // Contract: at 15 s with no observable progress, show truthful waiting — never pretend activity.
     if (now - d.updatedAt >= DRIVE_QUIET_MS) {
       return d.note
         ? `Waiting — last step: ${d.note}`
-        : "Waiting for the form or Broods. No new step yet."
+        : "Waiting for the page. No new step yet."
     }
     return d.note || "Opening the application."
   }

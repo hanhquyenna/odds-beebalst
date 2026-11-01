@@ -118,7 +118,7 @@ export function ApplicationsPage(): React.JSX.Element {
           </ul>
         )}
       </section>
-      <p className="px-1 text-[13px] text-muted-foreground">Odds fills three at a time in background tabs of your own window and never presses Submit. If one stops partway, it starts it again by itself.</p>
+      <p className="px-1 text-[13px] text-muted-foreground">Odds fills three at a time, in tabs behind yours, and never presses Submit. If one stops partway, it starts it again by itself.</p>
       {confirmSent ? (
         <ConfirmDialog
           title="Did you press Submit on the site?"

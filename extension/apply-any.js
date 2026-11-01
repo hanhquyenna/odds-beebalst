@@ -976,7 +976,7 @@
     broodsStepSig = sig
     broodsStepCalls += 1
     for (const f of open) await readChoices(f)
-    say("Broods is reading this step…", "filling")
+    say("Odds is reading this step…", "filling")
     const res = await ask({
       type: "suggest-answers",
       url: pageHref(),
@@ -996,7 +996,7 @@
       n++
     }
     if (n) for (const f of fields()) { attempts.delete(elOf(f)); verifications.delete(elOf(f)) }
-    say(n ? `Broods answered ${n} question${n === 1 ? "" : "s"} — filling them in…` : "Broods had no answers for this step — the rest is yours.", "filling")
+    say(n ? `Odds answered ${n} question${n === 1 ? "" : "s"} — filling them in…` : "Odds had no answers for this step — the rest is yours.", "filling")
     return n > 0
   }
   /** Tries per search box over the whole page (never reset by a new answer): the cap that stops slow re-typing loops. */
@@ -2318,7 +2318,7 @@
     const recipes = await driveRecipes(intent)
     if (recipes.navigating) return
     await drivePrefill()
-    say("Broods is applying in this tab…", "filling")
+    say("Odds is applying in this tab…", "filling")
     // The script filled what it knows; it never decides the form is done. Broods checks the filled page (and does what is left) before review.
     const snap = drivePage()
     const odds = { filled: (snap?.fields || []).filter((f) => f.by === "odds").length, left: (snap?.fields || []).filter((f) => f.required && !f.filled).length, only_submit_left: onlySubmitLeft() }
@@ -2327,7 +2327,7 @@
     // What this platform's past runs learned: field kinds that only took a value through real input go there first.
     driveTactics = start?.tactics && typeof start.tactics === "object" ? start.tactics : {}
     if (!runId) {
-      say(start?.error ? `Broods could not start: ${start.error}` : "Broods could not start. Press Apply with Odds again.", "ask")
+      say(start?.error ? `Odds could not start: ${start.error}` : "Odds could not start. Press Apply with Odds again.", "ask")
       return
     }
     let lostSince = 0
@@ -2342,12 +2342,12 @@
       // The form showed up in a frame after all (a career page that loads it late): the frame takes the run over, this page stops.
       if (window.top === window && (atsFrame() || blankFrameForm())) {
         if (blankFrameForm()) await ask({ type: "apply-frames" }, 8000).catch(() => null)
-        say("Broods is applying in the form on this page…", "filling")
+        say("Odds is applying in the form on this page…", "filling")
         return
       }
       // The person is filling in the form themselves: Broods waits (no step handed out) and picks up 20 s after they stop.
       if (!endedAt && Date.now() - person.at < PERSON_QUIET_MS) {
-        say("You're filling in — Broods waits, then carries on around what you entered.", "filling")
+        say("You're filling in. Odds waits, then carries on around what you typed.", "filling")
         await ask({ type: "drive", op: "next", run_id: runId, hold: true }, 15000).catch(() => null)
         await sleep(3000)
         continue
@@ -2358,7 +2358,7 @@
         if (handled) {
           resumedFor = endedAt
           const ok = await ask({ type: "drive", op: "continue", run_id: runId }, 15000).catch(() => null)
-          if (ok?.ok) { endedAt = 0; say("Broods is carrying on…", "filling") }
+          if (ok?.ok) { endedAt = 0; say("Odds is carrying on…", "filling") }
         }
       }
       const next = await ask({ type: "drive", op: "next", run_id: runId, fresh }, 35000).catch(() => null)
@@ -2366,7 +2366,7 @@
       if (!next || next.status === "error") {
         lostSince ||= Date.now()
         if (Date.now() - lostSince > 300000) {
-          say("Odds lost its connection while Broods was applying. Press Apply with Odds again to carry on from here.", "ask")
+          say("Odds lost its connection while applying. Press Apply with Odds again to carry on from here.", "ask")
           return
         }
         say("Connection lost — Odds keeps going as soon as it is back…", "filling")
@@ -2374,7 +2374,7 @@
         continue
       }
       fresh = false
-      if (lostSince) { lostSince = 0; say("Broods is applying in this tab…", "filling") }
+      if (lostSince) { lostSince = 0; say("Odds is applying in this tab…", "filling") }
       if (next.done) {
         if (!endedAt) {
           endedAt = Date.now()
@@ -2397,14 +2397,14 @@
         await sleep(3000)
         continue
       }
-      if (endedAt) { endedAt = 0; say("Broods is carrying on…", "filling") }
+      if (endedAt) { endedAt = 0; say("Odds is carrying on…", "filling") }
       if (next.command) {
         const cmd = next.command
         const note = typeof cmd.note === "string" && cmd.note.trim() ? cmd.note.trim() : ""
-        if (note) say(`Broods: ${note}`, "filling")
-        else if (cmd.tool === "read_page") say(`Broods is reading the page (step ${next.steps ?? ""})…`, "filling")
-        else if (cmd.tool === "fill") say("Broods is filling in your answers…", "filling")
-        else if (cmd.tool === "click") say("Broods is moving to the next step…", "filling")
+        if (note) say(note, "filling")
+        else if (cmd.tool === "read_page") say(`Odds is reading the page (step ${next.steps ?? ""})…`, "filling")
+        else if (cmd.tool === "fill") say("Odds is filling in your answers…", "filling")
+        else if (cmd.tool === "click") say("Odds is moving to the next step…", "filling")
         let sent = false
         let stale = false
         const sendResult = async (result) => {
@@ -2450,18 +2450,18 @@
   /** What the bar says when a Broods run ends, by why it ended. */
   function driveEndText(next) {
     const m = next.message || ""
-    if (next.status === "review") return [m || "Filled in by Broods. Check everything, then send it yourself.", "done"]
+    if (next.status === "review") return [m || "Filled in by Odds. Check everything, then send it yourself.", "done"]
     if (next.status === "submitted") return ["You sent it.", "done"]
-    if (next.status === "stopped") return [m || "Broods stopped. Continue from the tracker, or finish it yourself.", "ask"]
+    if (next.status === "stopped") return [m || "Odds stopped. Continue from the tracker, or finish it yourself.", "ask"]
     const why = {
-      captcha: "Captcha on the page — tick it and Broods carries on by itself.",
-      account: "Sign in on this page (Odds never types passwords) — Broods carries on by itself after.",
-      letter: "This application asks for a cover letter — add one for this job in Odds (Documents) and Broods carries on.",
-      questions: "Broods needs your answers: fill them in here or answer in Odds, and it carries on.",
+      captcha: "Captcha on the page — tick it and Odds carries on by itself.",
+      account: "Sign in on this page (Odds never types passwords) — Odds carries on by itself after.",
+      letter: "This application asks for a cover letter — add one for this job in Odds (Documents) and Odds carries on.",
+      questions: "Odds needs your answers: fill them in here or in Odds, and it carries on.",
       closed: "This job is closed: it no longer takes applications.",
     }[next.reason] || ""
     const text = next.reason === "closed" ? why : [why, m].filter(Boolean).join(" ")
-    return [next.status === "needs_you" ? (text || "Broods needs you for a step — open the tab.") : `Odds assist could not move this application forward after assist: ${text || "Broods stopped."}`, "ask"]
+    return [next.status === "needs_you" ? (text || "Odds needs you for a step — open the tab.") : `Odds could not get further on its own: ${text || "Odds stopped."}`, "ask"]
   }
   /** The employer's own words saying the application went through (a thank-you page or message, with no form left). */
   const SENT = /thank you for (applying|your (application|interest in))|your application (has been|was|is) (successfully )?(submitted|received|sent)|(we have|we've) received your application|application (submitted|received|complete)|bedankt voor je sollicitatie|je sollicitatie is (verzonden|ontvangen)|vielen dank für ihre bewerbung/i
@@ -2681,13 +2681,13 @@
       }
       if (!embedded && blankFrameForm()) {
         await ask({ type: "apply-frames" }, 8000).catch(() => null)
-        say("Broods is applying in the form on this page…", "filling")
+        say("Odds is applying in the form on this page…", "filling")
         return
       }
       if (embedded) {
         // The form is another site's frame (SmartRecruiters, Workday, iCIMS...): the script is put into every frame of this tab, or nothing would fill it.
         await ask({ type: "apply-frames" }, 8000).catch(() => null)
-        say("Broods is applying in the form on this page…", "filling")
+        say("Odds is applying in the form on this page…", "filling")
         return
       }
       await driveLoop(intent)
@@ -2814,7 +2814,7 @@
     }
     async function agentConfirm(status) {
       agentTried = true
-      say("No progress — Broods is reading this page…", "filling")
+      say("No progress — Odds is reading this page…", "filling")
       const heading = document.title + " " + textOf(document.querySelector("h1, h2"))
       const dropdownOpts = [...document.querySelectorAll(".dropdown-location, .dropdown-results > *, [role='option']")]
         .filter((n) => shown(n) && textOf(n) && !/no location found|loading|try entering/i.test(textOf(n)))
@@ -2876,7 +2876,7 @@
           facts.remembered = { ...(facts.remembered || {}), [a.key]: a.answer.slice(0, 1000) }
         }
         for (const f of fields()) { attempts.delete(elOf(f)); verifications.delete(elOf(f)) }
-        say("Odds confirmed answers from Broods — filling them in…", "filling")
+        say("Odds checked its answers — filling them in…", "filling")
         return "moved"
       }
       if (scan?.action === "click" && typeof scan.text === "string" && !AGENT_CLICK_DENY.test(scan.text)) {
@@ -2902,7 +2902,7 @@
         if (await waitForAnswers()) return "moved"
         return "human"
       }
-      say("Odds assist could not move this application forward after assist. Open the tab to continue.", "ask")
+      say("Odds could not get further on its own. Go to the tab to carry on.", "ask")
       return "stuck"
     }
 
@@ -2989,7 +2989,7 @@
         const scanSig = `${pageHref()}|${heading.slice(0, 80)}`
         if (globalThis.__oddsScanSig === scanSig) {
           // Already confirmed this page — stop after assist (never silent loop).
-          say("Odds assist could not move this application forward after assist. Open the tab to continue.", "ask")
+          say("Odds could not get further on its own. Go to the tab to carry on.", "ask")
           return
         }
         globalThis.__oddsScanSig = scanSig
@@ -3174,7 +3174,7 @@
             if (outcome === "human" || outcome === "stuck") return
           }
           if (stage === "human" || gapsBroodsTried) {
-            if (round < 40) say("Still filling Autofill answers — Broods already checked…", "filling")
+            if (round < 40) say("Still filling your saved answers…", "filling")
             else if (claimReady(agentTried)) return
           }
         }
