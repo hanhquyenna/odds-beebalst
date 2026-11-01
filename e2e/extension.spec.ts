@@ -5411,6 +5411,38 @@ test("Broods' create_account through a run: the agent's tool call makes the acco
   expect(JSON.stringify(toolResult)).not.toContain(created.pw)
 })
 
+test("a dropdown that ends on another choice than Broods asked for (Anglais asked, Espanol shown) is reported as not taken, naming both", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const html = `<!doctype html><html><body><h1>Register</h1><form>
+    <label for="city">Ville</label><input id="city">
+    <label id="lang-label">Langue de communication souhaitée *</label>
+    <button type="button" id="lang" aria-haspopup="listbox" aria-labelledby="lang-label" aria-expanded="false">Sélectionner une option</button>
+    <ul id="list" role="listbox" hidden>${["Allemand", "Anglais", "Espanol", "Français"].map((o) => `<li role="option">${o}</li>`).join("")}</ul></form>
+    <script>const b = document.getElementById("lang"), list = document.getElementById("list")
+      b.onclick = () => { list.hidden = !list.hidden; b.setAttribute("aria-expanded", String(!list.hidden)) }
+      // Whatever is picked, the box ends on Espanol (a search list whose highlight moved).
+      for (const li of list.children) li.onclick = () => { b.textContent = "Espanol"; list.hidden = true; b.setAttribute("aria-expanded", "false") }</script></body></html>`
+  await context.route("https://acme.example-wrongpick.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pwrongpick", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: {}, remembered: {} }, cv: null }
+  let filled: { results?: Array<{ id: string; ok: boolean; value: string; error?: string }> } | null = null
+  fake.driveScript = async (cmd) => {
+    const page = (await cmd("read_page")) as { fields?: Array<{ id: string; label: string }> }
+    const lang = page.fields?.find((f) => /Langue/.test(f.label))
+    filled = (await cmd("fill", { fields: [{ id: lang?.id ?? "f1", value: "Anglais" }] })) as typeof filled
+    return { status: "review", message: "done" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://acme.example-wrongpick.com/apply")
+  expect(await toolbarFill(context, "https://acme.example-wrongpick.com/*")).toMatchObject({ ok: true })
+  await expect.poll(() => filled, { timeout: 60000 }).not.toBeNull()
+  const r = filled!.results!.find((x) => x.value === "Espanol" || /Espanol/.test(x.error ?? ""))
+  expect(r).toBeDefined()
+  expect(r!.ok).toBe(false)
+  expect(r!.error).toContain("Espanol")
+  expect(r!.error).toContain("Anglais")
+})
+
 test("a box that keeps its value only on its own blur (Workday, React's focusout) keeps what Odds typed, even while the person is in the side panel", async ({ context, fake }) => {
   test.setTimeout(90_000)
   await connect(context)

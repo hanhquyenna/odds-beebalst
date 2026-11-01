@@ -1817,6 +1817,21 @@
     }
     return ""
   }
+  /** Whether a dropdown showing `shown` holds the asked `value`: the same text, the same place with its region added, or the asked country's code. */
+  function choiceShows(shown, value, f) {
+    if (sameText(shown, value)) return true
+    const got = String(shown).toLowerCase().trim()
+    const parts = String(value).toLowerCase().split(",").map((x) => x.trim()).filter(Boolean)
+    if (parts.length && got.startsWith(parts[0]) && parts.slice(1).every((x) => got.includes(x))) return true
+    if (/^\+\d{1,4}$/.test(got)) {
+      const asked = String(value).toLowerCase().replace(/\s*\+\d+.*$/, "").trim()
+      const option = (f.options || listed(elOf(f)).texts || []).find((o) => String(o).toLowerCase().startsWith(asked))
+      if (asked && option && String(option).includes(got)) return true
+    }
+    // "Anglais" asked of a list whose choice reads "Anglais (English)", or a value with the site's own extra words around it.
+    const a = String(value).toLowerCase().trim()
+    return a.length >= 3 && (got.includes(a) || (got.length >= 3 && a.includes(got)))
+  }
   function drivePage() {
     driveFields = new Map()
     driveButtons = new Map()
@@ -2089,6 +2104,13 @@
         if (!okDom && value.trim() && !secretField(f) && fallbackTime()) {
           if (await realRetry(f, value).catch(() => false)) { okDom = true; via = "real_input"; stuck = fieldValue(f) }
         }
+        // A dropdown that now shows another choice than the one asked (a search list that picked "Espanol" for "Anglais") did not take
+        // the answer, whatever the handler or the real-input retry said: Broods is told what it shows, so it does not build on a wrong pick.
+        let pickError = ""
+        if (okDom && ["combobox", "listbox", "select"].includes(f.kind) && stuck && !choiceShows(stuck, value, f)) {
+          okDom = false
+          pickError = `the dropdown shows "${stuck.slice(0, 60)}", not "${String(value).slice(0, 60)}": open it with options and pick the exact choice`
+        }
         // A phone box that reformats what it gets (a country picker in front): the digits Broods meant must still be there.
         let phoneError = ""
         if (okDom && /\b(mobile|phone|telephone|telefoon\w*|mobiel\w*)\b/i.test(f.label)) {
@@ -2105,7 +2127,7 @@
         }
         // Which contact detail it was (never the value): the server learns where this site wants it.
         const key = okDom ? factKey(value) : null
-        results.push({ id: it.id, ok: okDom, value: stuck, ...(key ? { key } : {}), ...(via ? { via } : {}), ...(shortened ? { note: `this box takes at most ${limit} characters: your ${shortened}-character answer was cut to its last whole sentence` } : {}), ...(okDom ? {} : { error: phoneError || result.error || "no matching option or the site did not keep the value", ...(failedChoices(f) ? { options: failedChoices(f) } : {}) }) })
+        results.push({ id: it.id, ok: okDom, value: stuck, ...(key ? { key } : {}), ...(via ? { via } : {}), ...(shortened ? { note: `this box takes at most ${limit} characters: your ${shortened}-character answer was cut to its last whole sentence` } : {}), ...(okDom ? {} : { error: pickError || phoneError || result.error || "no matching option or the site did not keep the value", ...(failedChoices(f) ? { options: failedChoices(f) } : {}) }) })
       }
       const sigAfter = `${pageHref()}|${[...driveFields.values()].map((f) => `${f.label}:${fieldValue(f)}`).join("|")}`
       const unfilled = [...driveFields.entries()]
