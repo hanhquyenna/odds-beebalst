@@ -5379,6 +5379,38 @@ test("Broods' create_account (the agent's account step): the tab types the perso
   await expect(page.locator("#mail")).toHaveValue("")
 })
 
+test("Broods' create_account through a run: the agent's tool call makes the account, the answer carries no password, and Broods reads the next step", async ({ context, fake }) => {
+  test.setTimeout(120_000)
+  await connect(context)
+  const html = `<!doctype html><html><body><h1>Marketing Internship</h1><form id="f">
+    <label for="fn">First name</label><input id="fn" required><label for="ph">Phone</label><input id="ph" type="tel">
+    <label for="em">Email Address</label><input id="em" type="email" required>
+    <label for="pw">Password</label><input id="pw" type="password" required><label for="pw2">Verify New Password</label><input id="pw2" type="password" required>
+    <input type="checkbox" id="agree" required><label for="agree">I agree to the terms</label><button type="button" id="create">Create Account</button></form>
+    <script>window.created = null; document.getElementById("create").onclick = () => {
+      const pw = document.getElementById("pw").value
+      if (!document.getElementById("agree").checked || pw !== document.getElementById("pw2").value || pw.length < 8) return
+      window.created = { email: document.getElementById("em").value, pw } }</script></body></html>`
+  await context.route("https://acme.wd5.example-agentrun.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pagentrun", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  let toolResult: unknown = null
+  fake.driveScript = async (cmd) => {
+    await cmd("read_page")
+    toolResult = await cmd("create_account")
+    await cmd("read_page")
+    return { status: "review", message: "Everything is filled in. Check it and press Submit yourself." }
+  }
+  const page = await context.newPage()
+  await page.goto("https://acme.wd5.example-agentrun.com/apply")
+  expect(await toolbarFill(context, "https://acme.wd5.example-agentrun.com/*")).toMatchObject({ ok: true })
+  await expect.poll(() => page.evaluate(() => (window as unknown as { created: unknown }).created), { timeout: 40000 }).not.toBeNull()
+  const created = await page.evaluate(() => (window as unknown as { created: { email: string; pw: string } }).created)
+  expect(created.email).toBe("kien@example.com")
+  await expect.poll(() => toolResult, { timeout: 20000 }).not.toBeNull()
+  expect(toolResult).toMatchObject({ ok: true, pressed: true, mode: "create" })
+  expect(JSON.stringify(toolResult)).not.toContain(created.pw)
+})
+
 test("a box that keeps its value only on its own blur (Workday, React's focusout) keeps what Odds typed, even while the person is in the side panel", async ({ context, fake }) => {
   test.setTimeout(90_000)
   await connect(context)
