@@ -108,6 +108,8 @@ window.addEventListener("message", (event) => {
   }
 })
 
+// In the browser's own side panel Chrome draws the header (name, pin, close): no second one under it.
+if (window.parent === window) document.body.classList.add("native")
 // Inside a page the cross asks the page to hide the panel; in the browser's own side panel it closes it.
 document.getElementById("close").onclick = () => (window.parent !== window ? window.parent.postMessage({ source: "odds-panel", type: "close" }, "*") : window.close())
 // The app announces ready while its script runs, before iframe load fires.

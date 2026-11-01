@@ -1060,7 +1060,11 @@ test("the side panel on a job page: the job card, one Apply button that opens th
   // The queue: what Odds is working on, each in its tab.
   await panel.getByRole("button", { name: /Your queue/ }).click()
   await expect(panel.getByText(/Odds is working on 1|Ready for you to send/)).toBeVisible({ timeout: 10000 })
+  await expect(panel.getByRole("button", { name: "Add more jobs" })).toBeVisible()
   await page.locator("#odds-panel-frame").screenshot({ path: "test-results/ext-apply-panel-queue.png" })
+  // Back always leads somewhere: here, to the job.
+  await panel.getByRole("button", { name: "Back to the job" }).click()
+  await expect(panel.getByText(/^Added: Junior Financial Analyst/)).toBeVisible()
 })
 
 test("the panel reads a job page Odds does not hold, keeps it for everyone, and shows the job without a press", async ({ context, fake, extensionId }) => {
