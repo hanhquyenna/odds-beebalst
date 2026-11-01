@@ -1,3 +1,4 @@
+import { formatAge } from "@/lib/format"
 import { AllMark, BulkBar, DeleteDialog, RowMark, TableBar, useSelection } from "@/components/TableSelect"
 import { Fragment, useMemo, useState } from "react"
 import { AddPropertyHeader, DeletePropertyButton } from "@/components/AddProperty"
@@ -227,6 +228,8 @@ export function TrackerTable({ posts, onOpen, viewName, toolbar, lead, monitor, 
 
       return <PropertyField post={post} name={name} type={typeOf(name)} value={note(post, name)} onChange={(v) => setNote(post, name, v)} />
     }
+    // When the job went up, as a number of days ("3 days ago") when there is no date of its own to edit.
+    if (key === "posted" && !valueOf(post, key) && !post.local) return <span className="text-sm text-muted-foreground">{formatAge(post)}</span>
     const edit = EDITABLE[key]
     if (edit) {
       const f = key === "followup" ? followUpFor(applicationOf(data, post), overrideOf(profile.notes, post.id, "followup"), appliedDay(applicationOf(data, post), overrideOf(profile.notes, post.id, "applied")), new Date(), followDays) : null

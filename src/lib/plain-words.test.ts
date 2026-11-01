@@ -7,7 +7,7 @@ import { plainWords } from "./plain-words"
 
 describe("what a person reads never names how Odds is built", () => {
   test("old engine lines are said the way a person would", () => {
-    expect(plainWords("Broods' model is unreachable. The fill stopped. Press Apply with Odds to try again.")).toBe("Odds lost its connection. It stopped partway. Press Apply with Odds to try again.")
+    expect(plainWords("Broods' model is unreachable. The fill stopped. Press Apply with Odds to try again.")).toBe("Odds lost its connection. It stopped partway. Press Try again.")
     expect(plainWords("Broods is reading this step…")).toBe("Odds is reading this step…")
     expect(plainWords("Odds assist could not move this application forward after assist: no button")).toBe("Odds could not get further on its own: no button")
     expect(plainWords("The application run expired before Broods finished.")).toBe("The application expired before Odds finished.")

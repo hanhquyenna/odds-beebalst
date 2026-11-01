@@ -170,7 +170,7 @@ export function applyActivityLabel(a: ApplyActivity): string {
   if (status === "failed") return "Couldn't apply"
   if (status === "submitted") return "Sent"
   if (CAPTCHA_MSG.test(m) && !AMBIG_CAPTCHA_ACCOUNT.test(m)) return NEEDS.captcha.label
-  if (EXT_TRANSPORT_MSG.test(m)) return "Connect Odds again"
+  if (EXT_TRANSPORT_MSG.test(m)) return "Chrome not connected"
   if (STUCK_MSG.test(m) || AMBIG_CAPTCHA_ACCOUNT.test(m)) return NEEDS.other.label
   if (ACCOUNT_MSG.test(m) && !CLOSED_MSG.test(m)) return NEEDS.account.label
   if (ANSWERS_MSG.test(m) || status === "needs_input") return NEEDS.questions.label
@@ -184,8 +184,9 @@ export function driveLabel(d: DriveInfo): string {
   if (d.status === "submitted") return "Sent"
   if (WRONG_JOB_MSG.test(d.message || "")) return "Wrong job page"
   if (CONSENT_MSG.test(d.message || "") && (d.reason === "other" || !d.reason)) return NEEDS.questions.label
-  const reason = d.reason && d.reason in NEEDS ? NEEDS[d.reason as keyof typeof NEEDS] : null
-  return reason?.label ?? NEEDS.other.label
+  const reason = d.reason && d.reason in NEEDS && d.reason !== "other" ? NEEDS[d.reason as keyof typeof NEEDS] : null
+  // Stuck is Odds' own trouble, not something the person must do: it stopped partway (the Tracker's word too).
+  return reason?.label ?? (d.status === "stuck" ? "Stopped partway" : NEEDS.other.label)
 }
 
 /** What the run is doing or waits for, in a sentence the person can act on (the run's own message follows it). */

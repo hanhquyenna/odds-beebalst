@@ -44,7 +44,7 @@ describe("a Broods run is a temporary layer over the job's own status", () => {
       [{ status: "needs_you", reason: "account" }, "Sign in"],
       [{ status: "needs_you", reason: "questions" }, "A question for you"],
       [{ status: "needs_you", reason: "letter" }, "Cover letter"],
-      [{ status: "stuck", reason: "other" }, "Needs you"],
+      [{ status: "stuck", reason: "other" }, "Stopped partway"],
       [{ status: "review" }, "Ready to send"],
     ]
     for (const [over, want] of cases) {

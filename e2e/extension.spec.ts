@@ -2909,7 +2909,7 @@ test("phone to desktop end-to-end: request, autofill, progress on phone, and dis
   await expect.poll(() => fake.reports.some(r => r.status === "needs_input")).toBe(true)
   // Apply with Odds jumps the app to the Tracker; the job's own page shows how its application is going.
   await phone.goto(`${APP_ORIGIN}/job/${post.id}`)
-  await expect(phone.getByRole("status").filter({ hasText: /A question for you|Needs you/ }).filter({ hasText: /outlined question|your answer/i })).toBeVisible({ timeout: 10000 })
+  await expect(phone.getByRole("status").filter({ hasText: /outlined question|your answer/i })).toBeVisible({ timeout: 10000 })
   await worker.evaluate(() => chrome.storage.local.set({ oddsPhoneControl: false }))
   expect(desktop.isClosed()).toBe(false)
   await expect.poll(() => fake.remoteTask?.status).toBe("failed")

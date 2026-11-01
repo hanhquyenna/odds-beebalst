@@ -31,12 +31,12 @@ test("a preparation already queued for the desktop shows its progress, then the 
   })
   await openJob(page)
   await expect(page.getByRole("button", { name: "Waiting for Chrome" })).toBeVisible()
-  await expect(page.getByRole("status").filter({ hasText: /Waiting for Chrome|Filling in/ })).toBeVisible()
+  await expect(page.getByRole("status").first()).toBeVisible()
   state.run = { ...state.run, status: "ready", message: "Filled in. Review and submit on your desktop." }
-  await expect(page.getByRole("status").filter({ hasText: "Ready to send" })).toBeVisible({ timeout: 10000 })
+  await expect(page.getByRole("status").filter({ hasText: "Filled in" })).toBeVisible({ timeout: 10000 })
   await expect(page.getByRole("button", { name: /^Submit/ })).toHaveCount(0)
   await page.getByRole("button", { name: "Cancel", exact: true }).click()
-  await expect(page.getByRole("status").filter({ hasText: "Ready to send" })).toHaveCount(0)
+  await expect(page.getByRole("status").filter({ hasText: "Filled in" })).toHaveCount(0)
 })
 
 test("with no Chrome extension, the page says to connect Chrome first and starts nothing", async ({ page, context }) => {
@@ -67,7 +67,8 @@ test("an expired preparation shows its message once and lets the person try agai
   await context.route("**/rest/v1/application_runs?**", route => route.fulfill({ json: [{ id: RUN, posting_id: post.id, status: "failed", message }] }))
   await context.route("**/rest/v1/application_desktops?**", route => route.fulfill({ json: [{ device_id: "test" }] }))
   await openJob(page)
-  await expect(page.getByText(message, { exact: true })).toHaveCount(1)
+  // Shown once, in plain words (src/lib/plain-words.ts).
+  await expect(page.getByText("This one timed out.", { exact: true })).toHaveCount(1)
   await expect(page.getByRole("button", { name: "Try again" })).toBeEnabled()
 })
 

@@ -346,19 +346,18 @@ body.web {
 @container applications (max-width: 779px) {
   .application-table-wrap { display: none; }
   .application-compact { display: block; }
-  .application-compact-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; align-items: start; }
-  .application-job { min-width: 0; }
-  .application-status { max-width: 8rem; text-align: right; }
-  .application-status > span { text-align: left; }
-  .application-note { grid-column: 1; grid-row: 2; min-width: 0; }
-  .application-next { grid-column: 2; grid-row: 2; align-self: end; }
+  /* Phone: the job across the top, then its status beside its one next step, then what happened, small. */
+  .application-compact-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: .75rem; row-gap: .5rem; align-items: center; }
+  .application-job { grid-column: 1 / -1; min-width: 0; }
+  .application-status { grid-column: 1; grid-row: 2; min-width: 0; }
+  .application-next { grid-column: 2; grid-row: 2; }
+  .application-note { grid-column: 1 / -1; grid-row: 3; min-width: 0; color: var(--muted-foreground); }
   .application-actions { justify-content: flex-end; }
 }
 @container applications (max-width: 440px) {
   .application-toolbar { padding-inline: .75rem; }
   .application-toolbar .application-tools { gap: .375rem; }
   .application-toolbar .application-tools > div { flex-wrap: nowrap; gap: .375rem; }
-  .application-status { max-width: 7rem; }
   .application-compact-row { column-gap: .5rem; }
   .application-actions [data-slot="button"] { min-height: 2.5rem; }
 }

@@ -17,7 +17,7 @@ function heading(phase:ApplyPhase,message:string):string {
 }
 
 /** Activity is indeterminate. Show the real latest action, never invented progress or rotating tasks. */
-export function ApplyProgress({phase,message,title}:{phase:ApplyPhase;message?:string;title?:string}):React.JSX.Element {
+export function ApplyProgress({phase,message,title,quiet=false}:{phase:ApplyPhase;message?:string;title?:string;/** The status is already shown beside it (the job page's chip): only say what happened. */quiet?:boolean}):React.JSX.Element {
   const working=phase === "queued" || phase === "filling"
   const line=plainWords(message || "").trim()
   const label=title || heading(phase,line)
@@ -26,8 +26,8 @@ export function ApplyProgress({phase,message,title}:{phase:ApplyPhase;message?:s
       {working ? <img src="/icon.svg" alt="" className="size-7"/> : phase === "ready" ? <CheckIcon weight="bold" className="size-6 text-good-foreground" aria-hidden="true"/> : <ExternalLinkIcon className="size-5 text-foreground" aria-hidden="true"/>}
     </div>
     <div className="min-w-0 flex-1 py-0.5">
-      <p className="font-heading text-lg font-semibold tracking-tight text-foreground">{label}</p>
-      {line ? <p className="mt-1 text-sm leading-relaxed text-foreground">{line}</p> : <p className="mt-1 text-sm text-foreground">{working ? "Waiting for the application tab." : "Go to the tab to carry on."}</p>}
+      {quiet && line ? null : <p className="font-heading text-lg font-semibold tracking-tight text-foreground">{label}</p>}
+      {line ? <p className={quiet ? "text-[0.95rem] leading-relaxed text-foreground" : "mt-1 text-sm leading-relaxed text-foreground"}>{line}</p> : <p className="mt-1 text-sm text-foreground">{working ? "Waiting for the application tab." : "Go to the tab to carry on."}</p>}
     </div>
   </div>
 }
