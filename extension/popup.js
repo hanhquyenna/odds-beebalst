@@ -41,6 +41,16 @@ site.onclick = () => chrome.tabs.create({ url: "https://odds.beeblast.co" })
 chrome.runtime.sendMessage({ type: "status" }, (answer) => show(Boolean(answer?.connected)))
 off.onclick = () => chrome.runtime.sendMessage({ type: "disconnect" }, () => show(false))
 
+// A newer odds on the site: the browser cannot update a folder it loaded, so the person downloads it and reloads.
+chrome.runtime.sendMessage({ type: "update-offer" }, (answer) => {
+  if (!answer?.version) return
+  const update = document.getElementById("update")
+  const get = document.getElementById("get")
+  update.textContent = `odds ${answer.version} is out. Unzip it over your odds folder, then press Reload on the Extensions page.`
+  update.hidden = get.hidden = false
+  get.onclick = () => chrome.tabs.create({ url: "https://odds.beeblast.co/odds-for-chrome.zip" })
+})
+
 /** Fill with Odds on the page in front: Odds fills the application to the end in the background; the job and its status show in odds. */
 fill.onclick = async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })

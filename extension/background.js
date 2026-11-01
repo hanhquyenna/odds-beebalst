@@ -162,6 +162,31 @@ async function ext(route, init = {}) {
   return res.ok ? { ...body, result: body.status, status: "ok" } : { status: "error", ...body }
 }
 
+// ---- Updates: people load the zip from the site unpacked, so the browser cannot update it. The site says which version it ships
+// (extension-version.json, written by the build) and the popup offers a newer one. ----
+const UPDATE_CHECK_MS = 6 * 3600_000
+
+/** The version the site ships when it is newer than this one, else null. Asks the site at most every 6 hours. */
+async function updateOffer() {
+  const mine = chrome.runtime.getManifest().version
+  const { oddsUpdate } = await chrome.storage.local.get("oddsUpdate")
+  let version = oddsUpdate?.version
+  if (!oddsUpdate || Date.now() - oddsUpdate.at > UPDATE_CHECK_MS) {
+    const shipped = await fetch(`${SITE}/extension-version.json`, { cache: "no-store", signal: AbortSignal.timeout(10000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+    version = typeof shipped?.version === "string" ? shipped.version : mine
+    await chrome.storage.local.set({ oddsUpdate: { version, at: Date.now() } })
+  }
+  return typeof version === "string" && newer(version, mine) ? version : null
+}
+
+/** Whether dotted version `a` comes after `b`. */
+function newer(a, b) {
+  const x = a.split(".").map(Number)
+  const y = b.split(".").map(Number)
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0)
+  return false
+}
+
 /** The person's CV file from odds, as base64 so a page can put it in a form's upload. */
 async function cvFile(doc) {
   const key = await savedKey()
@@ -963,6 +988,10 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     Promise.all([savedKey(), chrome.storage.local.get("oddsBoardSession")]).then(([key, got]) => {
       reply({ connected: key !== null, boards: got.oddsBoardSession && typeof got.oddsBoardSession === "object" ? got.oddsBoardSession : {} })
     })
+    return true
+  }
+  if (message?.type === "update-offer") {
+    updateOffer().then((version) => reply({ version }), () => reply({ version: null }))
     return true
   }
   if (message?.type === "disconnect") {

@@ -34,7 +34,8 @@ declare const chrome: {
   notifications: { getAll(): Promise<Record<string, boolean>> }
 }
 
-const EXTENSION = join(import.meta.dirname, "..", "extension")
+// The source folder, or the built one CI ships (ODDS_EXTENSION_DIR, from scripts/build-extension.ts).
+const EXTENSION = process.env.ODDS_EXTENSION_DIR ? join(import.meta.dirname, "..", process.env.ODDS_EXTENSION_DIR) : join(import.meta.dirname, "..", "extension")
 const SUPABASE = "http://supabase.test"
 const APP_ORIGIN = process.env.ODDS_E2E_APP_ORIGIN || "http://localhost:4319"
 const KEY = `oddsx_${"ab".repeat(24)}`
