@@ -468,6 +468,11 @@ const BASE_TOOLS = [
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, url: { type: "string" } }, required: ["run_id", "url"] },
   },
   {
+    name: "create_account",
+    description: "The page has an account step (password boxes: Create account / Register / Sign in): Odds types the person's email and a strong password it made for this site (kept in their Chrome, you never see it) and presses the site's own Create account / Sign in button. Use it instead of finishing needs_you for a password. mode: 'create' for a new account, 'sign_in' when the site says the account exists (Odds has the password only if it made the account), or leave out to follow the page. Then read_page; if the site mails a code or link, check_email and open_link.",
+    inputSchema: { type: "object", properties: { run_id: { type: "string" }, mode: { type: "string", enum: ["create", "sign_in"] } }, required: ["run_id"] },
+  },
+  {
     name: "open_job",
     description: "Open this job's own link again in the tab (when the tab ended up somewhere unrelated, a search page, a blank or warmup page, another job, and back does not help). Returns the fresh page snapshot.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" } }, required: ["run_id"] },
@@ -622,6 +627,17 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         if (page && page.dialog == null && page.password_field === true && others >= 3 && !signInWall({ ...page, password_field: false })) {
           await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "register_form" }, done_at: new Date().toISOString() }) }).catch(() => undefined)
           return { text: "Not a sign-in wall: this page is a register form AND the application. Odds fills the email and password boxes itself (they are not in the field list). Fill every other empty field, check the page for errors, and finish review when only the final Apply / Submit is left. Stop for an account only if the form cannot be reached at all.", error: true }
+        }
+      }
+    }
+    // A password to make or an account to sign in to is Odds' job (create_account), not the person's: sent back once with the tool named.
+    if (stage !== "review" && ["account", "other", "questions"].includes(String(reason)) && /\b(password|sign(ing)? in|log ?in|account)\b/i.test(message)) {
+      const tried = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=in.(create_account,guard)&or=(tool.eq.create_account,result->>returned.eq.account_tool)&select=id&limit=1`).catch(() => null))?.[0]
+      if (!tried) {
+        const page = await pageNow()
+        if (page && page.dialog == null && page.password_field === true) {
+          await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "account_tool" }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+          return { text: "Not for the person: Odds makes the account itself. Call create_account (it types their email and its own password and presses the site's button), then read_page and carry on. If the site mails a code or link, check_email and open_link. Finish needs_you only if create_account fails or the site wants something only the person has (a captcha, an existing account's password).", error: true }
         }
       }
     }
@@ -854,7 +870,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     const link = (await svc(env, `job_documents?user_id=eq.${run.user_id}&posting_id=eq.${encodeURIComponent(run.posting_id)}&kind=eq.cover_letter&select=document_id&limit=1`).catch(() => null))?.[0]
     if (link?.document_id) args = { ...args, doc: link.document_id }
   }
-  if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
+  if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "create_account", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
   // The same button three times in a row with nothing else done in between: pressing it again is not an answer. Said once, plainly.
   if (name === "click" && typeof args?.id === "string") {
     const recent = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=in.(click,fill,press_key,type_text,click_at,upload_cv,upload_letter)&order=id.desc&limit=6&select=tool,args,status`).catch(() => null)) ?? []

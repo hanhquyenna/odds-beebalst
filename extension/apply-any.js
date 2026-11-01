@@ -2164,6 +2164,16 @@
       await sleep(80)
       return { ok: Boolean(f.el.files?.length), value: fieldValue(f) }
     }
+    // The account step: Odds' own email and the password it made for this site (kept in this Chrome, never sent to Broods), typed by the tab itself.
+    if (cmd.tool === "create_account") {
+      const kind = accountKind()
+      if (!kind) return { ok: false, error: "no password box on this page: there is no account step to do" }
+      const create = args.mode === "sign_in" ? false : args.mode === "create" ? true : kind === "create_account"
+      const done = await ask({ type: "agent-account", create }, 20000).catch(() => null)
+      if (!done?.ok) return { ok: false, error: done?.message || (create ? "Odds could not make the account on this page" : "Odds has no saved password for this site: finish needs_you with reason account") }
+      await sleep(2500)
+      return { ok: true, pressed: Boolean(done.pressed), mode: create ? "create" : "sign_in", note: "Odds typed the email and its own password and pressed the site's button. read_page next; a verification mail may be needed (check_email).", page: drivePage() }
+    }
     if (cmd.tool === "open_job") {
       if (!/^https:\/\//.test(driveJobUrl)) return { ok: false, error: "no job link known; use back" }
       const settle = watchMove(sendResult, { ok: true, note: "opened the job's own link" })
@@ -3393,7 +3403,7 @@
    * Create account & Autofill / Sign in & Autofill, pressed by the person in the side panel: their email, the password Odds made for this
    * site (kept in this Chrome only), the site's required agreement box on an account form, then the site's own Create account / Sign in.
    */
-  async function fillAccount({ email, password, create }) {
+  async function fillAccount({ email, password, create, agent }) {
     const box = accountEmailBox()
     if (box && email && box.value !== email) { type(box, email); if (box.value !== email) await realTypeEl(box, email) }
     for (const pw of passwordBoxes()) {
@@ -3413,7 +3423,7 @@
     const scope = passwordBoxes()[0]?.closest("form, [role=dialog], section, main") || document
     const go = password ? pick([...scope.querySelectorAll("button, input[type=submit], [role=button]")]) || pick([...document.querySelectorAll("button, input[type=submit], [role=button]")]) : null
     if (go && !(await realClickEl(go))) go.click()
-    void carryOnAfterAccount()
+    if (!agent) void carryOnAfterAccount()
     return { ok: true, pressed: Boolean(go) }
   }
   /** Once the account step is gone (the site moved on, often without a page load: Workday), Odds fills what follows in this tab. */
@@ -3433,7 +3443,7 @@
     if (window !== top) return
     if (message?.type === "odds-page-kind") { lastKind = pageKind(); reply({ kind: lastKind }); return }
     if (message?.type === "odds-account" && typeof message.password === "string") {
-      void fillAccount({ email: String(message.email || ""), password: message.password, create: message.create === true }).then(reply).catch(() => reply({ ok: false }))
+      void fillAccount({ email: String(message.email || ""), password: message.password, create: message.create === true, agent: message.agent === true }).then(reply).catch(() => reply({ ok: false }))
       return true
     }
   })

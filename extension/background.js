@@ -539,6 +539,11 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   }
   // Create account & Autofill / Sign in & Autofill from the side panel: the person's email and a password Odds makes for this site
   // (kept in this Chrome only), then the application is filled in this tab once the account step is past.
+  // The same, asked by Broods' create_account tool from the application tab itself.
+  if (message?.type === "agent-account" && sender.tab && typeof sender.tab.id === "number" && sender.frameId === 0) {
+    accountInTab(sender.tab.id, message.create === true, true).then(reply).catch(() => reply({ ok: false }))
+    return true
+  }
   if (message?.type === "panel-account" && typeof message.tabId === "number") {
     accountInTab(message.tabId, message.create === true).then(reply).catch(() => reply({ ok: false }))
     return true
@@ -1456,7 +1461,7 @@ async function siteAccount(host) {
   const { oddsAccounts = {} } = await chrome.storage.local.get("oddsAccounts")
   return oddsAccounts[host] || null
 }
-async function accountInTab(tabId, create) {
+async function accountInTab(tabId, create, agent = false) {
   const tab = await chrome.tabs.get(tabId).catch(() => null)
   if (!tab?.url || !/^https:/.test(tab.url)) return { ok: false }
   const host = new URL(tab.url).hostname
@@ -1464,16 +1469,21 @@ async function accountInTab(tabId, create) {
   const email = String(kit?.facts?.email || "")
   if (!email) return { ok: false, message: "Add your email in Odds first." }
   let account = await siteAccount(host)
+  // Signing in needs the password Odds already made for this site; without it the person does it.
+  if (!create && !account) return { ok: false }
   if (create && !account) {
     account = { email, password: makePassword(), at: Date.now() }
     await chrome.storage.local.get("oddsAccounts").then(({ oddsAccounts = {} }) => chrome.storage.local.set({ oddsAccounts: { ...oddsAccounts, [host]: account } }))
   }
   // The tab holds the application from here: once the account step is past, Odds fills every page up to Submit.
-  const held = await intentOf(tabId)
-  if (!held) await setIntent(tabId, { job: tab.url, title: String(tab.title || "").slice(0, 200), at: Date.now(), status: "filling", message: create ? "Creating your account…" : "Signing in…", copilot: true, here: true })
-  else await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], copilot: true, here: true, paused: false, driveRun: undefined, at: Date.now() } })
-  if (!held) addJob(tab.url).catch(() => undefined)
-  const res = await chrome.tabs.sendMessage(tabId, { type: "odds-account", email: account?.email || email, password: account?.password || "", create }, { frameId: 0 }).catch(() => null)
+  // (Broods already holds this tab as its run: its intent stays as it is.)
+  if (!agent) {
+    const held = await intentOf(tabId)
+    if (!held) await setIntent(tabId, { job: tab.url, title: String(tab.title || "").slice(0, 200), at: Date.now(), status: "filling", message: create ? "Creating your account…" : "Signing in…", copilot: true, here: true })
+    else await changeIntents((all) => { if (all[tabId]) all[tabId] = { ...all[tabId], copilot: true, here: true, paused: false, driveRun: undefined, at: Date.now() } })
+    if (!held) addJob(tab.url).catch(() => undefined)
+  }
+  const res = await chrome.tabs.sendMessage(tabId, { type: "odds-account", email: account?.email || email, password: account?.password || "", create, agent }, { frameId: 0 }).catch(() => null)
   return { ok: Boolean(res?.ok), pressed: Boolean(res?.pressed) }
 }
 /** A new tab's first real address (window.open often starts at about:blank). */

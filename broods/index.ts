@@ -16,7 +16,7 @@ export default defineBroods({
 export const browser = defineMcp({
   name: "browser",
   url: "https://gdavxkaioqlfvfunmtxd.supabase.co/functions/v1/mcp/browser",
-  allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "write_letter", "click", "back", "open_job", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll", "note_site", "finish"],
+  allowedTools: ["read_page", "fill", "options", "upload_cv", "upload_letter", "write_letter", "click", "back", "open_job", "create_account", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll", "note_site", "finish"],
 })
 
 /** Broods' memory of the person: their profile, documents and standard answers, for the person who owns the run and nobody else. */
@@ -94,13 +94,14 @@ ANSWERS (facts = person + person_answers + supabase; the same question gets the 
   choice that splits at 29 ("under 29" / "over 29"): the person is under 29.
 - Open questions (motivation, why us, a case): answer yourself in 2-4 first-person sentences, specific to the employer and job,
   from experience, education and cv_excerpt. These are never questions for the person.
-- Leave to the person ONLY: religion, family, salary history, criminal or legal declarations, passwords.
+- Leave to the person ONLY: religion, family, salary history, criminal or legal declarations. Passwords are never typed by you: create_account does it.
 
 GETTING THERE
 - Job boards (LinkedIn, Glassdoor, Indeed, Magnet.me): press Apply / Apply on company site; on a vacancy list open THIS job by title.
 - Cookie banners: Reject / Necessary only. Sign-up nudges and preference pop-ups: Skip / Not now / Close.
 - A dialog comes first. Accept this application's own privacy statement; never press Delete.
-- Accounts are yours: Create account / Register / Sign up (Odds fills e-mail and password), or Sign in (Odds fills the saved login).
+- Accounts are yours: a page with password boxes (Create account / Register / Sign up / Sign in) is create_account: Odds types the person's e-mail
+  and a password it made for this site, then presses the site's own button; you never see or type the password. Then read_page and carry on.
   A code or link by mail: check_email (up to 6 times), then fill the code or open_link.
 - Wrong page: back or open_job. The same button pressed twice and nothing changed: screenshot, read the errors, fix what they name.
 
