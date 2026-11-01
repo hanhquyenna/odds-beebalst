@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { useData } from "@/lib/data"
 import { fetchKeptPostings } from "@/lib/jobs"
 import { applySourceOf } from "@/lib/apply-source"
-import { onPanelInfo, toExtension, type PanelInfo } from "@/lib/embed"
+import { onPanelInfo, toExtension, type PanelInfo, type QueueItem } from "@/lib/embed"
 import { NO_WHAT_IF, point, standing } from "@/lib/engine"
 import { formatAge } from "@/lib/format"
 import type { Posting } from "@/lib/types"
@@ -15,14 +15,16 @@ import { useJobProfile, useJobStrength } from "@/lib/use-documents"
 const JobDetail = lazy(() => import("@/components/JobDetail").then((m) => ({ default: m.JobDetail })))
 
 /**
- * The extension's side panel on a job site (embedded only), laid out like a copilot's sidebar: how it stands on this page, the job
- * (logo, title, pay, people you know there), one odds button (Fill when the page has a form, else Track), and the CV card with the
- * interview chance and the recommendations that raise it. At review, the form's new answers can be kept in Autofill.
+ * The extension's side panel (embedded only). Like handing the job to someone: on a job page one orange Apply with Odds puts it in the
+ * queue, Odds applies in a background tab of the Odds tab group, and the person keeps working. The panel shows the job, what it asks, the
+ * CV Odds sends, and the queue: what Odds is working on, what is ready to send, and the only things that need the person (a check, an
+ * account). Odds never presses Submit.
  */
 export function ApplyPanel(): React.JSX.Element | null {
   const data = useData()
   const [info, setInfo] = useState<PanelInfo | null>(null)
   const [away, setAway] = useState<string | null>(null)
+  const [view, setView] = useState<"job" | "queue">("job")
   const [tab, setTab] = useState<{ tab: JobTab; at: number } | undefined>(undefined)
   useEffect(() => onPanelInfo(setInfo), [])
   // The job's own posting: from the loaded pool, else fetched by id (a job just read from its page is not in the pool yet).
@@ -35,7 +37,7 @@ export function ApplyPanel(): React.JSX.Element | null {
     void fetchKeptPostings([jobId]).then((rows) => { if (live) setFetched({ id: jobId, post: rows[0] ?? null }) }).catch(() => { if (live) setFetched({ id: jobId, post: null }) })
     return () => { live = false }
   }, [jobId, known, data.status])
-  const page = info?.page
+  const page = info?.page ?? null
   // Between the panel opening and the extension telling it which page is in front, show a short "getting ready", never the app's Home.
   const [waited, setWaited] = useState(false)
   useEffect(() => {
@@ -50,77 +52,94 @@ export function ApplyPanel(): React.JSX.Element | null {
       </div>
     )
   }
-  if (!page || !info?.connected || away === page.url) return null
+  const queue = info?.queue ?? []
+  // Not on a job page (or the person went to My jobs): the queue when there is one, else the app.
+  const onJob = Boolean(page && info?.connected && away !== page.url)
+  if (!onJob && !queue.length) return null
+  if (!onJob || view === "queue") {
+    return (
+      <Shell>
+        <QueueView queue={queue} onBack={onJob ? () => setView("job") : undefined} />
+      </Shell>
+    )
+  }
   const post = known ?? (fetched && fetched.id === jobId ? fetched.post : null)
-  // "See job insights" (the job, who got hired before, the company, people) and Tailor open that part of the job further down the panel.
+  // "Company and people" and Change open that part of the job further down the panel.
   const open = (next: JobTab): void => {
     setTab({ tab: next, at: Date.now() })
     window.setTimeout(() => document.getElementById("job-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50)
   }
+  const needs = queue.filter(needsPerson)
 
   return (
-    <div data-apply-panel className="fixed inset-0 z-50 flex flex-col gap-3 overflow-y-auto bg-background p-3 [&>*]:shrink-0">
-      <JobCard info={info} post={post} onInsights={post ? () => open("overview") : undefined} />
-      <OddsButton info={info} post={post} />
-      <SaveAnswers info={info} />
-      {post ? <ChanceCard post={post} /> : null}
-      <Attach info={info} onTailor={() => open("documents")} />
-      {post ? (
+    <Shell>
+      <QueuePill queue={queue} onOpen={() => setView("queue")} />
+      {needs[0] ? <NeedsYou item={needs[0]} /> : null}
+      <JobCard info={info!} post={post} />
+      <OddsButton info={info!} post={post} queue={queue} />
+      <SaveAnswers info={info!} />
+      <Details info={info!} post={post} onCompany={() => open("overview")} onCv={() => window.location.assign("/documents")} />
+      <QueueFooter queue={queue} onOpen={() => setView("queue")} />
+      {post && tab ? (
         <Suspense fallback={null}>
-          <div className="pt-2"><JobDetail post={post} bare showTab={tab} onBack={() => setAway(page.url)} /></div>
+          <div className="pt-2"><JobDetail post={post} bare showTab={tab} onBack={() => setAway(page!.url)} /></div>
         </Suspense>
       ) : null}
-      <Button variant="ghost" size="sm" className="self-center" onClick={() => setAway(page.url)}>My jobs</Button>
-    </div>
+      <Button variant="ghost" size="sm" className="self-center" onClick={() => setAway(page!.url)}>My jobs</Button>
+    </Shell>
   )
 }
 
-/** The odds mark, as the app icon draws it: a black disc with a white ring and the orange dot. */
-function OddsMark({ size = 28 }: { size?: number }): React.JSX.Element {
+function Shell({ children }: { children: React.ReactNode }): React.JSX.Element {
+  // The panel wears the app's sand look (sand ground, white cards, flat orange), as the design draws it.
+  useEffect(() => {
+    document.body.classList.add("web")
+    return () => document.body.classList.remove("web")
+  }, [])
+  return <div data-apply-panel className="fixed inset-0 z-50 flex flex-col gap-3 overflow-y-auto bg-background p-3.5 [&>*]:shrink-0">{children}</div>
+}
+
+const card = "rounded-[18px] border-[1.5px] border-line bg-card"
+const darkButton = "flex h-12 w-full cursor-pointer items-center justify-center rounded-[14px] bg-foreground text-base font-extrabold text-background transition hover:opacity-90"
+
+/** A check or an account in the way, or Odds stuck: the person's turn. Ready (to send) is not "needs you": it waits in the queue. */
+const needsPerson = (q: QueueItem): boolean => q.state === "needs_input" || q.state === "failed" || q.state === "stuck"
+const working = (q: QueueItem): boolean => q.state === "filling"
+const ready = (q: QueueItem): boolean => q.state === "ready" || q.state === "review"
+
+/** The odds mark, as the app icon draws it: a black disc with a white eye and the orange dot. */
+function OddsMark({ size = 28, dot = "var(--brand)" }: { size?: number; dot?: string }): React.JSX.Element {
   return (
     <svg viewBox="0 0 32 32" width={size} height={size} aria-hidden="true" className="shrink-0">
-      <circle cx="15" cy="17" r="13" fill="#1b1b1b" />
-      <circle cx="15" cy="17" r="5.4" fill="none" stroke="#fff" strokeWidth="3" />
-      <circle cx="25.5" cy="6.5" r="4" fill="var(--brand)" stroke="#1b1b1b" strokeWidth="1.5" />
+      <circle cx="15" cy="17" r="13" fill="#2B2825" />
+      <circle cx="15" cy="17" r="8.2" fill="#fff" />
+      <circle cx="15" cy="17" r="4.2" fill="#1C1A18" />
+      <circle cx="16.4" cy="15.6" r="1.3" fill="#fff" />
+      <circle cx="25.5" cy="6.5" r="4" fill={dot} stroke="#2B2825" strokeWidth="1.5" />
     </svg>
   )
 }
 
-/** One line on how it stands: a form here or not, filling, ready, or what the person has to do. */
-const KIND_STATUS: Record<string, [string, string]> = {
-  job: ["brand", "Job page: Odds starts the application here"],
-  create_account: ["brand", "This site needs an account"],
-  sign_in: ["brand", "Sign in to continue"],
-  captcha: ["bad", "Tick the check on the page: Odds carries on by itself"],
-  form: ["brand", "Application form found"],
+function Chevron(): React.JSX.Element {
+  return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true" className="shrink-0 text-muted-foreground"><path d="M9 6l6 6-6 6" /></svg>
 }
 
-/** How it stands, said inside the orange button: filling, ready, what the person has to do, or what this page is. */
-function statusLine(info: PanelInfo): string {
-  const state = info.status?.state
-  const message = (info.status?.message ?? "").replace(/^needs you:\s*/i, "").trim()
-  if (state === "filling") return message || "Filling in your application…"
-  if (state === "submitted") return "Applied"
-  if (state === "ready" || state === "review") return "Check the form and press Submit yourself."
-  if (state === "needs_input" || state === "failed" || state === "stuck") return message || "Odds needs you on the page."
-  return KIND_STATUS[info.page!.kind ?? ""]?.[1] ?? (info.page!.form ? "Application form found" : "")
-}
+/** At the top: "1 needs you" (orange) or "2 working", which opens the queue. Nothing when the queue is empty. */
+function QueuePill({ queue, onOpen }: { queue: QueueItem[]; onOpen: () => void }): React.JSX.Element | null {
+  const needs = queue.filter(needsPerson).length
+  const busy = queue.filter(working).length
+  if (!needs && !busy) return null
 
-/** The button's face: the odds mark, what pressing does, and how it stands under it. */
-function Face({ label, sub }: { label: string; sub: string }): React.JSX.Element {
   return (
-    <>
-      <OddsMark />
-      <span className="flex min-w-0 flex-col items-start text-left">
-        <span>{label}</span>
-        {sub ? <span className="line-clamp-3 text-sm font-medium leading-snug opacity-80">{sub}</span> : null}
-      </span>
-    </>
+    <button type="button" onClick={onOpen} className={`flex h-8 cursor-pointer items-center gap-2 self-end rounded-full border-[1.5px] px-3 text-[13px] font-bold ${needs ? "border-brand bg-accent text-brand-ink" : "border-line bg-card"}`}>
+      <span className="size-2 rounded-full bg-brand" />
+      {needs ? `${needs} needs you` : `${busy} working`}
+    </button>
   )
 }
 
-function JobCard({ info, post, onInsights }: { info: PanelInfo; post: Posting | null; onInsights?: () => void }): React.JSX.Element {
-  const data = useData()
+/** The job: logo, title, company · place · age, and the interview chance in one line. */
+function JobCard({ info, post }: { info: PanelInfo; post: Posting | null }): React.JSX.Element {
   const page = info.page!
   let host = ""
   try { host = new URL(page.url).hostname.replace(/^www\./, "") } catch { host = "" }
@@ -128,106 +147,122 @@ function JobCard({ info, post, onInsights }: { info: PanelInfo; post: Posting | 
   const name = post?.employer_display ?? (info.job?.employer || host)
   const title = post?.title ?? (info.job?.title || page.title || host)
   const age = post && !post.local ? formatAge(post) : ""
-  const kept = post ? data.saved.has(post.id) || data.applications.some((a) => a.posting_id === post.id) : false
-  const company = name.toLowerCase()
-  const people = data.people.filter((p) => (post && p.jobId === post.id) || (company && p.company.toLowerCase() === company))
 
   return (
-    <div className="overflow-hidden rounded-xl border-[1.5px] border-line bg-card">
-      <div className="flex items-start gap-3 p-3">
-        <span className="flex size-12 shrink-0 items-center justify-center">
-          <CompanyLogo employer={employer} name={name} size={48} wide={1.3} url={post?.url ?? page.url} />
+    <section className={`${card} flex flex-col gap-3.5 p-4`}>
+      <div className="flex items-center gap-3">
+        <span className="flex size-11 shrink-0 items-center justify-center">
+          <CompanyLogo employer={employer} name={name} size={44} wide={1.3} url={post?.url ?? page.url} />
         </span>
-        <div className="min-w-0 flex-1">
-          <div className="line-clamp-3 leading-snug font-semibold">{title}</div>
-          <div className="text-sm text-muted-foreground">{[name, age && age !== "Date not shown" ? age : ""].filter(Boolean).join(" · ")}</div>
-          {post?.pay_posted ? <div className="mt-1 text-sm font-medium">{post.pay_posted}</div> : null}
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="line-clamp-3 text-[17px] leading-tight font-extrabold">{title}</span>
+          <span className="text-[13px] text-muted-foreground">{[name, post?.region, age && age !== "Date not shown" ? age : ""].filter(Boolean).join(" · ")}</span>
         </div>
-        {post ? (
-          <button type="button" aria-label={kept ? "Tracked" : "Track this job"} aria-pressed={kept} onClick={() => data.setSaved(post.id, !kept)} className={`flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-2 transition ${kept ? "border-brand bg-brand text-foreground" : "border-foreground hover:bg-accent"}`}>
-            <svg viewBox="0 0 24 24" className="size-4" fill={kept ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z" /></svg>
-          </button>
-        ) : null}
       </div>
-      {onInsights ? (
-        <button type="button" onClick={onInsights} className="flex w-full cursor-pointer items-center gap-2 border-t-[1.5px] border-line px-3 py-3 text-left hover:bg-accent/60">
-          <span className="flex-1 text-sm font-semibold">See job insights</span>
-          {people.length ? (
-            <span className="flex -space-x-2">
-              {people.slice(0, 3).map((p) => p.photo
-                ? <img key={p.id} src={p.photo} alt={p.name} className="size-7 rounded-full border-2 border-card object-cover" />
-                : <span key={p.id} title={p.name} className="flex size-7 items-center justify-center rounded-full border-2 border-card bg-accent text-xs font-semibold">{p.name.charAt(0)}</span>)}
-            </span>
-          ) : <span aria-hidden="true">›</span>}
-        </button>
-      ) : null}
+      {post ? <Chance post={post} /> : null}
+    </section>
+  )
+}
+
+const NO_POST = { id: "", family: null }
+function useStanding(post: Posting | null) {
+  const data = useData()
+  const profile = useJobProfile(post?.id ?? "")
+  const strength = useJobStrength(post ?? NO_POST)
+  const referral = post ? data.referrals.has(post.id) : false
+  return useMemo(() => (post && data.reference && data.shares ? standing(post, profile, data.reference, data.shares, NO_WHAT_IF, referral, strength) : null), [post, profile, data.reference, data.shares, referral, strength])
+}
+
+function Chance({ post }: { post: Posting }): React.JSX.Element | null {
+  const st = useStanding(post)
+  const mid = st && !st.needsProfile ? st.rate?.mid ?? null : null
+  if (mid === null) return null
+
+  return (
+    <div className="flex items-center justify-between rounded-xl border-[1.5px] border-secondary bg-secondary px-3.5 py-3">
+      <span className="text-sm font-semibold text-muted-foreground">Your interview chance</span>
+      <span className="text-[22px] font-extrabold tracking-tight tabular-nums">{point(mid)}</span>
     </div>
   )
 }
 
 /**
- * The one odds button, Apply: on a page with a form it fills that form; on a job's page it applies with Odds in that same tab (the
- * employer's form opens there and is filled step by step). A page Odds does not hold as a job is tracked first. Odds never presses Submit.
+ * The one orange button. On a job page: Apply with Odds, which queues it (a background tab applies; this tab stays as it is). On a tab
+ * that is itself applying: how it stands. On an account step or a form the person opened themselves: Odds fills it right here.
  */
-function OddsButton({ info, post }: { info: PanelInfo; post: Posting | null }): React.JSX.Element {
+function OddsButton({ info, post, queue }: { info: PanelInfo; post: Posting | null; queue: QueueItem[] }): React.JSX.Element {
   const data = useData()
   const page = info.page!
   const state = info.status?.state ?? null
-  const [press, setPress] = useState<{ state: typeof state; active: boolean }>({ state: state, active: false })
+  const [pressed, setPressed] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
-  const pressed = press.state === state && press.active
-  const setPressed = (active: boolean): void => setPress({ state: state, active: active })
-  const look = "flex min-h-16 w-full cursor-pointer items-center justify-center gap-3 rounded-2xl bg-brand px-4 py-3 text-lg font-bold text-foreground shadow-sm transition hover:brightness-105 disabled:cursor-default disabled:opacity-60"
-  const needs = state === "needs_input" || state === "failed" || state === "stuck"
-  // The button names the state; the words under it are only for what the person has to do.
-  const sub = needs ? statusLine(info) : ""
-  const ready = state === "ready" || state === "review"
-  const busy = pressed || state === "filling"
+  const look = "flex h-14 w-full cursor-pointer items-center justify-center gap-2.5 rounded-2xl border-[1.5px] border-brand-ink bg-brand px-4 text-[17px] font-extrabold text-foreground transition hover:brightness-105 disabled:cursor-default disabled:opacity-70"
+  const caption = (text: string): React.JSX.Element => <p className="-mt-0.5 mx-1 text-[13px] leading-snug text-muted-foreground">{text}</p>
   const source = post ? applySourceOf(sourcesOf(post)) : null
-
   const kind = page.kind ?? null
-  // An account step (like Simplify): Odds fills your email and a strong password it keeps for this site, presses the site's button,
-  // then fills the application that follows in this tab. Sign-in uses the password Odds made here, or you type yours.
-  if ((kind === "create_account" || kind === "sign_in") && state !== "filling") {
+
+  // This tab is an application Odds is working in: how it stands, and what (if anything) the person does here.
+  if (state) {
+    const message = (info.status?.message ?? "").replace(/^needs you:\s*/i, "").trim()
+    if (state === "filling") return <StateCard tone="work" title="Odds is filling this in" text="Switch tabs anytime: it keeps going in the background." />
+    if (state === "ready" || state === "review") return <StateCard tone="good" title="Ready to send" text="Check the form and press Submit yourself. Odds never sends it." />
+    if (state === "submitted") return <StateCard tone="good" title="Applied" text="Sent. It is in your tracker." />
+    return (
+      <>
+        <StateCard tone="needs" title="Your turn on this page" text={message || "Odds needs you here, then carries on by itself."} />
+        <button type="button" className={look} onClick={() => { setPressed("fill"); toExtension({ type: "panel-fill", tabId: page.tabId }) }}>{pressed === "fill" ? "Carrying on…" : "Carry on with Odds"}</button>
+      </>
+    )
+  }
+  // An account step the person is on: Odds fills the email and a strong password it keeps for this site, and presses the site's button.
+  if (kind === "create_account" || kind === "sign_in") {
     const create = kind === "create_account"
-    const label = create ? "Create account & Autofill" : page.account ? "Sign in & Autofill" : "Autofill after sign-in"
     return (
-      <button type="button" disabled={pressed} onClick={() => { setPressed(true); toExtension({ type: "panel-account", tabId: page.tabId, create }); window.setTimeout(() => setPressed(false), 6000) }} className={`${look} ${pressed ? "" : "odds-fill-pulse"}`}>
-        <Face label={pressed ? (create ? "Creating your account…" : "Signing in…") : label} sub={sub} />
-      </button>
+      <>
+        <button type="button" disabled={pressed === "account"} className={look} onClick={() => { setPressed("account"); toExtension({ type: "panel-account", tabId: page.tabId, create }); window.setTimeout(() => setPressed(null), 6000) }}>
+          {pressed === "account" ? (create ? "Making your account…" : "Signing in…") : create ? "Make the account with Odds" : page.account ? "Sign in with Odds" : "Fill after you sign in"}
+        </button>
+        {caption("Odds uses your email and a strong password it keeps in this Chrome, then fills the application after it.")}
+      </>
     )
   }
-  if (kind === "job" && !state && !page.form) {
+  // A form the person opened themselves: Odds fills it here, in front of them.
+  if (page.form) {
     return (
-      <button type="button" disabled={pressed} className={`${look} ${pressed ? "" : "odds-fill-pulse"}`} onClick={() => {
-        setPressed(true)
-        if (post) data.setSaved(post.id, true)
-        toExtension({ type: "apply-here", tabId: page.tabId, url: page.url, postingId: post?.id ?? null })
-        window.setTimeout(() => setPressed(false), 6000)
-      }}>
-        <Face label={pressed ? "Starting…" : "Start application"} sub={sub} />
-      </button>
+      <>
+        <button type="button" disabled={pressed === "fill"} className={look} onClick={() => { setPressed("fill"); toExtension({ type: "panel-fill", tabId: page.tabId }) }}>{pressed === "fill" ? "Filling…" : "Apply with Odds"}</button>
+        {caption("Odds fills this form here and stops before Submit.")}
+      </>
     )
   }
-  if (page.form || state) {
+  // A job Odds holds (or this page): queued. Already in the queue: where it stands, with no second press.
+  const inQueue = queue.find((q) => (post && q.postingId === post.id))
+  if (inQueue || pressed === "queued") {
+    const title = post?.title ?? info.job?.title ?? page.title
+    const place = queue.filter(working).length
     return (
-      <button type="button" disabled={busy} onClick={() => { setPressed(true); toExtension({ type: "panel-fill", tabId: page.tabId }) }} className={`${look} ${!state && !busy ? "odds-fill-pulse" : ""}`}>
-        <Face label={busy ? "Filling…" : ready ? "Ready to send" : needs ? "Carry on with Odds" : state === "submitted" ? "Applied" : state ? "Apply again" : "Apply with Odds"} sub={sub} />
-      </button>
+      <div role="status" className="flex items-center gap-3 rounded-2xl border-[1.5px] border-good-foreground bg-card px-3.5 py-3">
+        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-good text-good-foreground">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10" /></svg>
+        </span>
+        <div className="flex min-w-0 flex-col gap-px">
+          <span className="truncate text-[15px] font-extrabold">Added: {title}</span>
+          <span className="text-[13px] text-muted-foreground">{inQueue && ready(inQueue) ? "Ready for you to send." : inQueue && needsPerson(inQueue) ? "It needs you: see above." : `${place > 1 ? `${place} in the queue. ` : ""}You can close this tab.`}</span>
+        </div>
+      </div>
     )
   }
-  // A job Odds holds: Apply opens its application from here. The page in front is the job's own, so it is the way in when Odds has no
-  // other apply link for it.
-  if (post) {
+  if (post || kind === "job") {
     return (
-      <button type="button" disabled={pressed} className={`${look} ${pressed ? "" : "odds-fill-pulse"}`} onClick={() => {
-        setPressed(true)
-        data.setSaved(post.id, true)
-        toExtension({ type: "apply-here", tabId: page.tabId, url: source?.url ?? page.url, postingId: post.id })
-        window.setTimeout(() => setPressed(false), 4000)
-      }}>
-        <Face label={pressed ? "Opening the application…" : "Apply with Odds"} sub={sub} />
-      </button>
+      <>
+        <button type="button" disabled={pressed === "queue"} className={look} onClick={() => {
+          setPressed("queue")
+          if (post) data.setSaved(post.id, true)
+          toExtension({ type: "apply-here", tabId: page.tabId, url: source?.url ?? page.url, postingId: post?.id ?? null, title: [post?.title ?? info.job?.title, post?.employer_display ?? info.job?.employer].filter(Boolean).join(" · ") || page.title })
+          window.setTimeout(() => setPressed("queued"), 900)
+        }}>{pressed === "queue" ? "Adding…" : "Apply with Odds"}</button>
+        {caption("Odds fills and checks it in the background. It only stops for a captcha or a new account.")}
+      </>
     )
   }
 
@@ -236,95 +271,148 @@ function OddsButton({ info, post }: { info: PanelInfo; post: Posting | null }): 
       setAdding(true)
       toExtension({ type: "panel-add-job", url: page.url })
       window.setTimeout(() => { void data.refreshPostings().finally(() => setAdding(false)) }, 2500)
-    }}>
-      <Face label={adding ? "Adding…" : "Track this job"} sub={sub} />
-    </button>
+    }}>{adding ? "Adding…" : "Track this job"}</button>
   )
 }
 
-/** Like a resume score, but the interview chance: the ring, then the recommendations that raise it (tick one and the chance moves). */
-function ChanceCard({ post }: { post: Posting }): React.JSX.Element | null {
-  const data = useData()
-  const profile = useJobProfile(post.id)
-  const strength = useJobStrength(post)
-  const referral = data.referrals.has(post.id)
-  const st = useMemo(() => (data.reference && data.shares ? standing(post, profile, data.reference, data.shares, NO_WHAT_IF, referral, strength) : null), [post, profile, data.reference, data.shares, referral, strength])
-  if (!st || st.needsProfile) return null
-  const mid = st.rate?.mid ?? null
-  // The ring is drawn against 10%: interview chances sit between about 1% and 10%.
-  const fill = mid !== null ? Math.min(100, Math.round(mid * 1000)) : 0
-
-  const R = 42
-  const C = 2 * Math.PI * R
-  // What the posting asks for that the CV already says, and what it does not say yet (the engine's checklist).
-  const have = st.checklist.filter((c) => c.have).map((c) => c.skill).slice(0, 6)
-  const missing = st.checklist.filter((c) => !c.have).map((c) => c.skill).slice(0, 6)
-
+function StateCard({ tone, title, text }: { tone: "work" | "good" | "needs"; title: string; text: string }): React.JSX.Element {
+  const ring = tone === "good" ? "border-good-foreground" : tone === "needs" ? "border-2 border-brand" : "border-line"
   return (
-    <div className="flex flex-col gap-4 rounded-xl border-[1.5px] border-line bg-card p-4">
-      <div className="flex items-center gap-4">
-        <div className="relative grid size-[96px] shrink-0 place-items-center">
-          <svg viewBox="0 0 100 100" className="absolute inset-0 -rotate-90" aria-hidden="true">
-            <circle cx="50" cy="50" r={R} fill="none" stroke="var(--secondary)" strokeWidth="12" />
-            <circle cx="50" cy="50" r={R} fill="none" stroke="var(--brand)" strokeWidth="12" strokeLinecap="round" strokeDasharray={`${(C * Math.max(fill, 3)) / 100} ${C}`} className="transition-[stroke-dasharray] duration-500" />
-          </svg>
-          <span className="relative text-2xl font-extrabold tracking-tight tabular-nums">{mid !== null ? point(mid) : "–"}</span>
-        </div>
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <span className="text-base font-bold">Interview chance</span>
-          {mid !== null ? <span className="text-sm text-muted-foreground">{Math.max(1, Math.round(mid * 100))} in 100 similar applicants get a call</span> : null}
-        </div>
+    <div role="status" className={`flex items-center gap-3 rounded-2xl border-[1.5px] bg-card px-3.5 py-3 ${ring}`}>
+      <span className={tone === "work" ? "odds-working" : ""}><OddsMark size={30} dot={tone === "good" ? "#2F6B47" : "var(--brand)"} /></span>
+      <div className="flex min-w-0 flex-col gap-px">
+        <span className="text-[15px] font-extrabold">{title}</span>
+        <span className="text-[13px] leading-snug text-muted-foreground">{text}</span>
       </div>
-      {have.length ? (
-        <div className="flex flex-col gap-2">
-          <span className="text-xs font-extrabold tracking-wider text-good-foreground uppercase">Already in your CV</span>
-          <ul className="flex flex-wrap gap-1.5">{have.map((k) => <li key={k} className="rounded-full bg-good-foreground px-2.5 py-1 text-xs font-bold text-white">✓ {k}</li>)}</ul>
-        </div>
-      ) : null}
-      {missing.length ? (
-        <div className="flex flex-col gap-2 rounded-xl bg-brand/10 p-3">
-          <span className="text-xs font-extrabold tracking-wider text-brand-ink uppercase">The posting insists on</span>
-          <ul className="flex flex-wrap gap-1.5">{missing.map((k) => <li key={k} className="rounded-full border-[1.5px] border-dashed border-brand bg-card px-2.5 py-1 text-xs font-bold text-brand-ink">+ {k}</li>)}</ul>
-        </div>
-      ) : null}
     </div>
   )
 }
 
-function TailorButton({ label, onTailor, solid = false }: { label: string; onTailor: () => void; solid?: boolean }): React.JSX.Element {
+/** What they ask (in your CV: green; not yet: dashed orange), the CV it sends, and the company and people. */
+function Details({ info, post, onCompany, onCv }: { info: PanelInfo; post: Posting | null; onCompany: () => void; onCv: () => void }): React.JSX.Element {
+  const st = useStanding(post)
+  const data = useData()
+  const asks = st && !st.needsProfile ? st.checklist.slice(0, 8) : []
+  const company = (post?.employer_display ?? info.job?.employer ?? "").toLowerCase()
+  const people = data.people.filter((p) => (post && p.jobId === post.id) || (company && p.company.toLowerCase() === company)).length
+  const facts = [post?.ind_sponsor ? "Visa sponsor" : "", people ? `${people} ${people === 1 ? "person" : "people"} you could write to` : ""].filter(Boolean).join(" · ")
+  const row = "flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 text-left hover:bg-secondary/60"
+
   return (
-    <button type="button" onClick={onTailor} className={`flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-[1.5px] border-brand font-bold transition ${solid ? "bg-brand hover:brightness-105" : "bg-card hover:bg-brand/10"}`}>
-      <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-hidden="true"><path d="M12 2l1.8 5.4L19 9l-5.2 1.6L12 16l-1.8-5.4L5 9l5.2-1.6zM19 14l.9 2.6L22 17l-2.1.4L19 20l-.9-2.6L16 17l2.1-.4z" /></svg>
-      {label}
+    <section aria-label="Details" className={`${card} flex flex-col overflow-hidden`}>
+      {asks.length ? (
+        <div className="flex flex-col gap-1.5 px-4 py-3.5">
+          <span className="text-[15px] font-bold">What they ask</span>
+          <ul className="flex flex-wrap gap-1.5">
+            {asks.map((c) => <li key={c.skill} className={c.have ? "rounded-full bg-good px-2.5 py-0.5 text-xs font-bold text-good-foreground" : "rounded-full border-[1.5px] border-dashed border-brand px-2.5 py-0.5 text-xs font-bold text-brand-ink"}>{c.skill}</li>)}
+          </ul>
+        </div>
+      ) : null}
+      <button type="button" onClick={onCv} className={`${row} ${asks.length ? "border-t-[1.5px] border-secondary" : ""}`}>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5"><span className="text-[15px] font-bold">CV it sends</span><span className="truncate text-[13px] text-muted-foreground">{info.cv ?? "No CV yet: add one"}</span></span>
+        <span className="text-[13px] font-bold text-brand-ink">{info.cv ? "Change" : "Add"}</span>
+      </button>
+      {post ? (
+        <button type="button" onClick={onCompany} className={`${row} border-t-[1.5px] border-secondary`}>
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5"><span className="text-[15px] font-bold">Company and people</span><span className="truncate text-[13px] text-muted-foreground">{facts || "About the job, the company and who works there"}</span></span>
+          <Chevron />
+        </button>
+      ) : null}
+    </section>
+  )
+}
+
+/** One application that needs the person: what is in the way, Go to the tab (the one press that brings it forward), or Skip it. */
+function NeedsYou({ item }: { item: QueueItem }): React.JSX.Element {
+  const text = item.message.replace(/^needs you:\s*/i, "")
+  const check = /captcha|human|robot|verify you/i.test(text)
+  const account = /account|password|sign[ -]?in|log[ -]?in|verification code/i.test(text)
+  const title = check ? "A check is in the way" : account ? "An account needs you" : item.state === "failed" ? "Odds got stuck" : "Odds needs you"
+
+  return (
+    <section className="flex flex-col gap-3.5 rounded-[18px] border-2 border-brand bg-card p-4">
+      <div className="flex items-start gap-3">
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-accent text-brand-ink">
+          {check
+            ? <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z" /><path d="M9 12l2 2 4-4" /></svg>
+            : <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" /></svg>}
+        </span>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-lg leading-tight font-extrabold">{title}</span>
+          <span className="truncate text-sm text-muted-foreground">{item.title}{item.site ? ` · ${item.site}` : ""}</span>
+        </div>
+      </div>
+      {text ? <p className="text-sm leading-normal text-muted-foreground">{check ? "The site asks you to prove you are human. Tick it in the tab; Odds carries on by itself the moment it is done." : text}</p> : null}
+      <button type="button" className={darkButton} onClick={() => toExtension({ type: "panel-show-tab", tabId: item.tabId })}>Go to the tab</button>
+      <button type="button" className="cursor-pointer self-center p-1.5 text-[13px] font-bold text-muted-foreground hover:text-foreground" onClick={() => toExtension({ type: "panel-skip-tab", tabId: item.tabId })}>Skip this job</button>
+    </section>
+  )
+}
+
+/** At the bottom of the job: the queue in one line, which opens it. */
+function QueueFooter({ queue, onOpen }: { queue: QueueItem[]; onOpen: () => void }): React.JSX.Element | null {
+  if (!queue.length) return null
+  const busy = queue.filter(working).length
+  const done = queue.filter(ready).length
+  const needs = queue.filter(needsPerson).length
+
+  return (
+    <button type="button" onClick={onOpen} className={`${card} flex w-full cursor-pointer items-center gap-3 px-3.5 py-3 text-left hover:bg-secondary/60`}>
+      <OddsMark size={30} />
+      <span className="flex flex-1 flex-col gap-px">
+        <span className="text-sm font-extrabold">Your queue</span>
+        <span className="text-[13px] text-muted-foreground">{`${busy} working · ${done} ready · ${needs ? `${needs} needs you` : "nothing needs you"}`}</span>
+      </span>
+      <span className="text-[13px] font-bold text-brand-ink">Open</span>
     </button>
   )
 }
 
-/** What goes with the application: the CV as a file card (change it, or upload one), and the cover letter. */
-function Attach({ info, onTailor }: { info: PanelInfo; onTailor: () => void }): React.JSX.Element {
-  const go = (): void => window.location.assign("/documents")
-  const file = (name: string | null | undefined, empty: string): React.JSX.Element => name ? (
-    <button type="button" onClick={go} className="flex w-full cursor-pointer items-center gap-3 rounded-xl border-[1.5px] border-line px-3 py-3 text-left hover:bg-accent/60">
-      <span className="flex h-12 w-10 shrink-0 items-end justify-center rounded-md bg-destructive/10 pb-1.5 text-[10px] font-extrabold text-destructive">PDF</span>
-      <span className="flex min-w-0 flex-1 flex-col"><span className="truncate text-sm font-bold">{name}</span><span className="text-xs text-muted-foreground">Used for this application</span></span>
-      <span className="rounded-lg border-[1.5px] border-line px-3 py-1.5 text-sm font-bold">Change</span>
-    </button>
-  ) : (
-    <button type="button" onClick={go} className="flex h-14 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-[1.5px] border-dashed border-brand px-3 text-sm font-bold hover:bg-brand/10">{empty}</button>
+/** The queue: what needs the person first, then what Odds is working on, then what is ready to send (each opens in its tab). */
+function QueueView({ queue, onBack }: { queue: QueueItem[]; onBack?: () => void }): React.JSX.Element {
+  const needs = queue.filter(needsPerson)
+  const busy = queue.filter(working)
+  const done = queue.filter(ready)
+  const show = (q: QueueItem): void => toExtension({ type: "panel-show-tab", tabId: q.tabId })
+  const line = (q: QueueItem, right: React.ReactNode, sub?: string): React.JSX.Element => (
+    <div key={q.tabId} className="flex flex-col gap-1.5 border-t-[1.5px] border-secondary px-4 py-3">
+      <div className="flex items-center gap-2.5">
+        <span className="grid size-8 shrink-0 place-items-center rounded-[9px] border-[1.5px] border-secondary bg-secondary text-[13px] font-extrabold">{(q.title || q.site || "?").charAt(0).toUpperCase()}</span>
+        <span className="flex min-w-0 flex-1 flex-col"><span className="truncate text-sm font-bold">{q.title}</span><span className="truncate text-xs text-muted-foreground">{q.site}</span></span>
+        {right}
+      </div>
+      {sub ? <span className="line-clamp-2 text-xs text-muted-foreground">{sub}</span> : null}
+    </div>
   )
 
   return (
     <>
-      <div className="flex flex-col gap-3 rounded-xl border-[1.5px] border-line bg-card p-4">
-        <div className="text-base font-bold">Your CV</div>
-        {file(info.cv, "Upload your CV")}
-        <TailorButton label="Tailor my CV with AI" onTailor={onTailor} solid />
+      <div className="flex items-center gap-2.5">
+        {onBack ? (
+          <button type="button" aria-label="Back to the job" onClick={onBack} className="grid size-9 cursor-pointer place-items-center rounded-full hover:bg-secondary">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>
+          </button>
+        ) : null}
+        <span className="text-lg font-extrabold">Your queue</span>
       </div>
-      <div className="flex flex-col gap-3 rounded-xl border-[1.5px] border-line bg-card p-4">
-        <div className="text-base font-bold">Your cover letter</div>
-        {file(info.letter, "Add a cover letter")}
-        <TailorButton label="Tailor my cover letter with AI" onTailor={onTailor} />
-      </div>
+      {needs.map((q) => <NeedsYou key={q.tabId} item={q} />)}
+      {busy.length ? (
+        <section className={`${card} flex flex-col`}>
+          <div className="flex items-center gap-2.5 px-4 py-3.5">
+            <span className="odds-working"><OddsMark size={28} /></span>
+            <span className="flex-1 text-[15px] font-extrabold">Odds is working on {busy.length}</span>
+          </div>
+          {busy.map((q) => line(q, <span className="text-xs font-bold text-brand-ink">Filling</span>, q.message))}
+        </section>
+      ) : null}
+      {done.length ? (
+        <section className={`${card} flex flex-col`}>
+          <div className="flex items-center justify-between px-4 py-3"><span className="text-[15px] font-extrabold">Ready for you to send</span><span className="text-[13px] text-muted-foreground">each opens in its tab</span></div>
+          {done.map((q) => line(q, <button type="button" onClick={() => show(q)} className="flex h-[34px] cursor-pointer items-center rounded-[10px] bg-foreground px-3 text-[13px] font-extrabold text-background">Open</button>))}
+        </section>
+      ) : null}
+      {!queue.length ? <p className="px-1 text-sm text-muted-foreground">Nothing in the queue. Press Apply with Odds on a job and it goes here.</p> : null}
+      <p className="mx-1 text-[13px] leading-snug text-muted-foreground">Odds keeps going while Chrome is open, in the Odds tab group of this window. It tells you when a check or a new account needs you.</p>
     </>
   )
 }
@@ -355,7 +443,7 @@ function SaveAnswers({ info }: { info: PanelInfo }): React.JSX.Element | null {
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border-[1.5px] border-line bg-card p-4">
+    <div className={`${card} flex flex-col gap-3 p-4`}>
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-2 text-base font-bold"><span className="grid size-5 place-items-center rounded-full bg-good-foreground text-xs text-white">✓</span>Saved to Autofill</span>
         <span className="rounded-full bg-brand/15 px-2.5 py-0.5 text-xs font-bold text-brand-ink">{items.length} new</span>

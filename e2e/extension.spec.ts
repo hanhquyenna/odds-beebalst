@@ -991,12 +991,13 @@ test("the odds app opens in the panel as production serves it (refusing frames),
   await expect(app.locator("[data-apply-panel]").getByText("Junior Financial Analyst").first()).toBeVisible({ timeout: 25000 })
   expect(fake.sessions).toBeGreaterThanOrEqual(1)
   await shot(page, "ext-panel-app")
-  // Apply opens the employer's form in this same tab (like Simplify), never a new one.
+  // Apply queues it: the employer's form opens in a background tab, and this tab stays on the job.
   await context.route("https://jobs.example.com/**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><h1>Apply</h1>" }))
-  const pagesBefore = context.pages().length
-  await app.locator("[data-apply-panel]").getByRole("button", { name: /Apply with Odds|Start application/ }).first().click()
-  await page.waitForURL("https://jobs.example.com/e2e-adyen-fin-analyst", { timeout: 10000 })
-  expect(context.pages().length).toBe(pagesBefore)
+  const jobUrl = page.url()
+  const opened = context.waitForEvent("page")
+  await app.locator("[data-apply-panel]").getByRole("button", { name: /Apply with Odds/ }).first().click()
+  await (await opened).waitForURL("https://jobs.example.com/e2e-adyen-fin-analyst", { timeout: 10000 })
+  expect(page.url()).toBe(jobUrl)
 })
 
 test("the side panel on a job page: the job card, one Apply button that opens the employer's form, People one tap away, drawn by the odds app itself", async ({ context, fake }) => {
@@ -1027,19 +1028,38 @@ test("the side panel on a job page: the job card, one Apply button that opens th
   const panel = app.locator("[data-apply-panel]")
   await expect(panel.getByRole("button", { name: /Apply with Odds/ })).toBeVisible({ timeout: 15000 })
   await expect(panel.getByText("Junior Financial Analyst").first()).toBeVisible()
-  await expect(panel.getByText("Your cover letter")).toBeVisible()
+  await expect(panel.getByText("CV it sends")).toBeVisible()
+  await expect(panel.getByText("Kien_Data_CV")).toBeVisible()
   await page.locator("#odds-panel-frame").screenshot({ path: "test-results/ext-apply-panel.png" })
-  // "See job insights" opens the job's insights (overview, company, people) further down the panel.
-  await panel.getByText("See job insights").click()
+  // "Company and people" opens the job's insights (overview, company, people) further down the panel.
+  await panel.getByRole("button", { name: /Company and people/ }).click()
   await expect(panel.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true")
   await page.waitForTimeout(800)
   await page.locator("#odds-panel-frame").screenshot({ path: "test-results/ext-apply-panel-people.png" })
   await context.route("https://jobs.example.com/**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><h1>Apply</h1>" }))
-  // Like Simplify: the employer's form opens in this same tab (no new tab or window).
-  const pagesBefore = context.pages().length
+  // Like handing it to someone: Apply queues the job. Odds applies in a background tab of the Odds group in this same window; the
+  // person's tab stays where it is and keeps the front, and no window opens.
+  const jobUrl = page.url()
+  const worker = context.serviceWorkers()[0]
+  const windowsBefore = await worker.evaluate("chrome.windows.getAll().then((w) => w.length)")
+  const opened = context.waitForEvent("page")
   await panel.getByRole("button", { name: "Apply with Odds" }).first().click()
-  await page.waitForURL("https://jobs.example.com/e2e-adyen-fin-analyst", { timeout: 10000 })
-  expect(context.pages().length).toBe(pagesBefore)
+  const application = await opened
+  await application.waitForURL("https://jobs.example.com/e2e-adyen-fin-analyst", { timeout: 10000 })
+  expect(page.url()).toBe(jobUrl)
+  const placed = await worker.evaluate(`(async () => {
+    const [tab] = await chrome.tabs.query({ url: "https://jobs.example.com/*" })
+    const group = tab && tab.groupId >= 0 ? await chrome.tabGroups.get(tab.groupId) : null
+    const [front] = await chrome.tabs.query({ active: true, windowId: tab?.windowId })
+    return { active: tab?.active, group: group?.title, windows: (await chrome.windows.getAll()).length, front: front?.url }
+  })()`)
+  expect(placed).toEqual({ active: false, group: "Odds", windows: windowsBefore, front: jobUrl })
+  await expect(panel.getByText(/^Added: Junior Financial Analyst/)).toBeVisible({ timeout: 10000 })
+  await page.locator("#odds-panel-frame").screenshot({ path: "test-results/ext-apply-panel-added.png" })
+  // The queue: what Odds is working on, each in its tab.
+  await panel.getByRole("button", { name: /Your queue/ }).click()
+  await expect(panel.getByText(/Odds is working on 1|Ready for you to send/)).toBeVisible({ timeout: 10000 })
+  await page.locator("#odds-panel-frame").screenshot({ path: "test-results/ext-apply-panel-queue.png" })
 })
 
 test("the panel reads a job page Odds does not hold, keeps it for everyone, and shows the job without a press", async ({ context, fake, extensionId }) => {
@@ -3036,9 +3056,9 @@ test("an enriched job outside the loaded pool opens from one row without saving,
   await page.locator("#odds-add").click()
   const app = page.frameLocator("#odds-panel-frame").frameLocator("#app")
   await expect(app.locator("[data-apply-panel]").getByText(post.title, { exact: true }).first()).toBeVisible({ timeout: 15000 })
-  await expect(app.getByRole("button", { name: "Track this job", exact: true })).toBeVisible()
-  // The one orange button: Apply with Odds, or Start application when the page itself has an Apply button.
-  await expect(app.getByRole("button", { name: /Apply with Odds|Start application/ }).first()).toBeVisible({ timeout: 15000 })
+  // The one orange button: Apply with Odds (applying keeps the job; there is no separate bookmark).
+  await expect(app.getByRole("button", { name: /Apply with Odds/ }).first()).toBeVisible({ timeout: 15000 })
+  await app.getByRole("button", { name: /Company and people/ }).click()
   await app.getByRole("tab", { name: "Documents" }).click()
   await expect(app.getByLabel("Choose a cv from your library", { exact: true })).toBeVisible()
   expect(fake.calls).toHaveLength(0)
@@ -4218,8 +4238,8 @@ test("ACCEPT from Odds buttons: LinkedIn offsite NEW tab fills and Open applicat
     throw new Error(`${err.message}\nTABS: ${JSON.stringify(tabs)}\nBARS: ${JSON.stringify(bars)}`)
   })
   const employer = context.pages().find((p) => /match\/jobs\/new-tab/.test(p.url()))!
-  // The person pressed Apply, so the application is a visible tab in their window (Chrome slows hidden tabs and stalls the run).
-  await expect.poll(() => context.serviceWorkers()[0].evaluate(`chrome.tabs.query({ active: true }).then(t => t.some(x => (x.url || "").includes("/match/jobs/new-tab")))`)).toBe(true)
+  // The person pressed Apply and kept working: the application fills in a background tab, their own tab stays in front.
+  expect(await context.serviceWorkers()[0].evaluate(`chrome.tabs.query({ active: true }).then(t => t.some(x => (x.url || "").includes("/match/jobs/new-tab")))`)).toBe(false)
   await expect(employer.locator("#email")).toHaveValue("kien@example.com")
   await expect(employer.locator("#last_name")).toHaveValue("Phung")
   await expect(employer.locator(".odds-apply-bar")).not.toContainText(/did not attach|Could not load|^Opening the application/i)
@@ -4263,10 +4283,10 @@ test("Apply with Odds pressed in the app itself (this build, on the odds address
   await expect(application.getByRole("textbox", { name: "Phone" })).toHaveValue("+31 6 12345678")
   // SQL is required and unanswered → terminal ask (not Ready). Form still opened and partially filled.
   await expect(application.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask", { timeout: 15000 })
-  // The person pressed Apply: the application is a visible tab in their own window, next to the app (never a hidden window, where Chrome
-  // slows the tab and the run stalls), and in front, like Simplify.
+  // The person pressed Apply and keeps working: the application fills in a background tab of their own window (the Odds group), never
+  // in front and never in a window of its own.
   const applyTab = await context.serviceWorkers()[0].evaluate(`chrome.tabs.query({ url: "https://jobs.example.com/*" }).then(async (t) => { const w = (await chrome.storage.session.get("oddsRunWindow")).oddsRunWindow; return { active: Boolean(t[0]?.active), inOddsWindow: t[0]?.windowId === w } })`) as { active: boolean; inOddsWindow: boolean }
-  expect(applyTab).toEqual({ active: true, inOddsWindow: false })
+  expect(applyTab).toEqual({ active: false, inOddsWindow: false })
   // Tracker drawer shows Open application tab (Apply navigates there for the live chip).
   const openTab = app.getByRole("button", { name: /Open application tab|Open tab:/ })
   if (!(await openTab.isVisible().catch(() => false))) {
@@ -4720,7 +4740,7 @@ test("Broods drives an employer's form in the person's tab: reads it, fills from
   expect(await page.evaluate(() => (window as unknown as { sent?: number }).sent ?? 0)).toBe(0)
 })
 
-test("a job queued from the phone is driven by Broods in the Odds window, not stalled in a hidden tab of the person's own window", async ({ context, fake }) => {
+test("a job queued from the phone is driven by Broods in a background tab of the person's own window (the Odds group), never a window of its own", async ({ context, fake }) => {
   test.setTimeout(90_000)
   await connect(context)
   // QUEUE_URL=<a real application page>: the same run on a live form (made-up details, never sent).
