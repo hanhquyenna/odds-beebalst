@@ -50,7 +50,7 @@
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "ai": "^7.0.141",
-    "broods": "^0.50.0",
+    "broods": "^0.54.1",
     "esbuild": "0.28.2",
     "knip": "^6.39.0",
     "oxlint": "^1.81.0",
