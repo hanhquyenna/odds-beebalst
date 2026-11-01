@@ -1,4 +1,4 @@
-import { BroodsClient } from "broods"
+import type { BroodsClient } from "broods"
 import { renderLetterPdf } from "../_shared/cv-template.ts"
 import { compressRoute, routeHint, routeKey, routeStoreKey, usable } from "../_shared/site-routes.ts"
 import { canAcceptDriveResult, humanStopAllowed, jobIdentityMismatch } from "../_shared/drive-ownership.ts"
@@ -1289,7 +1289,10 @@ async function broodsClient(run: Json): Promise<BroodsClient | null> {
   const secret = (Deno.env.get("APPLY_AGENT_BROODS_USER_TOKEN_SECRET") ?? "").trim()
   if (!key || !secret) return null
   const base = ((Deno.env.get("APPLY_AGENT_BROODS_BASE_URL") ?? "https://gateway.broods.app").trim() || "https://gateway.broods.app").replace(/\/$/, "")
-  return new BroodsClient({ apiKey: key, baseUrl: base, userToken: await signUserToken(run.user_id, secret) })
+  // Lazy: the SDK loads only when a run talks to Broods, not on the extension's per-step requests.
+  const { BroodsClient: Client } = await import("broods")
+
+  return new Client({ apiKey: key, baseUrl: base, userToken: await signUserToken(run.user_id, secret) })
 }
 
 /** Asked at most every 10 s per run while it is quiet (drive-next looks at the run every half second). */
