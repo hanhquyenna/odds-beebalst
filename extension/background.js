@@ -1,6 +1,6 @@
 // The odds extension's background worker: the only part that talks to odds. Pages and the popup ask it; it holds the key.
 // job-sites.js: which addresses are jobs, by the rules the server uses (built from supabase/functions/_shared/job-sites.ts).
-importScripts("job-sites.js")
+importScripts("job-sites.js", "queue.js")
 const API = "https://gdavxkaioqlfvfunmtxd.supabase.co/functions/v1/mcp"
 // The per-step calls (drive-next, drive-result) go to a small function that starts in ~0.1 s instead of ~0.7 s; it passes anything
 // that is not a plain step on to mcp.
@@ -734,6 +734,8 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   // Broods drives the application tab: start (or resume after a page change) a run, take its next command, send back the result.
   if (message?.type === "drive" && sender.tab && typeof sender.tab.id === "number" && ["start", "next", "result", "continue", "playbook"].includes(message.op)) {
     const tabId = sender.tab.id
+    // Broods is still at work in this tab: the queue does not take a long quiet form for a stalled one (queue.js).
+    driveSeen.set(tabId, Date.now())
     // One start per tab at a time: the page and an embedded ATS frame asking together join the same run (never two agents on one form).
     if (message.op === "start") {
       const pending = driveStarts.get(tabId)
@@ -1280,6 +1282,9 @@ function oddsGo(tabId, url, extra = {}) {
 }
 /** Drive starts in flight per tab (see the drive handler). */
 const driveStarts = new Map()
+/** When Broods last asked for or reported a step, by tab. */
+const driveSeen = new Map()
+globalThis.oddsDriveSeen = driveSeen
 const PAUSED_MESSAGE = "You went back a step, so Odds paused here. Press Next or Apply yourself and Odds carries on, or press Apply with Odds again."
 /**
  * A new application tab: in the person's own window (the one they pressed in, else the last one they used), never a window of its own,

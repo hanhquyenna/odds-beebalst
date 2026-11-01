@@ -19,6 +19,8 @@ import { activeApplication, applicationState, cancelApplication, continueApplica
 import { sourcesOf } from "@/components/SourceChips"
 import { applySourceOf } from "@/lib/apply-source"
 import type { Posting } from "@/lib/types"
+import { addToQueue, applyQueueRow, leaveQueue, retryQueue, useApplyQueue } from "@/lib/apply-queue"
+import { linePlaces, queueActions, queueWords } from "@/lib/apply-queue-words"
 import { toast } from "sonner"
 
 /**
@@ -46,6 +48,8 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
   const [connectTour, setConnectTour] = useState(false)
   /** Installed + Connect key in this browser. Looking = still checking (do not hard-gate yet). */
   const extensionReady = extensionPresent === "yes" && extensionLinked
+  const queue = useApplyQueue(Boolean(userId) && !embedded)
+  const queued = queue.byId.get(post.id)
   const needsConnectGate = !embedded && (extensionPresent === "no" || (extensionPresent === "yes" && !extensionLinked))
   useEffect(() => {
     if (!userId || embedded) return
@@ -176,6 +180,20 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
     const reveal = opts.reveal === true
     ensureSaved(data, post)
     setError("")
+    // Apply with Odds in the app: the job joins the person's queue, and Odds in Chrome takes it when a place is free (three at a time).
+    // A job Odds does not hold (added by hand) or one the queue would not take falls through to opening it straight away.
+    if (!reveal && !embedded && extensionReady && userId && !post.local) {
+      const added = await addToQueue([post.id]).catch(() => -1)
+      if (added > 0 || applyQueueRow(post.id)) {
+        toast.message("Added to your queue", {
+          description: "Odds fills it in a background tab and tells you if it needs you.",
+          id: `apply-${post.id}`,
+          duration: 2500,
+          action: { label: "See queue", onClick: (): void => showLiveApplyInTracker(post.id) },
+        })
+        return
+      }
+    }
     const prev = applyActivityOf(post.id)
     if (reveal && prev?.message && !/^opening the application/i.test(prev.message)) {
       // Keep Filling / Account / Ready when they just want the tab again.
@@ -414,6 +432,27 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
     window.setTimeout(() => setSent(false), 700)
     // First press = Apply with Odds (background). Any later press = Open application tab (focus).
     void beginApply({ reveal: Boolean(view) }).finally(() => setSent(false))
+  }
+  // In the queue and Chrome has no tab for it yet (up next), or it has ended away from this page: the queue row says where it stands.
+  if (queued && !view && !embedded) {
+    const words = queueWords(queued, linePlaces(queue.items).get(post.id) ?? 0)
+    const can = queueActions(queued)
+    const act = (fn: (id: string) => Promise<void>): void => { void fn(post.id).catch((e: unknown) => setError(e instanceof Error ? e.message : "Try again.")) }
+    return (
+      <div data-queue-state={queued.state} className="flex w-full flex-col gap-3 rounded-xl border border-line bg-card p-4">
+        <div className="flex flex-col gap-0.5">
+          <p className="font-heading text-lg font-semibold tracking-tight">{words.label}</p>
+          <p className="text-sm text-muted-foreground">{words.why}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {can.goToTab ? <Button type="button" onClick={() => void beginApply({ reveal: true })} className="h-10 cursor-pointer rounded-lg">Go to the tab</Button> : null}
+          {can.retry ? <Button type="button" onClick={() => act(retryQueue)} className="h-10 cursor-pointer rounded-lg">Try again</Button> : null}
+          {can.skip ? <Button type="button" variant="outline" onClick={() => act(leaveQueue)} className="h-10 cursor-pointer rounded-lg">Skip this job</Button> : null}
+          {can.remove ? <Button type="button" variant="outline" onClick={() => act(leaveQueue)} className="h-10 cursor-pointer rounded-lg">Remove from queue</Button> : null}
+        </div>
+        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+      </div>
+    )
   }
   // Only show a control when it does something — never a dead “working in the background” button.
   const primary = view?.status === "submitted" ? null : (

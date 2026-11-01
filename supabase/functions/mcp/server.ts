@@ -1274,7 +1274,7 @@ async function handleExt(req: Request, env: Env): Promise<Response> {
       },
     })
   }
-  // The apply queue: the extension asks for the next jobs to fill (at most two at once) and says how each one ended. It never submits.
+  // The apply queue: the extension asks for the next jobs to fill (at most three at once) and says how each one ended. It never submits.
   if ((route === "queue-next" || route === "queue-done") && req.method === "POST") {
     const body = await req.json().catch(() => null)
     // Until the queue table exists (its migration), asking for work answers "nothing to do" instead of an error every half minute.
