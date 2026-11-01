@@ -66,6 +66,10 @@ interface DriveRun {
 }
 interface Fake {
   drives: Map<string, DriveRun>
+  /** The apply queue on the server: jobs the person pressed Apply on (queue-next hands them out, queue-done says how each ended). */
+  queue?: Array<{ posting_id: string; url: string; state: string }>
+  queueDone?: Array<{ posting_id: string; state: string; reason?: string; message?: string }>
+  queueAsks?: number
   /** REAL_BROODS=1 runs: the real agent on a real run (see driveReal). */
   realBroods?: {
     title: string
@@ -711,6 +715,21 @@ async function fakeOdds(): Promise<Fake> {
       } else if (path.endsWith("/ext/pool")) {
         fake.pools++
         answer = fake.pool
+      } else if (path.endsWith("/ext/queue-next")) {
+        // The apply queue: hand out the waiting jobs (as many as there is room for), like supabase/functions/_shared/apply-queue.ts.
+        const q = fake.queue ?? []
+        const active = (body as { active?: string[] }).active ?? []
+        const room = Math.max(0, 3 - active.length)
+        const start = q.filter((j) => j.state === "waiting").slice(0, room)
+        for (const j of start) j.state = "working"
+        fake.queueAsks = (fake.queueAsks ?? 0) + 1
+        answer = { status: "ok", start: start.map((j) => ({ posting_id: j.posting_id, url: j.url })), drop: active.filter((id) => !q.some((j) => j.posting_id === id && j.state === "working")) }
+      } else if (path.endsWith("/ext/queue-done")) {
+        const done = body as { posting_id?: string; state?: string; reason?: string; message?: string }
+        ;(fake.queueDone ??= []).push({ posting_id: String(done.posting_id), state: String(done.state), reason: done.reason, message: done.message })
+        const job = fake.queue?.find((j) => j.posting_id === done.posting_id)
+        if (job) job.state = done.state === "retry" ? "waiting" : String(done.state)
+        answer = { status: "ok", saved: true }
       } else {
         fake.calls.push({ auth, body })
         answer = fake.answersByUrl[`add ${String(body.url)}`] ?? fake.answer
@@ -3240,8 +3259,8 @@ test("two phone requests prepare independent tabs without finishing the first; c
   await worker.evaluate("pollApplications()")
   expect(context.pages()).toHaveLength(count)
   fake.remoteTasks[0].status = "cancelled"
-  await worker.evaluate("pollApplications()")
-  await expect.poll(() => first.isClosed()).toBe(true)
+  // A check already under way (its half-minute alarm) makes this one return at once: ask again until the cancellation is seen.
+  await expect.poll(async () => { await worker.evaluate("pollApplications()"); return first.isClosed() }).toBe(true)
   expect(second.isClosed()).toBe(false)
   await expect(second.getByRole("textbox", { name: "Full name" })).toHaveValue("Test Person")
 })
@@ -4308,6 +4327,90 @@ test("Apply with Odds pressed in the app itself (this build, on the odds address
   expect(await application.evaluate(() => document.querySelectorAll("form").length)).toBe(1)
   // Applying keeps the job in the tracker, in the same click: odds was asked to keep it, once.
   await expect.poll(() => fake.calls.length).toBe(1)
+})
+
+const QUEUE_FORM = '<!doctype html><h1>Application</h1><form><label>First name *<input name="first_name" required></label><label>Phone<input name="phone"></label><label>How many years of experience do you have with SQL? *<input name="sql" required></label><button type="submit">Send application</button></form>'
+
+/** The app's side of the queue: queue_jobs adds to the fake server's queue, and the table read shows it. */
+async function appQueue(context: BrowserContext, fake: Fake, url: (postingId: string) => string): Promise<void> {
+  fake.queue ??= []
+  await context.route(/\/rest\/v1\/rpc\/queue_jobs/, async (route) => {
+    const ids = ((route.request().postDataJSON() ?? {}) as { p_ids?: string[] }).p_ids ?? []
+    let added = 0
+    for (const id of ids) if (!fake.queue!.some((j) => j.posting_id === id)) { fake.queue!.push({ posting_id: id, url: url(id), state: "waiting" }); added++ }
+    await route.fulfill({ json: added })
+  })
+  await context.route(/\/rest\/v1\/apply_queue/, (route) => route.fulfill({ json: (fake.queue ?? []).map((j, i) => ({ posting_id: j.posting_id, state: j.state, reason: null, message: null, tries: 0, added_at: `2026-11-01T10:0${i}:00Z`, started_at: null, updated_at: `2026-11-01T10:0${i}:00Z` })) }))
+}
+
+test("Apply with Odds in the app puts the job in the queue: Odds in Chrome takes it, fills it in a background tab of the person's window, and reports where it stopped", { tag: "@accept" }, async ({ context, fake }) => {
+  await connect(context)
+  await context.addInitScript(() => localStorage.setItem("careersim.session", JSON.stringify({ access_token: "e2e-token", refresh_token: "e2e-refresh", expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: "00000000-0000-4000-8000-000000000001" } })))
+  await mockBackend(context, FLOW_POSTINGS, [], true)
+  await appQueue(context, fake, () => "https://jobs.example.com/queue-apply")
+  await context.route(/^chrome-extension:/, (route) => route.continue())
+  await context.route("https://odds.beeblast.co/**", async (route) => {
+    const u = new URL(route.request().url())
+    await route.fulfill({ response: await route.fetch({ url: `${process.env.ODDS_E2E_APP_ORIGIN || "http://localhost:4319"}${u.pathname}${u.search}` }) })
+  })
+  await context.route("https://jobs.example.com/**", (route) => route.fulfill({ contentType: "text/html", body: QUEUE_FORM }))
+  fake.kit = { facts: { name: "Example User", answers: { first_name: "Given Names", last_name: "Family", phone: "+31 6 12345678" }, remembered: {} } }
+  const app = await context.newPage()
+  await app.goto(`https://odds.beeblast.co/job/${FLOW_POSTINGS[0].id}`)
+  const button = app.getByRole("button", { name: "Apply with Odds", exact: true })
+  await expect(button).toBeVisible({ timeout: 15000 })
+  const opened = context.waitForEvent("page")
+  await button.click()
+  await expect(app.getByText("Added to your queue")).toBeVisible()
+  expect(fake.queue?.map((j) => j.posting_id)).toEqual([FLOW_POSTINGS[0].id])
+  // The app nudged Odds: it took the job at once (not at its next half-minute check) and opened it behind the person's tab.
+  const application = await opened
+  await expect(application.getByRole("textbox", { name: "First name" })).toHaveValue("Given Names", { timeout: 10000 })
+  const worker = context.serviceWorkers()[0]
+  const tab = await worker.evaluate(`chrome.tabs.query({ url: "https://jobs.example.com/*" }).then(async ([t]) => ({ active: t.active, group: t.groupId > -1 ? (await chrome.tabGroups.get(t.groupId)).title : null }))`) as { active: boolean; group: string | null }
+  expect(tab).toEqual({ active: false, group: "Odds" })
+  // SQL is required and unanswered: the form stops for the person, and the server hears it once, with the reason.
+  await expect(application.locator(".odds-apply-bar")).toHaveAttribute("data-state", "ask", { timeout: 15000 })
+  await worker.evaluate("queueTick()")
+  await expect.poll(() => fake.queueDone?.map((d) => d.state)).toEqual(["needs_you"])
+  expect(fake.queueDone?.[0].reason).toBe("questions")
+  // Nothing was ever submitted.
+  expect(await application.evaluate(() => document.querySelectorAll("form").length)).toBe(1)
+})
+
+test("the queue works three applications at a time; the rest wait their turn", async ({ context, fake }) => {
+  await connect(context)
+  await context.route("https://jobs.example.com/**", (route) => route.fulfill({ contentType: "text/html", body: QUEUE_FORM }))
+  fake.kit = { facts: { name: "Example User", answers: { first_name: "Given Names" }, remembered: {} } }
+  fake.queue = ["q1", "q2", "q3", "q4"].map((id) => ({ posting_id: id, url: `https://jobs.example.com/${id}`, state: "waiting" }))
+  const worker = context.serviceWorkers()[0]
+  await worker.evaluate("queueTick()")
+  await expect.poll(() => worker.evaluate(`chrome.tabs.query({ url: "https://jobs.example.com/*" }).then((t) => t.length)`)).toBe(3)
+  expect(fake.queue.map((j) => j.state)).toEqual(["working", "working", "working", "waiting"])
+  // One tab is lost: the job goes back to the front of the line and starts again in a new tab, before the job still waiting.
+  const [first] = await worker.evaluate(`chrome.tabs.query({ url: "https://jobs.example.com/q1*" }).then((t) => t.map((x) => x.id))`) as number[]
+  await worker.evaluate(`chrome.tabs.remove(${first})`)
+  await worker.evaluate("queueTick()")
+  await expect.poll(() => fake.queueDone?.[0]).toMatchObject({ posting_id: "q1", state: "retry", reason: "tab" })
+  await expect.poll(() => worker.evaluate(`chrome.tabs.query({ url: "https://jobs.example.com/*" }).then((t) => t.length)`)).toBe(3)
+  expect(fake.queue.map((j) => j.state)).toEqual(["working", "working", "working", "waiting"])
+})
+
+test("a reload of the extension does not drop a job halfway: it carries on in the same tab", async ({ context, fake }) => {
+  await connect(context)
+  await context.route("https://jobs.example.com/**", (route) => route.fulfill({ contentType: "text/html", body: QUEUE_FORM }))
+  fake.kit = { facts: { name: "Example User", answers: { first_name: "Given Names" }, remembered: {} } }
+  fake.queue = [{ posting_id: "r1", url: "https://jobs.example.com/r1", state: "waiting" }]
+  const worker = context.serviceWorkers()[0]
+  await worker.evaluate("queueTick()")
+  await expect.poll(() => worker.evaluate(`chrome.tabs.query({ url: "https://jobs.example.com/*" }).then((t) => t.length)`)).toBe(1)
+  const before = await worker.evaluate(`chrome.tabs.query({ url: "https://jobs.example.com/*" }).then((t) => t[0].id)`) as number
+  // What a reload does to Odds' records of its tabs (background.js drops them on install): the queue still knows the tab.
+  await worker.evaluate(`chrome.storage.local.remove("oddsApplyIntents")`)
+  await worker.evaluate("queueTick()")
+  await expect.poll(() => worker.evaluate(`chrome.storage.local.get("oddsApplyIntents").then((s) => Object.keys(s.oddsApplyIntents || {}))`)).toEqual([String(before)])
+  expect(await worker.evaluate(`chrome.tabs.query({ url: "https://jobs.example.com/*" }).then((t) => t.map((x) => x.id))`)).toEqual([before])
+  expect(fake.queueDone ?? []).toEqual([])
 })
 
 /** The shape of Booking.com's application (copied from a real one, October 2026): an unlabelled privacy choice, a residence country, address with a province, a login with a password odds never fills, and a banner with Accept and Reject non-essential. */

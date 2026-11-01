@@ -32,6 +32,8 @@ window.addEventListener("message", (event) => {
   const data = event.data
   if (!data || data.source !== "odds-site") return
   if (data.type === "ping") announcePresent()
+  // A job was added to the queue in the app: the extension looks at the queue now instead of at its next half-minute check.
+  if (data.type === "queue-tick") send({ type: "queue-tick" }, () => void chrome.runtime.lastError)
   if (data.type === "prepare-application" && typeof data.url === "string" && /^https:\/\//.test(data.url) && typeof data.requestId === "string") {
     const reveal = data.reveal === true
     const postingId = typeof data.postingId === "string" ? data.postingId : null
