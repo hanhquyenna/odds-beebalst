@@ -408,7 +408,7 @@ const BASE_TOOLS = [
   },
   {
     name: "screenshot",
-    description: "See the tab as the person sees it, when read_page cannot show or move what you need (a fill or click that did not take, a custom dropdown, date picker or slider, an overlay, a canvas). A picture at most 1280 pixels wide; each read_page field and button on screen is boxed with its id (f… blue, b… pink), and marks lists them with their centre. Act on a boxed id by id (fill, click); click_at only what has no box. region [x1, y1, x2, y2] (pixels of the last screenshot) zooms into that part, unboxed, to read small text.",
+    description: "See the tab as the person sees it, when read_page cannot show or move what you need (a fill or click that did not take, a custom dropdown, date picker or slider, an overlay, a canvas). Odds looks at a picture at most 1280 pixels wide and sends you what it shows as text (sight); each read_page field and button on screen is boxed with its id (f… blue, b… pink), and marks lists them with their centre. Act on a boxed id by id (fill, click); click_at only what has no box. region [x1, y1, x2, y2] (pixels of the last screenshot) zooms into that part, unboxed, to read small text.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, region: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4, description: "Zoom only: [x1, y1, x2, y2], a small part of the last full screenshot of this page, in its pixels. Leave it out for the full picture." } }, required: ["run_id"] },
   },
   {
@@ -445,6 +445,11 @@ const BASE_TOOLS = [
     name: "open_link",
     description: "Open an https link (a verification link from check_email) in the application tab. Returns when the page has loaded; then read_page.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, url: { type: "string" } }, required: ["run_id", "url"] },
+  },
+  {
+    name: "create_account",
+    description: "The page has an account step (password boxes: Create account / Register / Sign in): Odds types the person's email and a strong password it made for this site (kept in their Chrome, you never see it) and presses the site's own Create account / Sign in button. Use it instead of finishing needs_you for a password. mode: 'create' for a new account, 'sign_in' when the site says the account exists (Odds has the password only if it made the account), or leave out to follow the page. Then read_page; if the site mails a code or link, check_email and open_link.",
+    inputSchema: { type: "object", properties: { run_id: { type: "string" }, mode: { type: "string", enum: ["create", "sign_in"] } }, required: ["run_id"] },
   },
   {
     name: "open_job",
@@ -536,6 +541,11 @@ function signInWall(page: Json): boolean {
   // A dialog open over the form shows only itself (no fields), so a password box behind it says nothing about the page: not a wall.
   return says || (!page.dialog && page.password_field === true && asks.length === 0)
 }
+/**
+ * Pictures go to the agent's model only when ODDS_DRIVE_IMAGES=1. Through 9router a picture in a tool result reaches the model as
+ * ~80k tokens of base64 text it cannot see (measured: it answered UNKNOWN; the same picture in a user message is ~1.5k tokens and read).
+ */
+const imagesToModel = (): boolean => Deno.env.get("ODDS_DRIVE_IMAGES") === "1"
 /** The steps Broods takes by the screen: while it is looking (it took a screenshot of this page) each answers with a fresh picture. */
 const SCREEN_STEPS = ["click_at", "type_text", "press_key", "scroll"]
 /** What goes with a picture in the text Broods reads: its size and coordinate space, and the read_page ids boxed on it. */
@@ -601,6 +611,17 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
         if (page && page.dialog == null && page.password_field === true && others >= 3 && !signInWall({ ...page, password_field: false })) {
           await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "register_form" }, done_at: new Date().toISOString() }) }).catch(() => undefined)
           return { text: "Not a sign-in wall: this page is a register form AND the application. Odds fills the email and password boxes itself (they are not in the field list). Fill every other empty field, check the page for errors, and finish review when only the final Apply / Submit is left. Stop for an account only if the form cannot be reached at all.", error: true }
+        }
+      }
+    }
+    // A password to make or an account to sign in to is Odds' job (create_account), not the person's: sent back once with the tool named.
+    if (stage !== "review" && ["account", "other", "questions"].includes(String(reason)) && /\b(password|sign(ing)? in|log ?in|account)\b/i.test(message)) {
+      const tried = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=in.(create_account,guard)&or=(tool.eq.create_account,result->>returned.eq.account_tool)&select=id&limit=1`).catch(() => null))?.[0]
+      if (!tried) {
+        const page = await pageNow()
+        if (page && page.dialog == null && page.password_field === true) {
+          await svc(env, "drive_commands", { method: "POST", body: JSON.stringify({ run_id: run.id, tool: "guard", args: {}, status: "done", result: { returned: "account_tool" }, done_at: new Date().toISOString() }) }).catch(() => undefined)
+          return { text: "Not for the person: Odds makes the account itself. Call create_account (it types their email and its own password and presses the site's button), then read_page and carry on. If the site mails a code or link, check_email and open_link. Finish needs_you only if create_account fails or the site wants something only the person has (a captcha, an existing account's password).", error: true }
         }
       }
     }
@@ -833,13 +854,31 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
     const link = (await svc(env, `job_documents?user_id=eq.${run.user_id}&posting_id=eq.${encodeURIComponent(run.posting_id)}&kind=eq.cover_letter&select=document_id&limit=1`).catch(() => null))?.[0]
     if (link?.document_id) args = { ...args, doc: link.document_id }
   }
-  if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
+  if (!["read_page", "fill", "options", "upload_cv", "upload_letter", "click", "back", "open_job", "create_account", "check_email", "open_link", "screenshot", "click_at", "type_text", "press_key", "scroll"].includes(name)) return { text: `Unknown tool ${name}.`, error: true }
   // The same button three times in a row with nothing else done in between: pressing it again is not an answer. Said once, plainly.
   if (name === "click" && typeof args?.id === "string") {
     const recent = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=in.(click,fill,press_key,type_text,click_at,upload_cv,upload_letter)&order=id.desc&limit=6&select=tool,args,status`).catch(() => null)) ?? []
     const streak = recent.findIndex((c: Json) => c?.tool !== "click" || c?.args?.id !== args.id)
     if ((streak === -1 ? recent.length : streak) >= 3) {
       return { text: "You pressed this button 3 times and the page did not move on. Do not press it again. Read what the page says (errors, a dialog, empty required fields), try something else, or finish with the exact thing that blocks it.", error: true }
+    }
+  }
+  // One field that did not take twice (L'Oreal's language list: 27 steps, 9.5M tokens on two dropdowns) is not filled a third time:
+  // the agent is told to leave it to the person and carry on with the rest. Counted per field id on this page.
+  if (name === "fill" && Array.isArray(args?.fields)) {
+    const past = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.fill&status=eq.done&order=id.desc&limit=12&select=result`).catch(() => null)) ?? []
+    const url = (r: Json) => String(r?.page?.url ?? "").split("#")[0]
+    const lastUrl = url(past[0]?.result)
+    const fails = new Map<string, number>()
+    for (const row of past) {
+      if (url(row?.result) !== lastUrl) break
+      for (const r of Array.isArray(row?.result?.results) ? row.result.results : []) if (r?.id && r.ok === false) fails.set(r.id, (fails.get(r.id) ?? 0) + 1)
+    }
+    const stuck = args.fields.filter((f: Json) => typeof f?.id === "string" && (fails.get(f.id) ?? 0) >= 2).map((f: Json) => f.id)
+    if (stuck.length) {
+      const rest = args.fields.filter((f: Json) => !stuck.includes(f?.id))
+      if (!rest.length) return { text: `${stuck.join(", ")} did not take twice. Do not try it again (no fill, options, click or keys on it). Fill the other fields; at the end finish needs_you with questions naming it, so the person picks it.`, error: true }
+      args = { ...args, fields: rest }
     }
   }
   const { run_id: _r, say, ...rest } = args ?? {}
@@ -878,7 +917,11 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       if (name === "screenshot" && typeof res.image === "string") {
         const { image, mime: _mime, ...meta } = res
         void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...meta, image: "(sent)" } }) }).catch(() => undefined)
-        return { text: JSON.stringify(shotText(meta)), image }
+        if (imagesToModel()) return { text: JSON.stringify(shotText(meta)), image }
+        // The agent's model cannot see a picture in a tool result (9router passes it as ~80k tokens of text): the sight model reads it instead.
+        const looked = await describeShotDetailed(sightEnv((n) => Deno.env.get(n)), image, 20_000, fetch, [])
+        if (!looked.text) return { text: JSON.stringify({ ...shotText(meta), error: `Odds could not describe the screen (${looked.diag.error ?? "no sight"}). Work from read_page.` }), error: true }
+        return { text: JSON.stringify({ ...shotText(meta), sight: looked.text }) }
       }
       // A fill that ran out of its time window (a slow dropdown) leaves the rest "not tried": Odds sends those fields again itself, once more, so Broods gets one answer for the whole fill and never gives up on fields nobody tried.
       if (name === "fill" && Array.isArray(res.results) && Array.isArray(rest.fields)) {
@@ -960,7 +1003,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       }
       // Trouble: only when the step went wrong (a fill not kept, a click that changed nothing, a new error or pop-up, far fewer fields
       // than before), the server takes a picture, shows it to the sight model and hands Broods its short text and the picture itself
-      // (Broods sees MCP images now; about 1,200 tokens each), so it can act on it at once. A look at every new page put a picture and
+      // (the picture itself only with ODDS_DRIVE_IMAGES=1: see imagesToModel), so it can act on it at once. A look at every new page put a picture and
       // a model call (seconds) on the path of every step that reached one. No sight model configured: the picture alone.
       let troubleShot: { image: string; meta: Json } | undefined
       if (["read_page", "fill", "click", "click_at", "scroll", "upload_cv", "back", "open_job"].includes(name) && live(run)) {
@@ -995,8 +1038,13 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       // The picture Broods gets with this step: a screen step's fresh look, or the one taken for trouble.
       const seen = shotImage && SCREEN_STEPS.includes(name) ? { image: shotImage, meta: shotMeta } : troubleShot
       if (seen) shown.screenshot = shotText(seen.meta ?? {})
+      // No picture for a model that cannot see one: what the screen shows comes as the sight model's text (already there after trouble).
+      if (seen && !imagesToModel() && !shown.sight && !shown.page?.sight) {
+        const looked = await describeShotDetailed(sightEnv((n) => Deno.env.get(n)), seen.image, 20_000, fetch, [])
+        if (looked.text) shown.sight = looked.text
+      }
       // Whatever else is a very long string (a stray image, a page dump) never goes into the text the model reads.
-      return { text: JSON.stringify(shown, (_k, v) => (typeof v === "string" && v.length > 20_000 ? "(omitted: too long)" : v)).slice(0, 30_000), ...(seen ? { image: seen.image } : {}) }
+      return { text: JSON.stringify(shown, (_k, v) => (typeof v === "string" && v.length > 20_000 ? "(omitted: too long)" : v)).slice(0, 30_000), ...(seen && imagesToModel() ? { image: seen.image } : {}) }
     }
     if (row?.status === "cancelled" || row?.status === "expired") {
       const kind = row.result?.timeout || row.status

@@ -86,7 +86,10 @@ function autoOpenPanel() {
   if (panelAutoTried || window !== window.top) return
   panelAutoTried = true
   try { if (sessionStorage.getItem(PANEL_CLOSED_KEY)) return } catch { /* no storage: open it */ }
-  openPanel()
+  // Chrome's own side panel already open on this tab is the panel: a second one drawn over the page would show the same thing twice.
+  chrome.runtime.sendMessage({ type: "side-panel-open" }, (answer) => {
+    if (chrome.runtime.lastError || !answer?.open) openPanel()
+  })
 }
 
 function togglePanel() {

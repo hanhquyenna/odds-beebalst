@@ -1817,6 +1817,21 @@
     }
     return ""
   }
+  /** Whether a dropdown showing `shown` holds the asked `value`: the same text, the same place with its region added, or the asked country's code. */
+  function choiceShows(shown, value, f) {
+    if (sameText(shown, value)) return true
+    const got = String(shown).toLowerCase().trim()
+    const parts = String(value).toLowerCase().split(",").map((x) => x.trim()).filter(Boolean)
+    if (parts.length && got.startsWith(parts[0]) && parts.slice(1).every((x) => got.includes(x))) return true
+    if (/^\+\d{1,4}$/.test(got)) {
+      const asked = String(value).toLowerCase().replace(/\s*\+\d+.*$/, "").trim()
+      const option = (f.options || listed(elOf(f)).texts || []).find((o) => String(o).toLowerCase().startsWith(asked))
+      if (asked && option && String(option).includes(got)) return true
+    }
+    // "Anglais" asked of a list whose choice reads "Anglais (English)", or a value with the site's own extra words around it.
+    const a = String(value).toLowerCase().trim()
+    return a.length >= 3 && (got.includes(a) || (got.length >= 3 && a.includes(got)))
+  }
   function drivePage() {
     driveFields = new Map()
     driveButtons = new Map()
@@ -2089,6 +2104,13 @@
         if (!okDom && value.trim() && !secretField(f) && fallbackTime()) {
           if (await realRetry(f, value).catch(() => false)) { okDom = true; via = "real_input"; stuck = fieldValue(f) }
         }
+        // A dropdown that now shows another choice than the one asked (a search list that picked "Espanol" for "Anglais") did not take
+        // the answer, whatever the handler or the real-input retry said: Broods is told what it shows, so it does not build on a wrong pick.
+        let pickError = ""
+        if (okDom && ["combobox", "listbox", "select"].includes(f.kind) && stuck && !choiceShows(stuck, value, f)) {
+          okDom = false
+          pickError = `the dropdown shows "${stuck.slice(0, 60)}", not "${String(value).slice(0, 60)}": open it with options and pick the exact choice`
+        }
         // A phone box that reformats what it gets (a country picker in front): the digits Broods meant must still be there.
         let phoneError = ""
         if (okDom && /\b(mobile|phone|telephone|telefoon\w*|mobiel\w*)\b/i.test(f.label)) {
@@ -2105,7 +2127,7 @@
         }
         // Which contact detail it was (never the value): the server learns where this site wants it.
         const key = okDom ? factKey(value) : null
-        results.push({ id: it.id, ok: okDom, value: stuck, ...(key ? { key } : {}), ...(via ? { via } : {}), ...(shortened ? { note: `this box takes at most ${limit} characters: your ${shortened}-character answer was cut to its last whole sentence` } : {}), ...(okDom ? {} : { error: phoneError || result.error || "no matching option or the site did not keep the value", ...(failedChoices(f) ? { options: failedChoices(f) } : {}) }) })
+        results.push({ id: it.id, ok: okDom, value: stuck, ...(key ? { key } : {}), ...(via ? { via } : {}), ...(shortened ? { note: `this box takes at most ${limit} characters: your ${shortened}-character answer was cut to its last whole sentence` } : {}), ...(okDom ? {} : { error: pickError || phoneError || result.error || "no matching option or the site did not keep the value", ...(failedChoices(f) ? { options: failedChoices(f) } : {}) }) })
       }
       const sigAfter = `${pageHref()}|${[...driveFields.values()].map((f) => `${f.label}:${fieldValue(f)}`).join("|")}`
       const unfilled = [...driveFields.entries()]
@@ -2163,6 +2185,16 @@
       f.el.dispatchEvent(new Event("change", { bubbles: true }))
       await sleep(80)
       return { ok: Boolean(f.el.files?.length), value: fieldValue(f) }
+    }
+    // The account step: Odds' own email and the password it made for this site (kept in this Chrome, never sent to Broods), typed by the tab itself.
+    if (cmd.tool === "create_account") {
+      const kind = accountKind()
+      if (!kind) return { ok: false, error: "no password box on this page: there is no account step to do" }
+      const create = args.mode === "sign_in" ? false : args.mode === "create" ? true : kind === "create_account"
+      const done = await ask({ type: "agent-account", create }, 20000).catch(() => null)
+      if (!done?.ok) return { ok: false, error: done?.message || (create ? "Odds could not make the account on this page" : "Odds has no saved password for this site: finish needs_you with reason account") }
+      await sleep(2500)
+      return { ok: true, pressed: Boolean(done.pressed), mode: create ? "create" : "sign_in", note: "Odds typed the email and its own password and pressed the site's button. read_page next; a verification mail may be needed (check_email).", page: drivePage() }
     }
     if (cmd.tool === "open_job") {
       if (!/^https:\/\//.test(driveJobUrl)) return { ok: false, error: "no job link known; use back" }
@@ -3393,7 +3425,7 @@
    * Create account & Autofill / Sign in & Autofill, pressed by the person in the side panel: their email, the password Odds made for this
    * site (kept in this Chrome only), the site's required agreement box on an account form, then the site's own Create account / Sign in.
    */
-  async function fillAccount({ email, password, create }) {
+  async function fillAccount({ email, password, create, agent }) {
     const box = accountEmailBox()
     if (box && email && box.value !== email) { type(box, email); if (box.value !== email) await realTypeEl(box, email) }
     for (const pw of passwordBoxes()) {
@@ -3413,7 +3445,7 @@
     const scope = passwordBoxes()[0]?.closest("form, [role=dialog], section, main") || document
     const go = password ? pick([...scope.querySelectorAll("button, input[type=submit], [role=button]")]) || pick([...document.querySelectorAll("button, input[type=submit], [role=button]")]) : null
     if (go && !(await realClickEl(go))) go.click()
-    void carryOnAfterAccount()
+    if (!agent) void carryOnAfterAccount()
     return { ok: true, pressed: Boolean(go) }
   }
   /** Once the account step is gone (the site moved on, often without a page load: Workday), Odds fills what follows in this tab. */
@@ -3433,7 +3465,7 @@
     if (window !== top) return
     if (message?.type === "odds-page-kind") { lastKind = pageKind(); reply({ kind: lastKind }); return }
     if (message?.type === "odds-account" && typeof message.password === "string") {
-      void fillAccount({ email: String(message.email || ""), password: message.password, create: message.create === true }).then(reply).catch(() => reply({ ok: false }))
+      void fillAccount({ email: String(message.email || ""), password: message.password, create: message.create === true, agent: message.agent === true }).then(reply).catch(() => reply({ ok: false }))
       return true
     }
   })

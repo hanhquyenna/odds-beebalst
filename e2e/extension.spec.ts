@@ -5345,6 +5345,104 @@ test("the side panel knows the page: a create-account step gets Create account &
   await expect(page.locator("#odds-panel-frame")).toHaveAttribute("data-open", "true", { timeout: 15000 })
 })
 
+test("Broods' create_account (the agent's account step): the tab types the person's email and a strong password only the extension keeps, presses the site's button, and leaves the next step to Broods", async ({ context, fake }) => {
+  test.setTimeout(120_000)
+  await connect(context)
+  const html = `<!doctype html><html><body><h1>Marketing Internship</h1>
+    <section id="acct"><h2>Create Account</h2><label for="em">Email Address</label><input id="em" type="email" required>
+      <label for="pw">Password</label><input id="pw" type="password" required><label for="pw2">Verify New Password</label><input id="pw2" type="password" required>
+      <input type="checkbox" id="agree" required><label for="agree">I agree to the terms</label><button type="button" id="create">Create Account</button></section>
+    <form id="info" hidden><h2>My Information</h2><label for="mail">Email</label><input id="mail" type="email" required><button type="submit">Submit application</button></form>
+    <script>window.created = null; document.getElementById("create").onclick = () => {
+      const pw = document.getElementById("pw").value
+      if (!document.getElementById("agree").checked || pw !== document.getElementById("pw2").value || pw.length < 8) return
+      window.created = { email: document.getElementById("em").value, pw }
+      document.getElementById("acct").remove(); document.getElementById("info").hidden = false }</script>
+    </body></html>`
+  await context.route("https://acme.wd5.example-agentacct.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pagentacct", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  const page = await context.newPage()
+  await page.goto("https://acme.wd5.example-agentacct.com/apply")
+  const worker = context.serviceWorkers()[0]
+  expect(await worker.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ url: "https://acme.wd5.example-agentacct.com/*" })
+    return await (globalThis as unknown as { accountInTab(tabId: number, create: boolean, agent: boolean): Promise<unknown> }).accountInTab(tab.id!, true, true)
+  })).toMatchObject({ ok: true, pressed: true })
+  const created = await expect.poll(() => page.evaluate(() => (window as unknown as { created: { email: string; pw: string } | null }).created), { timeout: 20000 }).not.toBeNull().then(() => page.evaluate(() => (window as unknown as { created: { email: string; pw: string } }).created))
+  expect(created.email).toBe("kien@example.com")
+  expect(created.pw).toMatch(/^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{16}$/)
+  const kept = await worker.evaluate(async () => ((await chrome.storage.local.get("oddsAccounts")).oddsAccounts as Record<string, { password: string }> | undefined)?.["acme.wd5.example-agentacct.com"]?.password)
+  expect(kept).toBe(created.pw)
+  expect(JSON.stringify(fake.driveStartBodies ?? [])).not.toContain(created.pw)
+  // Broods carries on from here: Odds' own filler does not race it for the next step, and the tab's intent is left as it was.
+  await page.waitForTimeout(4000)
+  await expect(page.locator("#mail")).toHaveValue("")
+})
+
+test("Broods' create_account through a run: the agent's tool call makes the account, the answer carries no password, and Broods reads the next step", async ({ context, fake }) => {
+  test.setTimeout(120_000)
+  await connect(context)
+  const html = `<!doctype html><html><body><h1>Marketing Internship</h1><form id="f">
+    <label for="fn">First name</label><input id="fn" required><label for="ph">Phone</label><input id="ph" type="tel">
+    <label for="em">Email Address</label><input id="em" type="email" required>
+    <label for="pw">Password</label><input id="pw" type="password" required><label for="pw2">Verify New Password</label><input id="pw2" type="password" required>
+    <input type="checkbox" id="agree" required><label for="agree">I agree to the terms</label><button type="button" id="create">Create Account</button></form>
+    <script>window.created = null; document.getElementById("create").onclick = () => {
+      const pw = document.getElementById("pw").value
+      if (!document.getElementById("agree").checked || pw !== document.getElementById("pw2").value || pw.length < 8) return
+      window.created = { email: document.getElementById("em").value, pw } }</script></body></html>`
+  await context.route("https://acme.wd5.example-agentrun.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pagentrun", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: { first_name: "Kien" }, remembered: {} }, cv: null }
+  let toolResult: unknown = null
+  fake.driveScript = async (cmd) => {
+    await cmd("read_page")
+    toolResult = await cmd("create_account")
+    await cmd("read_page")
+    return { status: "review", message: "Everything is filled in. Check it and press Submit yourself." }
+  }
+  const page = await context.newPage()
+  await page.goto("https://acme.wd5.example-agentrun.com/apply")
+  expect(await toolbarFill(context, "https://acme.wd5.example-agentrun.com/*")).toMatchObject({ ok: true })
+  await expect.poll(() => page.evaluate(() => (window as unknown as { created: unknown }).created), { timeout: 40000 }).not.toBeNull()
+  const created = await page.evaluate(() => (window as unknown as { created: { email: string; pw: string } }).created)
+  expect(created.email).toBe("kien@example.com")
+  await expect.poll(() => toolResult, { timeout: 20000 }).not.toBeNull()
+  expect(toolResult).toMatchObject({ ok: true, pressed: true, mode: "create" })
+  expect(JSON.stringify(toolResult)).not.toContain(created.pw)
+})
+
+test("a dropdown that ends on another choice than Broods asked for (Anglais asked, Espanol shown) is reported as not taken, naming both", async ({ context, fake }) => {
+  test.setTimeout(90_000)
+  await connect(context)
+  const html = `<!doctype html><html><body><h1>Register</h1><form>
+    <label for="city">Ville</label><input id="city">
+    <label id="lang-label">Langue de communication souhaitée *</label>
+    <button type="button" id="lang" aria-haspopup="listbox" aria-labelledby="lang-label" aria-expanded="false">Sélectionner une option</button>
+    <ul id="list" role="listbox" hidden>${["Allemand", "Anglais", "Espanol", "Français"].map((o) => `<li role="option">${o}</li>`).join("")}</ul></form>
+    <script>const b = document.getElementById("lang"), list = document.getElementById("list")
+      b.onclick = () => { list.hidden = !list.hidden; b.setAttribute("aria-expanded", String(!list.hidden)) }
+      // Whatever is picked, the box ends on Espanol (a search list whose highlight moved).
+      for (const li of list.children) li.onclick = () => { b.textContent = "Espanol"; list.hidden = true; b.setAttribute("aria-expanded", "false") }</script></body></html>`
+  await context.route("https://acme.example-wrongpick.com/**", (route) => route.fulfill({ contentType: "text/html", body: html }))
+  fake.kit = { job_id: "pwrongpick", broods_drive: true, facts: { name: "Kien Phung", email: "kien@example.com", answers: {}, remembered: {} }, cv: null }
+  let filled: { results?: Array<{ id: string; ok: boolean; value: string; error?: string }> } | null = null
+  fake.driveScript = async (cmd) => {
+    const page = (await cmd("read_page")) as { fields?: Array<{ id: string; label: string }> }
+    const lang = page.fields?.find((f) => /Langue/.test(f.label))
+    filled = (await cmd("fill", { fields: [{ id: lang?.id ?? "f1", value: "Anglais" }] })) as typeof filled
+    return { status: "review", message: "done" }
+  }
+  const page = await context.newPage()
+  await page.goto("https://acme.example-wrongpick.com/apply")
+  expect(await toolbarFill(context, "https://acme.example-wrongpick.com/*")).toMatchObject({ ok: true })
+  await expect.poll(() => filled, { timeout: 60000 }).not.toBeNull()
+  const r = filled!.results!.find((x) => x.value === "Espanol" || /Espanol/.test(x.error ?? ""))
+  expect(r).toBeDefined()
+  expect(r!.ok).toBe(false)
+  expect(r!.error).toContain("Espanol")
+  expect(r!.error).toContain("Anglais")
+})
+
 test("a box that keeps its value only on its own blur (Workday, React's focusout) keeps what Odds typed, even while the person is in the side panel", async ({ context, fake }) => {
   test.setTimeout(90_000)
   await connect(context)
