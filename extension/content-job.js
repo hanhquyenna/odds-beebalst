@@ -30,7 +30,30 @@ function draw(state, label, title, note) {
   button.setAttribute("aria-label", title)
 }
 
-const percent = (n) => (typeof n === "number" ? `${n}%` : "Check")
+// Same rule as the app (point in engine.ts): from 9.5% up a whole number, below it one decimal, so a badge and the panel never disagree.
+const shownPct = (n) => (n >= 9.5 ? `${Math.round(n)}%` : `${(Math.round(n * 10) / 10).toFixed(1)}%`)
+const percent = (n) => (typeof n === "number" ? shownPct(n) : "Check")
+
+/** The side panel's figure for this page, until the open job changes. Same rounding as the panel ring. */
+let panelChance = null
+function chanceFor(url, serverPct) {
+  if (panelChance && panelChance.url === url && typeof panelChance.pct === "number") return panelChance.pct
+  return serverPct
+}
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type !== "odds-chance" || typeof message.pct !== "number") return
+  const url = typeof message.url === "string" ? message.url : current.url
+  panelChance = { url, pct: message.pct }
+  if (!message.url || current.url === url) {
+    current = { ...current, chance: message.pct, ...(current.phase === "peeking" ? { phase: "ready", known: true } : {}) }
+    show()
+  }
+  for (const [id, held] of cardJobs) {
+    if (held?.job?.url !== url) continue
+    const prev = cardResults.get(id) || {}
+    cardResult(id, { ...prev, status: "ok", known: true, chance_pct: message.pct, loading: false })
+  }
+})
 
 /** Draws the button for whatever is known about the open job. */
 function show() {
@@ -135,7 +158,7 @@ function receiveChance(job, answer) {
     if (!answer) current = { ...current, phase: "error" }
     else if (answer.status === "connect") current = { ...current, phase: "connect" }
     else if (answer.status !== "ok") current = { ...current, phase: "error", message: answer.message }
-    else current = { ...current, phase: "ready", known: Boolean(answer.known), closed: Boolean(answer.closed), saved: Boolean(answer.saved), chance: typeof answer.chance_pct === "number" ? answer.chance_pct : null, needsProfile: Boolean(answer.needs_profile), job: answer.job || (answer.id ? { id: answer.id } : null) }
+    else current = { ...current, phase: "ready", known: Boolean(answer.known), closed: Boolean(answer.closed), saved: Boolean(answer.saved), chance: chanceFor(job.url, typeof answer.chance_pct === "number" ? answer.chance_pct : null), needsProfile: Boolean(answer.needs_profile), job: answer.job || (answer.id ? { id: answer.id } : null) }
     show()
 }
 
@@ -196,6 +219,15 @@ function placeAuto() {
       .orb{animation:hop 1.6s ease-in-out infinite}
       @media (prefers-reduced-motion:reduce){.lid,.orb{animation:none}}
     </style><button type="button" title="Odds fills in the application for you"><i>${globalThis.oddsMascot?.mark("#EE7A2A") || ""}</i><span>Auto apply</span></button>`
+    // The odds mark comes from mascot.js; if the page script ran first, it is put in as soon as it is there.
+    if (!globalThis.oddsMascot) {
+      let tries = 0
+      const fill = window.setInterval(() => {
+        const icon = root.querySelector("i")
+        if (globalThis.oddsMascot && icon) { icon.innerHTML = globalThis.oddsMascot.mark("#EE7A2A"); window.clearInterval(fill) }
+        else if (++tries > 20) window.clearInterval(fill)
+      }, 250)
+    }
     root.querySelector("button").addEventListener("click", () => {
       openPanel()
       const c = current
@@ -333,7 +365,8 @@ function sync() {
   // Another job opened in the same page (job sites do not reload): look it up, after a short pause so flicking through a list asks once.
   if (current.id !== job.id) {
     const firstJob = !current.id
-    current = { id: job.id, url: job.url, phase: "peeking", chance: null, saved: false, known: false, closed: false, needsProfile: false }
+    if (panelChance && panelChance.url !== job.url) panelChance = null
+    current = { id: job.id, url: job.url, phase: "peeking", chance: chanceFor(job.url, null), saved: false, known: false, closed: false, needsProfile: false }
     show()
     window.clearTimeout(waiting)
     waiting = window.setTimeout(() => {
@@ -361,7 +394,7 @@ function renderCard(badge, result) {
     return
   }
   const unknown = result.status === "ok" && result.known === false
-  const label = result.needs_profile ? "Add CV" : typeof result.chance_pct === "number" ? `${result.chance_pct}%` : unknown ? "Check" : "Retry"
+  const label = result.needs_profile ? "Add CV" : typeof result.chance_pct === "number" ? shownPct(result.chance_pct) : unknown ? "Check" : "Retry"
   const title = result.needs_profile ? "Import your LinkedIn profile or add a CV in Odds to calculate your interview chance" : typeof result.chance_pct === "number" ? `Your interview chance: ${result.chance_pct}%. Open this job in Odds.` : result.status === "connect" ? "Connect Odds to see your interview chance" : result.closed ? "This job is closed" : unknown ? "Odds does not have this job yet. Open the job details while Odds reads this job." : result.message || "Open this job in Odds"
   const aria = `${label}. ${result.job?.title || "Open this job in Odds"}`
   const state = result.status === "ok" ? "ready" : "problem"

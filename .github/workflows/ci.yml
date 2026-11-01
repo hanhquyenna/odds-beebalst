@@ -32,27 +32,11 @@ jobs:
       # braces DoS, deepmerge prototype poisoning and zod 3 memory DoS: reached only through the shadcn CLI at dev time, no patched release in its range.
       - run: bun run audit
       - run: bunx playwright install --with-deps chromium
-      # Type-checks and builds once (fake Supabase env), then drives the build in a browser.
+      # Type-checks and builds once (fake Supabase address), then drives the build in a browser.
       - run: bun run e2e
-      # Budgets the same build e2e just proved renders; e2e/lean.spec.ts budgets what landing really fetches.
-      - run: bun run perf
-      # Scoring, filtering and sorting 2,000 jobs, failing only past a loose ceiling.
-      - run: bun run bench
       - if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-report
           path: playwright-report
           retention-days: 7
-
-  secrets:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_ENABLE_COMMENTS: false

@@ -275,6 +275,11 @@
     --border: oklch(0.89 0.008 70);
     --line: oklch(0.89 0.008 70);
   }
+  /* The extension's panel is phone-narrow but sits beside bright job sites (orange, peach): hairlines vanish there, so its cards keep a drawn outline. */
+  :root.embedded:not(.dark) {
+    --border: oklch(0.62 0.02 60);
+    --line: oklch(0.62 0.02 60);
+  }
 }
 
 /* The bell rings once when something new arrives. */

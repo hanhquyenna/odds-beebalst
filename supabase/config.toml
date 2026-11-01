@@ -1,11 +1,8 @@
 # Supabase CLI settings for this project (gdavxkaioqlfvfunmtxd). Only what differs from the defaults is written here.
 project_id = "careerapp2"
 
-# Edge Functions: three, routed by sub-path (see each index.ts). Deploying with the CLI reads these, so CI keeps the
-# same settings as the live project.
-
-# Signing in: called before anyone is signed in (Google through Shoo, guest accounts, a phone opening a QR code). It
-# checks what it needs itself: the Shoo token, a one-time code, a rate limit.
+# Google sign-in: called before anyone is signed in, so the gateway does not ask for a token. The function checks the Shoo
+# token itself (shoo.ts).
 [functions.account]
 verify_jwt = false
 

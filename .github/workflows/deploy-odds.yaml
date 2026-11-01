@@ -88,24 +88,6 @@ jobs:
             --exclude "assets/*" \
             --cache-control "no-cache, must-revalidate"
 
-      # S3 guesses the MIME type from the runner, so pin the manifests: iPhones
-      # only install the app from application/manifest+json.
-      - name: Pin manifest content type
-        run: |
-          aws s3 cp dist/ "s3://${ODDS_S3_BUCKET}" --recursive \
-            --exclude "*" --include "*.webmanifest" \
-            --content-type "application/manifest+json" \
-            --metadata-directive REPLACE \
-            --cache-control "no-cache, must-revalidate"
-
-      # Claude reads this file to learn where to send someone to sign in (OAuth discovery); it has no ending to guess a type from.
-      - name: Pin OAuth discovery content type
-        run: |
-          aws s3 cp dist/.well-known/oauth-authorization-server "s3://${ODDS_S3_BUCKET}/.well-known/oauth-authorization-server" \
-            --content-type "application/json" \
-            --metadata-directive REPLACE \
-            --cache-control "no-cache, must-revalidate"
-
       # Everything, not just index.html: the unhashed files are the ones that
       # need it, and the hashed ones are never asked for under an old name.
       - name: Invalidate CloudFront cache

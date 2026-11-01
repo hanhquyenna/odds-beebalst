@@ -1,25 +1,14 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
-  "entry": [
-    "src/**/*.test.{ts,tsx}",
-    "scripts/**/*.{ts,mjs}",
-    "supabase/functions/*/index.ts",
-    "supabase/functions/jobs/match.src.ts",
-    "supabase/functions/mcp/core.src.ts",
-    // Registered at runtime by src/lib/push.ts.
-    "public/sw.js"
-  ],
+  "entry": ["src/**/*.test.{ts,tsx}", "scripts/**/*.{ts,mjs}", "supabase/functions/*/index.ts", "supabase/functions/jobs/match.src.ts", "supabase/functions/mcp/core.src.ts"],
   "project": ["e2e/**/*.ts", "src/**/*.{ts,tsx,css}", "scripts/**/*.{ts,mjs}", "supabase/functions/**/*.ts"],
-  "ignore": [
-    // Vendored shadcn/ui components: kept whole so `shadcn add` updates stay clean.
-    "src/components/ui/**"
-  ],
+  // Unused exports are not reported while the app is rebuilt: the screens that used them are gone, and the shared core is being consolidated.
+  "rules": { "exports": "off", "types": "off", "nsExports": "off", "nsTypes": "off", "duplicates": "off" },
+  // Kept for the rebuilt Applications page (it turns a run into the state the person sees); no screen uses it yet.
+  "ignore": ["src/lib/drive-run-state.ts"],
   "ignoreExportsUsedInFile": true,
   // The extension's test makes a throwaway certificate for its local copy of the odds site (e2e/extension.spec.ts).
   "ignoreBinaries": ["openssl"],
-  "ignoreDependencies": [
-    // Deno specifiers in supabase/functions (jsr:@std/..., npm:web-push), resolved by Deno, not package.json.
-    "jsr",
-    "npm"
-  ]
+  // Deno specifiers in supabase/functions (jsr:, npm:), resolved by Deno; playwright comes with @playwright/test.
+  "ignoreDependencies": ["jsr", "npm", "playwright"]
 }

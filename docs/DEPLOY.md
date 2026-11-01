@@ -1,24 +1,18 @@
-# Deploying odds, and adding real sign-in
+# Deploying odds
 
-For whoever deploys odds. State on 5 Oct 2026. CI: `.github/workflows/ci.yml` (type check, lint, tests, build, bundle budget). Repo: `hanhquyenna/odds-beebalst`, branch `main`.
+Pipelines, all on a push to `main`:
 
-## 1. The web app
+| Workflow | What it does | Needs |
+| --- | --- | --- |
+| `ci.yml` | lint, unused code, unit and browser tests | nothing |
+| `deploy-odds.yaml` | ships the web app to S3 + CloudFront at https://odds.beeblast.co | the repository variables and the AWS role below |
+| `deploy-supabase.yaml` | ships the edge functions to the Supabase project | secret `SUPABASE_ACCESS_TOKEN`, variable `SUPABASE_PROJECT_REF` |
 
-- Build: `bun run build` (type check, then `vite build`; output `dist/`).
-- Hosting is S3 + CloudFront at https://odds.beeblast.co (terraform in `beeblastco/infra`,
-  pipeline in `.github/workflows/deploy-odds.yaml`). The single-page fallback, the cache split
-  (hashed assets immutable for a year, everything else no-cache), and the manifest content type
-  all live there — keep them together if hosting ever moves:
-  `/sw.js` must be served from the site root with `Cache-Control: no-cache`, and `/manifest.webmanifest` as
-  `application/manifest+json`.
-- Environment variables for the build (both public, safe in the browser):
-  `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`. Nothing else is needed in production.
-- The site must be on **https** at a **fixed address**: iPhones only install and notify from https, and every phone's
-  notification registration is tied to the address it was made on.
+## Setup (this repository already deploys; the Supabase project moved)
 
 ## 2. Supabase (project `gdavxkaioqlfvfunmtxd`)
 
-Everything below is already live. CI only has to keep it that way.
+**GitHub (Settings › Secrets and variables › Actions)**
 
 - **Edge Functions**: three, each routing by sub-path (see its `index.ts`):
   `account` (`/account/shoo`, `/account` with `{ action }`), `profile` (`/profile/import`, `/profile/read`) and `jobs`
@@ -39,10 +33,10 @@ Everything below is already live. CI only has to keep it that way.
 - **The morning message** uses the app's own job filters, bundled into `supabase/functions/jobs/match.js`. After
   changing `src/lib/filters.ts`, run `scripts/build-morning-jobs.sh` and deploy `jobs`.
 
-## 3. Sign-in: Google through Shoo, and guest accounts
+**CloudFront (terraform in `beeblastco/infra`).** `odds_supabase_url` pins the Supabase address into the site's
+Content-Security-Policy. Set it to the new project's address and apply, or the browser blocks every call to the backend.
 
-Sign-in is Google only, through Shoo (`src/lib/shoo.ts`, `src/components/ShooCallback.tsx`), bridged to a normal
-Supabase session by the `account` function (`/account/shoo`) so every row-level policy keeps working.
+**Supabase.** Secret `SHOO_APP_ORIGINS` = `https://odds.beeblast.co` (comma-separated site origins that may sign in).
 
 - To switch it on: set the secret `SHOO_APP_ORIGINS` to the site's origin(s), comma-separated
   (`supabase secrets set SHOO_APP_ORIGINS=https://your-domain --project-ref gdavxkaioqlfvfunmtxd`), then deploy
@@ -50,27 +44,7 @@ Supabase session by the `account` function (`/account/shoo`) so every row-level 
 - In Supabase, Authentication, URL Configuration: set Site URL to the production address and add it (with `/**`) to
   Redirect URLs. Today the Site URL is `http://localhost:3000`.
 
-**Guest accounts.** Anyone who imports their LinkedIn, or turns on notifications from the Home Screen icon, without
-signing in gets a guest account automatically (address `guest-…@guest.odds.invalid`, no password), so their profile,
-phone and morning message work. When they then sign in with Google, `ShooCallback` calls `adoptGuest()` before the
-new session is used: the guest's profile (unless the Google account already has one), phones, applications and cached
-readings move to the Google account in one database transaction (`public.adopt_guest`, via the `account`
-function, which checks both sign-ins). Guest accounts are capped at 20 per connection per day. Guest accounts do not
-see other people: `/jobs/people` answers 403 to them and the app shows "Sign in with Google to see people." instead.
-
-## 4. The phone flow, for reference
-
-- Computer: bell, then "Add to your phone", shows a QR code (one-time code, 15 minutes). The phone opens odds signed in.
-- iPhone in Chrome or another app: jumps to Safari, signed in. In Safari: Share, Add to Home Screen.
-- The Home Screen app keeps its own storage, apart from Safari. While the steps are open in Safari, the address
-  carries a one-time code (30 minutes) so the icon opens signed in; `index.html` gives iPhones a manifest without a
-  start address so the icon opens that address.
-- On the icon: "Turn on notifications", Allow, and a "You're set" notification arrives at once.
-- `public/sw.js` shows the notification and opens `/?open=new-jobs` when it is tapped.
-
-## 5. Leftovers from testing (safe to remove)
-
-- Table `client_events`: a step log used while testing on a phone; nothing writes to it any more.
-- About ten guest accounts made during testing on 4 and 5 Oct.
-- Phones registered on the temporary test links stop working when those links go away; they register again on the
-  real address.
+1. Sign-in and deploy (the first commit).
+2. The queue: Apply drops a job in, Broods works it in the person's Chrome, the report comes back.
+3. The extension as hands for Broods: read the page, click and type, screenshots.
+4. Job list and job pages, then the interview-chance model, on one shared core.
