@@ -31,6 +31,7 @@
         "@vitejs/plugin-react": "^6.1.1",
         "ai": "^7.0.141",
         "broods": "^0.50.0",
+        "esbuild": "0.28.2",
         "knip": "^6.39.0",
         "oxlint": "^1.81.0",
         "oxlint-tsgolint": "^7.0.2003",
