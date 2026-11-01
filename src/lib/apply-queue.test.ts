@@ -54,7 +54,9 @@ describe("the words on a queue row", () => {
   test("what each row offers", () => {
     expect(queueActions(item("review"))).toMatchObject({ goToTab: true, markSent: true, skip: true, remove: false })
     expect(queueActions(item("waiting"))).toMatchObject({ goToTab: false, remove: true, skip: false })
-    expect(queueActions(item("needs_you", "captcha"))).toMatchObject({ goToTab: true, retry: true, skip: true })
+    expect(queueActions(item("needs_you", "captcha"))).toMatchObject({ goToTab: true, retry: false, skip: true })
+    expect(queueActions(item("needs_you", "tab"))).toMatchObject({ goToTab: false, retry: true })
+    expect(queueActions(item("needs_you", "other"))).toMatchObject({ goToTab: true, retry: true })
     expect(queueActions(item("failed", "closed"))).toMatchObject({ goToTab: false, retry: false })
     expect(queueActions(item("skipped")).retry).toBe(true)
     expect(queueActions(item("sent"))).toMatchObject({ goToTab: false, markSent: false, retry: false, skip: false, remove: false })

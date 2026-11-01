@@ -19,6 +19,7 @@ import { activeApplication, applicationState, cancelApplication, continueApplica
 import { sourcesOf } from "@/components/SourceChips"
 import { applySourceOf } from "@/lib/apply-source"
 import type { Posting } from "@/lib/types"
+import { goTo } from "@/lib/web-nav"
 import { addToQueue, applyQueueRow, leaveQueue, retryQueue, useApplyQueue } from "@/lib/apply-queue"
 import { linePlaces, queueActions, queueWords } from "@/lib/apply-queue-words"
 import { toast } from "sonner"
@@ -189,7 +190,7 @@ function OddsApplyForm({ post }: { post: Posting }): React.JSX.Element | null {
           description: "Odds fills it in a background tab and tells you if it needs you.",
           id: `apply-${post.id}`,
           duration: 2500,
-          action: { label: "See queue", onClick: (): void => showLiveApplyInTracker(post.id) },
+          action: { label: "See queue", onClick: (): void => goTo("applications") },
         })
         return
       }

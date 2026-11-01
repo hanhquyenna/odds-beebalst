@@ -51,6 +51,7 @@ const JobDetail = lazy(() => import("@/components/JobDetail").then((module) => (
 const Connections = lazy(() => import("@/components/Connections").then((module) => ({ default: module.Connections })))
 const Autofill = lazy(() => import("@/components/Autofill").then((module) => ({ default: module.Autofill })))
 const JobsPage = lazy(() => import("@/components/web/JobsPage").then((m) => ({ default: m.JobsPage })))
+const ApplicationsPage = lazy(() => import("@/components/web/ApplicationsPage").then((m) => ({ default: m.ApplicationsPage })))
 const PeoplePage = lazy(() => import("@/components/web/PeoplePage").then((m) => ({ default: m.PeoplePage })))
 const Documents = lazy(() => import("@/components/Documents").then((module) => ({ default: module.Documents })))
 const ProfilePage = lazy(() => import("@/components/ProfilePage").then((module) => ({ default: module.ProfilePage })))
@@ -78,8 +79,8 @@ const OfferGate = lazy(() => import("@/components/OfferGate").then((module) => (
 const StatusColorsDialog = lazy(() => import("@/components/StatusColorsDialog").then((module) => ({ default: module.StatusColorsDialog })))
 const InstallGuide = lazy(() => import("@/components/InstallGuide").then((module) => ({ default: module.InstallGuide })))
 
-type View = "account" | "answers" | "autofill" | "claude" | "companies" | "connections" | "documents" | "journey" | "jobs" | "people" | "signin" | "tracker"
-const VIEWS: readonly View[] = ["account", "answers", "autofill", "claude", "companies", "connections", "documents", "journey", "jobs", "people", "signin", "tracker"]
+type View = "account" | "answers" | "applications" | "autofill" | "claude" | "companies" | "connections" | "documents" | "journey" | "jobs" | "people" | "signin" | "tracker"
+const VIEWS: readonly View[] = ["account", "answers", "applications", "autofill", "claude", "companies", "connections", "documents", "journey", "jobs", "people", "signin", "tracker"]
 
 /** The view the current history entry was left on (after a reload), when it is one of ours. */
 function viewFromHistory(): View | null {
@@ -275,7 +276,7 @@ export default function App(): React.JSX.Element {
   // with them so the wordmark stays over the content.
   // The front page is a web page, not a form, so it gets the widest column.
   const [landing, setLanding] = useState<boolean>(false)
-  const wide = view === "account" || view === "jobs" || view === "tracker" || view === "people" || view === "companies" || view === "connections" || view === "autofill" || view === "claude" || view === "documents" || (view === "answers" && onboarded)
+  const wide = view === "account" || view === "jobs" || view === "applications" || view === "tracker" || view === "people" || view === "companies" || view === "connections" || view === "autofill" || view === "claude" || view === "documents" || (view === "answers" && onboarded)
   const column = page
   ? "max-w-sm sm:max-w-2xl lg:max-w-5xl"
   : sharedJobId
@@ -467,7 +468,7 @@ export default function App(): React.JSX.Element {
 
   // Someone with an account gets the app: a side menu on a laptop or iPad, a tab bar on a phone, no website header.
   const shell = onboarded && !shooReturn && view !== "signin"
-  const activeTab: ShellTab | null = page || sharedJobId ? null : view === "account" || view === "jobs" || view === "tracker" || view === "people" || view === "companies" || view === "connections" || view === "autofill" || view === "documents" || view === "claude" || view === "answers" ? (view === "companies" ? "tracker" : view) : null
+  const activeTab: ShellTab | null = page || sharedJobId ? null : view === "account" || view === "jobs" || view === "applications" || view === "tracker" || view === "people" || view === "companies" || view === "connections" || view === "autofill" || view === "documents" || view === "claude" || view === "answers" ? (view === "companies" ? "tracker" : view) : null
 
   // The sand look belongs to the app: set on <body> while someone is inside it, so the menus and panels that open over the page match.
   useEffect(() => {
@@ -597,6 +598,12 @@ export default function App(): React.JSX.Element {
             {view === "jobs" && onboarded ? (
               <Suspense fallback={<JobListSkeleton />}>
                 <JobsPage />
+              </Suspense>
+            ) : null}
+
+            {view === "applications" && onboarded ? (
+              <Suspense fallback={<JobListSkeleton />}>
+                <ApplicationsPage />
               </Suspense>
             ) : null}
 

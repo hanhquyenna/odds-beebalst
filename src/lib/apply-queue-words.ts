@@ -110,9 +110,10 @@ export function linePlaces(items: readonly Pick<QueueItem, "posting_id" | "state
 /** What the person can do on a row. "Mark as sent" is the person saying they pressed Submit themselves. */
 export function queueActions(item: Pick<QueueItem, "state" | "reason">): { goToTab: boolean; markSent: boolean; retry: boolean; skip: boolean; remove: boolean } {
   return {
-    goToTab: ["working", "review", "needs_you"].includes(item.state) || (item.state === "failed" && item.reason !== "closed"),
+    // A closed tab has nothing to go to; a stop that waits on the person (a check, a sign-in, a question) is fixed in its tab, not by starting over.
+    goToTab: ["working", "review"].includes(item.state) || (item.state === "needs_you" && item.reason !== "tab") || (item.state === "failed" && item.reason !== "closed"),
     markSent: item.state === "review" || item.state === "needs_you",
-    retry: item.state === "needs_you" || item.state === "skipped" || (item.state === "failed" && item.reason !== "closed"),
+    retry: item.state === "skipped" || (item.state === "failed" && item.reason !== "closed") || (item.state === "needs_you" && ["tab", "other", "letter", "email"].includes(item.reason ?? "other")),
     skip: ["working", "review", "needs_you", "failed"].includes(item.state),
     remove: item.state === "waiting",
   }
