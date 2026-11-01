@@ -24,6 +24,10 @@ verify_jwt = false
 [functions.mcp]
 verify_jwt = false
 
+# The extension's per-step calls (drive-next, drive-result): small so it starts fast. Checks the extension key itself.
+[functions.drive-step]
+verify_jwt = false
+
 # Google Drive for documents. Google's redirect back (/drive/callback) carries no sign-in, so the function checks the caller on
 # every other route itself.
 [functions.drive]
