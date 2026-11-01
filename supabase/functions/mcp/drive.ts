@@ -884,6 +884,24 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       return { text: "You pressed this button 3 times and the page did not move on. Do not press it again. Read what the page says (errors, a dialog, empty required fields), try something else, or finish with the exact thing that blocks it.", error: true }
     }
   }
+  // One field that did not take twice (L'Oreal's language list: 27 steps, 9.5M tokens on two dropdowns) is not filled a third time:
+  // the agent is told to leave it to the person and carry on with the rest. Counted per field id on this page.
+  if (name === "fill" && Array.isArray(args?.fields)) {
+    const past = (await svc(env, `drive_commands?run_id=eq.${run.id}&tool=eq.fill&status=eq.done&order=id.desc&limit=12&select=result`).catch(() => null)) ?? []
+    const url = (r: Json) => String(r?.page?.url ?? "").split("#")[0]
+    const lastUrl = url(past[0]?.result)
+    const fails = new Map<string, number>()
+    for (const row of past) {
+      if (url(row?.result) !== lastUrl) break
+      for (const r of Array.isArray(row?.result?.results) ? row.result.results : []) if (r?.id && r.ok === false) fails.set(r.id, (fails.get(r.id) ?? 0) + 1)
+    }
+    const stuck = args.fields.filter((f: Json) => typeof f?.id === "string" && (fails.get(f.id) ?? 0) >= 2).map((f: Json) => f.id)
+    if (stuck.length) {
+      const rest = args.fields.filter((f: Json) => !stuck.includes(f?.id))
+      if (!rest.length) return { text: `${stuck.join(", ")} did not take twice. Do not try it again (no fill, options, click or keys on it). Fill the other fields; at the end finish needs_you with questions naming it, so the person picks it.`, error: true }
+      args = { ...args, fields: rest }
+    }
+  }
   const { run_id: _r, say, ...rest } = args ?? {}
   const note = typeof say === "string" && say.trim() ? say.trim().slice(0, 300) : null
   // A screen step Broods asks for comes back with a fresh picture while it is looking at the screen (look); the server's own steps never do.

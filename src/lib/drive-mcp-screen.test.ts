@@ -18,6 +18,8 @@ let answers: Record<string, unknown>
 let env: Record<string, string>
 /** What the sight model was sent, and what it answers. */
 let sightAsked: string[]
+/** Earlier fills in this run, newest first, as the server reads them back. */
+let pastFills: unknown[]
 const SIGHT = "A form: Country is an open dropdown listing Netherlands; Next at the bottom."
 
 beforeEach(() => {
@@ -28,6 +30,7 @@ beforeEach(() => {
   answers = {}
   env = { ODDS_DRIVE_SECRET: "s", ODDS_DRIVE_IMAGES: "1" }
   sightAsked = []
+  pastFills = []
   // The drive secret and pictures to the model (the image tests); no sight model unless a test sets one.
   Object.assign(globalThis, { Deno: { env: { get: (name: string): string | undefined => env[name] } } })
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -38,6 +41,7 @@ beforeEach(() => {
       return new Response(JSON.stringify({ choices: [{ message: { content: SIGHT } }] }), { status: 200 })
     }
     let body: unknown = []
+    if (url.includes("tool=eq.fill&status=eq.done")) return new Response(JSON.stringify(pastFills), { status: 200 })
     if (url.includes("drive_runs?id=eq.") && !init?.method) body = [{ id: RUN, status: "running", steps: 0, expires_at: new Date(Date.now() + 60_000).toISOString() }]
     if (url.endsWith("drive_commands") && init?.method === "POST") {
       const row = JSON.parse(sent) as Command
@@ -149,3 +153,23 @@ async function mcp(method: string, params: Record<string, unknown> = {}): Promis
 
   return json.result
 }
+
+test("a field that did not take twice on this page is not filled a third time; the other fields still go", async () => {
+  const failed = { result: { page: { url: "https://jobs.example.org/apply" }, results: [{ id: "f1", ok: false, value: "Espanol" }, { id: "f2", ok: true, value: "Email" }] } }
+  pastFills = [failed, failed]
+  const only = (await call("fill", { fields: [{ id: "f1", value: "Anglais" }] })) as { isError?: boolean; content: Content }
+  expect(only.isError).toBe(true)
+  expect(only.content[0]!.text).toContain("f1 did not take twice")
+  expect(queued.filter((c) => c.tool === "fill")).toEqual([])
+  answers.fill = { results: [{ id: "f3", ok: true, value: "Amsterdam" }], page: PAGE }
+  await call("fill", { fields: [{ id: "f1", value: "Anglais" }, { id: "f3", value: "Amsterdam" }] })
+  expect(queued.find((c) => c.tool === "fill")?.args?.fields).toEqual([{ id: "f3", value: "Amsterdam" }])
+})
+
+test("failures on an earlier page do not count against a field with the same id on this one", async () => {
+  pastFills = [{ result: { page: { url: "https://jobs.example.org/apply/2" }, results: [{ id: "f1", ok: true }] } }, { result: { page: { url: "https://jobs.example.org/apply" }, results: [{ id: "f1", ok: false }] } }, { result: { page: { url: "https://jobs.example.org/apply" }, results: [{ id: "f1", ok: false }] } }]
+  answers.fill = { results: [{ id: "f1", ok: true, value: "Anglais" }], page: PAGE }
+  const res = (await call("fill", { fields: [{ id: "f1", value: "Anglais" }] })) as { isError?: boolean }
+  expect(res.isError).toBeFalsy()
+  expect(queued.find((c) => c.tool === "fill")?.args?.fields).toEqual([{ id: "f1", value: "Anglais" }])
+})
