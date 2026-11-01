@@ -1,5 +1,4 @@
 import { CheckIcon, ExternalLinkIcon } from "@/components/icons"
-import { Spinner } from "@/components/ui/spinner"
 
 export type ApplyPhase = "queued" | "filling" | "needs_input" | "ready" | "failed"
 
@@ -20,8 +19,8 @@ export function ApplyProgress({phase,message,title}:{phase:ApplyPhase;message?:s
   const line=(message || "").trim()
   const label=title && !/broods is applying|stuck|needs your answer/i.test(title) ? title : heading(phase,line)
   return <div role="status" aria-live="polite" className="flex items-start gap-3.5">
-    <div className="relative flex size-11 shrink-0 items-center justify-center rounded-full bg-secondary">
-      {working ? <><img src="/icons/icon-192.png" alt="" className="size-7 rounded-full"/><Spinner aria-hidden="true" className="absolute inset-0 size-11 text-brand motion-reduce:animate-none"/></> : phase === "ready" ? <CheckIcon weight="bold" className="size-6 text-good-foreground" aria-hidden="true"/> : <ExternalLinkIcon className="size-5 text-foreground" aria-hidden="true"/>}
+    <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-secondary">
+      {working ? <img src="/icon.svg" alt="" className="size-7"/> : phase === "ready" ? <CheckIcon weight="bold" className="size-6 text-good-foreground" aria-hidden="true"/> : <ExternalLinkIcon className="size-5 text-foreground" aria-hidden="true"/>}
     </div>
     <div className="min-w-0 flex-1 py-0.5">
       <p className="font-heading text-lg font-semibold tracking-tight text-foreground">{label}</p>

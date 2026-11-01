@@ -4,7 +4,7 @@ import { expect, shot, test } from "./mock"
 test.describe("the signed-in web app", () => {
   test.use({ signedIn: true, viewport: { width: 1440, height: 1000 } })
 
-  test("the top bar holds the mascot, the odds name and the five places", async ({ page }) => {
+  test("the top bar holds the odds icon, the odds name and the five places", async ({ page }) => {
     await page.goto("/")
     const nav = page.getByRole("navigation", { name: "Your account" })
     for (const name of ["Jobs", "Tracker", "Documents", "Autofill", "People"]) await expect(nav.getByRole("button", { name: name, exact: true })).toBeVisible()

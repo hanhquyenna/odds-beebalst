@@ -159,20 +159,6 @@
     }
 }
 
-/* The two figures in the logo give one small wave when the pointer arrives. */
-@keyframes odds-wave {
-    0%, 100% { transform: rotate(0); }
-    30% { transform: rotate(-8deg); }
-    60% { transform: rotate(6deg); }
-}
-
-@media (hover: hover) {
-    .odds-wordmark:hover img {
-        animation: odds-wave 600ms ease;
-    }
-}
-
-
 /* A notification has its close button in the top right corner, where people look for it. */
 [data-sonner-toaster] [data-sonner-toast] [data-close-button] {
     left: auto !important;
@@ -314,10 +300,6 @@
     50% { box-shadow: 0 0 0 8px color-mix(in oklch, var(--brand) 0%, transparent); }
 }
 .odds-fill-pulse { animation: odds-fill-buzz 1.8s ease-in-out infinite; }
-/* The odds mark while Odds works: its orange dot hops. */
-@keyframes odds-hop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
-.odds-working svg > circle:last-child { animation: odds-hop 1.8s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .odds-working svg > circle:last-child { animation: none; } }
 @media (prefers-reduced-motion: reduce) { .odds-fill-pulse { animation: none; } }
 
 /* The signed-in web app: sand background, white cards, flat orange. Set on <body> while someone is inside the app, so the menus that open over it match. */
@@ -341,17 +323,6 @@ body.web {
     --good-foreground: #2F6B47;
     --radius: 0.75rem;
 }
-
-/* The living mascot. */
-@keyframes buddy-bob { 0%, 100% { transform: translateY(0) scale(1, 1); } 45% { transform: translateY(-3px) scale(.97, 1.04); } 60% { transform: translateY(0) scale(1.04, .96); } }
-@keyframes buddy-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
-@keyframes buddy-look { 0%, 100% { transform: translate(0, 0); } 25% { transform: translate(2.2px, -1px); } 50% { transform: translate(-2px, 0); } 75% { transform: translate(1px, 1.6px); } }
-@keyframes buddy-hop { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(1px, -3px); } }
-.buddy { transform-origin: 50% 90%; animation: buddy-bob 1.6s ease-in-out infinite; }
-.buddy .lid, .lid { transform-origin: 15px 17px; animation: buddy-blink 3.4s infinite; }
-.buddy .pupil, .pupil { animation: buddy-look 4.2s ease-in-out infinite; }
-.buddy .orb, .orb { animation: buddy-hop 1.6s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .buddy, .lid, .pupil, .orb { animation: none; } }
 
 /* Tracker chooses its row layout from the room beside the sidebar, rather than the viewport alone. */
 .application-tracker {

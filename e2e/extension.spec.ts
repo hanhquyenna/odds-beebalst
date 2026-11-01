@@ -2345,7 +2345,6 @@ test("ACCEPT Connect gate: unlinked Apply opens Connect tour — no apply tab", 
   await expect(app.getByRole("button", { name: "Connect Odds in Chrome", exact: true })).toBeVisible({ timeout: 20000 })
   await app.getByRole("button", { name: "Connect Odds in Chrome", exact: true }).click()
   await expect(app.getByRole("dialog", { name: "Connect Odds in Chrome" })).toBeVisible()
-  await expect(app.getByTestId("extension-onboard-poster")).toBeVisible()
   expect(context.pages().length).toBe(pagesBefore)
   await expect(app.getByRole("button", { name: "Apply with Odds", exact: true })).toHaveCount(0)
 })

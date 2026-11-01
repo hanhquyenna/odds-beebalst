@@ -17,12 +17,6 @@ export function markExtensionOnboardDone(): void {
   }
 }
 
-/** Optional guided video (Vite). Empty = poster + steps only — never a fake player. */
-export function extensionOnboardVideoUrl(): string | null {
-  const raw = (import.meta.env.VITE_EXTENSION_ONBOARD_VIDEO_URL as string | undefined)?.trim()
-  return raw || null
-}
-
 /** Show the tour until Connect succeeds (or the person already linked). */
 export function shouldShowExtensionOnboard(opts: {
   present: "looking" | "yes" | "no"

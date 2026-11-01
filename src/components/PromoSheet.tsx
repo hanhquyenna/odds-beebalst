@@ -107,7 +107,7 @@ export function HomeScreenGraphic({ platform }: { platform: Platform }): React.J
       <div aria-hidden="true" className="absolute inset-x-5 bottom-4 flex flex-col">
         <div className="phone-prompt-pop mx-3 -mb-9 h-14 rounded-2xl bg-white/60 shadow-md" style={{ animationDelay: "0.55s" }} />
         <div className="phone-prompt-pop flex items-center gap-3 rounded-2xl bg-white p-3 shadow-xl" style={{ animationDelay: "0.4s" }}>
-          <img src="/icons/apple-touch-icon.png" alt="" className="size-10 shrink-0 rounded-[22%]" />
+          <img src="/icon.svg" alt="" className="size-10 shrink-0" />
           <span className="min-w-0 flex-1">
             <span className="block font-semibold text-black">odds</span>
             <span className="block truncate text-sm text-neutral-600">{platform === "android" ? "Install app" : "Add to Home Screen"}</span>
@@ -129,7 +129,7 @@ export function LockScreenGraphic({ platform }: { platform: Platform }): React.J
       <div aria-hidden="true" className="absolute inset-x-5 bottom-4 flex flex-col">
         <div className="phone-prompt-pop mx-3 -mb-9 h-14 rounded-2xl bg-white/60 shadow-md" style={{ animationDelay: "0.55s" }} />
         <div className="phone-prompt-pop flex items-center gap-3 rounded-2xl bg-white p-3 shadow-xl" style={{ animationDelay: "0.4s" }}>
-          <img src="/icons/apple-touch-icon.png" alt="" className="size-10 shrink-0 rounded-[22%]" />
+          <img src="/icon.svg" alt="" className="size-10 shrink-0" />
           <span className="min-w-0 flex-1">
             <span className="flex justify-between text-xs font-semibold text-neutral-500">
               odds<span className="font-normal">8:00</span>

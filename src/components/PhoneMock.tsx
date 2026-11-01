@@ -24,10 +24,6 @@ function Tap({ className, round = false, inside = false }: { className?: string;
   )
 }
 
-function OddsIcon({ className }: { className?: string }): React.JSX.Element {
-  return <img src="/icons/apple-touch-icon.png" alt="" className={cn("rounded-[22%]", className)} />
-}
-
 function StatusBar({ light = false, android = false }: { light?: boolean; android?: boolean }): React.JSX.Element {
   return (
     <div className={cn("relative z-10 flex h-8 shrink-0 items-center justify-between text-[10px] font-semibold", android ? "px-3.5" : "px-6 pt-1", light ? "text-white" : "text-black")}>
@@ -110,7 +106,7 @@ function HomeScreen({ android = false }: { android?: boolean }): React.JSX.Eleme
         ))}
         <span className="relative flex flex-col items-center gap-1">
           <span className="relative">
-            <OddsIcon className={cn("size-10", android && "rounded-full")} />
+            <img src="/icon.svg" alt="" className="size-10" />
             <Tap />
           </span>
           <span className="text-[9px] font-medium text-white">odds</span>
@@ -138,7 +134,7 @@ function LockScreen({ android = false }: { android?: boolean }): React.JSX.Eleme
         <p className="text-5xl font-semibold tracking-tight">8:00</p>
       </div>
       <div className="relative mx-2.5 mt-auto mb-16 flex items-start gap-2 rounded-2xl bg-white/90 p-2.5 text-black shadow-lg">
-        <OddsIcon className="size-8 shrink-0" />
+        <img src="/icon.svg" alt="" className="size-8 shrink-0" />
         <span className="min-w-0 flex-1">
           <span className="flex justify-between text-[10px] font-semibold">
             odds<span className="font-normal text-neutral-500">now</span>
@@ -160,7 +156,7 @@ function AppWithBell(): React.JSX.Element {
       <StatusBar />
       <div className="flex items-center justify-between border-b border-black/10 px-3 pb-1.5">
         <span className="flex items-center gap-1 text-[13px] font-bold">
-          <OddsIcon className="size-4 rounded-full" />
+          <img src="/icon.svg" alt="" className="size-4" />
           odds
         </span>
         <BellIcon weight="fill" className="size-5 text-brand" />
@@ -234,7 +230,7 @@ export function IosPhone({ screen }: { screen: IosScreen }): React.JSX.Element {
       {screen === "share" ? (
         <div className="absolute inset-x-0 bottom-0 z-20 flex h-[78%] flex-col rounded-t-2xl bg-[#f2f2f7] shadow-2xl">
           <div className="flex items-center gap-2 border-b border-black/10 px-3 py-2.5">
-            <OddsIcon className="size-7" />
+            <img src="/icon.svg" alt="" className="size-7" />
             <span className="min-w-0 flex-1 text-[10px] leading-tight text-black">
               <span className="block truncate font-semibold">odds · Jobs in the Netherlands</span>
               <span className="block truncate text-neutral-500">{HOST}</span>
@@ -276,7 +272,7 @@ export function IosPhone({ screen }: { screen: IosScreen }): React.JSX.Element {
             </span>
           </div>
           <div className="mx-2.5 flex items-center gap-2.5 rounded-xl bg-white p-2.5">
-            <OddsIcon className="size-11" />
+            <img src="/icon.svg" alt="" className="size-11" />
             <span className="flex-1 text-[11px] text-black">
               <span className="block border-b border-black/10 pb-1">odds</span>
               <span className="block truncate pt-1 text-neutral-500">{HOST}</span>
@@ -364,7 +360,7 @@ export function AndroidPhone({ screen }: { screen: AndroidScreen }): React.JSX.E
           <div className="w-full rounded-3xl bg-white p-4 text-black shadow-xl">
             <p className="text-[13px] font-medium">Install app</p>
             <div className="mt-3 flex items-center gap-2.5">
-              <OddsIcon className="size-9 rounded-full" />
+              <img src="/icon.svg" alt="" className="size-9" />
               <span className="text-[11px] leading-tight">
                 <span className="block font-semibold">odds</span>
                 <span className="block truncate text-neutral-500">{HOST}</span>

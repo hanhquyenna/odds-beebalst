@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { educationFromProfile, personalFromProfile } from "../../supabase/functions/_shared/application-personal"
 import { ApplicationQuestions } from "@/components/ApplicationQuestions"
-import { Buddy } from "@/components/Buddy"
 import { Pill, WEB_INPUT, WebButton, WebCard } from "@/components/web/ui"
 import { ANSWERS_SAVED, useSetup } from "@/lib/setup"
 import { ANSWER_FIELDS, loadAnswers, saveAnswers, type AnswerField, type AnswerValues } from "@/lib/application-answers"
@@ -93,7 +92,7 @@ export function Autofill({ onDocuments, onConnect }: { onDocuments: () => void; 
               <circle cx="50" cy="50" r="42" fill="none" stroke="#F0E9DF" strokeWidth="12" />
               <circle cx="50" cy="50" r="42" fill="none" stroke="#EE7A2A" strokeWidth="12" strokeLinecap="round" strokeDasharray={`${(filled / total) * 264} 264`} />
             </svg>
-            <Buddy size={64} />
+            <img src="/icon.svg" alt="" className="size-16" />
           </div>
           <p className="text-xl font-extrabold">
             {filled} of {total} filled

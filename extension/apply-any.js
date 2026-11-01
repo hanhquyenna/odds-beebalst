@@ -3350,7 +3350,7 @@
     copilotHost.setAttribute("data-odds-bar", "")
     copilotHost.style.cssText = "position:fixed;right:20px;bottom:88px;z-index:2147483646;display:flex;align-items:center;gap:6px"
     const root = copilotHost.attachShadow({ mode: "open" })
-    const mark = globalThis.oddsMascot?.mark("#EE7A2A") || ""
+    const mark = globalThis.oddsMascot?.mark() || ""
     root.innerHTML = `<style>
       .go{display:inline-flex;align-items:center;gap:8px;height:44px;padding:0 20px 0 8px;font:800 16px/1 "odds Inter Tight",system-ui,-apple-system,Segoe UI,sans-serif;background:#EE7A2A;color:#1C1A18;border:0;border-radius:999px;cursor:pointer}
       .go:hover{background:#F28B45} .go:disabled{opacity:.7;cursor:default}

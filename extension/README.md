@@ -62,7 +62,7 @@ Unzip → `chrome://extensions` → Developer mode → Load unpacked → pick th
 
 ## First-time path (Connect → Apply → board login)
 
-1. Open Odds → Connect (or press **Connect Odds in Chrome** on a job). A short tour shows install steps and an optional video (`VITE_EXTENSION_ONBOARD_VIDEO_URL`; empty = poster + steps only).
+1. Open Odds → Connect (or press **Connect Odds in Chrome** on a job). A short tour shows the install steps.
 2. Download / Add to Chrome → Load unpacked (or store install) → reload Odds → **Connect**. Apply stays gated until the extension has a key in this browser.
 3. **Apply with Odds** opens the listing in a Chrome tab. If LinkedIn / Indeed / Glassdoor ask you to sign in, the Odds chip shows **Account** and the bar says to sign in on that tab. Sign in yourself — Odds never types passwords and never stores board passwords.
 4. When the login wall clears, Odds says “Signed in — continuing…” and fills the form. You do not need to press Open tab for that continue.

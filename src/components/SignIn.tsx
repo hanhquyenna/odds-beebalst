@@ -1,6 +1,5 @@
 import { useState } from "react"
 import { ChevronLeftIcon } from "@/components/icons"
-import logoUrl from "@/logo.svg"
 import { beginShooSignIn, redirectWatch, rememberShooNext, storageAvailable } from "@/lib/shoo"
 
 interface SignInProps {
@@ -50,7 +49,7 @@ export function SignIn({ onCancel }: SignInProps): React.JSX.Element {
       <div className="flex flex-1 flex-col items-center justify-center gap-6 py-10 text-center md:flex-none">
         <div className="flex flex-col items-center gap-4">
           <span className="flex size-20 items-center justify-center rounded-[1.4rem] bg-brand shadow-lg shadow-brand/30">
-            <img src={logoUrl} alt="" aria-hidden="true" className="size-12 drop-shadow-sm" />
+            <img src="/icon.svg" alt="" aria-hidden="true" className="size-12 drop-shadow-sm" />
           </span>
           <span className="text-[2.5rem] leading-none font-bold tracking-[-0.05em]">odds</span>
         </div>
