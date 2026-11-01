@@ -190,12 +190,7 @@ function placeAuto() {
       button:focus-visible{outline:2px solid #1C1A18;outline-offset:2px}
       button:disabled{opacity:.7;cursor:default}
       i{display:block;width:26px;height:26px}
-      @keyframes blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.1)}}
-      @keyframes hop{0%,100%{transform:translate(0,0)}50%{transform:translate(1px,-3px)}}
-      .lid{transform-origin:15px 17px;animation:blink 3.4s infinite}
-      .orb{animation:hop 1.6s ease-in-out infinite}
-      @media (prefers-reduced-motion:reduce){.lid,.orb{animation:none}}
-    </style><button type="button" title="Odds fills in the application for you"><i>${globalThis.oddsMascot?.mark("#EE7A2A") || ""}</i><span>Auto apply</span></button>`
+    </style><button type="button" title="Odds fills in the application for you"><i>${globalThis.oddsMascot?.mark() || ""}</i><span>Auto apply</span></button>`
     root.querySelector("button").addEventListener("click", () => {
       openPanel()
       const c = current

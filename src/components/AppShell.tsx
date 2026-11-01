@@ -1,6 +1,5 @@
 import type { ReactNode } from "react"
 import type { StaticPage } from "@/lib/pages"
-import { Buddy } from "@/components/Buddy"
 import { NotificationsRow } from "@/components/NotifyPrompt"
 import type { Session } from "@/lib/auth"
 import { BoardIcon, BriefcaseIcon, ChevronRightIcon, FileTextIcon, HomeIcon, PeopleIcon, PlugsIcon, SignOutIcon, MessageIcon, SparkleIcon, UserCircleIcon } from "@/components/icons"
@@ -47,8 +46,8 @@ const WEB_TABS: ReadonlyArray<{ tab: ShellTab; label: string }> = [
 export function AppTopNav({ active, onNavigate, onHome, wordmark, bell, account }: ShellNav & { onHome: () => void; wordmark: ReactNode; bell: ReactNode; account: ReactNode }): React.JSX.Element {
   return (
     <header className="sticky top-0 z-20 hidden h-16 shrink-0 items-center gap-9 border-b-[1.5px] border-line bg-card px-7 md:flex">
-      <button type="button" onClick={onHome} aria-label="odds, home" className="odds-wordmark flex cursor-pointer items-center gap-2 text-foreground">
-        <Buddy size={38} />
+      <button type="button" onClick={onHome} aria-label="odds, home" className="flex cursor-pointer items-center gap-2 text-foreground">
+        <img src="/icon.svg" alt="" className="size-[38px]" />
         {wordmark}
       </button>
       <nav aria-label="Your account" className="flex h-full items-stretch gap-7">
@@ -76,8 +75,8 @@ export function AppTopNav({ active, onNavigate, onHome, wordmark, bell, account 
 export function AppTopBar({ onHome, wordmark, bell }: { onHome: () => void; wordmark: ReactNode; bell: ReactNode }): React.JSX.Element {
   return (
     <div className="flex items-center justify-between gap-3 bg-background px-5 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-1 md:hidden">
-      <button type="button" onClick={onHome} aria-label="odds, home" className="odds-wordmark flex cursor-pointer items-center gap-1.5">
-        <Buddy size={32} />
+      <button type="button" onClick={onHome} aria-label="odds, home" className="flex cursor-pointer items-center gap-1.5">
+        <img src="/icon.svg" alt="" className="size-8" />
         {wordmark}
       </button>
       {bell}

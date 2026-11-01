@@ -527,7 +527,7 @@ export default function App(): React.JSX.Element {
           <button
             type="button"
             onClick={() => (page ? closePage() : onboarded ? setView("account") : goHome())}
-            className="odds-wordmark shrink-0 cursor-pointer text-xl font-semibold tracking-tight text-foreground"
+            className="shrink-0 cursor-pointer text-xl font-semibold tracking-tight text-foreground"
           >
             <Wordmark />
           </button>

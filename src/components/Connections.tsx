@@ -274,7 +274,7 @@ function ExtensionRow({
   return (
     <ConnectRow
       focused={focused}
-      logo="/icons/icon-192.png"
+      logo="/icon.svg"
       name="Odds for Chrome"
       detail={detail}
       status={

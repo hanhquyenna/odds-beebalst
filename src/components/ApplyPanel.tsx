@@ -47,7 +47,7 @@ export function ApplyPanel(): React.JSX.Element | null {
   if (!info && !waited) {
     return (
       <div data-apply-panel className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-background p-6 text-center">
-        <OddsMark size={56} />
+        <img src="/icon.svg" alt="" className="size-14" />
         <p className="text-base font-bold">Getting your application ready…</p>
       </div>
     )
@@ -106,19 +106,6 @@ const darkButton = "flex h-12 w-full cursor-pointer items-center justify-center 
 const needsPerson = (q: QueueItem): boolean => q.state === "needs_input" || q.state === "failed" || q.state === "stuck"
 const working = (q: QueueItem): boolean => q.state === "filling"
 const ready = (q: QueueItem): boolean => q.state === "ready" || q.state === "review"
-
-/** The odds mark, as the app icon draws it: a black disc with a white eye and the orange dot. */
-function OddsMark({ size = 28, dot = "var(--brand)" }: { size?: number; dot?: string }): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 32 32" width={size} height={size} aria-hidden="true" className="shrink-0">
-      <circle cx="15" cy="17" r="13" fill="#2B2825" />
-      <circle cx="15" cy="17" r="8.2" fill="#fff" />
-      <circle cx="15" cy="17" r="4.2" fill="#1C1A18" />
-      <circle cx="16.4" cy="15.6" r="1.3" fill="#fff" />
-      <circle cx="25.5" cy="6.5" r="4" fill={dot} stroke="#2B2825" strokeWidth="1.5" />
-    </svg>
-  )
-}
 
 function Chevron(): React.JSX.Element {
   return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true" className="shrink-0 text-muted-foreground"><path d="M9 6l6 6-6 6" /></svg>
@@ -279,7 +266,7 @@ function StateCard({ tone, title, text }: { tone: "work" | "good" | "needs"; tit
   const ring = tone === "good" ? "border-good-foreground" : tone === "needs" ? "border-2 border-brand" : "border-line"
   return (
     <div role="status" className={`flex items-center gap-3 rounded-2xl border-[1.5px] bg-card px-3.5 py-3 ${ring}`}>
-      <span className={tone === "work" ? "odds-working" : ""}><OddsMark size={30} dot={tone === "good" ? "#2F6B47" : "var(--brand)"} /></span>
+      <img src="/icon.svg" alt="" className="size-[30px] shrink-0" />
       <div className="flex min-w-0 flex-col gap-px">
         <span className="text-[15px] font-extrabold">{title}</span>
         <span className="text-[13px] leading-snug text-muted-foreground">{text}</span>
@@ -358,7 +345,7 @@ function QueueFooter({ queue, onOpen }: { queue: QueueItem[]; onOpen: () => void
 
   return (
     <button type="button" onClick={onOpen} className={`${card} flex w-full cursor-pointer items-center gap-3 px-3.5 py-3 text-left hover:bg-secondary/60`}>
-      <OddsMark size={30} />
+      <img src="/icon.svg" alt="" className="size-[30px] shrink-0" />
       <span className="flex flex-1 flex-col gap-px">
         <span className="text-sm font-extrabold">Your queue</span>
         <span className="text-[13px] text-muted-foreground">{`${busy} working · ${done} ready · ${needs ? `${needs} needs you` : "nothing needs you"}`}</span>
@@ -399,7 +386,7 @@ function QueueView({ queue, onBack }: { queue: QueueItem[]; onBack?: () => void 
       {busy.length ? (
         <section className={`${card} flex flex-col`}>
           <div className="flex items-center gap-2.5 px-4 py-3.5">
-            <span className="odds-working"><OddsMark size={28} /></span>
+            <img src="/icon.svg" alt="" className="size-7 shrink-0" />
             <span className="flex-1 text-[15px] font-extrabold">Odds is working on {busy.length}</span>
           </div>
           {busy.map((q) => line(q, <span className="text-xs font-bold text-brand-ink">Filling</span>, q.message))}

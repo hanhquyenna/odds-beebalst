@@ -4,7 +4,6 @@ import { WhyDeck } from "@/components/WhyDeck"
 import { copyText } from "@/lib/clipboard"
 import { MIND_MAP, SOURCES, type MapNode } from "@/lib/outreach-strategy"
 import { openResearch } from "@/lib/research-link"
-import logoUrl from "@/logo.svg"
 
 /** Why reaching out matters, as a short slide deck that is the whole panel: the link above it carries the question, so the panel has no title of its own. Closes with the X (a white round button, so it shows on the black and orange slides too) and stays closed on later visits until it is opened again from its link. */
 export function WhyOutreach({ onClose }: { onClose: () => void }): React.JSX.Element {
@@ -189,7 +188,7 @@ function MindMap({ copied, onCopy }: { copied: string | null; onCopy: (text: str
         <span aria-hidden="true" className={`h-1 ${LINE}`} />
         <Fork left={{ label: "yes", body: <Outcome node={refYes} yes /> }} right={{ label: "no", body: <Outcome node={refNo} yes={false} /> }} />
         <Arrow />
-        <Step node={log} mark={<img src={logoUrl} alt="odds" className="size-12" />} />
+        <Step node={log} mark={<img src="/icon.svg" alt="odds" className="size-12" />} />
 
         <div className="relative mt-4 flex h-12 w-full justify-center">
           <span aria-hidden="true" className="h-full w-0.5 border-l-2 border-dashed border-brand/50" />

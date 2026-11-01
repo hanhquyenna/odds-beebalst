@@ -4,7 +4,6 @@ import { SortSelect } from "@/components/SortSelect"
 import { JOB_SORTS, sortJobs, type JobSortKey } from "@/lib/sort"
 import { JobBoard } from "@/components/JobBoard"
 import { Button } from "@/components/ui/button"
-import logoUrl from "@/logo.svg"
 import { useData } from "@/lib/data"
 import { isGuestEmail } from "@/lib/auth"
 import { FilterBus } from "@/lib/filter-bus"
@@ -59,7 +58,7 @@ export function Landing({ onStart, onSignIn, onOpenPage }: LandingProps): React.
       <section className="relative left-1/2 -mt-8 w-screen -translate-x-1/2 bg-background pt-16 pb-4 sm:pt-28 sm:pb-6">
         <div className="mx-auto w-full max-w-sm px-5 sm:max-w-2xl sm:px-6 lg:max-w-6xl lg:px-10">
           <h1 className="max-w-5xl text-[clamp(2.5rem,6.5vw,6rem)] leading-[0.95] font-bold tracking-[-0.045em] text-balance">ever wondered your <span className="hero-warm text-brand">interview odds</span> as an <span className="hero-warm hero-warm-late text-brand">international student?</span>
-            <img src={logoUrl} alt="" aria-hidden="true" className="ml-[0.15em] inline-block size-[0.82em] align-[-0.06em]" />
+            <img src="/icon.svg" alt="" aria-hidden="true" className="ml-[0.15em] inline-block size-[0.82em] align-[-0.06em]" />
           </h1>
           <div className="mt-16 flex flex-col items-start gap-28 sm:mt-24 sm:gap-40">
             <div className="flex items-center gap-3">

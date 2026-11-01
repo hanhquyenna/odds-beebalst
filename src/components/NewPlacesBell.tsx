@@ -225,7 +225,7 @@ export function NewJobsBell({ onOpen, refresh }: NewJobsBellProps): React.JSX.El
           {/* The same picture as the two first-sign-in panels, small: the odds app icon on the brand colour. */}
           <div aria-hidden="true" className="relative flex h-24 items-center justify-center bg-[radial-gradient(120%_90%_at_50%_0%,oklch(0.78_0.17_60),var(--brand)_55%,var(--brand-ink))]">
             <span className="relative">
-              <img src="/icons/apple-touch-icon.png" alt="" className="size-14 rounded-[22%] shadow-lg" />
+              <img src="/icon.svg" alt="" className="size-14 rounded-full shadow-lg" />
               <span className="absolute -right-2 -bottom-2 flex size-7 items-center justify-center rounded-full bg-white text-brand shadow-md">
                 {push.state === "install" ? <span className="text-lg leading-none font-semibold">+</span> : <BellSimpleIcon weight="fill" className="size-4" />}
               </span>
