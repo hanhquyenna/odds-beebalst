@@ -899,6 +899,13 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     peek(message.url).then(reply)
     return true
   }
+  // Whether Chrome's side panel is showing on the asking tab (the page then draws no panel of its own).
+  if (message?.type === "side-panel-open" && sender.tab && typeof sender.tab.id === "number") {
+    const tab = sender.tab
+    const contexts = chrome.runtime.getContexts ? chrome.runtime.getContexts({ contextTypes: ["SIDE_PANEL"] }) : Promise.resolve([])
+    contexts.then((all) => reply({ open: all.some((c) => c.tabId === tab.id || (c.tabId === -1 && c.windowId === tab.windowId)) }), () => reply({ open: false }))
+    return true
+  }
   // A press on the odds button on a page: open the browser's side panel on that tab at once (it must happen inside the press), allowing odds to be framed there first.
   if (message?.type === "open-side-panel" && sender.tab && typeof sender.tab.id === "number") {
     const tabId = sender.tab.id
