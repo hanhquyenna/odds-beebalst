@@ -429,7 +429,7 @@ const BASE_TOOLS = [
   },
   {
     name: "screenshot",
-    description: "See the tab as the person sees it, when read_page cannot show or move what you need (a fill or click that did not take, a custom dropdown, date picker or slider, an overlay, a canvas). A picture at most 1280 pixels wide; each read_page field and button on screen is boxed with its id (f… blue, b… pink), and marks lists them with their centre. Act on a boxed id by id (fill, click); click_at only what has no box. region [x1, y1, x2, y2] (pixels of the last screenshot) zooms into that part, unboxed, to read small text.",
+    description: "See the tab as the person sees it, when read_page cannot show or move what you need (a fill or click that did not take, a custom dropdown, date picker or slider, an overlay, a canvas). Odds looks at a picture at most 1280 pixels wide and sends you what it shows as text (sight); each read_page field and button on screen is boxed with its id (f… blue, b… pink), and marks lists them with their centre. Act on a boxed id by id (fill, click); click_at only what has no box. region [x1, y1, x2, y2] (pixels of the last screenshot) zooms into that part, unboxed, to read small text.",
     inputSchema: { type: "object", properties: { run_id: { type: "string" }, region: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4, description: "Zoom only: [x1, y1, x2, y2], a small part of the last full screenshot of this page, in its pixels. Leave it out for the full picture." } }, required: ["run_id"] },
   },
   {
@@ -562,6 +562,11 @@ function signInWall(page: Json): boolean {
   // A dialog open over the form shows only itself (no fields), so a password box behind it says nothing about the page: not a wall.
   return says || (!page.dialog && page.password_field === true && asks.length === 0)
 }
+/**
+ * Pictures go to the agent's model only when ODDS_DRIVE_IMAGES=1. Through 9router a picture in a tool result reaches the model as
+ * ~80k tokens of base64 text it cannot see (measured: it answered UNKNOWN; the same picture in a user message is ~1.5k tokens and read).
+ */
+const imagesToModel = (): boolean => Deno.env.get("ODDS_DRIVE_IMAGES") === "1"
 /** The steps Broods takes by the screen: while it is looking (it took a screenshot of this page) each answers with a fresh picture. */
 const SCREEN_STEPS = ["click_at", "type_text", "press_key", "scroll"]
 /** What goes with a picture in the text Broods reads: its size and coordinate space, and the read_page ids boxed on it. */
@@ -915,7 +920,11 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       if (name === "screenshot" && typeof res.image === "string") {
         const { image, mime: _mime, ...meta } = res
         void svc(env, `drive_commands?id=eq.${cmd.id}`, { method: "PATCH", body: JSON.stringify({ result: { ...meta, image: "(sent)" } }) }).catch(() => undefined)
-        return { text: JSON.stringify(shotText(meta)), image }
+        if (imagesToModel()) return { text: JSON.stringify(shotText(meta)), image }
+        // The agent's model cannot see a picture in a tool result (9router passes it as ~80k tokens of text): the sight model reads it instead.
+        const looked = await describeShotDetailed(sightEnv((n) => Deno.env.get(n)), image, 20_000, fetch, [])
+        if (!looked.text) return { text: JSON.stringify({ ...shotText(meta), error: `Odds could not describe the screen (${looked.diag.error ?? "no sight"}). Work from read_page.` }), error: true }
+        return { text: JSON.stringify({ ...shotText(meta), sight: looked.text }) }
       }
       // A fill that ran out of its time window (a slow dropdown) leaves the rest "not tried": Odds sends those fields again itself, once more, so Broods gets one answer for the whole fill and never gives up on fields nobody tried.
       if (name === "fill" && Array.isArray(res.results) && Array.isArray(rest.fields)) {
@@ -997,7 +1006,7 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       }
       // Trouble: only when the step went wrong (a fill not kept, a click that changed nothing, a new error or pop-up, far fewer fields
       // than before), the server takes a picture, shows it to the sight model and hands Broods its short text and the picture itself
-      // (Broods sees MCP images now; about 1,200 tokens each), so it can act on it at once. A look at every new page put a picture and
+      // (the picture itself only with ODDS_DRIVE_IMAGES=1: see imagesToModel), so it can act on it at once. A look at every new page put a picture and
       // a model call (seconds) on the path of every step that reached one. No sight model configured: the picture alone.
       let troubleShot: { image: string; meta: Json } | undefined
       if (["read_page", "fill", "click", "click_at", "scroll", "upload_cv", "back", "open_job"].includes(name) && live(run)) {
@@ -1032,8 +1041,13 @@ async function callTool(env: Env, name: string, args: Json): Promise<{ text: str
       // The picture Broods gets with this step: a screen step's fresh look, or the one taken for trouble.
       const seen = shotImage && SCREEN_STEPS.includes(name) ? { image: shotImage, meta: shotMeta } : troubleShot
       if (seen) shown.screenshot = shotText(seen.meta ?? {})
+      // No picture for a model that cannot see one: what the screen shows comes as the sight model's text (already there after trouble).
+      if (seen && !imagesToModel() && !shown.sight && !shown.page?.sight) {
+        const looked = await describeShotDetailed(sightEnv((n) => Deno.env.get(n)), seen.image, 20_000, fetch, [])
+        if (looked.text) shown.sight = looked.text
+      }
       // Whatever else is a very long string (a stray image, a page dump) never goes into the text the model reads.
-      return { text: JSON.stringify(shown, (_k, v) => (typeof v === "string" && v.length > 20_000 ? "(omitted: too long)" : v)).slice(0, 30_000), ...(seen ? { image: seen.image } : {}) }
+      return { text: JSON.stringify(shown, (_k, v) => (typeof v === "string" && v.length > 20_000 ? "(omitted: too long)" : v)).slice(0, 30_000), ...(seen && imagesToModel() ? { image: seen.image } : {}) }
     }
     if (row?.status === "cancelled" || row?.status === "expired") {
       const kind = row.result?.timeout || row.status

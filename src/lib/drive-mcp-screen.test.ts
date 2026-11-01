@@ -15,6 +15,10 @@ let queued: Command[]
 let patched: string[]
 /** What the tab answers to each step the server queues, by tool. */
 let answers: Record<string, unknown>
+let env: Record<string, string>
+/** What the sight model was sent, and what it answers. */
+let sightAsked: string[]
+const SIGHT = "A form: Country is an open dropdown listing Netherlands; Next at the bottom."
 
 beforeEach(() => {
   original = globalThis.fetch
@@ -22,11 +26,17 @@ beforeEach(() => {
   queued = []
   patched = []
   answers = {}
-  // Only the drive secret: no sight model.
-  Object.assign(globalThis, { Deno: { env: { get: (name: string): string | undefined => (name === "ODDS_DRIVE_SECRET" ? "s" : undefined) } } })
+  env = { ODDS_DRIVE_SECRET: "s", ODDS_DRIVE_IMAGES: "1" }
+  sightAsked = []
+  // The drive secret and pictures to the model (the image tests); no sight model unless a test sets one.
+  Object.assign(globalThis, { Deno: { env: { get: (name: string): string | undefined => env[name] } } })
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
     const sent = typeof init?.body === "string" ? init.body : ""
+    if (url.startsWith("https://router.example/")) {
+      sightAsked.push(sent)
+      return new Response(JSON.stringify({ choices: [{ message: { content: SIGHT } }] }), { status: 200 })
+    }
     let body: unknown = []
     if (url.includes("drive_runs?id=eq.") && !init?.method) body = [{ id: RUN, status: "running", steps: 0, expires_at: new Date(Date.now() + 60_000).toISOString() }]
     if (url.endsWith("drive_commands") && init?.method === "POST") {
@@ -53,6 +63,39 @@ test("the wait tool is gone: not listed, and refused if called", async () => {
   const res = (await call("wait", { seconds: 3 })) as { isError?: boolean; content: Content }
   expect(res.isError).toBe(true)
   expect(res.content[0]!.text).toBe("Unknown tool wait.")
+})
+
+test("by default no picture goes to the agent's model (it cannot see one in a tool result): a screenshot comes back as the sight model's text, with its coordinates", async () => {
+  env = { ODDS_DRIVE_SECRET: "s", NINE_ROUTER_BASE_URL: "https://router.example/v1", NINE_ROUTER_API_KEY: "k" }
+  answers.screenshot = { image: IMAGE, mime: "image/jpeg", width: 1280, height: 800, viewportWidth: 1440, viewportHeight: 900, frameX: 0, frameY: 0, frame: "top", marks: MARKS }
+  const res = (await call("screenshot", {})) as { content: Content }
+  expect(res.content.map((c) => c.type)).toEqual(["text"])
+  const text = JSON.parse(res.content[0]!.text!) as { sight: string; coordinates: string; marks: unknown[] }
+  expect(text.sight).toBe(SIGHT)
+  expect(text.coordinates).toContain("click_at takes these")
+  expect(text.marks).toEqual([{ id: "b2", label: "Next", x: 600, y: 700 }])
+  // The picture went to the sight model only.
+  expect(sightAsked.length).toBe(1)
+  expect(sightAsked[0]).toContain(IMAGE)
+  expect(res.content[0]!.text).not.toContain(IMAGE)
+})
+
+test("by default a screen step's fresh picture comes back as text too", async () => {
+  env = { ODDS_DRIVE_SECRET: "s", NINE_ROUTER_BASE_URL: "https://router.example/v1", NINE_ROUTER_API_KEY: "k" }
+  answers.click_at = { ok: true, clicked: "Country", page: PAGE, screenshot: { image: IMAGE, mime: "image/jpeg", width: 1280, height: 800, marks: MARKS } }
+  const res = (await call("click_at", { x: 300, y: 200 })) as { content: Content }
+  expect(res.content.map((c) => c.type)).toEqual(["text"])
+  expect(JSON.parse(res.content[0]!.text!).sight).toBe(SIGHT)
+  expect(res.content[0]!.text).not.toContain(IMAGE)
+})
+
+test("with no sight model a screenshot says so plainly and sends no picture", async () => {
+  env = { ODDS_DRIVE_SECRET: "s" }
+  answers.screenshot = { image: IMAGE, mime: "image/jpeg", width: 1280, height: 800, marks: MARKS }
+  const res = (await call("screenshot", {})) as { isError?: boolean; content: Content }
+  expect(res.isError).toBe(true)
+  expect(res.content.map((c) => c.type)).toEqual(["text"])
+  expect(res.content[0]!.text).toContain("Work from read_page")
 })
 
 test("a screenshot comes as an image, with its coordinate space and the read_page ids boxed on it as text; the stored row keeps no image", async () => {

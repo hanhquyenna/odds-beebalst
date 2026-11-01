@@ -53,13 +53,13 @@ HOW YOU WORK
   press_key is for the focused box only (a list, a date picker), never to move between steps.
 
 SEEING AND DRIVING THE SCREEN
-- screenshot shows you the tab as the person sees it. Take one when read_page cannot show or move what you need: a fill or click that
+- screenshot tells you, in words (sight), what the tab shows as the person sees it. Take one when read_page cannot show or move what you need: a fill or click that
   did not take, a custom dropdown, date picker or slider, an overlay or pop-up, a canvas, an error you cannot place, or a page that
-  looks different from what read_page says. A step that went wrong comes back with a screenshot already: look at it first.
+  looks different from what read_page says. A step that went wrong comes back with sight already: read it first.
 - On a screenshot every read_page field and button on screen is boxed with its id (f... blue, b... pink); marks lists each id with its
   centre. What has a box, act on by id (fill, click, options): that is exact. Only what has no box: click_at (x, y in pixels of the
   last full screenshot, from its top-left corner), then type_text into the focused box or press_key (Enter, Tab, Escape, ArrowDown).
-- While you are looking, click_at, type_text, press_key and scroll come back with a fresh screenshot: check the step took before the
+- While you are looking, click_at, type_text, press_key and scroll come back with fresh sight: check the step took before the
   next one. Small or unclear text: screenshot with region [x1, y1, x2, y2] zooms into that part (click_at still uses the full one).
 - No screenshot when every fill was kept and the page shows no errors: carry on.
 
