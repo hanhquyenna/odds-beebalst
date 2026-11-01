@@ -1,3 +1,5 @@
+import { useApplyQueue } from "@/lib/apply-queue"
+import { QueueLine } from "@/components/ApplicationMonitor"
 import { Suspense, lazy, useEffect, useMemo, useState } from "react"
 import { JobDrawer } from "@/components/JobBoard"
 import { JobFilters, MultiPick } from "@/components/JobFilters"
@@ -75,7 +77,9 @@ export function Account({ page = "home", onStartLooking, onOpenClaude, onOpenPag
   const [drawerPost, setDrawerPost] = useState<Posting | null>(null)
   const [historyPostingId, setHistoryPostingId] = useState<string | null>(null)
   const monitor = useApplicationMonitor(data.session?.user.id ?? null, page === "tracker")
-  const hasActivity = monitor.attempts.length > 0 || data.applications.length > 0 || Boolean(monitor.error)
+  const applyQueue = useApplyQueue(Boolean(data.session))
+  // Anything to follow: past runs, logged applications, or a job in the apply queue.
+  const hasActivity = monitor.attempts.length > 0 || data.applications.length > 0 || Boolean(monitor.error) || applyQueue.items.length > 0
   const [historyPosts, setHistoryPosts] = useState<{ userId: string; posts: Posting[] }>({ userId: "", posts: [] })
   const userId = data.session?.user.id ?? ""
   const allPosts = useMemo(() => [...new Map([...(historyPosts.userId === userId ? historyPosts.posts : []), ...data.keptExtra, ...data.postings].map((post) => [post.id, post])).values()], [data.postings, data.keptExtra, historyPosts, userId])
@@ -146,11 +150,11 @@ export function Account({ page = "home", onStartLooking, onOpenClaude, onOpenPag
     void applyTick
     const applied = new Set(data.applications.map((a) => a.posting_id))
 
-    // Jobs you kept that have closed since are still here, marked closed.
+    // A job that closed while it was only saved is gone from the Tracker (nothing to do with it any more); one you applied to stays.
     // Live Apply pins also show even if save state races behind the Tracker jump.
-    return allPosts.filter((post) => data.saved.has(post.id) || applied.has(post.id) || monitor.attempts.some((attempt) => attempt.run.posting_id === post.id) || isLiveApply(applyActivityOf(post.id)))
+    return allPosts.filter((post) => (post.closed_at && !applied.has(post.id) && stepOf(data, post) === "saved" ? false : data.saved.has(post.id) || applied.has(post.id) || monitor.attempts.some((attempt) => attempt.run.posting_id === post.id) || isLiveApply(applyActivityOf(post.id))))
     // applyTick: re-include rows when Apply activity starts/stops
-  }, [allPosts, data.saved, data.applications, monitor.attempts, applyTick])
+  }, [allPosts, data, monitor.attempts, applyTick])
   // The open view's filters: the usual job filters, then the ones on your own search (status, follow-up due, closed).
   const shown = useMemo(
     () =>
@@ -263,6 +267,7 @@ export function Account({ page = "home", onStartLooking, onOpenClaude, onOpenPag
           ) : (
             <>
               <TrackerBar layout={layout} onLayout={chooseLayout} onImport={() => setAddPanel((current) => panelWith(current, "upload"))} onAdd={() => setAddPanel((current) => panelWith(current, "one"))} />
+              <QueueLine />
               {kept.length > 0 ? <TrackerStats posts={kept} /> : null}
               <JobFilters search={false} open={filtersOpen} filters={filters} onChange={saved.setFilters} extra={<>{hasActivity ? <MultiPick label="Activity" any="All activity" items={APPLICATION_ACTIVITY_GROUPS} value={activityFilter} onChange={(values) => setActivityChoice({ viewId: active.id, values: values })} /> : null}</>} />
               {kept.length === 0 && !applicationTable ? (

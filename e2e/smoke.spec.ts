@@ -146,7 +146,7 @@ test.describe("signed-in account", () => {
   })
 
   test("the top of Home opens to numbers worked out from the applications: no reply, first reply, longest wait, how far they get", async ({ page }) => {
-    const day = (ago: number): string => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10)
+    const day = (ago: number): string => new Date(Date.now() - ago * 86_400_000).toLocaleDateString("sv-SE") // the local day, as the app counts days
     const rows = [
       { id: 1, posting_id: FLOW_POSTINGS[0].id, fit_tier: "mid", stage: "applied", logged_at: day(19) },
       { id: 2, posting_id: FLOW_POSTINGS[1].id, fit_tier: "mid", stage: "interview", logged_at: day(30) },
@@ -191,7 +191,7 @@ test.describe("signed-in account", () => {
   })
 
   test("the top bar holds Jobs, Applications, Tracker, Documents, Autofill and People; Connect is in the account menu; Home shows what is due and opens the job", async ({ page }) => {
-    const day = (ago: number): string => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10)
+    const day = (ago: number): string => new Date(Date.now() - ago * 86_400_000).toLocaleDateString("sv-SE") // the local day, as the app counts days
     await page.route("**/rest/v1/applications*", (route) => route.fulfill({ json: route.request().method() === "GET" ? [{ id: 1, posting_id: FLOW_POSTINGS[0].id, fit_tier: "mid", stage: "applied", logged_at: day(12) }] : [] }))
     await page.goto("/")
     // Home is the dashboard: no switch between three things, only what is waiting.

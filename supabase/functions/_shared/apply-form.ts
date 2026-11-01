@@ -55,6 +55,21 @@ export function applicationQuestionKey(label: string, jobId?: string | null): st
   return jobId && /\b(visa|sponsor\w*|authori[sz]\w*|permit|citizen\w*|enroll\w*|study\w*|studies|student|internship|graduat\w*|start date|available|availability|relocat\w*)\b/.test(key) ? `${key.slice(0, 240)} job ${jobId.slice(0, 50)}` : key
 }
 
+/**
+ * A bare yes or no is never the answer to an open question ("What attracts you…", "Tell us…", "Hoe heb je…", "in 3 sentences"): such
+ * an answer is not kept, not offered again and not typed. A yes/no question ("Are you…", "Do you…", "Can you…") may take one.
+ */
+export function answerFitsQuestion(question: string, answer: string): boolean {
+  const a = answer.trim().toLowerCase().replace(/[.!]+$/, "")
+  if (!/^(yes|no|ja|nee|oui|non|si|true|false|y|n)$/.test(a)) return true
+  const q = questionText(question).toLowerCase().replace(/^[^a-z]+/, "")
+  // "Using a maximum of 3 sentences…", "in 100 words", "maximaal 3 zinnen"
+  if (/\b(sentences?|words?|zinnen|woorden|characters)\b/.test(q)) return false
+  // A question that asks for an answer in words, not a yes or no.
+  if (/^(what|why|how|which|where|when|who|tell|describe|explain|share|give|write|provide|list|motivate|please (tell|describe|explain|share|give|write|provide|list)|wat|waarom|hoe|welke|waar|wanneer|wie|vertel|beschrijf|omschrijf|leg uit|pourquoi|comment|quel|quelle)\b/.test(q)) return false
+  return true
+}
+
 /** The label as shown, said once (LinkedIn repeats it for screen readers). */
 export function questionText(label: string): string {
   // A form's "required" star is not part of the question.
@@ -273,6 +288,11 @@ export function heardChoice(options: ReadonlyArray<string>, source: string | nul
 
 /** The person's answer to a question, in their words, or null when odds does not know it. Their own earlier answer comes first. */
 export function answerText(label: string, facts: Facts): string | null {
+  const value = answerTextRaw(label, facts)
+  // Whatever the rule or a kept answer says, a bare yes/no never goes into an open question.
+  return value && !answerFitsQuestion(label, value) ? null : value
+}
+function answerTextRaw(label: string, facts: Facts): string | null {
   const key = questionKey(label)
   const a = facts.answers ?? {}
   const remembered = facts.remembered?.[applicationQuestionKey(label, facts.job_id)]

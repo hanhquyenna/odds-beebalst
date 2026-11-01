@@ -95,4 +95,28 @@ test.describe("Applications: the one page for what Odds is doing", () => {
     await page.getByRole("button", { name: "Find jobs" }).click()
     await expect(page.locator("[data-job-row]").first()).toBeVisible()
   })
+
+  test("the Tracker shows the queue: what Odds is filling, what is next, what needs you, first and with one button each", async ({ page }) => {
+    await fakeQueue(page, [row(0, "waiting"), row(1, "working"), row(2, "needs_you", "captcha"), row(3, "waiting")])
+    // Pressing Apply keeps the job in the Tracker, so the four are saved there.
+    await page.route("**/rest/v1/saved_jobs?**", (route) => route.fulfill({ json: [0, 1, 2, 3].map((i) => ({ posting_id: FLOW_POSTINGS[i].id })) }))
+    await page.goto("/")
+    await page.getByRole("navigation", { name: "Your account" }).getByRole("button", { name: "Tracker", exact: true }).click()
+    // The queue line is on the Board (the Tracker's first layout) as well as the Table.
+    const line = page.getByRole("status", { name: "Your queue" })
+    await expect(line.getByText("Odds is filling in 1")).toBeVisible()
+    await expect(line.getByText("2 up next")).toBeVisible()
+    await expect(line.getByText("1 needs you")).toBeVisible()
+    await page.getByRole("group", { name: "Layout", exact: true }).getByRole("button", { name: "Table", exact: true }).click()
+    const tracker = page.getByRole("region", { name: "Application activity" })
+    // Queued jobs come first: needs you, filling in, then up next in line order.
+    expect(await tracker.locator("[data-queue-status]").evaluateAll((els) => els.map((e) => e.getAttribute("data-queue-status")))).toEqual(["needs_you", "working", "waiting", "waiting"])
+    await expect(tracker.getByText(/1st in line/)).toBeVisible()
+    await expect(tracker.getByRole("button", { name: "Watch" })).toBeVisible()
+    await expect(tracker.getByRole("button", { name: "Go to the tab" })).toBeVisible()
+    await expect(tracker.getByRole("button", { name: "Remove" })).toHaveCount(2)
+    await shot(page, "tracker-queue")
+    await line.getByRole("button", { name: "See all" }).click()
+    await expect(page.getByRole("heading", { name: "Odds is working on 1 application" })).toBeVisible()
+  })
 })

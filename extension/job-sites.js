@@ -1,4 +1,4 @@
-// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts, apply-form.ts, apply-censor.ts and drive-screen.ts (sources 067d416dd61d7f63). Do not edit.
+// Built by scripts/build-extension.sh from supabase/functions/_shared/job-sites.ts, apply-form.ts, apply-censor.ts and drive-screen.ts (sources 5fe9162a12f1a469). Do not edit.
 (() => {
   var __defProp = Object.defineProperty;
   var __returnValue = (v) => v;
@@ -19,6 +19,7 @@
   var exports_apply_form = {};
   __export(exports_apply_form, {
     agentCanAnswer: () => agentCanAnswer,
+    answerFitsQuestion: () => answerFitsQuestion,
     answerText: () => answerText,
     applicationQuestionKey: () => applicationQuestionKey,
     chooseOption: () => chooseOption,
@@ -50,6 +51,17 @@
   function applicationQuestionKey(label, jobId) {
     const key = questionKey(label);
     return jobId && /\b(visa|sponsor\w*|authori[sz]\w*|permit|citizen\w*|enroll\w*|study\w*|studies|student|internship|graduat\w*|start date|available|availability|relocat\w*)\b/.test(key) ? `${key.slice(0, 240)} job ${jobId.slice(0, 50)}` : key;
+  }
+  function answerFitsQuestion(question, answer) {
+    const a = answer.trim().toLowerCase().replace(/[.!]+$/, "");
+    if (!/^(yes|no|ja|nee|oui|non|si|true|false|y|n)$/.test(a))
+      return true;
+    const q = questionText(question).toLowerCase().replace(/^[^a-z]+/, "");
+    if (/\b(sentences?|words?|zinnen|woorden|characters)\b/.test(q))
+      return false;
+    if (/^(what|why|how|which|where|when|who|tell|describe|explain|share|give|write|provide|list|motivate|please (tell|describe|explain|share|give|write|provide|list)|wat|waarom|hoe|welke|waar|wanneer|wie|vertel|beschrijf|omschrijf|leg uit|pourquoi|comment|quel|quelle)\b/.test(q))
+      return false;
+    return true;
   }
   function questionText(label) {
     const t = label.replace(/\s+/g, " ").replace(/\s*\*+\s*$/, "").trim();
@@ -223,6 +235,10 @@
     return -1;
   }
   function answerText(label, facts) {
+    const value = answerTextRaw(label, facts);
+    return value && !answerFitsQuestion(label, value) ? null : value;
+  }
+  function answerTextRaw(label, facts) {
     const key = questionKey(label);
     const a = facts.answers ?? {};
     const remembered = facts.remembered?.[applicationQuestionKey(label, facts.job_id)];

@@ -362,3 +362,18 @@ test("a year of study said in words picks its option; with two levels it is neve
   expect(chooseOption(["Year 1", "Year 2", "Year 3"], "Second year", label)).toBe(1)
   expect(chooseOption(["First year", "Second year"], "2nd year", label)).toBe(1)
 })
+
+describe("a bare yes or no never answers an open question", () => {
+  test("open questions refuse yes/no; yes/no questions take it; written answers always fit", async () => {
+    const { answerFitsQuestion, answerText } = await import("../../supabase/functions/_shared/apply-form")
+    expect(answerFitsQuestion("Using a maximum of 3 sentences, please tell us what attracts you to this internship? *", "yes")).toBe(false)
+    expect(answerFitsQuestion("What skills or knowledge are you hoping to develop during your internship?", "yes")).toBe(false)
+    expect(answerFitsQuestion("Hoe heb jij de weg naar Just Brands gevonden?", "yes")).toBe(false)
+    expect(answerFitsQuestion("Why do you want to work here?", "No.")).toBe(false)
+    expect(answerFitsQuestion("Do you currently reside in the Netherlands?", "Yes")).toBe(true)
+    expect(answerFitsQuestion("Are you able to work 40 hours per week?", "yes")).toBe(true)
+    expect(answerFitsQuestion("What attracts you to this internship?", "Tony's mission to end slavery in cocoa.")).toBe(true)
+    // A kept "yes" for an open question is never typed.
+    expect(answerText("What skills or knowledge are you hoping to develop during your internship?", { remembered: { "what skills or knowledge are you hoping to develop during your internship": "yes" } } as never)).toBeNull()
+  })
+})
