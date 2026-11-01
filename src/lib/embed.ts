@@ -37,7 +37,7 @@ export interface PanelInfo {
   /** At review: the answers on the form Autofill does not have yet. */
   answers?: Array<{ question: string; answer: string; long?: boolean }>
 }
-export interface QueueItem { tabId: number; title: string; site: string; state: string; message: string; postingId: string | null; at: number }
+export interface QueueItem { tabId: number; title: string; site: string; state: string; message: string; postingId: string | null; runId?: string | null; at: number }
 let panelInfo: PanelInfo | null = null
 const panelListeners = new Set<(info: PanelInfo | null) => void>()
 export function onPanelInfo(listener: (info: PanelInfo | null) => void): () => void {

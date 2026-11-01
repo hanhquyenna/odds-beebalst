@@ -642,7 +642,8 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
         if (!intent) return
         const hunt = { tries: 0, dead: [], tried: [], ...(intent.hunt || {}) }
         if (message.op === "title" && typeof message.title === "string") {
-          all[tabId] = { ...intent, title: message.title.slice(0, 200) }
+          // The panel's "Role · Company" (what the queue shows) is kept over the page's own heading.
+          if (!/ · /.test(intent.title || "")) all[tabId] = { ...intent, title: message.title.slice(0, 200) }
         } else if (message.op === "note") {
           if (message.try) hunt.tries += 1
           if (typeof message.dead === "string" && !hunt.dead.includes(message.dead)) hunt.dead = [...hunt.dead, message.dead.slice(0, 500)].slice(-20)
@@ -1118,6 +1119,8 @@ async function applicationQueue() {
       state: intent.status || "filling",
       message: String(intent.message || "").replace(/\s+/g, " ").trim().slice(0, 200),
       postingId: intent.postingId || null,
+      // The Broods run in this tab: the panel reads the run itself (the truth) over the tab's last line.
+      runId: typeof intent.driveRun === "string" ? intent.driveRun : null,
       at: intent.at,
     })
   }
@@ -1359,7 +1362,7 @@ function openApplication(url, from, opts = {}) {
       const learned = await learnedApplyUrl(matched.intent.postingId || postingId, matched.intent.job || applyUrl)
       const tabs = await chrome.tabs.query({})
       const better = tabs.find((t) => t.id !== matched.tab.id && learned && t.url && t.url.split("#")[0] === learned.split("#")[0])
-        || (matched.intent.title ? tabs.find((t) => t.id !== matched.tab.id && /^https:/.test(t.url || "") && !/linkedin\.com|indeed\.|glassdoor\./i.test(t.url || "") && namesJob(matched.intent.title, t.title)) : null)
+        || (matched.intent.title ? tabs.find((t) => t.id !== matched.tab.id && /^https:/.test(t.url || "") && !/linkedin\.com|indeed\.|glassdoor\./i.test(t.url || "") && namesJob(matched.intent.title.split(" · ")[0], t.title)) : null)
       if (better?.id) {
         await changeIntents((all) => { all[better.id] = { ...matched.intent, at: Date.now(), status: "filling", message: "Filling in the background…", hunt: undefined } })
         matched = { tab: better, intent: { ...matched.intent, status: "filling" } }

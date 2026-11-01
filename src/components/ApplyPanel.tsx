@@ -4,6 +4,7 @@ import type { JobTab } from "@/components/JobDetail"
 import { sourcesOf } from "@/components/SourceChips"
 import { Button } from "@/components/ui/button"
 import { useData } from "@/lib/data"
+import { liveDriveRuns, type DriveRun } from "@/lib/drive-runs"
 import { fetchKeptPostings } from "@/lib/jobs"
 import { applySourceOf } from "@/lib/apply-source"
 import { onPanelInfo, toExtension, type PanelInfo, type QueueItem } from "@/lib/embed"
@@ -25,8 +26,11 @@ export function ApplyPanel(): React.JSX.Element | null {
   const [info, setInfo] = useState<PanelInfo | null>(null)
   const [away, setAway] = useState<string | null>(null)
   const [view, setView] = useState<"job" | "queue">("job")
+  // The person went back to Odds itself from the queue (on this page): the app, until the page in front changes.
+  const [home, setHome] = useState<string | null>(null)
   const [tab, setTab] = useState<{ tab: JobTab; at: number } | undefined>(undefined)
   useEffect(() => onPanelInfo(setInfo), [])
+  const queue = useQueue(info?.queue ?? [])
   // The job's own posting: from the loaded pool, else fetched by id (a job just read from its page is not in the pool yet).
   const jobId = info?.job_id ?? null
   const known = jobId ? data.byId.get(jobId) ?? null : null
@@ -52,14 +56,15 @@ export function ApplyPanel(): React.JSX.Element | null {
       </div>
     )
   }
-  const queue = info?.queue ?? []
+  const here = page?.url ?? "none"
   // Not on a job page (or the person went to My jobs): the queue when there is one, else the app.
   const onJob = Boolean(page && info?.connected && away !== page.url)
-  if (!onJob && !queue.length) return null
+  if (home === here || (!onJob && !queue.length)) return null
   if (!onJob || view === "queue") {
+    const toApp = (): void => { setView("job"); setHome(here) }
     return (
       <Shell>
-        <QueueView queue={queue} onBack={onJob ? () => setView("job") : undefined} />
+        <QueueView queue={queue} onBack={onJob ? () => setView("job") : toApp} backLabel={onJob ? "Back to the job" : "Back to Odds"} onMore={toApp} />
       </Shell>
     )
   }
@@ -97,6 +102,29 @@ function Shell({ children }: { children: React.ReactNode }): React.JSX.Element {
     return () => document.body.classList.remove("web")
   }, [])
   return <div data-apply-panel className="fixed inset-0 z-50 flex flex-col gap-3 overflow-y-auto bg-background p-3.5 [&>*]:shrink-0">{children}</div>
+}
+
+/**
+ * The queue with each application's state taken from its Broods run (the truth) when it has one: a run that ended (needs you, ready,
+ * stuck) shows so even while its background tab has not said it yet.
+ */
+function useQueue(items: QueueItem[]): QueueItem[] {
+  const [runs, setRuns] = useState<Map<string, DriveRun>>(new Map())
+  const ids = items.map((q) => q.runId).filter(Boolean).join(",")
+  useEffect(() => {
+    if (!ids) return
+    let live = true
+    const read = (): void => { void liveDriveRuns().then((all) => { if (live) setRuns(new Map(all.map((r) => [r.id, r]))) }).catch(() => undefined) }
+    read()
+    const timer = window.setInterval(read, 4000)
+    return () => { live = false; window.clearInterval(timer) }
+  }, [ids])
+  return useMemo(() => items.map((q) => {
+    const run = q.runId ? runs.get(q.runId) : undefined
+    if (!run) return q
+    const state = run.status === "running" ? "filling" : run.status === "review" ? "ready" : run.status === "needs_you" ? "needs_input" : run.status === "submitted" ? "submitted" : "failed"
+    return { ...q, state, message: (state === "filling" ? run.last_note || q.message : run.message || run.last_note || q.message) ?? "" }
+  }), [items, runs])
 }
 
 const card = "rounded-[18px] border-[1.5px] border-line bg-card"
@@ -322,6 +350,14 @@ function Details({ info, post, onCompany, onCv }: { info: PanelInfo; post: Posti
   )
 }
 
+/** "Role · Company" as the panel queued it, else the tab's title and its site. */
+const jobOf = (q: QueueItem): string => q.title.split(" · ")[0] || q.site
+const companyOf = (q: QueueItem): string => q.title.split(" · ")[1] || q.site
+function QueueLogo({ item }: { item: QueueItem }): React.JSX.Element {
+  const company = companyOf(item)
+  return <CompanyLogo employer={company} name={company} size={32} wide={1.3} url={item.site ? `https://${item.site}` : undefined} />
+}
+
 /** One application that needs the person: what is in the way, Go to the tab (the one press that brings it forward), or Skip it. */
 function NeedsYou({ item }: { item: QueueItem }): React.JSX.Element {
   const text = item.message.replace(/^needs you:\s*/i, "")
@@ -339,7 +375,7 @@ function NeedsYou({ item }: { item: QueueItem }): React.JSX.Element {
         </span>
         <div className="flex min-w-0 flex-col gap-0.5">
           <span className="text-lg leading-tight font-extrabold">{title}</span>
-          <span className="truncate text-sm text-muted-foreground">{item.title}{item.site ? ` · ${item.site}` : ""}</span>
+          <span className="truncate text-sm text-muted-foreground">{jobOf(item)} · {companyOf(item)}</span>
         </div>
       </div>
       {text ? <p className="text-sm leading-normal text-muted-foreground">{check ? "The site asks you to prove you are human. Tick it in the tab; Odds carries on by itself the moment it is done." : text}</p> : null}
@@ -369,7 +405,7 @@ function QueueFooter({ queue, onOpen }: { queue: QueueItem[]; onOpen: () => void
 }
 
 /** The queue: what needs the person first, then what Odds is working on, then what is ready to send (each opens in its tab). */
-function QueueView({ queue, onBack }: { queue: QueueItem[]; onBack?: () => void }): React.JSX.Element {
+function QueueView({ queue, onBack, backLabel, onMore }: { queue: QueueItem[]; onBack: () => void; backLabel: string; onMore: () => void }): React.JSX.Element {
   const needs = queue.filter(needsPerson)
   const busy = queue.filter(working)
   const done = queue.filter(ready)
@@ -377,8 +413,8 @@ function QueueView({ queue, onBack }: { queue: QueueItem[]; onBack?: () => void 
   const line = (q: QueueItem, right: React.ReactNode, sub?: string): React.JSX.Element => (
     <div key={q.tabId} className="flex flex-col gap-1.5 border-t-[1.5px] border-secondary px-4 py-3">
       <div className="flex items-center gap-2.5">
-        <span className="grid size-8 shrink-0 place-items-center rounded-[9px] border-[1.5px] border-secondary bg-secondary text-[13px] font-extrabold">{(q.title || q.site || "?").charAt(0).toUpperCase()}</span>
-        <span className="flex min-w-0 flex-1 flex-col"><span className="truncate text-sm font-bold">{q.title}</span><span className="truncate text-xs text-muted-foreground">{q.site}</span></span>
+        <span className="flex size-8 shrink-0 items-center justify-center"><QueueLogo item={q} /></span>
+        <span className="flex min-w-0 flex-1 flex-col"><span className="truncate text-sm font-bold">{jobOf(q)}</span><span className="truncate text-xs text-muted-foreground">{companyOf(q)}</span></span>
         {right}
       </div>
       {sub ? <span className="line-clamp-2 text-xs text-muted-foreground">{sub}</span> : null}
@@ -387,13 +423,12 @@ function QueueView({ queue, onBack }: { queue: QueueItem[]; onBack?: () => void 
 
   return (
     <>
-      <div className="flex items-center gap-2.5">
-        {onBack ? (
-          <button type="button" aria-label="Back to the job" onClick={onBack} className="grid size-9 cursor-pointer place-items-center rounded-full hover:bg-secondary">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>
-          </button>
-        ) : null}
-        <span className="text-lg font-extrabold">Your queue</span>
+      <div className="flex items-center gap-1.5">
+        <button type="button" aria-label={backLabel} onClick={onBack} className="grid size-9 cursor-pointer place-items-center rounded-full hover:bg-secondary">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>
+        </button>
+        <span className="flex-1 text-lg font-extrabold">Your queue</span>
+        <button type="button" onClick={onMore} className="h-[34px] cursor-pointer rounded-[10px] border-[1.5px] border-line bg-card px-3 text-[13px] font-bold hover:bg-secondary">Add more jobs</button>
       </div>
       {needs.map((q) => <NeedsYou key={q.tabId} item={q} />)}
       {busy.length ? (
@@ -412,7 +447,7 @@ function QueueView({ queue, onBack }: { queue: QueueItem[]; onBack?: () => void 
         </section>
       ) : null}
       {!queue.length ? <p className="px-1 text-sm text-muted-foreground">Nothing in the queue. Press Apply with Odds on a job and it goes here.</p> : null}
-      <p className="mx-1 text-[13px] leading-snug text-muted-foreground">Odds keeps going while Chrome is open, in the Odds tab group of this window. It tells you when a check or a new account needs you.</p>
+      <p className="mx-1 text-[13px] leading-snug text-muted-foreground">Add as many as you like: each job gets its own tab in the Odds group and they run side by side. Odds keeps going while Chrome is open and tells you when a check or a new account needs you.</p>
     </>
   )
 }
