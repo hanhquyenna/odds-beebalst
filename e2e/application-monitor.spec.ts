@@ -97,7 +97,7 @@ test("Tracker keeps saved jobs, application progress, and history in its ordinar
   await expect(monitor.getByText("The CV upload failed.", { exact: true })).toBeVisible()
   await expect(monitor.getByRole("button", { name: "Activity", exact: true })).toHaveCount(0)
   expect(state.commandReads).toBe(0)
-  await page.screenshot({ path: "docs/auto-apply-review/responsive-review/implemented-a-desktop.png", fullPage: false })
+  await page.screenshot({ path: "test-results/responsive-review/implemented-a-desktop.png", fullPage: false })
   const row = monitor.getByRole("row").filter({ hasText: FLOW_POSTINGS[0].title })
   await row.getByRole("button", { name: FLOW_POSTINGS[0].title, exact: false }).click()
   const drawer = page.getByRole("dialog")
@@ -175,7 +175,7 @@ test("phone Tracker keeps monitoring and controls in the existing responsive lis
   await expect(monitor).toBeVisible()
   await expect(monitor.getByRole("table")).toHaveCount(0)
   await expect(monitor.getByRole("listitem")).toHaveCount(7)
-  await page.screenshot({ path: "docs/auto-apply-review/responsive-review/implemented-a-phone.png", fullPage: false })
+  await page.screenshot({ path: "test-results/responsive-review/implemented-a-phone.png", fullPage: false })
   const row = monitor.getByRole("listitem").filter({ hasText: FLOW_POSTINGS[1].title })
   await row.getByRole("button", { name: "Stop", exact: true }).click()
   await expect(row.getByText("Paused", { exact: true })).toBeVisible()
@@ -204,7 +204,7 @@ for (const width of [320, 768, 820, 1024]) {
     const wrapped = await monitor.locator(".application-actions").evaluateAll((groups) => groups.filter((group) => group.getBoundingClientRect().width > 0).some((group) => new Set([...group.children].map((child) => child.getBoundingClientRect().top)).size > 1))
     expect(wrapped).toBe(false)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    await page.screenshot({ path: `docs/auto-apply-review/responsive-review/implemented-${width}.png`, fullPage: false })
+    await page.screenshot({ path: `test-results/responsive-review/implemented-${width}.png`, fullPage: false })
   })
 }
 
