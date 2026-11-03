@@ -6699,7 +6699,7 @@ test("tracker merges duplicate employer links and the live card shows real activ
   await context.route("https://odds.beeblast.co/**",async r=>{const u=new URL(r.request().url());await r.fulfill({response:await r.fetch({url:`${APP_ORIGIN}${u.pathname}${u.search}`})})})
   fake.kit={job_id:first.id,broods_drive:true,facts:{answers:{},remembered:{}}}
   const app=await context.newPage();await app.goto(`https://odds.beeblast.co/job/${first.id}`)
-  await expect(app.getByText("Filling in",{exact:true})).toBeVisible({timeout:20000})
+  await expect(app.getByText("Filling in",{exact:true}).filter({visible:true})).toBeVisible({timeout:20000})
   await expect(app.getByRole("list",{name:"Steps"})).toHaveCount(0)
   await expect(app.getByText("Uploading your CV",{exact:true})).toHaveCount(1)
   await app.screenshot({path:testInfo.outputPath("application-card.png")})

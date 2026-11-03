@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test"
+import { beforeEach, describe, expect, setSystemTime, test } from "bun:test"
 import { applyActivityLabel, applyActivityOf, isLiveApply, normalizeApplyStatus, pinLiveApplies, recordApplyActivity, syncApplyActivities } from "./apply-activity"
 
 const store = new Map<string, string>()
@@ -86,13 +86,23 @@ describe("apply activity tracker pin", () => {
   })
 
   test("live pin order stays stable when status polls update timestamps", () => {
-    recordApplyActivity({ postingId: "a", status: "filling", message: "Opening…" })
-    recordApplyActivity({ postingId: "b", status: "filling", message: "Opening…" })
-    expect(pinLiveApplies([{ id: "z" }, { id: "a" }, { id: "b" }]).map((p) => p.id).slice(0, 2)).toEqual(["a", "b"])
-    // Later polls bump `at` — order must stay a then b (pinnedAt), not flip.
-    recordApplyActivity({ postingId: "a", status: "needs_input", message: "Answer the 2 marked questions, then press Next." })
-    recordApplyActivity({ postingId: "b", status: "filling", message: "Filling what we know…" })
-    expect(pinLiveApplies([{ id: "z" }, { id: "a" }, { id: "b" }]).map((p) => p.id).slice(0, 2)).toEqual(["a", "b"])
+    const t0 = Date.now()
+    try {
+      setSystemTime(t0)
+      recordApplyActivity({ postingId: "a", status: "filling", message: "Opening…" })
+      setSystemTime(t0 + 1000)
+      recordApplyActivity({ postingId: "b", status: "filling", message: "Opening…" })
+      // The newest pin is on top.
+      expect(pinLiveApplies([{ id: "z" }, { id: "a" }, { id: "b" }]).map((p) => p.id).slice(0, 2)).toEqual(["b", "a"])
+      // Later polls bump `at` (a last); the order follows pinnedAt and does not flip.
+      setSystemTime(t0 + 2000)
+      recordApplyActivity({ postingId: "b", status: "filling", message: "Filling what we know…" })
+      setSystemTime(t0 + 3000)
+      recordApplyActivity({ postingId: "a", status: "needs_input", message: "Answer the 2 marked questions, then press Next." })
+      expect(pinLiveApplies([{ id: "z" }, { id: "a" }, { id: "b" }]).map((p) => p.id).slice(0, 2)).toEqual(["b", "a"])
+    } finally {
+      setSystemTime()
+    }
   })
 
   test("syncApplyActivities updates chips for many jobs without opening detail", () => {
